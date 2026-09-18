@@ -1,0 +1,24 @@
+{
+  "name": "@spacex/ralph",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Long-running agent loop driving opencode over its HTTP API",
+  "bin": { "ralph": "./dist/cli.js" },
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "node --experimental-strip-types src/cli.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11"
+  }
+}

@@ -2,7 +2,7 @@
 
 Always apply these standards to all code you write.
 
-For Ralph's Docker Sandboxes naming conventions (per-agent + per-project, used at startup and during cleanup), see @RALPH.md.
+The Ralph loop that runs these tasks lives in `ralph/`; see @ralph/README.md for how it drives opencode, what it checks before an iteration, and what it writes to `.agent/history/`.
 
 ## Reuse Before Creating
 
