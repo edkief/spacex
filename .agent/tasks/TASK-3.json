@@ -1,0 +1,46 @@
+{
+  "id": "TASK-3",
+  "title": "Star generator (seeded galaxy layout)",
+  "category": "functional",
+  "description": "Generate the galaxy's star list deterministically from GALAXY_SEED: N stars with id, name, spectral class, galactic coordinates, and system count. Identical for every client and run.",
+  "acceptanceCriteria": [
+    "`src/shared/galaxy/stars.ts` exports `generateStars(seed: string, count?: number): Star[]` with Star = { id: string (deterministic hash), name: string, class: 'O'|'B'|'A'|'F'|'G'|'K'|'M', x: number, y: number, z: number (galactic units, disk distribution), systemCount: number }",
+    "Default count 200 stars (configurable param)",
+    "Names are unique within the galaxy and drawn from a seeded word-list combiner (prefix+root+suffix) so the same seed always yields the same name",
+    "Golden snapshot test: generateStars('drift-dev-seed-001') deep-equals a committed JSON fixture (first 25 stars + full length + checksum field)",
+    "Unit tests: determinism (two calls equal), name uniqueness, class distribution roughly matches spectral weighting (O rare, K/M common)",
+    "`npm run test` green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Define Star types and config",
+      "details": "In src/shared/galaxy/types.ts define Star, SystemSummary, Planet, SurfaceChunk interfaces (extend in later tasks). In src/shared/galaxy/config.ts: GALAXY_STAR_COUNT=200, spectral class weights, name word lists (prefix/root/suffix arrays, 40+ entries each).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Implement generateStars",
+      "details": "Use Rng(seedFromString(seed)). For each star i: sub-seed = hash2(masterSeed, i); position = galactic disk (radius ~ log-normal, thin z), class = weighted pick, name = combine(sub-seed), systemCount = 2..8 (seeded), id = hex of sub-seed. No side effects, no sorting by wall-clock.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Golden snapshot fixture",
+      "details": "Generate once and commit `src/shared/galaxy/__fixtures__/stars-dev-seed.json` (first 25 stars, total length, sha256 of canonical JSON of all stars). Test regenerates and compares; a mutation in the generator fails the test.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Property-style unit tests",
+      "details": "Test with 5 different seeds: determinism, unique ids, unique names, coordinate bounds, systemCount range. Run `npm run test` + `npm run typecheck`.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-2"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "Star.id is the stable key referenced by system generation (TASK-4) and by system_id in the DB (system_registry).",
+    "Canonical JSON = stable key order (write a small canonicalize helper in shared) so the checksum is platform-stable."
+  ]
+}

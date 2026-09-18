@@ -1,0 +1,45 @@
+{
+  "id": "TASK-21",
+  "title": "Persistent ship livery customization",
+  "category": "functional",
+  "description": "Players pick a livery (3 paint colors) for their ship at the dock; it is persisted, rendered by all clients, and changeable at any dock.",
+  "acceptanceCriteria": [
+    "Livery = {hull: '#rrggbb', accent: '#rrggbb', trim: '#rrggbb'}; ships.livery JSON column holds it (default per class from catalog)",
+    "POST /api/ships/livery {colors} (auth): validates hex format for all three slots, persists, returns the updated ship; if the player is in an active shard, broadcasts entity_update with the new livery",
+    "Client renderer applies livery colors to ship materials (3 paint zones) for local and remote ships; material swap does not cause a frame hitch above budget (spot-check with TASK-57 monitor when available)",
+    "Livery survives server restart (persistence test)",
+    "API tests: valid update, invalid hex rejected 400, partial payload rejected, remote broadcast observed, restart persistence",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Endpoint + validation",
+      "details": "Extend ships route: zod schema with hex regex ^#[0-9a-fA-F]{6}$ for the three named slots (strict object, no extra keys). Persist via repo.saveShipState (livery field).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Broadcast",
+      "details": "Shard event bus: onLiveryChanged(playerId, livery) → entity_update to all in-system connections (EntityState.livery already exists in TASK-9 protocol).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Client materials",
+      "details": "ShipMeshBuilder: 3 materials mapped to paint zones (hull body, accent panels, trim lines); applyLivery(shipId, livery) swaps material colors in place (no mesh rebuild). Default livery per class in SHIP_CLASSES.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "API + ws + persistence tests per acceptance list. Run full suite + typecheck.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-20"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "Colors are hex strings only — the renderer converts; no CSS color names in the protocol."
+  ]
+}

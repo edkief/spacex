@@ -1,0 +1,55 @@
+{
+  "id": "TASK-22",
+  "title": "Shared flight model: space, atmosphere, VTOL (deterministic)",
+  "category": "functional",
+  "description": "Implement the deterministic ship physics in src/shared, used verbatim by the server sim (authority) and the client prediction (TASK-14): Newtonian-ish space flight, simplified atmospheric drag, and VTOL landing control.",
+  "acceptanceCriteria": [
+    "src/shared/physics/flight.ts exports integrateShip(state, input, dt, regime, planet?, shipClass): ShipState — pure function, no Math.random, no side effects; ShipState = {pos: Vec3, vel: Vec3, quat: Quat, regime, onPad?: string}",
+    "Space regime: thrust along ship axes scaled by input, no drag, optional tiny damping (0.0), rotation at turnRate capped by class stats, speed clamped to maxVelocity (soft: extra thrust above max decays)",
+    "Atmosphere regime: quadratic drag (k * v² opposing velocity, k from planet.atmosphereDensity * area(mass)), vertical lift term for VTOL (input.up produces vertical acceleration independent of heading below VTOL speed), ground collision at terrain height (pos.y = terrainY, vel.y = 0, no tunneling: substep integration when |vel|*dt > 2m)",
+    "VTOL: within pad radius with vertical speed < threshold and on ground → state.onPad set (used by TASK-29/31)",
+    "Determinism test: same (state, input, dt) → identical state; fixed-dt integration over 60 s in space produces the golden trajectory fixture",
+    "Boundary continuity (shared with TASK-28): crossing the atmosphere boundary with constant input changes drag continuously (drag coefficient ramps 0→k over 1 km of boundary, not a step)",
+    "Unit tests: straight-line space trajectory, terminal velocity in atmosphere, VTOL hover convergence, ground collision, soft speed cap, unknown-regime throw",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Vector/quaternion math",
+      "details": "src/shared/physics/vec.ts: Vec3 ops (add, scale, dot, cross, normalize, lerp), Quat (fromEuler, multiply, toMat3, rotateVector). Plain objects + functions, no dependencies.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Space integration",
+      "details": "integrateShip space branch: angular velocity from input (yaw/pitch/roll) at turnRate; thrust = forward*input.thrust*accel; vel += (thrust/mass)*dt; soft cap: if |vel| > maxVel, scale excess by 0.95 per step; pos += vel*dt; quat *= dRotation.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Atmosphere + VTOL + ground",
+      "details": "drag = -k*|v|*v with k = planet.atmoDensity * (mass/area); ramp k across the 1 km boundary (TASK-28 shares the same boundary function from a common module). VTOL: if input.up and |vel_horizontal| < 5 u/s, vel.y += vtolThrust*dt; ground: terrainY from a heightAt(x,z) callback injected by the caller (server: from surface gen; tests: analytic), clamp with substepping.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Golden trajectory fixture",
+      "details": "Record a 60 s space flight (constant inputs) + a 30 s atmo descent to a pad into fixtures; tests re-run integration and deep-compare with tolerance 1e-9 (determinism) and 0.01 u (rounding).",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Full test pass",
+      "details": "All listed unit tests; run npm run lint && npm run typecheck && npm run test.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-19"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "The heightAt callback keeps this module planet-agnostic; the server injects the real chunk-based height lookup, tests inject analytic terrain.",
+    "Fixed dt on the server (1/20 s). The client may call with variable dt for prediction but must use the same function — document this in the module header.",
+    "Sim units: 1 u ≈ 1 m; velocities in u/s. Keep everything in these units end-to-end."
+  ]
+}

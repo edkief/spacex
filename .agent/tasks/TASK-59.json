@@ -1,0 +1,47 @@
+{
+  "id": "TASK-59",
+  "title": "Mobile rendering floor: 30 fps on a mid-range phone",
+  "category": "performance",
+  "description": "The mobile floor: a 'Mobile' quality profile (auto-detected or user-selectable) that holds 30 fps on a mid-range phone by cutting draw distance, chunk detail, star count, and FX — rendering only, no touch controls (PRD scope).",
+  "acceptanceCriteria": [
+    "Mobile profile in src/shared/perf.ts (TASK-58 table): {drawDistance 3 km, chunkDetail: far ring only within 1 km + mid ring 1-3 km (near ring only for the 3x3 core), starCount 2000, fxQuality 0.3, labels max 8, no atmosphere dome shader (a flat color haze instead), missile trails off (a single dot instead of a ribbon)}",
+    "Profile selection: auto-detect on boot (navigator.maxTouchPoints > 0 && (deviceMemory ≤ 8 || hardwareConcurrency ≤ 4) → Mobile default) + a manual override in Settings (a 'Device profile' row: Auto / Desktop / Mobile, persisted with the settings, TASK-55); the override takes effect on the next world load (a toast: 'Profile applied — re-entering system' + the warp transition, since the pipeline re-init is not live for mobile-tier cuts)",
+    "The floor is 30 fps: on the benchmark scene (TASK-58, 16-entity worst case) the Mobile profile must hold ≥ 30 fps (median ≤ 33 ms) on a mid-range phone — verified on the reference phone in TASK-61; on the dev machine the Mobile profile must run with ≥ 1.5x the frame-time margin of the High profile (the machine-independent proxy: if High is 12 ms, Mobile is ≤ 8 ms in the same headless scene)",
+    "Degradation is graceful, not broken: at the Mobile profile, all gameplay still works (combat, mining, on-foot, warp — a reduced-FX e2e pass: the full keyboard-only loop, TASK-54, runs with the Mobile profile forced, asserting no missing gameplay state, only fewer FX)",
+    "The profile never changes gameplay values (damage, range, speed) — it is purely a rendering/streaming profile (asserted: the perf table has no gameplay fields, a schema test)",
+    "Tests: profile detection logic (fake navigator values), the schema test (no gameplay fields), the margin benchmark (headless, High vs Mobile frame times), the reduced-FX e2e loop; npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Mobile profile entry",
+      "details": "Add 'mobile' to PERF_PROFILES (TASK-58) with the spec numbers; the streaming pipeline + FX registry + starfield already read from the profile (TASK-58's design) — verify each subsystem honors the mobile values (chunk rings, FX caps, star count, label cap).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Detection + settings row",
+      "details": "detectProfile() (the navigator heuristic, pure function — testable); Settings gains deviceProfile: 'auto'|'desktop'|'mobile'; the effective profile = the override or the detection; applied at world load (the WorldManager reads it on loadWorld — the warp transition is the re-init path, TASK-8).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Margin benchmark + e2e",
+      "details": "Headless: run the benchmark scene at High and Mobile (forced), assert the ≥ 1.5x margin; the reduced-FX e2e: force Mobile, run the keyboard-only loop (TASK-54) — all gameplay assertions pass, the FX registry counter shows reduced counts.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Verify",
+      "details": "All tests; record the headless numbers for TASK-61; commit.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-58"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "Mobile is a rendering floor (PRD): no touch controls, no mobile-specific UI — the game is playable with a keyboard on a phone (or not at all; that is the scope line).",
+    "The 1.5x margin proxy keeps the task verifiable without a phone in the sandbox; TASK-61 is the phone gate.",
+    "The profile re-init via warp is a deliberate simplicity choice — a live pipeline swap for mobile-tier cuts is post-v1."
+  ]
+}

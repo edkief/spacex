@@ -1,0 +1,49 @@
+{
+  "id": "TASK-26",
+  "title": "World streaming: chunked surface and entity loading",
+  "category": "functional",
+  "description": "The client streams in the world around the player: surface geometry in 512 m chunks generated from the seed on demand (cached), LOD by distance, and a hard draw-distance budget — the pipeline that makes seamless surface travel possible without loading screens.",
+  "acceptanceCriteria": [
+    "src/client/world/chunks.ts: chunk grid (512 m cells); for the player position, the 5x5 neighborhood (13 chunks) is the active set; chunks are generated (heightmap from TASK-5 + terrain mesh) and cached by chunk key; LRU cap 400 chunks",
+    "Generation is async and incremental: a new chunk takes < 8 ms of main-thread work per frame slice (chunk generation split into frame slices — no single-frame stall > 4 ms from streaming, verified with the TASK-57 monitor in a benchmark)",
+    "LOD: near chunks (0-512 m) full detail; mid (512-2048 m) reduced (2x vertex decimation); far (2048 m-8 km) impostor/flat; beyond 8 km no surface (space horizon). LOD switch pops are hidden: mid/far versions pre-built at chunk gen (mip chain per chunk)",
+    "Draw distance budget: total surface triangles < 400k at the default quality preset (measured via renderer.info in a benchmark scene: 13 chunks at default LOD); assert in test",
+    "Moving across chunk boundaries at max flight speed: no pop-in visible within 100 m of a chunk edge (near LOD is always generated before the player can reach the edge — the active set expands to 7x7 during fast movement, verified in a scripted flight benchmark)",
+    "Memory: 400-chunk LRU stays under 100 MB of geometry (measured via performance.memory in the e2e benchmark where available, else estimated from triangle counts — recorded)",
+    "Unit tests: chunk key math, LRU eviction, LOD ring selection, triangle budget on the generated benchmark chunks; benchmark recorded in test output",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Chunk pipeline",
+      "details": "chunkKey(x,z); generateChunk(key, planet) → {near, mid, far} geometries (heightfield → BufferGeometry, per-ring vertex count); FrameScheduler: each frame, process up to N ms (4 ms) of pending generation, nearest-first priority; active set computed each frame from player pos (+ movement-velocity-expanded ring).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Scene management",
+      "details": "ChunkScene: mount/unmount chunk meshes on the active set (instanced material per planet palette from TASK-5); disposal on LRU evict; draw order static (frustum culled by three.js).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Budget enforcement",
+      "details": "Triangle counter per LOD ring in the frame monitor (extend TASK-57 with a per-category counter); budgetCheck('surface-tris', ...) against 400k; the default quality preset (TASK-55 later) picks ring radii to stay under budget.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Benchmarks + tests",
+      "details": "Scripted-flight benchmark (auto-fly across 30 chunks at max speed, headless): assert no > 4 ms streaming stall, triangle budget held, LRU within cap. Unit tests per acceptance. Run full suite.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-25", "TASK-5", "TASK-57"],
+  "estimatedComplexity": "high",
+  "technicalNotes": [
+    "All geometry is derived from GALAXY_SEED + chunk key — no network fetch, no server involvement. This is what makes streaming free.",
+    "The 4 ms/frame slice budget is the contract with the render loop; if generation falls behind (sustained fast flight), drop far-ring generation first (log it).",
+    "Stations and resource nodes are NOT chunks — they are entities placed by seed (TASK-37) and streamed by the entity system (distance-based, separate from terrain chunks)."
+  ]
+}

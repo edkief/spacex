@@ -1,0 +1,47 @@
+{
+  "id": "TASK-34",
+  "title": "On-foot inventory: carry, weight, drop",
+  "category": "functional",
+  "description": "The player's personal inventory while on foot: a weight-capped carry capacity, stackable resource items, and the ability to drop items at the player's location (for later pickup or for the ship's cargo, TASK-39).",
+  "acceptanceCriteria": [
+    "Player inventory: max 40 units of weight (constant); items are stacks of resource types (from TASK-37 catalog: iron, copper, rare-earth, crystal — each with a weight: 1, 1, 2, 3 units per unit-amount)",
+    "Server-authoritative: 'inventory' state {stacks: {resourceId: amount}, weightUsed} lives on the player in the shard; 'pickup' (TASK-38) adds, 'drop' {resourceId, amount} removes and spawns a ground item entity at the player position; overflow pickup is partial (take what fits, remainder stays on the deposit/ground)",
+    "Drop: creates a ground item entity (interactable, 'Take' prompt, TASK-33 registry entry) persisting 300 s (ttl) then despawning; ground items are in snapshots (visible to all players in the system)",
+    "Inventory HUD: a compact weight bar (weightUsed/40) bottom-right + item counts on hover; updates on every inventory change within one snapshot",
+    "Persistence: inventory persists with the player (survives reconnect, survives server restart) — stored in players.inventory JSON; a player who dies/respawns (TASK-49) keeps their inventory (ship cargo is what's lost, per PRD)",
+    "Unit tests: weight cap math (partial pickup at the boundary), drop+re-pickup round trip, ttl expiry, persistence across a simulated restart; WS test: two players, one drops, other sees the ground item",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Inventory model + persistence",
+      "details": "src/shared/inventory.ts: types + weight math (pure); repo: players.inventory JSON column (schema migration in this task); load on join, flush on the TASK-24 cadence.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Pickup/drop handlers",
+      "details": "shard.handlePickup (from the TASK-38 flow — define the contract now: adds up to capacity, returns {taken, remaining}) and handleDrop (validates amount owned, spawns ground item {pos, resourceId, amount, ttl}). Ground items in the entity list (kind 'groundItem').",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "HUD + prompt",
+      "details": "WeightBar component (bottom-right, 120 px, fills amber near cap, red at cap); ground item prompt via the TASK-33 registry ('[E] Take iron x3').",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "All listed; run full suite + typecheck.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-33"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "One inventory per player, shared across ship and on-foot (there is no separate 'on-foot bag' — the ship's cargo hold is TASK-39 and is separate).",
+    "40 units ≈ 20 iron or ~13 crystal — tuned so a mining trip fills the backpack and creates a reason to return to the ship."
+  ]
+}

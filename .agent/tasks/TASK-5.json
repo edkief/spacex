@@ -1,0 +1,48 @@
+{
+  "id": "TASK-5",
+  "title": "Surface chunk generator (terrain, nodes, landing pads)",
+  "category": "functional",
+  "description": "Derive a planet surface chunk deterministically from (seed, planetId, chunkX, chunkZ): heightmap, biome, resource node placement, and landing pad placement. Any client can reconstruct any chunk identically without server data.",
+  "acceptanceCriteria": [
+    "`src/shared/galaxy/surface.ts` exports `generateSurfaceChunk(seed: string, planet: Planet, chunkX: number, chunkZ: number): SurfaceChunk`",
+    "SurfaceChunk = { chunkX, chunkZ, heightmap: number[] (64x64, meters, Uint16-equivalent numbers), biome: 'plains'|'rock'|'canyon'|'frozen'|'wetland', resourceNodes: {nodeId: string, type: string, x: number, z: number, baseQuantity: number}[], landingPads: {id: string, x: number, z: number}[] }",
+    "nodeId = hex hash of (seed, planetId, chunkX, chunkZ, nodeIndex) — stable identity used by resource_node_state table",
+    "Heightmap is continuous across chunk borders (shared boundary noise sampling) — unit test compares neighboring chunk edge columns/rows for small deltas",
+    "1-4 resource nodes per chunk, types restricted to planet.resourceTypes; 0-1 landing pads (first chunk 0,0 of a landable planet always has exactly 1 pad)",
+    "Golden snapshot test: chunk (0,0) of the dev-seed landable planet deep-equals committed fixture (heightmap sampled at 16 points + all nodes + pads)",
+    "Determinism: two independent calls identical; 100 random chunks across 3 planets stable in a loop test",
+    "`npm run test` green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Implement value-noise + fBm from PRNG",
+      "details": "Value noise: 2D lattice of pseudo-random values derived from hash2(chunkSeed, ix, iz), smoothstep interpolation. fBm: 4-5 octaves. Height = fBm(x*freq, z*freq) scaled by planet radius/terrain scale; biomes by height+moisture second noise channel.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Implement node and pad placement",
+      "details": "Nodes: seeded count 1-4, positions from seeded rejection sampling (avoid biome 'wetland' for solid resources, avoid within 20m of pads), baseQuantity 50-200. Pads: 0-1 per chunk by seeded probability 0.25, snap to nearest flat area (gradient check); chunk (0,0) forced to 1 pad on landable planets.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Boundary continuity",
+      "details": "Noise lattice coordinates are in *world* space (not chunk-local) so adjacent chunks share boundary samples. Test: generate chunks (0,0) and (1,0); max |delta| between shared column < noise epsilon (e.g. 0.5m at default scale).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Fixtures + determinism tests",
+      "details": "Commit chunk fixture; add the 100-random-chunk stability loop (hash of each chunk JSON stable across two runs in same process and across a fresh Rng). Run `npm run test` + `npm run typecheck`.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-4"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "World-space lattice coords: lattice index = floor(worldX / latticeSize) so chunk borders align exactly.",
+    "Keep heightmap as plain number[] for JSON-serializable fixtures; the renderer converts to Float32Array."
+  ]
+}

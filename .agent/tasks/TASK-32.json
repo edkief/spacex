@@ -1,0 +1,47 @@
+{
+  "id": "TASK-32",
+  "title": "On-foot character movement: walk, run, jump, terrain",
+  "category": "functional",
+  "description": "Server-authoritative character movement in surface regime: walk and run speeds, jump with gravity, terrain following (no tunneling), and client-side smoothing for remote characters.",
+  "acceptanceCriteria": [
+    "src/shared/physics/character.ts: integrateCharacter(state, input, dt, heightAt): walk 3 u/s, run 6 u/s (shift), jump impulse 5 u/s (1.2 s airtime), gravity 12 u/s², friction on ground (decel 8 u/s²), no air control (input ignored horizontally while airborne)",
+    "Terrain: character y = heightAt(x,z) when on ground (slopes followed smoothly — y is lerped toward terrain at 20 u/s to avoid stair-stepping on steep slopes); substep integration when horizontal speed * dt > 1 m (no tunneling through cliffs in the seeded terrain, which has max slope 45° by TASK-5 constraints)",
+    "Jump: only from ground state; can jump off slopes; no double jump; landing is silent (no landing animation in v1)",
+    "Server: character inputs arrive as the same 'input' message type (regime-aware: the sim routes to integrateCharacter vs integrateShip); position authoritative in snapshots",
+    "Client: local character uses the same integrateCharacter for prediction (TASK-14 pattern reused — a CharacterPredictor mirroring the ship predictor); remote characters use the 200 ms interpolation buffer (already built for ships, TASK-14)",
+    "Unit tests: speeds, jump arc (apex height ~1.04 m at these numbers — assert), air control ignored, slope following (analytic 30° slope: y tracks within 0.1 m), substep no-tunnel (cliff edge case), determinism (same input sequence → same path, fixture)",
+    "Integration test: scripted 30 s of movement (walk/run/jump over seeded terrain) through the sim — path matches the fixture; npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Shared character physics",
+      "details": "integrateCharacter as specified; state = {pos, vel, onGround, quat (facing only — yaw from input, no pitch/roll)}; heightAt injected (same contract as ship physics).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Sim routing",
+      "details": "SimLoop: per entity, integrate by kind (ship → integrateShip, character → integrateCharacter); input message carries the player's activeEntity kind implicitly (the server knows from state — no protocol change).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Client predictors",
+      "details": "CharacterPredictor (local) mirroring ShipPredictor structure (TASK-14); remote characters into the existing RemoteEntityBuffer. Character mesh: a simple capsule + head (placeholder) with a facing rotation; livery colors applied (character uses the player's ship livery accent — cosmetic tie-in, cheap).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "All listed unit tests + the 30 s scripted path fixture. Run full suite + typecheck.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-31", "TASK-5"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "Keep character physics dead simple — v1 is walk/run/jump/interact only (PRD scope). No crouching, no swimming (v1 terrain has no water), no climbing.",
+    "The 20 u/s terrain-lerp makes slopes look smooth at 10 Hz snapshots; the prediction hides the rest."
+  ]
+}

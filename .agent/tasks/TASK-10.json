@@ -1,0 +1,53 @@
+{
+  "id": "TASK-10",
+  "title": "Callsign-only auth with signed session tokens",
+  "category": "security",
+  "description": "Implement callsign-only authentication: a player claims a unique callsign, the server creates the player, and issues an HMAC-signed session token required for all gameplay. No passwords anywhere.",
+  "acceptanceCriteria": [
+    "POST /api/callsigns {callsign} claims a callsign (3-16 chars, alphanumeric + dash, case-insensitive uniqueness); success returns {callsign, token, playerId, homeSystemId} and creates the player with starter ship",
+    "Claims for an existing callsign return 409 {code:'callsign-taken'}",
+    "Session token = HMAC-signed compact payload {playerId, systemId?, exp} signed with SESSION_SECRET; stored hash (sha256) in sessions table, raw token never stored or logged",
+    "GET /api/session with Bearer token returns the player profile; missing/invalid/expired token returns 401 with structured error",
+    "WS handshake auth{token} validates the same way; unauthenticated gameplay messages rejected with {code:'unauthenticated'}",
+    "API tests (fastify inject): claim, duplicate claim, valid session, expired session (fake clock), invalid signature, WS auth path",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Callsign claim endpoint",
+      "details": "src/server/routes/callsigns.ts: validate with shared zod schema; repository.createPlayer (unique callsign constraint → catch CallsignTakenError → 409); getOrCreateStarterShip (class 'scout'); issue token; insert sessions row (token_hash, player_id, expires_at = now + 7d).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Token codec",
+      "details": "src/server/auth/token.ts: sign(payload) / verify(token) using node:crypto HMAC-SHA256 with SESSION_SECRET; base64url encoding; exp check with 30 s clock-skew tolerance; constant-time compare for the MAC. Never log tokens or SESSION_SECRET.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Session verification",
+      "details": "GET /api/session: Authorization: Bearer <token> → verify signature + exp → look up token_hash in sessions (401 if absent) → return {callsign, credits, homeSystemId, shipId}. WS: auth message in handshake uses the same verify + lookup.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Wire auth into WS dispatch",
+      "details": "Connection state machine from TASK-9: after hello-ok, require auth before join_system; store playerId on the connection; attach to all subsequent message handling.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Tests",
+      "details": "API + WS integration tests covering every acceptance criterion; expired-session test injects a fake clock. Run npm run lint && npm run typecheck && npm run test.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-62", "TASK-64", "TASK-9"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "Callsign re-claim is impossible (409 forever); the only session invalidation path is expiry — TASK-66 adds revocation.",
+    "Home system = a seeded system chosen from the galaxy (star index derived from player id) so every player has a defined spawn."
+  ]
+}

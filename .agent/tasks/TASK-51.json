@@ -1,0 +1,48 @@
+{
+  "id": "TASK-51",
+  "title": "Ship HUD: speed, altitude, regime, nav readout",
+  "category": "ui-ux",
+  "description": "The flight HUD: speed, altitude, the current regime, a nav readout toward the selected chart target, and the docked state — the pilot's instrument panel.",
+  "acceptanceCriteria": [
+    "Speed readout (bottom-left, above the player list): speed in m/s (1 decimal), a small vector bar showing thrust direction; updates at 10 Hz",
+    "Altitude (under the speed): 'ALT 1234 m' in atmosphere/surface regimes; '—' in space (altitude is meaningless there); the regime name shows as a small tag: SPACE / ATMOS / SURFACE (from the server's authoritative regime, TASK-25)",
+    "Nav readout: when a chart target is selected (TASK-7) or a dock is the implicit target (the nearest station, always available), a bearing arrow + distance: '↗ 12.4 km' — the arrow rotates with the ship's yaw (screen-fixed up = the target direction when aligned); in space it's a 3D bearing projected to the screen plane (the arrow's vertical component indicates above/below)",
+    "Docked state: 'DOCKED' tag (green) when on a pad (TASK-29) + the station name; the prompt line shows the available dock actions (Leave ship / Open cargo / Dock terminal)",
+    "Hull/shield bar (top-left, under the chat): the player's ship hull (amber) + shield (blue) bars, 200 px, with numeric values on hover; updates at 10 Hz; flashes red for 300 ms on a combat_event hit to self (TASK-42 events)",
+    "Performance: all ship-HUD updates are snapshot-driven (10 Hz), no per-frame React work except the nav arrow (rAF ref'd rotation); HUD category < 1 ms/frame (TASK-57)",
+    "Unit/component tests: speed/altitude formatting (space shows '—', atmosphere shows meters), regime tag switching, bearing math (3D → screen arrow, including the above/below component), docked state display, hit flash timing (fake timers); e2e: a flight HUD screenshot at altitude + in space (two screenshots, regime tag differs)",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Readouts",
+      "details": "ShipHUD component: SpeedReadout, AltitudeReadout (regime-aware), RegimeTag, DockedTag — all from the local ship's snapshot state (10 Hz); the hit flash subscribes to combat events (self only).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Nav readout",
+      "details": "NavReadout: target = chart selection (TASK-7 state) else nearest station (derived); bearing = atan2 of the target-relative vector rotated by the ship yaw; distance formatted (m < 1 km, km ≥ 1 km, 1 decimal); the arrow is a CSS-rotated chevron (rAF ref).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Hull/shield bar",
+      "details": "VitalsBar (top-left): two stacked bars (shield over hull), width 200 px, hover tooltip with numbers; the red flash: a 300 ms CSS class toggle on self-hit events.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests + e2e",
+      "details": "All listed; e2e two-regime screenshots. Run full suite + e2e.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-13", "TASK-14", "TASK-57"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "The nav readout is the bridge between the chart (TASK-7) and flight — it makes the chart useful without a minimap (v1 has no minimap).",
+    "All values come from the snapshot (server truth) — the client never displays a predicted speed as truth (prediction is for feel, the HUD is for facts)."
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "id": "TASK-70",
+  "title": "Playwright e2e harness for the game",
+  "category": "functional",
+  "description": "Stand up the Playwright E2E harness that boots the real server + app, drives the callsign-claim flow, and verifies core multiplayer behavior in a real browser — the harness every later e2e-accepting task builds on.",
+  "acceptanceCriteria": [
+    "tests/e2e/fixtures.ts: Playwright fixture that boots the dev server (app + API/WS on a random free port, sqlite DB in a tmp dir via env override) and tears it down after the test file; global timeout 60 s",
+    "WebGL works headless: the game canvas renders (not a black screen) in Playwright's Chromium — verified by sampling canvas pixels via page.evaluate (readPixels shows non-uniform color) — if the default headless GL fails, enable --use-gl=angle / --use-angle=swiftshader flags in the launch config and document it",
+    "Core flow test: claim callsign (form) → session established → join a system → canvas renders the starfield → player list shows the callsign",
+    "Two-context test: two browser contexts in one system see each other in the presence list",
+    "Chat test: message from context A appears in context B within 2 s",
+    "npm run test:e2e runs the suite headless and passes; suite is excluded from the unit 'npm run test' run (separate config/script per the e2e-tester skill conventions)",
+    "Harness code follows the e2e-tester skill (page objects where repeated selectors exist)"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Server boot fixture",
+      "details": "tests/e2e/fixtures.ts (per e2e-tester skill): spawn 'npm run dev' (or a dedicated 'npm run dev:test' that sets PORT=random + DB in tmp) with env; wait for /api/health; yield base URL + ws URL; kill child on teardown. Use a page-object for the claims screen (tests/e2e/pages/claim.ts).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Headless WebGL check",
+      "details": "Write the render-smoke test first: claim, wait for canvas, evaluate readPixels over a 32x32 region, assert variance > 0 (starfield). Tune launch args if needed; record the final flags in playwright.config.ts comments.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Multiplayer tests",
+      "details": "Presence two-context test + chat test per acceptance. Keep total runtime under 90 s for the three tests.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Wire scripts + verify",
+      "details": "package.json: 'test:e2e': 'playwright test'. Confirm 'npm run test' (unit) and 'npm run test:e2e' are independent. Run both; commit.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-15", "TASK-16"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "This harness is the gate for TASK-71 (determinism suite) and the UI tasks' smoke checks.",
+    "Use distinct callsigns per test run (timestamp suffix) so sqlite state in a reused tmp dir never collides; fresh tmp dir per test file is cleaner.",
+    "Do not assert frame-exact rendering — only 'rendered and non-uniform' plus DOM-level checks."
+  ]
+}

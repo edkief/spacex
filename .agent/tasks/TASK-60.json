@@ -1,0 +1,47 @@
+{
+  "id": "TASK-60",
+  "title": "Server tick budget: 16 players + 10 AI under 30 ms p95",
+  "category": "performance",
+  "description": "Tune the server sim so the worst-case shard (16 player connections + 10 AI ships, active combat, on-foot players, mining channels, missile volleys) holds the 20 Hz tick with p95 < 30 ms on the dev machine — the server-side half of the performance contract.",
+  "acceptanceCriteria": [
+    "Worst-case benchmark (scripted): a shard with 16 player conns (scripted inputs: 8 in flight firing, 4 on foot mining/walking, 4 idle) + 10 AI ships (TASK-46 engaged) + a missile volley (16 concurrent, the cap) + 20 ground items + 30 deposits in range; run 120 s with the sim's tick histogram (TASK-13)",
+    "Budget: p50 < 15 ms, p95 < 30 ms, max < 60 ms (a single GC spike is tolerable if rare; > 60 ms sustained = fail); the tick never drops below 15 Hz effective rate (the catch-up logic, TASK-13, must never engage for more than 5 consecutive ticks — measured)",
+    "Hotspot profile: the benchmark logs per-phase tick cost (input drain, ship integration, AI update, projectiles, hazard ticks, snapshot build, broadcast serialize) — the top-3 phases are identified and each has a recorded optimization (or an explicit 'accepted' note with the number)",
+    "Expected optimizations (apply as measured needed): snapshot build reuses entity arrays (no per-tick allocation of the entity list — a ring of 2 pre-built buffers), broadcast serialize is a single JSON.stringify per tick (not per conn), AI update is skipped for AI beyond 2 km of any player (dormant AI: patrol state only, 1 Hz), projectile homing uses a cheap turn (no per-tick raycasts)",
+    "Memory: the shard's heap growth over the 120 s run is < 20 MB (no leak: entity buffers, mining states, and the RNG don't accumulate — a final GC + heap snapshot diff in the benchmark)",
+    "The benchmark is committed: npm run bench:tick + a fast 10 s version in the test suite (asserts the effective-rate rule on any machine); all budgets green (or the delta from the pre-tuning baseline is ≥ 30% and TASK-18's load test is flagged as the final gate); numbers recorded for TASK-61; npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Worst-case benchmark driver",
+      "details": "tests/bench/tickWorstCase.ts: builds the shard in-process (no HTTP), scripts the 16 conns' inputs (deterministic pattern), engages the AI, fires the missile volley at t=30 s; runs the real SimLoop (no fake timers — real wall clock, 120 s); collects the tick histogram + per-phase costs + heap samples.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Tuning passes",
+      "details": "Measure, then in order: (1) snapshot buffer reuse (pre-built arrays, in-place update), (2) single serialize per tick, (3) dormant AI beyond 2 km, (4) projectile homing simplification, (5) mining/hazard tick batching (1 Hz phases aligned, not per-entity timers). Re-run after each; record the per-phase table.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Memory check",
+      "details": "Heap snapshot before/after (v8.getHeapSpaceStatistics or process.memoryInfo): growth < 20 MB after a forced GC; if it fails, find the accumulator (likely: event listeners or the mining map) and fix it.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Commit + CI",
+      "details": "bench:tick (full 120 s) + the 10 s CI version (effective-rate assertion only); run both; record numbers for TASK-61; commit.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-13", "TASK-46", "TASK-43"],
+  "estimatedComplexity": "high",
+  "technicalNotes": [
+    "The per-phase table is the deliverable: TASK-18 (load test) and TASK-61 (reference hardware) both start from these numbers.",
+    "Dormant AI is the big win: 10 AI ships that are 3 km from anyone cost ~0; only near-field AI runs the full state machine.",
+    "No network in this benchmark — it measures the sim, not the sockets; TASK-18 adds the real-connection layer."
+  ]
+}

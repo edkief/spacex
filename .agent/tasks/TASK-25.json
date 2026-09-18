@@ -1,0 +1,48 @@
+{
+  "id": "TASK-25",
+  "title": "Regime manager: seamless space/atmosphere/surface transitions",
+  "category": "functional",
+  "description": "The client+server regime state machine that drives seamless transitions: the ship (or player) is always in exactly one regime — space, atmosphere, or surface — and crossing boundaries changes controls, physics, and rendering without any cut, load, or teleport.",
+  "acceptanceCriteria": [
+    "src/shared/regime.ts: Regime = 'space' | 'atmosphere' | 'surface'; regimeFor(pos, planets): resolves the current regime from distance to the nearest planet's atmosphere radius (shared by client and server — the server uses it in the sim tick, TASK-13)",
+    "Transition rules: entering atmosphere radius → regime 'atmosphere' (drag ramps per TASK-22 boundary); descending below terrain height + 2 u while slow → 'surface' (VTOL/landing, TASK-29); ascending above atmosphere radius → 'space'. No other transitions allowed (no space→surface direct)",
+    "Controls remap on regime change (client): space = full 6-DOF-ish flight (thrust/yaw/pitch/roll); atmosphere = flight + vertical VTOL key; surface (on pad) = walk/look/interact (character mode, TASK-31+). Remap is instant at the boundary crossing frame — no menu, no fade",
+    "Server and client always agree on regime: the server sends the regime in entity_update (authoritative); the client's local regimeFor is prediction only — if they disagree for > 500 ms the client snaps to the server regime with a debug warning (divergence test)",
+    "Unit tests: boundary math (exact radius, hysteresis: a 50 m hysteresis band prevents flapping when crossing slowly — assert no regime flip within the band), no-direct-space-surface transition, shared function returns identical results for client/server inputs",
+    "Integration test: scripted flight through all transitions (space → atmosphere → surface → atmosphere → space) via the sim; regime sequence exact; no duplicate transitions (hysteresis holds under noisy positions ±1 u)",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Shared regime resolution",
+      "details": "regimeFor(pos, planets, current): per-planet atmosphereRadius from TASK-4 data; hysteresis: exit radius = enter radius * 1.05; returns {regime, planetId?}. Pure, deterministic.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Server tick integration",
+      "details": "SimLoop: before integrating, resolve regime for each ship; regime change → event (client gets it via entity_update.regime); drag/VTOL context switches automatically because integrateShip receives the regime (TASK-22).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Client controls remap",
+      "details": "src/client/input/controls.ts: ControlScheme per regime (key maps); on regime change (predicted or server-confirmed) swap the active scheme; log the swap (debug). Character-mode keys exist now as a stub (TASK-31 fills the behavior).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "Boundary/hysteresis unit tests + the scripted full-transition sim integration test (driving inputs through the real SimLoop). Run full suite + typecheck.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-5", "TASK-13", "TASK-22"],
+  "estimatedComplexity": "high",
+  "technicalNotes": [
+    "Hysteresis is the key anti-flap mechanism; without it, a ship idling at the boundary would toggle regimes every tick.",
+    "The 500 ms client/server divergence tolerance assumes the client's local planet data is identical (same seed) — divergence beyond that means a bug, not latency.",
+    "Regime is per-entity (each ship resolves independently); there is no 'system is in a regime' concept."
+  ]
+}

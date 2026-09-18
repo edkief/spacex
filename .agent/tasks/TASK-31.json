@@ -1,0 +1,47 @@
+{
+  "id": "TASK-31",
+  "title": "Disembark: exiting the ship on a pad",
+  "category": "functional",
+  "description": "From a docked ship on a pad, the player can disembark: a key press spawns the character at the ship's position, the ship stays docked, and the on-foot controls activate. This is the first surface-mode entry point.",
+  "acceptanceCriteria": [
+    "With the ship 'docked' (TASK-29) and the player in it, pressing the disembark key (default E near the ship interior, or a 'Leave ship' prompt) → the character entity appears at the ship's position (offset to the ship's side, standing on the pad), the ship remains docked and controllable-by-others state is unchanged (single player per ship in v1 — the ship simply becomes idle)",
+    "Server: 'disembark' message (auth, must be in a docked ship) → character entity created in the sim at ship pos + side offset, player's control target switches ship → character, entity_update broadcast (other clients see the character appear at the same spot)",
+    "Client: camera handoff (TASK-27) cockpit → on-foot; controls remap to walk/look (TASK-32); the ship is no longer locally controllable (inputs to it are ignored) but still rendered docked",
+    "Re-entering is a separate task (TASK-35) — until then, the player is on foot with a 'Ship is docked here' prompt visible when near the ship",
+    "Edge cases: disembark while another player is... (N/A in v1 — one player per ship); disembark denied when the ship is not docked ({code:'not-docked'}); a disconnect while disembarking leaves the character in the sim (persists like a ship, TASK-24 pattern)",
+    "WS integration tests: disembark from docked (character at correct position ± 0.5 m, ship stays docked), denied when not docked, two clients see the same character position; e2e: full flow from flight to standing on the pad (Playwright, screenshot of on-foot view)",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Server disembark",
+      "details": "shard.handleDisembark: ship must be docked (state check) → create character entity {playerId, pos = ship.pos + sideOffset(ship.quat), regime 'surface'} → player's activeEntity switches; broadcast entity_update (character kind). Character idle = stands still (no walk yet — TASK-32).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Client disembark",
+      "details": "Prompt UI: when docked, 'E — Leave ship' bottom-center (fades when far). On press: send message; on entity_update: spawn the character mesh (placeholder capsule until TASK-32's model), CameraRig.handoff (TASK-27), controls → surface scheme.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Character entity in snapshots",
+      "details": "Extend EntityState with kind 'character' {playerId, callsign, pos, quat, onFoot} — the protocol already allows kind; add character fields; snapshots now include characters (they are few — no bandwidth concern).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests + e2e",
+      "details": "Integration: position assertion, denial, multi-client agreement; e2e scripted flight → dock → disembark → on-foot screenshot. Run full suite + e2e.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-29", "TASK-27"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "Character = a first-class sim entity (not a client-side illusion) so multiplayer on-foot works (TASK-36) and persistence reuses the ship pattern.",
+    "sideOffset: 2.5 m perpendicular to the ship's forward, on the pad plane — clear of the ship geometry."
+  ]
+}

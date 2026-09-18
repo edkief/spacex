@@ -1,0 +1,47 @@
+{
+  "id": "TASK-38",
+  "title": "Mining: on-foot deposit extraction with a channel",
+  "category": "functional",
+  "description": "On foot, facing a deposit, the player holds E to mine: a 1.5 s channel per unit of ore, with progress UI, deposit depletion, and inventory intake (partial at weight cap).",
+  "acceptanceCriteria": [
+    "Mining: 'E' (hold, not tap — a 1.5 s channel per unit) on a deposit in range (TASK-33's 3 m) → server: mining state {playerId, depositId, startedAt, unitsSoFar} in the shard; each completed 1.5 s tick adds 1 unit to the player's inventory (TASK-34, partial if weight-capped — at the cap, mining pauses with a 'Backpack full' prompt until space frees)",
+    "Progress UI: a radial progress indicator around the prompt (0→100% over 1.5 s) + a small ore counter ('+1 iron'); releasing E or walking > 3 m cancels the channel (no unit awarded on cancel); the server enforces the channel timing (input timing is client-claimed but the server only awards on its own 1.5 s ticks since the mine started — a client can spam 'mine-tick' messages and gain nothing extra: anti-spam test)",
+    "Deposit depletion: each awarded unit decrements deposit.remaining (TASK-37 atomic); at 0 the deposit despawns for all clients (entity_update), mid-channel mining ends cleanly with a 'Depleted' prompt",
+    "Concurrent miners: two players mining the same deposit both get units (shared remaining, last unit goes to whoever's tick lands first — atomic decrement, no negative remaining, test)",
+    "Mining works on any deposited resource type; the awarded item goes to the inventory as its resource type",
+    "WS integration tests: full channel awards 1 unit (fake timers), cancel awards 0, spam 20 'mine-tick' messages in 1 s awards exactly the floor-expected count, weight-cap pause, depletion despawn, two-miner atomicity; e2e: mine 2 units at a deposit (Playwright, screenshot mid-channel showing the radial progress)",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Server mining state machine",
+      "details": "shard.mining: Map<playerId, MiningState>; on 'interact' {targetId: deposit, action:'mine-start'} (extend the interact protocol): create state (range check); the sim tick advances it: if now - lastAward >= 1500 ms and deposit.remaining > 0 and inventory has space → award 1 (transaction: deposit.remaining -1, inventory +1), broadcast entity_update (inventory is private — send only to the owner; deposit remaining to all); cancel on 'mine-stop' or range loss (checked per tick).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Anti-spam guarantee",
+      "details": "Awarding is tick-driven (server clock), not message-driven: 'mine-tick' client messages only (re)assert intent; the server's 1.5 s cadence is the truth. Test proves spam = no gain.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Client UI",
+      "details": "Hold-E handling (input map: E down starts, E up stops — sends mine-start/mine-stop); RadialProgress component around the prompt (CSS conic-gradient, driven by the server's mining state in entity_update — the server echoes miningProgress every snapshot so the UI is server-timed); '+1 iron' float text (DOM, 1 s fade).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests + e2e",
+      "details": "All listed; e2e mines 2 units with a mid-channel screenshot. Run full suite + e2e.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-33", "TASK-37", "TASK-34"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "1.5 s/unit is a deliberate pace: a 20-unit deposit ≈ 30 s of mining — one trip ≈ one backpack (TASK-34's 40 units) of iron, closing the loop: mine → haul → sell (TASK-40).",
+    "The server echoes miningProgress so two different client clocks can never desync the UI; the client never runs its own channel timer as truth."
+  ]
+}

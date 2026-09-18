@@ -1,0 +1,40 @@
+{
+  "id": "TASK-16",
+  "title": "System-wide text chat",
+  "category": "functional",
+  "description": "Simple system-scoped text chat: every player in a shard sees every message, with rate limiting and sanitization. No private messages, channels, or history in v1.",
+  "acceptanceCriteria": [
+    "WS 'chat' {text} from an authenticated in-system connection → server validates (non-empty, <= 200 chars after trim) and broadcasts chat {from, text, ts} to the whole shard (including sender echo)",
+    "Rate limit: > 5 messages / 10 s from one connection → message dropped, {code:'rate-limited'} sent to that sender only (TASK-65 limiter reused)",
+    "Sanitization: server strips control characters and non-text; client renders text-only (React auto-escaping, no innerHTML) — XSS test: message '<img src=x onerror=alert(1)>' renders as inert text",
+    "Chat log UI: last 100 messages, system-scoped (cleared on system change), scrollable, minimal styling (top-left column, above player list); message format '[12:03] CALLSIGN: text'",
+    "WS integration test: 2 clients, 3 messages each, all delivered in order (monotonic ts), rate-limited 6th within window dropped, invalid messages (empty, > 200 chars, non-string) rejected with 'invalid-message'",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Server chat handler",
+      "details": "shard.handleChat(conn, msg): validate with shared zod schema (TASK-9); rate limiter (TASK-65) keyed by connId; broadcast. No persistence (v1).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Client chat UI",
+      "details": "ChatLog component: ring buffer of 100; input only visible when focused (Enter toggles, keeps gameplay flow); messages auto-escaped by React; new-message scroll pinned only if user is at bottom.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Tests",
+      "details": "All WS integration cases incl. the XSS payload assertion (query DOM for absence of img element). Run full suite + typecheck.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-15", "TASK-65"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "Chat is deliberately minimal; private chat and persistence are post-v1.",
+    "ts is server-assigned (ms epoch) so cross-client ordering is consistent."
+  ]
+}

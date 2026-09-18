@@ -1,0 +1,38 @@
+{
+  "id": "TASK-71",
+  "title": "Determinism test suite + two-client e2e comparison",
+  "category": "functional",
+  "description": "Extend determinism coverage: property-style tests across many seeds/systems/chunks, plus an e2e test where two independent clients request the galaxy and get identical data (SC-2).",
+  "acceptanceCriteria": [
+    "Property test: for 10 random seeds, 10 random stars each, generateSystem is stable across two independent generator invocations (deep equal)",
+    "Property test: 200 random (planet, chunk) pairs produce identical nodeId sets and node positions across two invocations",
+    "E2E (Playwright, headless chromium): two browser pages (independent contexts) load the app, request the star chart and one system's planet list, and the test deep-compares the two datasets for equality",
+    "E2E also verifies the client-side chart matches the server-provided seed (server exposes GALAXY_SEED via /api/health; client derives and compares)",
+    "All tests green in `npm run test` and the e2e suite; no flakiness across 3 consecutive runs"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Property-style determinism tests",
+      "details": "In src/shared/galaxy/properties.test.ts: seeded loop (use a fixed meta-seed for the test's own randomness so failures are reproducible) comparing double-generated outputs; report first divergence with field path.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Two-client e2e",
+      "details": "In tests/determinism.spec.ts: launch two contexts; both navigate to app; helper pulls star chart (via a dev-only window.__DRIFT__ debug hook or the WS protocol chart message) and planet list for a fixed system; expect deep equality; also assert client seed === server seed.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Stability check",
+      "details": "Run the e2e 3 times; ensure no flakiness (timing-independent comparisons only — no wall-clock values in compared data).",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-6", "TASK-70"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "The e2e needs TASK-70's two-client harness helpers; keep the debug hook (window.__DRIFT__) behind an import.meta.env.DEV flag so it never ships in production builds."
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "id": "TASK-27",
+  "title": "Camera handoff between flight and on-foot modes",
+  "category": "ui-ux",
+  "description": "A single continuous camera that hands off between ship cockpit flight and on-foot third-person view with no cut or teleport — position and look direction carry across the transition.",
+  "acceptanceCriteria": [
+    "src/client/camera/CameraRig.ts: one PerspectiveCamera for everything; two modes — Cockpit (ship-local offset, follows ship quat with a 100 ms lag for smoothing) and OnFoot (third-person: 4 m behind the character, 1.6 m up, mouse-look with pitch clamped -80..+80)",
+    "Handoff: when the regime/character state switches (ship → on-foot at a pad, TASK-31), the camera animates from cockpit pose to on-foot pose over 600 ms (ease-in-out) along a path that never enters geometry (path = lerp of positions + slerp of look target, with a collision nudge if the straight path is inside terrain — sample 5 points against heightAt)",
+    "During the handoff, gameplay input is accepted but the camera is not user-controllable until the animation completes (no fight between animation and mouse)",
+    "Reverse handoff (on-foot → ship, TASK-35) uses the same rig in reverse",
+    "Unit tests: pose lerp math, pitch clamp, collision-nudge path (analytic terrain), 600 ms duration; component test: mode switch triggers exactly one animation, input lock during it",
+    "e2e smoke (when the full disembark flow lands in TASK-31): manual feel check recorded — for now test the rig standalone with a scripted ship/character pair (Playwright + exposed test hook)",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "CameraRig core",
+      "details": "Cockpit pose = ship.pos + ship.quat * offset(0, 0.5, 1.2), look = ship forward; smoothing: exponential lerp of position (k=8/s) and slerp of quaternion (k=8/s) toward the target pose — gives the 100 ms feel. OnFoot pose from character pos + look yaw/pitch state.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Handoff animation",
+      "details": "handoff(fromPose, toPose, 600 ms): precompute a safe path (5 samples, terrain nudge); during animation the rig ignores user input; on complete, activate user control of the new mode. Cancellable only by a second handoff (not by input).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Tests",
+      "details": "Unit: math + clamps + nudge; component: single-animation assertion, input lock window. Expose a __testHook (dev only) driving the rig with fake ship/character for the e2e smoke. Run full suite.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-25", "TASK-14"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "Never create a second camera for on-foot — one camera, one pipeline, zero swap risk.",
+    "The test hook pattern (dev-only global) is used by other UI tasks; keep it behind import.meta.env.DEV.",
+    "FOV is constant (75) in both modes in v1 — no FOV lerp needed."
+  ]
+}

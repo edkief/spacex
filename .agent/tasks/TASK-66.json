@@ -1,0 +1,46 @@
+{
+  "id": "TASK-66",
+  "title": "Session token integrity (signing, expiry, revocation)",
+  "category": "security",
+  "description": "Harden session tokens: verify signing/expiry behavior exhaustively, add explicit revocation (logout + callsign-admin wipe), and guarantee tokens never appear in logs.",
+  "acceptanceCriteria": [
+    "POST /api/session/logout revokes the presenting token (delete row); a second use of the same token returns 401",
+    "Tamper tests: any single-character mutation of a valid token (payload or MAC) is rejected",
+    "Expiry tests: token with exp in the past rejected; exp within 30 s skew accepted; exp far future accepted",
+    "Log-leak test: run a full claim→session→logout cycle with a log sink; assert SESSION_SECRET, raw tokens, and token hashes never appear in captured logs",
+    "Concurrent use test: the same token used by two connections — both work until revocation (shared account model, documented)",
+    "Unit tests for token codec (sign/verify/tamper/expiry table) green in npm run test"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Logout endpoint + revocation",
+      "details": "POST /api/session/logout: verify token, delete the sessions row. WS: 'logout' message closes the connection with code 1000 after revocation.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Exhaustive codec tests",
+      "details": "Table-driven tests: valid, tampered-payload, tampered-mac, truncated, expired, skew-window, garbage input. All via the same verify() the server uses.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Log-leak guard",
+      "details": "Add a dev-only log sink hook (fastify logger child with a capture stream in tests). Run the full cycle; scan output for the test SESSION_SECRET value, the issued token, and its hash. Fail the test on any match.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Verify and commit",
+      "details": "Run lint, typecheck, full test suite; commit with conventional message.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-10"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "Keep token lifetime at 7 days for v1; remember to rotate SESSION_SECRET guidance in TASK-69 docs.",
+    "The log-leak guard should stay in CI as a regression test."
+  ]
+}

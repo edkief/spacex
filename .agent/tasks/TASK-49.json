@@ -1,0 +1,48 @@
+{
+  "id": "TASK-49",
+  "title": "Ship destruction and respawn: wreck, loss, and recovery",
+  "category": "functional",
+  "description": "When a ship's hull reaches zero: the explosion, the wreck (with killer attribution), the cargo loss, and the respawn at the nearest dock in a starter scout — the full death-and-recovery loop.",
+  "acceptanceCriteria": [
+    "Destruction sequence: hull 0 → combat_event destroyed (TASK-42) → client: explosion FX (a 1 s flash + expanding shockwave quad + debris: 8 tumbling tetrahedrons, 3 s fade) + a 1 s slow-mo (timeScale 0.3, client-only, cosmetic) → the ship entity is replaced by a wreck entity (kind 'wreck' at the final position, the ship's mesh frozen + a fire emitter, 600 s ttl from TASK-23)",
+    "Loss: the destroyed ship's cargo is lost (PRD assumption) — the cargo stacks are deleted from the ship record in the destruction transaction; the player's credits and on-foot inventory are kept; a 'SHIP LOST' full-screen moment (2 s: the callsign, the killer, 'Respawning at <nearest dock>')",
+    "Respawn: the player respawns at the nearest dock (nearest station pad in the same system; if the ship died in space far from stations, the nearest station's pad — computed by 3D distance) in a fresh starter scout (full hull/shields, starter livery), docked; the old ship's record is replaced (the wreck keeps a static copy of the destroyed mesh for rendering only); respawn is immediate server-side (no timer), the 2 s moment is client presentation",
+    "Wreck rendering: the wreck is a static impostor (frozen mesh, no physics) with the killer's callsign as a small marker ('▸ A') visible within 200 m; multiple players can orbit a wreck — no collision (v1), no loot from wrecks (v1)",
+    "Edge: a ship destroyed while the player is on foot (impossible — the player is in the ship when it's alive; the guard: destruction while disembarked cannot happen, the ship only takes combat damage while a player is in it OR it is AI-owned — assert in tests); a docked ship cannot be destroyed by weapons in v1 (docked ships are invulnerable — the dock is a safe zone; test: fires at a docked ship deal no damage)",
+    "Integration tests: full destruction→respawn (A kills B: B gets the moment, respawns at the nearest dock in a scout, cargo gone, credits kept, wreck present with A's marker), docked-ship invulnerability, wreck ttl expiry (fake timers, 600 s), two players observing the same wreck; e2e: scripted kill, screenshot of the 'SHIP LOST' moment and the respawned scout",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Destruction handler",
+      "details": "shard.onDestroyed(ship): transaction — delete cargo, mark ship record destroyed (keep a wreck snapshot {pos, quat, classId, livery, killer} for rendering), spawn the wreck entity (ttl 600 s); if the ship had a player: respawnPlayer(playerId) — nearest dock (station list, 3D distance), create starter scout (TASK-20 pattern), switch activeEntity, broadcast the respawn (entity_update: new ship at the dock + the player's presence updated).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Docked invulnerability",
+      "details": "resolveHit (TASK-42): a docked ship (state 'docked') is not a valid target (LOS passes over it) — update TASK-42's tests; AI does not target docked ships (TASK-46 target filter).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Client FX + moment",
+      "details": "Explosion FX (per spec), slow-mo (a 1 s timeScale on the render loop, cosmetic only — prediction keeps running at real time), 'SHIP LOST' overlay (2 s, then the respawned ship's cockpit), the killer marker on wrecks (a small DOM label like the character labels, TASK-36 pattern).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests + e2e",
+      "details": "All listed; e2e scripted kill with the moment + respawn screenshots. Run full suite + e2e.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-42", "TASK-23", "TASK-41", "TASK-24"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "Cargo loss is the only real penalty (credits + inventory survive) — it matches the PRD's risk model: mining trips are the stakes, not the player.",
+    "The nearest-dock respawn is per-system (no cross-system respawn in v1 — the player is stuck in that system's economy, a soft consequence); documented.",
+    "The wreck snapshot is rendering data only — the authoritative ship record is gone (no resurrection edge cases)."
+  ]
+}

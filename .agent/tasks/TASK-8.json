@@ -1,0 +1,48 @@
+{
+  "id": "TASK-8",
+  "title": "Inter-system warp flow with seamless transition",
+  "category": "functional",
+  "description": "Warping between systems from the star chart: a brief in-world transition (warp streak effect, ~2 s) with no loading screen, ending in the target system at a fixed spawn gate. The client swaps world data mid-flight.",
+  "acceptanceCriteria": [
+    "Warp flow: Warp click (TASK-7) → client plays a 2 s warp-in (streak overlay + camera shake) → sends WS 'warp' {toSystemId} → server: removes the player from the source shard, router.getShard(target) (spawns it if needed, TASK-11), inserts the ship at the target's spawn gate → sends 'warp-arrived' {systemId, snapshot} → client swaps world (star, planets, stations, spawn) and plays warp-out (2 s) → normal flight resumes",
+    "No loading screen: the transition is fully rendered; total warp duration 3-5 s (2 s in + network + 2 s out); assert no full-canvas clear/black frame during the transition in the e2e test (pixel-variance check at t=1 s into warp-in)",
+    "World swap: after arrival, the client renders the target system's star + a planet (from its seed) — verified in e2e by a screenshot diff against a pre-captured target-system baseline (structure check: star present at center)",
+    "Cancel/edge: warp cannot be started twice (button disabled during transition); disconnecting mid-warp leaves no ghost entity in either shard (both shards' entity counts correct after reconnect)",
+    "Occupancy: warping into a full system (16 players) → warp aborted with a 'System full' toast, player stays in the source system (server rejects, client rolls back the overlay)",
+    "WS integration test: warp A→B, both shards' entity lists correct (ship present in B at gate, absent from A), warp-arrived snapshot complete; full-system rejection test",
+    "e2e (TASK-70): warp flow in a real browser, screenshots pre/transition/post, duration asserted 3-6 s; npm run test:e2e green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Server warp handler",
+      "details": "shard A 'warp': validate target exists (seed lookup) + not full → remove conn from A (presence_leave) → router.getShard(B) → add conn (ship repositioned to B's spawn gate: a fixed offset from B's star) → 'warp-arrived'. If B full: {code:'system-full'}, conn stays in A. Ship position persisted via TASK-24 flush on leave.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Client world swap",
+      "details": "src/client/world/WorldManager.ts: loadWorld(systemId) derives the system from shared generators (same seed) — star mesh, planet meshes (low-detail placeholder LODs until TASK-26 streaming), spawn gate; swapWorld atomically: dispose old scene objects, build new (budget < 300 ms build, measured), then warp-out. Warp overlay component (streak shader or CSS — pick the cheap one, no post-processing stack in v1).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "State machine",
+      "details": "warp.ts state: idle → warping-in (t) → awaiting (network) → warping-out (t) → idle; failure → idle + toast. Chart subscribes (TASK-7 'Warping...' state).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "WS integration (both shard states, full-system reject, mid-warp disconnect); e2e warp with screenshots + no-black-frame check. Run unit + e2e suites.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-7", "TASK-11", "TASK-12"],
+  "estimatedComplexity": "high",
+  "technicalNotes": [
+    "World swap budget (< 300 ms) is where hitch risk lives — the heavy work is geometry generation; TASK-26's chunk pipeline is NOT used here (warp target is a fresh world: generate only the near-field: star, 1-2 planet spheres, stations; detailed streaming starts after arrival).",
+    "Spawn gate is derived from the seed: 100 u from the star along the +X axis, facing the star — deterministic for tests.",
+    "This is the one place 'loading' exists by design (the 2 s warp), and it is rendered, not a blank screen."
+  ]
+}

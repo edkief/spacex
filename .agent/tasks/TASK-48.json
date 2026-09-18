@@ -1,0 +1,48 @@
+{
+  "id": "TASK-48",
+  "title": "Surface hazards: storms, rad zones, hostile drones",
+  "category": "functional",
+  "description": "Planetary surfaces have environmental hazards that make on-foot travel risky: seeded storm cells (damage over time), radiation zones, and hostile mining drones that attack on-foot players — the PvE threat on the ground.",
+  "acceptanceCriteria": [
+    "Hazards are seeded per planet (src/shared/world/hazards.ts): up to 8 hazard cells per planet: {hazardId, kind: 'storm'|'radzone'|'drones', pos, radius (100-400 m), intensity} — deterministic per seed, none within 300 m of a settlement/station pad (safe zones), client and server derive identically",
+    "Storm cells: a visible swirling particle disc (cheap: 8 rotating quads); on-foot players inside take 2/s damage to the player... players have no personal HP in v1 — hazard damage applies to the nearest owned ship's hull if docked nearby, otherwise to the player's 'exposure' (a personal shield pool, max 50, regens 5/s out of hazards); exposure at 0 → the player is knocked to 'recovering' (cannot move or interact for 5 s, 'SHIELD BURN' prompt) — ship hull is never directly damaged by storms in v1 (documented)",
+    "Rad zones: a green-glowing ground disc; exposure accumulates 5/s inside (same exposure pool); the HUD shows a radiation meter while accumulating (TASK-52 slot)",
+    "Hostile drones: 2-4 small drone entities per drone cell (seeded count), patrol the cell; aggro an on-foot player within 80 m; attack: a 3-damage hit every 2 s at ≤ 30 m (through the same damage pipeline, source = 'drone'); drones have 20 hull, respawn with the cell after 180 s; drones do NOT aggro ships (they ignore space traffic — surface-only threat)",
+    "Server: hazard state per player (exposure, recovering) in the shard; damage ticks in the sim (1 Hz); client: hazard markers (disc + icon) within 500 m, exposure meter, drone meshes (small rotating octahedrons) with the standard combat events when they fire",
+    "Unit tests: hazard placement (spacing, no-safe-zone violation, determinism), exposure math (accumulation, regen, knock-down timing exact), drone aggro radius + fire cadence (fake timers), drone-vs-ship immunity; integration: a player walks into a rad zone (exposure rises), gets knocked down, recovers; a drone cell kills an exposed player (exposure 0 → recovering, no death in v1 — players don't die on foot, the ship is safe: documented); e2e: screenshot of a storm cell + exposure meter",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Hazard derivation + player hazard state",
+      "details": "hazardsFor(planetId) per spec; shard: per-player {exposure, recoveringUntil} updated each sim tick (1 Hz damage: exposure -= 2 or 5 per kind inside a cell; regen 5/s when outside; at 0 → recovering 5 s).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Drones",
+      "details": "Drone entities (kind 'drone') in the shard: patrol (circle the cell center), aggro (nearest on-foot player < 80 m), attack (3 dmg / 2 s < 30 m, via the damage pipeline with source {kind:'drone'}); 20 hull; killed → despawn + 180 s respawn timer; ships are not targetable (target filter: on-foot players only).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Client visuals + meters",
+      "details": "Hazard discs (storm: rotating quad disc + particles-lite; rad: green disc; drones: the drone meshes); markers within 500 m (entity-streamed); exposure meter (HUD slot, TASK-52): a bar + radiation icon, pulses red near 0; 'SHIELD BURN' / 'RECOVERING' prompts.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests + e2e",
+      "details": "All listed; e2e storm screenshot. Run full suite + e2e.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-32", "TASK-5"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "On-foot 'death' does not exist in v1 — the worst case is a 5 s recover (PRD: on-foot is low-stakes; the ship is the stakes). Documented in the PRD assumptions.",
+    "The exposure pool is per-player and does not persist (resets on respawn/warp) — it's a tactical resource, not inventory.",
+    "Drone damage (3/2 s) is weak by design: hazards are a reason to route around, not a boss fight."
+  ]
+}

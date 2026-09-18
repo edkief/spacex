@@ -1,0 +1,46 @@
+{
+  "id": "TASK-24",
+  "title": "Ship state persistence across restarts",
+  "category": "data-model",
+  "description": "Ship position, regime, hull, shields, cargo, and livery persist across server restarts; on shard spawn the sim loads the exact last saved state (no teleporting to spawn points).",
+  "acceptanceCriteria": [
+    "Shard flush: every 30 s and on graceful shutdown, the shard writes each ship's {pos, vel, quat, regime, hull, shields, livery, onPad} to ships table (single transaction, upsert)",
+    "Shard spawn: loads all non-docked ships of the system into sim entities with their saved state; docked ships load at dock coords",
+    "Crash test: start server, move a ship 500 u from dock, kill -9 the process, restart, join the system — ship is within 1 u of its last position (tolerance = 1 tick of movement)",
+    "Destruction persistence: a destroyed ship persists as wreck until ttl; after ttl it is gone on next load (no orphan rows: cleanup on load deletes expired wrecks)",
+    "Concurrency: flush while a player is flying does not block the tick for more than 1 frame (measured in the flush test, sqlite writes are small)",
+    "npm run test green including the crash-restart integration test (spawns a real child server process)"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Flush service",
+      "details": "shard/persist.ts: flushShips(shard) transaction: upsert ships by (player_id) with state fields; called on a 30 s interval + on SIGTERM/SIGINT (graceful shutdown hook in server main).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Load on spawn",
+      "details": "loadShips(systemId): select ships where system_id = ? and state != 'destroyed' or (wreck and not expired); build sim entities. Expired wrecks deleted in the same transaction.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Crash-restart integration test",
+      "details": "Test boots the real server on a random port + temp DB file (TASK-68 env), claims a callsign, ws joins, sends inputs for ~2 s, kills the child process (SIGKILL), reboots, rejoins, asserts position continuity within 1 u. Mark the test as integration (runs in CI with a 60 s timeout).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Verify",
+      "details": "Run full suite; confirm flush latency logged under 8 ms at p95 in the test output.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-63", "TASK-13", "TASK-23"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "30 s flush granularity means a hard crash loses up to 30 s of position — acceptable per PRD (state continuity, not frame-exact).",
+    "Keep the flush transaction small: one UPDATE per ship, no WAL checkpoint inside."
+  ]
+}

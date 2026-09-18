@@ -1,0 +1,48 @@
+{
+  "id": "TASK-11",
+  "title": "Galaxy router: in-process system shards on demand",
+  "category": "functional",
+  "description": "The single application instance hosts any number of system shards in-process: the router spawns a shard when a player joins its system, reaps it when empty (after a grace period), and enforces a per-system occupancy cap.",
+  "acceptanceCriteria": [
+    "src/server/galaxy/router.ts: Router.getShard(systemId) returns the active shard or creates one (load system data from shared generators with GALAXY_SEED, load ships via TASK-24); Router.reapEmpty() stops shards with zero connections after a 60 s grace (ships flushed first)",
+    "Cap enforcement: join_system into a shard already at 16 players returns {code:'system-full'} and the player stays in their previous system; cap is the constant MAX_PLAYERS_PER_SYSTEM = 16 in src/shared",
+    "Router stats: GET /api/galaxy/health (auth) lists active shards with {systemId, players, uptimeMs} — used by the chart UI occupancy dots (TASK-7)",
+    "Concurrent spawn test: 10 clients joining 3 different systems in parallel — all get correct, distinct shard state (no cross-system bleed, asserted by checking per-system unique entity ids)",
+    "Reap test: all players leave a shard, after 60 s (fake timers) the shard stops and its ships are flushed (DB rows present with correct positions)",
+    "Restart test: join system A, restart the server process, join system A again — same world (positions from DB, AI placement identical given seed)",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Router core",
+      "details": "Map<systemId, Shard>; getShard is idempotent and synchronous after load (load is async, use a pending-promise map to collapse concurrent spawns). reapEmpty on a 5 s interval; grace timer per shard; on reap: flushShips, sim.stop(), delete from map.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Join/leave wiring",
+      "details": "WS 'join_system' handler: router.getShard → cap check → shard.addConnection(conn) (broadcasts presence, sends initial full snapshot) → on leave: shard.removeConnection, start grace. Player's 'current system' tracked in ConnState.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Health endpoint",
+      "details": "GET /api/galaxy/health (auth) → {shards: [{systemId, name, players, uptimeMs}]}. Read-only, cheap.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "Concurrent-spawn, reap (fake timers), cap, restart tests per acceptance; run full suite + typecheck.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-13", "TASK-24", "TASK-62"],
+  "estimatedComplexity": "high",
+  "technicalNotes": [
+    "System data (stars, planets, stations) is derived deterministically from GALAXY_SEED (TASK-3/4/5) — the shard caches it in memory; only ships/players persist (PRD §6).",
+    "Shard load time budget: < 500 ms for a typical system (measured in the concurrent-spawn test; surface chunk generation is lazy, not upfront).",
+    "This is the v1 single-instance design; the Router interface is the seam a future process-level shard manager would replace."
+  ]
+}

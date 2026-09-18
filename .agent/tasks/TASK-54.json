@@ -1,0 +1,48 @@
+{
+  "id": "TASK-54",
+  "title": "Accessibility: keyboard play, screen-reader labels, reduced motion",
+  "category": "ui-ux",
+  "description": "A real accessibility pass: the entire UI is operable by keyboard, every control has a screen-reader label, toasts/prompts are announced, and a reduced-motion mode disables shakes, slow-mo, and particle FX.",
+  "acceptanceCriteria": [
+    "Keyboard-only play: every UI action (claims screen, chart, menus, panels, chat, prompts, weapon select, target lock/release) is reachable and executable with keyboard alone (Tab/Enter/arrows/number keys/E/T/1/2/M/ESC); a keyboard-only e2e run (no mouse events at all) completes: claim → join → open chart → warp → dock → disembark → mine → re-enter → sell (the full loop, scripted keys)",
+    "Screen-reader labels: every interactive element has an accessible name (aria-label or visible label); HUD status values (speed, hull, credits, exposure) are exposed via an aria-live='polite' region updated at 1 Hz (not 10 Hz — no announcement spam): 'Speed 120 meters per second. Hull 80 percent.'; prompts are announced ('E to take iron, 3 units')",
+    "Toasts and combat events are announced (aria-live): joins/leaves, kills, 'target locked', 'low energy'; announcements are queued (max 1 pending, 2 s min interval) so combat doesn't flood the SR",
+    "Reduced motion (a settings toggle, TASK-55, default off): disables camera shake, slow-mo, particle FX (debris/smoke/trails), screen-edge threat ping animation (static icon instead), and the warp streak (a simple fade instead); the toggle takes effect immediately (no restart)",
+    "Focus management: the focus trap (TASK-53) works; on menu open, focus moves to the panel's first control; on close, focus returns to the trigger; the game canvas has an aria-label ('3D view: flying in system X') and role='img'",
+    "Contrast: all text meets WCAG AA (4.5:1) against its background — a contrast test (computed from the design tokens) asserts every token pair passes",
+    "Tests: the keyboard-only e2e (the headline test), aria-label coverage (a test walks the DOM of every screen state and asserts no unlabeled interactive elements), live-region update content (1 Hz assertion), reduced-motion (FX count = 0 when on, verified via the FX registry counter), focus trap + restore; npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Keyboard-only e2e",
+      "details": "tests/e2e/keyboardOnly.spec.ts: the full loop with keyboard events only (the TASK-70 harness); each step asserts the expected UI state change (DOM) — this test is the project's a11y proof.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "SR labels + live region",
+      "details": "Audit every component (claims, chart, menus, panels, HUD, prompts): add aria-labels; the LiveRegion component (1 Hz summarizer reading game state); the announcement queue (priority: combat > navigation > chat).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Reduced motion",
+      "details": "The settings flag (TASK-55's store, defined here as a shared setting key) → an FX gate in the fx registry (TASK-43 fx, TASK-49 explosion, TASK-27 handoff shake): when on, FX are skipped (the registry counter exposes the skip count for the test); the threat ping renders a static icon.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Contrast + focus tests",
+      "details": "Token-pair contrast test (a small script over the design tokens in src/client/ui/theme.ts); focus trap/restore component test; run full suite + e2e.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-50", "TASK-51", "TASK-52", "TASK-53"],
+  "estimatedComplexity": "high",
+  "technicalNotes": [
+    "The 1 Hz live region is the key SR decision: announcing at 10 Hz is unusable; a 1 Hz summary is the standard game-a11y pattern.",
+    "The keyboard-only e2e is also a regression test for input gating (TASK-53) — keep it fast (< 60 s).",
+    "No audio in v1 (PRD scope) — the SR live region is the accessibility channel; audio cues are post-v1."
+  ]
+}

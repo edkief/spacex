@@ -1,0 +1,47 @@
+{
+  "id": "TASK-40",
+  "title": "Dock sales: sell cargo for credits at stations",
+  "category": "functional",
+  "description": "Stations have a market terminal: sell resources from the ship's cargo hold (or on-foot inventory) for credits at the resource's base price, closing the mine-haul-sell loop with visible earnings.",
+  "acceptanceCriteria": [
+    "At a station (docked ship, or on foot at a station terminal), the dock UI (from the 'ui-open' message, TASK-33) shows a Sell panel: resource rows with base prices (TASK-37 catalog), the player's sellable amount (hold + on-foot inventory combined, with source selectors), and a 'Sell' action",
+    "POST /api/ships/sell {resourceId, amount, source: 'hold'|'inv'} (auth, must be at a station: docked at a station pad OR on foot within 10 m of a station terminal — server validates position against station entities): deducts from the source, credits += amount * basePrice (TASK-41 atomic, one transaction), returns {sold, earned, newBalance}",
+    "Sell feedback: a floating '+240 cr' text at the terminal, the credits counter in the HUD updates within one snapshot, the source stack decreases",
+    "Errors: not at a station → {code:'not-at-station'}; insufficient amount → {code:'insufficient'}; unknown resource → 400; selling while the ship is moving (undocked) → {code:'not-docked'} (in-ship selling requires docked; on-foot selling requires terminal proximity)",
+    "Price model: base price only in v1 (no per-station variation, no market fluctuation — documented; the price column exists so TASK-40's endpoint is the single place prices are read)",
+    "Unit tests: price math, source selection (hold vs inv), transaction atomicity (credit + stack in one commit — rollback test), all error codes; WS/API integration: full loop test — mine 10 iron (fake), transfer to hold, dock, sell, credits = 500 + 10*5 = 550; e2e: sell 5 units in the browser, assert the credits counter text updated (screenshot)",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Station proximity validation",
+      "details": "Shard knows station entities (seeded, TASK-4); 'at a station' = docked at a station pad OR character within 10 m of a station terminal position (terminals are part of the station geometry — one terminal per station at the pad edge, derived).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Sell endpoint + transaction",
+      "details": "ships route /sell: auth → position check → amount check (source-specific) → transaction: stack decrement + addCredits (TASK-41) → response. WS 'sell' is an alias (same handler) for the in-game terminal flow.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Dock UI sell panel",
+      "details": "DockPanel React component: tabs (Sell now, Ships later, Repair later — stubs for the other tabs land in TASK-53); Sell tab per acceptance; floating '+N cr' DOM text; credits counter subscription.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests + e2e",
+      "details": "All listed incl. the full-loop integration test (the money test for the core economy). Run full suite + e2e.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-39", "TASK-41", "TASK-10"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "This completes the core loop: mine → load → haul → sell. The e2e full-loop test is the project's first end-to-end gameplay proof — keep it fast (< 10 s with fakes).",
+    "Base prices are constants in src/shared/resources.ts — no per-station price table until a market task lands post-v1."
+  ]
+}

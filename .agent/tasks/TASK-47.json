@@ -1,0 +1,47 @@
+{
+  "id": "TASK-47",
+  "title": "PvP parity: players use the identical combat pipeline",
+  "category": "functional",
+  "description": "Verify and lock in that player-vs-player combat uses the exact same code path as PvE — no separate PvP toggle, no different damage numbers, no AI-only advantages — and that a player killing a player produces the correct kill attribution.",
+  "acceptanceCriteria": [
+    "Code path audit: player fire and AI fire both call the same handleFire (TASK-43) with the same rate/energy/range/LOS rules — a test asserts both paths funnel into the single handler (no parallel player-combat code exists; grep-verified: 'fire' handling has exactly one implementation)",
+    "PvP combat works end to end: player A (interceptor) and player B (scout) in the same system: A locks B, A's lasers damage B's shields→hull, A's missile kills B → kill event {killer: A, victim: B, weapon: 'missile'} broadcast; B's ship is destroyed (TASK-49 respawn flow), the wreck carries A's callsign as the killer",
+    "Numbers are identical: the damage a player deals with a weapon equals the damage the same weapon does to an AI of the same class (property test: run the same fire sequence against an AI ship and a player ship, identical hull/shield trajectories)",
+    "Friendly fire: A can damage B and C (all players) — no team immunity exists in v1 (PRD parity); self-fire is denied (TASK-42)",
+    "Kill feed: a persistent kill feed (top-center, last 5 kills, 10 s fade): 'A ▸ missile ▸ B' — player-vs-player kills in white, player-vs-AI in grey (HUD, rendered from kill events)",
+    "Integration tests: the full A-kills-B scenario (real ws clients, exact event assertions), the number-parity property test (100 fire sequences), kill feed state test; e2e: two contexts, one kills the other (scripted positions via test hooks), kill feed screenshot",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Parity property test",
+      "details": "Generate 100 random fire sequences (weapon, timing, target positions); replay against a shard with an AI ship and an identical player ship (same class, same start); assert hull/shield trajectories match exactly (determinism + shared pipeline proof).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "PvP kill scenario",
+      "details": "Integration test: A and B join, test hooks position them, A locks + fires (scripted), assert B's destruction, kill event payload, wreck killer attribution, C (a third client) receives everything.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Kill feed",
+      "details": "KillFeed React component (top-center, 5 entries, 10 s TTL, player-vs-player white / vs-AI grey) fed by kill events; part of the HUD stack (TASK-50's layout slot).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests + e2e",
+      "details": "All listed; e2e two-context kill with kill-feed screenshot. Run full suite + e2e.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-46", "TASK-15"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "This task is mostly proof + the kill feed: the parity itself was designed in (single pipeline). If the property test finds a divergence, that is a bug in TASK-43/46 to fix — not a special case to add.",
+    "Kill feed entries need no protocol change (kill events already carry killer/victim/weapon)."
+  ]
+}

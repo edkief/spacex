@@ -1,0 +1,47 @@
+{
+  "id": "TASK-20",
+  "title": "Ship acquisition: starter ship + dock purchase",
+  "category": "functional",
+  "description": "Players receive a starter scout on callsign claim and can purchase other ship classes at a dock with credits. One ship per player in v1 (buying scrubs the old ship to the dock).",
+  "acceptanceCriteria": [
+    "Starter ship: claims via TASK-10 create a 'scout' ship owned by the player, docked at home-system dock, hull/shields at full",
+    "POST /api/ships/buy {classId} (auth, must be docked): validates classId, credits >= price, player docked; deducts price via TASK-41 withdraw in the same transaction as the old-ship delete + new-ship insert; returns the new ship",
+    "Errors: not docked → 409 {code:'not-docked'}; insufficient credits → 422 {code:'insufficient-credits'}; unknown class → 400; already owns that class → 409 {code:'already-owned'}",
+    "GET /api/ships (auth) returns the player's current ship with class stats merged from TASK-19 catalog",
+    "Purchase is visible to the system shard: if the player is in-system, the sim swaps the entity class (broadcast entity_update)",
+    "API tests: starter on claim, buy each class, all error paths, transaction rollback on credit failure (simulate mid-transaction error), ship-swap broadcast (ws integration)",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Starter ship on claim",
+      "details": "Extend TASK-10 claim flow: repo.getOrCreateStarterShip(playerId, 'scout') with position at home-system dock coords (derived from seed), state 'docked'.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Buy endpoint",
+      "details": "src/server/routes/ships.ts: auth → load player+ship → state checks (docked) → catalog lookup → price check → transaction: withdrawCredits, delete old ship + its cargo (scrubbed), insert new ship (docked, full hull/shields, default livery) → notify shard via an in-process event bus (shard.onShipSwapped(playerId, newShip)).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Shard notification",
+      "details": "If the player's system shard is active, replace the ship entity in-place (same player id, new class stats, new position = dock) and broadcast entity_update to all connections in the shard.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "All acceptance paths via fastify inject + a ws client for the swap broadcast; rollback test injects a repo failure. Run full suite + typecheck.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-19", "TASK-41", "TASK-10", "TASK-63"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "Cargo scrub on sell is the v1 rule (PRD assumption) — no salvage of old-ship cargo; document it in the dock UI copy (TASK-53).",
+    "The in-process event bus is a simple EventEmitter per active shard; shards are single-process (PRD §7)."
+  ]
+}

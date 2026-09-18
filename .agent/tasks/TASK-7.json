@@ -1,0 +1,49 @@
+{
+  "id": "TASK-7",
+  "title": "Star chart UI (DOM): systems, travel times, occupancy",
+  "category": "ui-ux",
+  "description": "The in-game star chart: a DOM/SVG map of the galaxy (3 seeded systems in v1) showing system names, distances, estimated warp times, and live occupancy badges. This is the navigation surface for inter-system travel.",
+  "acceptanceCriteria": [
+    "Openable from the game HUD (M key or 'Systems' menu button); renders an SVG map with one node per system from the TASK-3 star generator (name, star class color) and edges labeled with light-second distances + warp time (from TASK-4 travel table)",
+    "Occupancy: nodes with active shards show a player-count badge (data from GET /api/galaxy/health, polled every 5 s while the chart is open)",
+    "Current system node is highlighted; clicking another node selects it and enables a 'Warp' button showing the estimated travel time",
+    "Warp click delegates to the warp flow (TASK-8); the chart stays open and shows a 'Warping...' state on the source node during the transition",
+    "Chart is deterministic: same GALAXY_SEED always renders the same layout (screenshot test against a committed baseline with pixel-tolerance diff, or an SVG-structure snapshot test)",
+    "Keyboard accessible: Tab reaches system nodes, Enter selects, Enter on 'Warp' triggers; focus visible (TASK-54 builds on this)",
+    "Unit tests: travel-time label math, occupancy badge rendering, selection state; e2e smoke: open chart in Playwright, screenshot (via TASK-70 harness)",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Map data + layout",
+      "details": "src/client/ui/StarChart.tsx: fetch galaxy overview (new tiny endpoint GET /api/galaxy/overview returning [{systemId, name, starClass, pos2D (from seed), neighbors: [{to, distance, warpTime}]}] — add the endpoint in this task, derived from shared generators). Layout: seeded 2D projection (x, y from the star's 3D position projected onto the galactic plane, scaled to a 800x500 viewBox).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Interaction",
+      "details": "Node select (click/Enter), Warp button enable, 'Warping...' state (subscribes to the warp state from TASK-8 — for now a stub event 'warp-started'). Escape closes the chart.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Occupancy poll",
+      "details": "useEffect interval 5 s while open; badge = players count; hide badge when 0. Stop polling on close.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests + smoke",
+      "details": "Unit tests per acceptance; Playwright: open chart, verify nodes render, screenshot. Run full suite + typecheck.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-4", "TASK-11"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "GET /api/galaxy/overview is new in this task — it is cheap (seeded derivation, no DB) and cached in-process forever (seed never changes at runtime).",
+    "Keep the chart pure DOM/SVG — no WebGL in this panel (a11y + simplicity).",
+    "warp-started/warp-complete events are defined in src/client/state/warp.ts now so TASK-8 only implements the flow."
+  ]
+}

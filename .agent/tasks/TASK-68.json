@@ -1,0 +1,59 @@
+{
+  "id": "TASK-68",
+  "title": "Scaffold TS monorepo (client/server/shared) with tooling",
+  "category": "setup",
+  "description": "Stand up the project structure under `app/`: shared/client/server TypeScript source trees, Vite for the client, Fastify + ws for the server, npm scripts, lint/format/typecheck, and env loading from PROJECT_ROOT/.env.local.",
+  "acceptanceCriteria": [
+    "`npm run dev` starts both the Vite client (localhost:3000) and the Node server (Fastify REST + ws on WS_PATH) via a single command",
+    "Source layout exists: `app/src/shared`, `app/src/client`, `app/src/server` with path alias `@shared/*`, `@client/*`, `@server/*`",
+    "`npm run lint`, `npm run typecheck`, `npm run test`, `npm run build` all exist and pass on the scaffold",
+    "Server reads PORT, SESSION_SECRET, GALAXY_SEED, DB_DRIVER, DB_PATH, SYSTEM_INSTANCE_COUNT, WS_PATH from PROJECT_ROOT/.env.local via dotenv (with defaults)",
+    "`.env.local` and `data/` are git-ignored",
+    "A trivial unit test (vitest) and a smoke test that the server answers a REST health endpoint pass"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Install runtime and dev dependencies",
+      "details": "In `app/`: npm i three react react-dom fastify ws drizzle-orm better-sqlite3 zod dotenv; npm i -D typescript @types/node @types/three @types/react @types/react-dom @types/ws @types/better-sqlite3 eslint prettier @eslint/js typescript-eslint @playwright/test. Keep existing vitest + @vitejs/plugin-react.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Create tsconfig and path aliases",
+      "details": "tsconfig.json with strict: true, module: ESNext, moduleResolution: bundler, target ES2022, paths: @shared/* -> src/shared/*, @client/* -> src/client/*, @server/* -> src/server/*. Update vitest.config.ts and vite.config.ts to resolve the same aliases.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Create server entry",
+      "details": "Create `src/server/index.ts`: dotenv.config() pointing to PROJECT_ROOT/.env.local; Fastify instance; GET /api/health returning {ok:true, galaxySeed}; ws server attached at WS_PATH; listen on PORT. Create `src/client/main.tsx` mounting a minimal React shell + <canvas> placeholder.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Wire npm scripts",
+      "details": "package.json scripts: dev (concurrently vite + tsx src/server/index.ts), build (vite build), test (vitest run), typecheck (tsc --noEmit), lint (eslint . && prettier --check .), start (node dist). Add `concurrently` and `tsx` as devDeps.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Configure eslint + prettier",
+      "details": "eslint.config.js flat config with typescript-eslint recommended; .prettierrc (semi, singleQuote, printWidth 100). Ensure lint and prettier pass on the scaffold.",
+      "pass": false
+    },
+    {
+      "step": 6,
+      "description": "Smoke tests",
+      "details": "Add `src/shared/health.test.ts` (trivial vitest) and a server test that boots Fastify with inject() and asserts /api/health 200. Run full: npm run lint && npm run typecheck && npm run test && npm run build — all green. Commit.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-1"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "Vite dev server proxies /api and /ws to the Node server (configure proxy in vite.config.ts) so the browser stays same-origin.",
+    "Keep React for DOM UI only (menus/HUD); the three.js canvas is managed outside React (single <canvas> in a stable container).",
+    "Follow AGENTS.md: files 200-300 lines max, one concern per module."
+  ]
+}

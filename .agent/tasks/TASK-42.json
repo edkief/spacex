@@ -1,0 +1,47 @@
+{
+  "id": "TASK-42",
+  "title": "Combat core: hits, damage pipeline, kill events",
+  "category": "functional",
+  "description": "The server-authoritative combat core: a weapon-hit resolver that applies damage through the TASK-23 pipeline, combat event broadcasts, and kill/destroy attribution — the shared backbone for lasers, missiles, AI, and PvP.",
+  "acceptanceCriteria": [
+    "src/server/shard/combat.ts: resolveHit(shard, {weapon, sourceId, targetId, damagePoint}): validates (target alive, in range for the weapon, line-of-sight check against terrain for surface-combat — a ship behind a mountain is not hit; space has no LOS), applies TASK-23 applyDamage, emits combat events",
+    "Combat events broadcast (TASK-9 'combat_event'): {kind:'hit', target, source, weapon, damage, shieldHit, hullHit}, {kind:'destroyed', target, source, weapon}, {kind:'kill', killer, victim, weapon} (kill = destroyed with a player source) — all clients in the shard receive them (drives HUD, FX, toasts)",
+    "Damage attribution is exact: the HUD (TASK-50) can show 'interceptor laser hit your hull for 8' from the event data; a destroyed ship's killer is recorded in the event and (for wrecks) rendered as a skull marker until despawn (TASK-49 consumes it)",
+    "Targeting rules: friendly fire is ON in v1 (PvP parity — TASK-47); a ship cannot fire at itself ({code:'self-target'}); destroyed entities are not targetable (TASK-23)",
+    "Hit registration is server-side only: the client never computes whether a shot hit — it sends fire intents (TASK-43), the server resolves; a client-side 'I hit' claim is ignored (anti-cheat, TASK-67)",
+    "Unit tests: LOS math (terrain occlusion with analytic terrain, space no-LOS), damage pipeline integration (hit → shields → hull → destroyed sequence), event emission (exact payloads), self-target rejection, dead-target rejection; integration: two ships trading hits via the sim, kill event observed by a third client",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Hit resolver + LOS",
+      "details": "resolveHit as specified; LOS: raycast source→damagePoint against the terrain heightfield (subsampled 5 points; any point below terrain = occluded) — space regime skips LOS entirely. Range per weapon (TASK-43 supplies it).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Events",
+      "details": "shard.events emits combat events → broadcast to all conns (same channel as entity_update, distinct msg type). Kill tracking: destroyed event with a player source → kill event; a wreck's killer id stored on the wreck entity (TASK-49).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Sim hook",
+      "details": "SimLoop: weapon fire intents (from TASK-43's message) → projectile travel (space: instant ray for lasers, TASK-43; missiles: moving entities, TASK-43) → on contact: resolveHit. This task provides resolveHit + the contact-callback contract; projectiles land in TASK-43.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "All listed; the two-ship exchange test drives real ws clients through the sim. Run full suite.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-23", "TASK-13", "TASK-19"],
+  "estimatedComplexity": "high",
+  "technicalNotes": [
+    "Friendly fire ON is the PRD's PvP-parity decision: one pipeline for everything. No team flags in v1.",
+    "LOS subsampling (5 points) is a deliberate cheap approximation — terrain is smooth (TASK-5 max slope 45°), so 5 samples over ≤ 2 km is sufficient; document the assumption."
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "id": "TASK-13",
+  "title": "Server sim: 20 Hz tick with 10 Hz snapshots",
+  "category": "functional",
+  "description": "The authoritative simulation loop for a star system shard: fixed 20 Hz tick integrating ship physics via the shared flight model, queueing client inputs, and broadcasting 10 Hz entity snapshots to all connections in the system.",
+  "acceptanceCriteria": [
+    "src/server/shard/sim.ts: SimLoop runs a fixed 1/20 s tick with drift correction (accumulator; max catch-up 5 ticks to avoid spiral-of-death, then drop inputs)",
+    "Each tick: drain each connected player's input queue (latest input per player wins), integrateShip (TASK-22) with server-side regime/planet context, advance entity positions; AI ships handled by a stub until TASK-46",
+    "Every 2nd tick (10 Hz): broadcast entity_update {entities: EntityState[]} to all in-system connections; snapshot includes hull/shields/target for combat-ready state",
+    "Tick timing measured per tick (histogram kept in the shard); p95 tick < 30 ms with 16 simulated ships (unit benchmark)",
+    "Input messages carry seq; the server ignores stale seq (out-of-order protection) and logs drops at debug level",
+    "Unit tests: accumulator math (no drift over 1000 ticks), latest-input-wins, stale-seq ignored, snapshot cadence exactly 10 Hz (fake timers), benchmark within budget",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Shard skeleton + sim loop",
+      "details": "src/server/shard/types.ts: Shard = {systemId, sim, connections: Map<connId, ConnState>, entities, events (EventEmitter), persist}. SimLoop class: start()/stop(), setInterval-free design using a setTimeout chain for drift correction; onTick callback.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Input queue + integration",
+      "details": "ConnState = {playerId, lastSeq, input?: InputMsg}. WS 'input' handler enqueues. Tick: for each conn with input, integrateShip(entity, input, 1/20, regimeCtx) — regimeCtx resolves planet/heightAt from the system's generated data (cached surface chunks around the ship, radius 512 m).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Snapshot broadcast",
+      "details": "Build EntityState[] (ships, characters later) each 2nd tick; serialize once, send the same buffer to all conns (ws.send with binary? keep JSON for v1, shared buffer). Track broadcast size; warn if > 32 KB (tuning input for TASK-60).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Timing + benchmark",
+      "details": "Per-tick duration into a ring-buffer histogram (p50/p95/p99). Benchmark test: 16 ships with varied inputs, 60 s simulated, assert p95 < 30 ms on the dev machine; record numbers.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Tests + verification",
+      "details": "All unit tests with fake timers; run lint/typecheck/test. Note: a real multi-client integration test arrives with TASK-70.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-9", "TASK-22", "TASK-19"],
+  "estimatedComplexity": "high",
+  "technicalNotes": [
+    "This sim runs against a test-only single shard for now; TASK-11 introduces the router that creates/reaps shards. Keep the Shard interface clean — the router will instantiate it.",
+    "All entity mutation happens only inside onTick (single writer) — message handlers only enqueue. This invariant is what keeps the sim deterministic and debuggable.",
+    "heightAt lookups must be O(1): cache the 3x3 chunk neighborhood per ship per tick."
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "id": "TASK-29",
+  "title": "Landing pads: detection, VTOL assist, docking state",
+  "category": "functional",
+  "description": "Every station and planetary settlement has a landing pad: the ship can hover and park on it (VTOL), the pad is a server-authoritative state, and it is the anchor for the on-foot transition (TASK-31).",
+  "acceptanceCriteria": [
+    "Pads are seeded entities: each station and each planetary settlement (from TASK-4/5) has exactly one pad at a defined position (top of the structure, flat 40 m circle); pad list is part of the system's derived data (deterministic per seed)",
+    "Pad detection (server, in sim tick): a ship is 'on pad' when within 20 m of a pad center, regime surface, vertical speed < 2 u/s, and altitude within 1 m of pad height → ship state 'docked' (inputs still accepted — the player can take off), broadcast as entity_update.state = 'docked' {padId}",
+    "VTOL assist: while within 100 m of a pad and below 50 u/s, holding the VTOL key damps horizontal drift (0.5x) — makes parking possible (sim test: a scripted approach from 100 m converges to docked in < 15 s)",
+    "Takeoff: thrusting up from a docked state clears 'docked' within one tick when vertical speed > 2 u/s",
+    "Only one pad state per ship; a ship cannot be docked at two pads (impossible by geometry, but the sim asserts invariant in tests)",
+    "Unit tests: pad resolution (nearest, hysteresis on the 20 m boundary: 19 m in / 21 m out), docked/takeoff transitions, VTOL damping math; sim test: scripted approach converges; e2e: land a ship at the station pad (Playwright, screenshot of docked state)",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Pad derivation",
+      "details": "src/shared/world/pads.ts: padsFor(systemId) from station/settlement positions (TASK-4/5 data): {padId, pos, normal, radius 20}; deterministic, cached per system in the shard (server) and client WorldManager.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Server pad state",
+      "details": "SimLoop: per ship, nearest pad within 25 m (hysteresis band 20-25); evaluate dock conditions; set/clear 'docked' with padId; docked ships keep simulating (no input lock). State change broadcast.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "VTOL assist + client",
+      "details": "Client: pad markers (a simple glowing ring mesh at pad positions within 500 m, from the pad list); the VTOL key (existing from TASK-22 controls) gets the drift damping on the server side (input is authority — the assist is server-side physics, client just shows the pad ring).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests + e2e",
+      "details": "Unit + sim convergence tests; Playwright: fly to the station (teleport-assist via dev test hook for setup), script the approach, assert docked state in the DOM (a small 'DOCKED' indicator), screenshot. Run full suite + e2e.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-28", "TASK-5", "TASK-22"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "Pad radius 20 m is generous on purpose — this is a friendly arcade landing, not a sim landing. The VTOL assist makes it easy; skilled players can skip the assist.",
+    "The DOCKED indicator in the HUD is a stub here (full ship HUD is TASK-51); keep it a single DOM node."
+  ]
+}

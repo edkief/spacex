@@ -1,0 +1,40 @@
+{
+  "id": "TASK-35",
+  "title": "Re-enter the ship from on-foot",
+  "category": "functional",
+  "description": "The reverse of disembark: walking up to a docked (or nearby) ship and re-entering it, with the camera handoff back to the cockpit and on-foot state cleaned up.",
+  "acceptanceCriteria": [
+    "Near the player's own ship (within 5 m of its hull, ship docked or idle on a pad), the prompt '[E] Enter ship' appears (TASK-33 registry); pressing E → 'enter_ship' message → server: player's activeEntity switches character → ship, the character entity is removed, ship control restored, entity_update broadcast",
+    "Only the ship's owner can enter their ship in v1 (no boarding other ships — {code:'not-owner'}); entering a ship that is not on a pad is allowed if it is idle (velocity < 1 u/s) — a drifting ship can be re-claimed; a moving ship cannot ({code:'ship-moving'})",
+    "Client: camera handoff on-foot → cockpit (TASK-27 reverse), controls remap to the flight scheme, inventory HUD stays (it follows the player, TASK-34)",
+    "Edge: re-entering while a disconnect/reconnect is in flight (stale character) — the server's entity switch is idempotent (double enter_ship → second is {code:'already-in-ship'}, no duplicate state)",
+    "WS integration tests: disembark then re-enter round trip (positions consistent, entity counts correct: no orphan character), not-owner rejection (player B near player A's ship), moving-ship rejection (ship thrusting > 1 u/s); e2e: full disembark-walk-reenter cycle with screenshots at each phase",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Server enter_ship",
+      "details": "shard.handleEnterShip: find player's ship (must exist), ownership check, speed check (< 1 u/s), remove character entity, switch activeEntity, broadcast. Idempotency: if already in ship → 'already-in-ship'.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Client prompt + handoff",
+      "details": "Registry entry for kind 'ship' (own ship only, proximity 5 m); on success: CameraRig.handoff to cockpit, controls → flight, character mesh disposed (local) / entity_update removes it (remote).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Tests + e2e",
+      "details": "All listed integration cases + the e2e cycle (dock → out → walk 10 m → in). Run full suite + e2e.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-34", "TASK-27", "TASK-31"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "The 5 m prompt radius and 1 u/s speed cap are the only two tunables; both are constants in src/shared.",
+    "No boarding of others' ships in v1 — a deliberate scope cut; the ownership check is one line and stays when it returns."
+  ]
+}

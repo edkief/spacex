@@ -1,0 +1,7 @@
+{
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@vitejs/plugin-react": "^6.1.0",
+    "vitest": "^4.1.11"
+  }
+}

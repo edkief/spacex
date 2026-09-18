@@ -1,0 +1,46 @@
+{
+  "id": "TASK-23",
+  "title": "Ship damage model: hull, shields, dock repair",
+  "category": "functional",
+  "description": "Server-authoritative damage pipeline foundation: shields absorb before hull, damage events with source, destroyed state at hull zero, and dock repair for a credit cost.",
+  "acceptanceCriteria": [
+    "src/shared/physics/damage.ts exports applyDamage(entity, amount, source) returning {shieldHit, hullHit, destroyed}: shields absorb first, overflow to hull, hull below zero marks the entity destroyed",
+    "Damage events {kind:'damaged', target, source, amount, shieldHit, hullHit} and {kind:'destroyed', target, source} broadcast as combat_event to the whole shard",
+    "A destroyed ship stops integrating, ignores inputs, becomes non-targetable, and spawns a static wreck entity at its final position (wreck rendering is TASK-49, entity state here)",
+    "Repair: POST /api/ships/repair (auth, docked): cost = ceil((1 - hull/maxHull) * 10) + ceil((1 - shields/maxShields) * 5) credits, deducted via TASK-41 in one transaction, full restore; errors when not docked or credits insufficient",
+    "Unit tests: shield-first ordering including exact boundary cases, double-destroy guard, destroyed ships ignore inputs, repair cost table, repair transaction rollback",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Shared damage math",
+      "details": "Pure applyDamage operating on the entity copy the sim owns; emit result, no side effects. Source is {kind:'player'|'ai', id} for HUD attribution.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Sim integration + events",
+      "details": "SimLoop calls applyDamage when a weapon hit lands (hook now, real weapons in TASK-43); destroyed entities skipped in integration; wreck entity inserted with kind 'wreck' and a ttl (removed after 600 s).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Repair endpoint",
+      "details": "ships route: docked check, cost calc from class maxes, withdrawCredits in same transaction as hull/shield reset; broadcast entity_update if in-shard.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "All listed unit tests + repair API tests. Run lint, typecheck, full suite.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-13", "TASK-19", "TASK-41"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "applyDamage is shared (client can pre-render shield flash from its own prediction of hits it fired), but the server result is authoritative.",
+    "Wreck ttl 600 s keeps entity counts bounded; no persistent wreck registry in v1."
+  ]
+}

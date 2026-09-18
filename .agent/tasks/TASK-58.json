@@ -1,0 +1,48 @@
+{
+  "id": "TASK-58",
+  "title": "LOD and draw-call tuning for the 60 fps budget",
+  "category": "performance",
+  "description": "Tune the client rendering pipeline (LOD rings, instancing, material count, FX budgets) so the reference desktop client holds 60 fps in the worst-case scene: 16 entities, full surface streaming, active combat FX, default (High) quality preset.",
+  "acceptanceCriteria": [
+    "Benchmark scene (scripted, headless): 16 ships (8 players + 8 AI) in combat (lasers + missiles firing at rate), the player on a surface with full 13-chunk streaming + 8 hazard cells + 30 nearby deposits + 20 remote character labels; run for 60 s with the TASK-57 monitor sampling",
+    "60 fps hold: median frame time ≤ 16.7 ms, p95 ≤ 20 ms, zero frames > 50 ms over the 60 s (the monitor's no-spike rule); if the dev machine can't hold it, record the absolute numbers and flag TASK-61 (reference hardware) — but the tuning must still reduce the worst-case frame time by ≥ 30% from the pre-tuning baseline (the delta is the measurable success)",
+    "Draw calls: < 120 per frame in the benchmark scene (renderer.info, High preset): achieved via instancing (deposits instanced per resource type, drones instanced, stars as a single points cloud, chunk meshes merged per LOD ring where materials allow), material count < 40, no per-entity material clones (livery = a shared material + per-ship color via instance attributes or a small material pool ≤ 24)",
+    "Triangles: < 500k total (surface 400k budget from TASK-26 + entities + FX); FX budget: ≤ 16 concurrent laser flashes, ≤ 16 missiles, ≤ 8 explosion debris sets — the FX registry (TASK-43) enforces the caps (oldest expires)",
+    "Tuning is data, not code: all the tuned numbers (LOD radii per preset, instance batch sizes, FX caps, label max count) live in src/shared/perf.ts (read by the client; the server ignores it) — a future hardware profile (mobile, TASK-59) is a new entry in the same table",
+    "The benchmark is repeatable (5 runs, p95 variance < 20%) and committed: npm run bench:render + a fast 10 s version in the test suite (asserts the no-spike rule only, on any machine)",
+    "All budgets green (or the delta target met + TASK-61 flagged); numbers recorded for TASK-61; npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Baseline measurement",
+      "details": "Build the benchmark scene driver (a dev-only scripted scenario reusing the transition-cycle hooks, TASK-30); run it un-tuned; record the baseline (frame times, draw calls, triangles, materials) in the task log.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Tuning passes",
+      "details": "In order of impact: (1) instancing for deposits/drones/stars/labels-anchors, (2) merge chunk meshes per LOD ring (one draw call per ring per planet), (3) the material pool (≤ 24 liveries + 16 FX), (4) FX caps in the registry, (5) the points-cloud starfield (one draw call, count per preset). Re-run the benchmark after each pass; stop when budgets are met or no further pass is available.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Perf table",
+      "details": "src/shared/perf.ts: PERF_PROFILES {high: {...}, medium: {...}, low: {...}} — the tuned numbers; the client reads via the SettingsBridge (TASK-55); document each number's origin (the benchmark run that set it) in a comment.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Repeatability + CI",
+      "details": "5-run variance check in bench:render; the 10 s CI version (no-spike assertion only); run both; commit with the recorded numbers.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-26", "TASK-57", "TASK-55"],
+  "estimatedComplexity": "high",
+  "technicalNotes": [
+    "This task may surface a design problem (e.g., liveries forcing material explosion) — the fix is the material pool (instance attributes for per-ship color on a shared material), not per-ship geometry.",
+    "The benchmark scene is the project's performance contract: TASK-61 runs it on reference hardware; any future feature that breaks it must fix it in the same PR.",
+    "Headless numbers are a proxy — the delta target (≥ 30% worst-case reduction) is the machine-independent success criterion."
+  ]
+}

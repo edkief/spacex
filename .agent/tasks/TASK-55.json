@@ -1,0 +1,48 @@
+{
+  "id": "TASK-55",
+  "title": "Settings: quality presets, sensitivity, reduced motion, persistence",
+  "category": "ui-ux",
+  "description": "The settings panel: a quality preset (driving the streaming/LOD budgets), mouse sensitivity, reduced motion, and keybind display — persisted per player and applied live.",
+  "acceptanceCriteria": [
+    "Quality preset: High / Medium / Low — each maps to concrete pipeline params (from TASK-26/58): {chunkDetail (vertex counts per ring), drawDistance (8/6/4 km), starCount, fxQuality (1.0/0.6/0.3 multiplier on FX spawn rate), shadowless (no dynamic shadows in v1 — all presets are shadowless; the flag exists for the future)}; applying a preset re-tunes the streaming pipeline live (chunk LOD radii update on the next chunk generation — no reload, no pop: existing chunks keep their LOD until regenerated, new ones use the new params)",
+    "Mouse sensitivity: 0.5x-2.0x slider (step 0.1, default 1.0) scaling the look input (flight + on-foot); applied immediately (the next input frame)",
+    "Reduced motion: the TASK-54 toggle (default off)",
+    "Keybinds: a read-only keybind list (v1 has no rebinding — documented; the list shows the defaults: WASD+mouse, E interact, T target, 1/2 weapon, M chart, ESC menu, F3 debug, Enter chat)",
+    "Persistence: settings are stored per player (players.settings JSON, repo, TASK-62) — a new session on any machine restores the last settings (test: set Low, 'restart', settings load as Low); the settings endpoint: GET/PUT /api/players/settings (auth, zod-validated)",
+    "Settings panel UI: in the ESC menu (TASK-53), a Settings entry → a panel with the four sections; changes apply live (no 'Apply' button — the slider is debounced 300 ms, the preset is immediate); a 'Reset to defaults' button",
+    "Unit tests: preset param mapping (each preset's params match the spec table), sensitivity scaling math, persistence round trip (PUT → GET → restart → GET), validation (bad preset rejected 400, out-of-range sensitivity clamped); component tests: preset switch re-tunes the pipeline (the streaming config object updates), slider debounce (5 drags → 1 request); e2e: change quality to Low, verify the frame monitor's draw distance changed (screenshot + a dev-hook read)",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Settings model + presets",
+      "details": "src/shared/settings.ts: Settings type {quality: 'high'|'medium'|'low', sensitivity: number, reducedMotion: boolean}; PRESETS map with the param table; clamps; the streaming pipeline (TASK-26) reads its params from a live SettingsBridge (a mutable ref the client updates — no re-init).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Endpoints + persistence",
+      "details": "GET/PUT /api/players/settings (auth, zod: quality enum, sensitivity 0.5-2.0 clamped, reducedMotion boolean); repo JSON column; loaded on session establish (the /api/session response gains settings — the claims screen's first join uses defaults).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Panel UI",
+      "details": "SettingsPanel (the TASK-53 shell): preset buttons, the sensitivity slider (debounced 300 ms PUT), the reduced-motion toggle (immediate), the keybind list (static), Reset button; live application via the SettingsBridge.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests + e2e",
+      "details": "All listed; e2e quality change with the dev-hook read. Run full suite + e2e.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-57", "TASK-53"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "No key rebinding in v1 (scope cut) — the keybind list is informational; the input map (TASK-25) stays fixed.",
+    "The SettingsBridge pattern (mutable ref, no re-init) is what makes 'apply live' safe: the chunk pipeline reads params per generation, not at construction."
+  ]
+}

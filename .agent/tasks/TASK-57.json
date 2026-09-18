@@ -1,0 +1,46 @@
+{
+  "id": "TASK-57",
+  "title": "In-game frame monitor (debug + budget telemetry)",
+  "category": "performance",
+  "description": "A dev-mode in-game frame monitor showing FPS, frame time, draw calls, and triangle count, plus a rolling p95 frame-time value other performance tasks use to verify budgets.",
+  "acceptanceCriteria": [
+    "Debug overlay (top-right, toggle with F3, dev mode only — off in prod builds): FPS (1 s window), frame time ms (p50/p95, 30 s window), draw calls, triangles (from renderer.info), active entity count",
+    "src/client/perf/frameMonitor.ts: rolling window (circular buffer of last 300 frames) with p50/p95/p99; exposes getFrameStats() used by tests and the overlay",
+    "Perf budget hook: frameMonitor.budgetCheck(name, ms) — logs a warning when a measured phase exceeds its budget (used by TASK-30, TASK-58, TASK-59, TASK-61)",
+    "Unit tests: rolling window math (p95 of known sequences), budget warning emission (spy on logger), overlay render (component test: shows values from a mocked monitor)",
+    "Overlay does not measurably degrade the game: toggling it on/off changes p95 frame time by < 1 ms in a benchmark run (recorded in the test log)",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Monitor core",
+      "details": "frameMonitor.ts: frameStarted/frameEnded hooks in the render loop (TASK-68 scaffold's loop); renderer.info read once per frame (cheap); circular buffer; getFrameStats() → {fps, p50, p95, p99, drawCalls, triangles, entities}.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Overlay UI",
+      "details": "DebugOverlay React component reading the monitor at 2 Hz (no per-frame re-render); F3 keybind registered in the input map; hidden when not dev (import.meta.env.DEV).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Budget hook",
+      "details": "budgetCheck(name, ms): keeps a per-name rolling max; warns once per name per 10 s when exceeded. This is the shared mechanism for all perf tasks.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "Window math, budget emission, overlay component test; overlay overhead benchmark in the unit suite (headless render of the scene with/without overlay — or a documented skip if headless GL is unavailable, per TASK-70 findings). Run full suite.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-68"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "renderer.info.render resets per frame in three.js — read it after render, before the next frame.",
+    "Entity count comes from the client entity registry (ships + characters + wrecks currently rendered)."
+  ]
+}

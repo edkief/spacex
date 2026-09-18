@@ -1,0 +1,52 @@
+{
+  "id": "TASK-2",
+  "title": "Shared deterministic PRNG + hash library",
+  "category": "functional",
+  "description": "Create the pure-TypeScript deterministic randomness and hashing primitives used by all galaxy generation. Must produce identical results in Node and the browser for a given seed. No Math.random anywhere in gen paths.",
+  "acceptanceCriteria": [
+    "`src/shared/random.ts` exports: `seedFromString(s: string): bigint` (FNV-1a 64-bit), `Rng` class (xoshiro128** over 4x32-bit state from a 128-bit seed) with `nextU32()`, `nextF64()`, `nextRange(min,max)`, `pick(arr)`, `nextGauss(mean,sd)`",
+    "Pure functions: same seed + same call sequence => identical values, verified by golden-value unit tests (hardcoded expected outputs for seed 'drift-dev-seed-001')",
+    "Node/browser parity test: the module is imported in a vitest (node) suite and a vitest-web-style browser-environment suite and produces identical golden outputs",
+    "Distribution sanity test: chi-square-lite check that 100k nextF64() samples are roughly uniform (bin deviation < 20% of expected)",
+    "No Math.random, Date.now, or crypto calls in src/shared/random.ts (verified by grep in a unit test that reads the source or by code review + lint rule)",
+    "Unit tests pass via `npm run test`"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Implement FNV-1a string-to-64-bit seed",
+      "details": "seedFromString: FNV-1a 64-bit over UTF-8 bytes, returned as BigInt. Deterministic across platforms (use BigInt arithmetic, no Math.imul truncation surprises).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Implement xoshiro128** Rng",
+      "details": "State = 4 x U32 from the 128-bit seed via splitmix64. Implement xoshiro128** algorithm (rotl/mul in 32-bit with >>> and >>>-safe BigInt-or-Number math — use Number with 32-bit ops, documented). nextF64 = nextU32() / 2^32 (24-bit precision is fine for gen; document the tradeoff).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Add derived helpers",
+      "details": "nextRange(min,max) float; nextInt(n); pick<T>(arr: T[]); nextGauss(mean, sd) via Box-Muller; hash2(a: bigint, b: bigint): bigint (combine two 64-bit keys with splitmix finalizer) for per-entity sub-seeds.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Golden-value unit tests",
+      "details": "In src/shared/random.test.ts: for seed 'drift-dev-seed-001', assert the first 8 nextU32() values equal hardcoded constants. Test seedFromString on 3 known strings. Test hash2 stability.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Parity + distribution tests",
+      "details": "Run the golden suite under vitest node env and under environment: 'jsdom' (or happy-dom) to prove browser parity. Add the 100k-sample uniformity check. Ensure `npm run test` and `npm run typecheck` pass.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-1", "TASK-68"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "This module is the root of determinism: any impurity here breaks SC-2 for the whole galaxy.",
+    "Keep the file pure (no imports other than none). It will be imported by both client and server verbatim."
+  ]
+}

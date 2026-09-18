@@ -1,0 +1,46 @@
+{
+  "id": "TASK-56",
+  "title": "First launch: claims screen to first flight",
+  "category": "ui-ux",
+  "description": "The first-launch experience: the claims screen (callsign + a 3-step intro), the spawn at the home-system dock, and the first minutes of guidance (a dismissible hint line: fly, chart, mine, sell) — a new player reaches mining in under 5 minutes without reading docs.",
+  "acceptanceCriteria": [
+    "Claims screen: on first load (no session token), a centered panel: the game title 'DRIFT', a callsign input (3-16 chars, live validation: the format check + a server availability check debounced 500 ms — 'available' green / 'taken' red), a 'Claim' button (disabled until valid + available), and a 3-step intro (auto-advancing, skippable, 4 s each): 'This is a living galaxy. Every system is real.' / 'Fly. Land. Go on foot. No loading screens.' / 'Mine. Haul. Sell. Survive.'; on Claim → POST /api/callsigns → session established → the game loads directly into the home system at the dock (no intermediate screen)",
+    "Returning player: a stored token (localStorage) → GET /api/session → straight into the home system (or the last system, if the server reports it — v1: home system; the last-system memory is a 1-field addition to the session response, included now for the future); an expired/invalid token → silently back to the claims screen (no error wall — the callsign is pre-filled for re-claim... no: re-claim is impossible (taken) — the claims screen shows 'Your session expired. Claim a new callsign.' with the old callsign disabled; v1 has no recovery — documented, post-v1 account recovery)",
+    "First-launch guidance: a hint line (bottom-center, above the prompt) for the first 5 minutes or until dismissed (X key): step 1 'Hold W to fly toward the star. Press M for the star chart.' → after docking at a station (any): step 2 'Press E at a docked ship to go on foot. Find an ore deposit.' → after first mine: step 3 'Load your ore into the cargo hold (E at your ship), then sell it at the dock terminal.' → after first sale: 'You are drifting. Good luck.' (then hides); the hints are server-independent (client detects the events: docked, disembark, first pickup, first sale)",
+    "The full first-launch flow works in a fresh browser profile: claim → spawn at dock → (guidance visible) → the flow is interruptible at every step (ESC, warp away, etc.) and resumes correctly (state = the furthest event reached, persisted in localStorage so a refresh doesn't restart the guidance)",
+    "e2e (the headline test): fresh context → claim 'TEST-PILOT' → assert the dock spawn (ship at dock coords) → guidance step 1 visible → dismiss → screenshot of the in-game view with the HUD; a second e2e: refresh the page → straight into the game (no claims screen); component tests: claims validation states (format, availability debounce, taken), intro skip, guidance state machine (event sequence → step transitions, persistence across a simulated refresh), expired-token path; npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Claims screen",
+      "details": "ClaimsScreen: the panel per spec; the availability check: GET /api/callsigns/availability?callsign= (new tiny endpoint, debounced 500 ms, rate-limited via TASK-65); on claim: POST /api/callsigns → store the token (localStorage 'drift.token') → the app boot goes straight to join (home system from the response).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Boot flow + session restore",
+      "details": "app boot: token? → /api/session (200 → join last/home system; 401 → clear token → claims with the expired message) → the join flow (TASK-12) → the spawn is the home-system dock (the starter ship is already docked there, TASK-20).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Guidance state machine",
+      "details": "src/client/ui/guidance.ts: steps + event detection (subscribes to: docked state, disembark, first pickup, first sale); the furthest-reached step in localStorage ('drift.guidance'); the hint line component (bottom-center, X to dismiss all); the 'You are drifting' finale auto-hides after 5 s.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests + e2e",
+      "details": "All listed; the two e2e flows (fresh claim + refresh restore). Run full suite + e2e.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-10", "TASK-20", "TASK-53", "TASK-51"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "The availability endpoint is the only new API here — keep it dumb (format + unique check, rate-limited).",
+    "Guidance persistence is 1 localStorage key (an int) — deliberately trivial; no server involvement.",
+    "Session expiry with no recovery is a v1 gap (documented in TASK-69 FAQ + the claims screen copy); account recovery is post-v1."
+  ]
+}

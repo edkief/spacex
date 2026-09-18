@@ -1,0 +1,45 @@
+{
+  "id": "TASK-65",
+  "title": "Per-connection rate limiting and chat spam control",
+  "category": "security",
+  "description": "Enforce per-connection message rate limits, chat-specific limits, and escalation (throttle → drop) so one client cannot flood the shard or the chat.",
+  "acceptanceCriteria": [
+    "General message rate limit: 20 msg/s per connection (token bucket); burst allowance 40; exceeding sends {code:'rate-limited'} and drops the excess",
+    "Chat limits: 1 message per 2 s, max length 280 chars, 10 messages per 30 s sliding window",
+    "Escalation: 3 rate-limit violations in 10 s → connection dropped with code 4009 'flooded'",
+    "Flood test: a scripted client sending 100 msg/s for 10 s is throttled (server tick time unaffected: p95 tick stays < 30 ms during flood in a unit benchmark) and is dropped after escalation",
+    "Unit tests: token bucket math (accept/accept/reject sequence), chat window logic with fake timers, drop behavior on 3 violations",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Token bucket implementation",
+      "details": "src/server/ratelimit.ts: TokenBucket(rate, burst) with now() injected for testability. One bucket per WS connection, created on connect, freed on close.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Wire into dispatch",
+      "details": "Before validation/dispatch: bucket.take() → reject with rate-limited if false. Track violation timestamps; 3 within 10 s → ws.close(4009).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Chat limiter",
+      "details": "ChatLimiter per connection: lastSendAt (2 s min gap), sliding window (10/30 s). Chat handler checks before broadcast; violations count toward escalation.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Flood benchmark + tests",
+      "details": "Node ws client floods 100 msg/s at 16 other simulated entities ticking; assert p95 tick < 30 ms and client dropped by ~5 s. Unit tests with injected clock. Run full suite.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-64"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "Input messages (flight controls) legitimately run high-frequency; the 20 msg/s general bucket must be sized so normal play (10 Hz inputs) never trips it — verify in the e2e presence test later."
+  ]
+}

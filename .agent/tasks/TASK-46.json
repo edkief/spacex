@@ -1,0 +1,48 @@
+{
+  "id": "TASK-46",
+  "title": "AI combat behavior: patrol, aggro, engage, disengage",
+  "category": "functional",
+  "description": "The rogue AI state machine: patrol between seeded waypoints, aggro when a player enters range, engage with the same weapons pipeline as players, and disengage when badly damaged or out-ranged — believable pirates without a behavior tree.",
+  "acceptanceCriteria": [
+    "States: PATROL (fly a seeded waypoint loop at 0.5x max speed) → AGGRO (a player within 600 m and 60° of forward, or the player fired on the AI within the last 5 s) → ENGAGE (pursue + fire: missiles when the target is > 300 m and the AI has missiles, lasers otherwise; fire through the SAME server combat pipeline as players — TASK-43 handleFire with the AI as source, same rate limits) → DISENGAGE (AI hull < 25%: break off, fly toward the nearest patrol waypoint at max speed, re-PATROL after 30 s) → DEAD (destroyed: respawn timer TASK-45)",
+    "Pursuit: the AI steers toward a lead point (target pos + target vel * 0.5 s) with its class turn rate — it can be outrun (an interceptor at full burn escapes an AGGRO'd scout: sim test) and can be evaded (a sharp turn within 200 m breaks missile locks — the missile's homing turn rate is the limiting factor, TASK-43)",
+    "Fairness: AI fire has the same energy cost and rate limits as players (no infinite ammo); AI ships never target each other (rogues are not hostile to rogues in v1); AI does not fire while docked (it never docks in v1, but the guard exists); AI target acquisition has a 1 s 'acquire' delay per new target (no instant lock — the player has a chance to react, visible as an 'ACQUIRING' toast on the player's HUD when an AI begins acquisition on them)",
+    "Performance: 10 AI ships in one shard add < 3 ms to the tick (measured in the TASK-13 benchmark — re-run with AI engaged: p95 still < 30 ms)",
+    "Determinism: AI decisions use the shard RNG (seeded per system + tick counter) — the same tick sequence produces the same AI behavior (test: two shards, same inputs, 60 s → identical AI trajectories within 0.1 u)",
+    "Sim tests: full state cycle (patrol → aggro → engage → disengage → patrol) scripted with a fake player, exact state sequence + timing bounds; outrun test; evasion test; 10-AI benchmark; determinism test; integration: a real ws player is aggro'd by a rogue, takes damage, kills it, the kill event attributes the AI correctly",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "AI state machine",
+      "details": "src/server/shard/ai.ts: per-AI state {mode, targetId, acquireStartedAt, waypointIdx, disengageUntil}; updated each tick (AI 'inputs' are computed here and fed to the same integrateShip — the AI is just another ship whose inputs come from the machine, not a ws client); shard RNG for waypoint jitter + target selection among multiple players (nearest).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Engagement logic",
+      "details": "Lead-point pursuit (steering: desired heading → turn toward it at turnRate, thrust proportional to heading error); weapon choice per spec; fire via the shared handleFire path (source = AI id); acquire delay 1 s; disengage at hull < 25%.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Determinism + benchmark",
+      "details": "Shard RNG: mulberry32 seeded (systemId ^ tickCount) — consumed only by AI decisions; the determinism test runs two shards in lockstep; re-run the TASK-13 benchmark with 10 AI + 6 players (16 total) asserting p95 < 30 ms.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "All listed; run full suite + typecheck.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-45", "TASK-43", "TASK-44"],
+  "estimatedComplexity": "high",
+  "technicalNotes": [
+    "The AI reuses every player-facing combat function — this is what keeps PvP/PvE parity real (one pipeline, two input sources).",
+    "No AI on stations/planets (space-only, TASK-45) — disengage waypoints are always in space.",
+    "The 1 s acquire delay doubles as a UI hook: the 'ACQUIRING' toast lets players react — it's gameplay, not a cheat."
+  ]
+}

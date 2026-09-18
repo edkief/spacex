@@ -1,0 +1,45 @@
+{
+  "id": "TASK-63",
+  "title": "Persistence service with save points and crash recovery",
+  "category": "data-model",
+  "description": "Service that saves mutable game state at defined points (dock, damage milestone, interval, shard shutdown) and loads it on shard spawn, so a server restart (even kill -9) loses nothing material.",
+  "acceptanceCriteria": [
+    "`src/server/persist.ts` exposes saveShip(ship), saveCargo(shipId, items), saveNodeStates(systemId, states), loadSystemState(systemId) with all writes going through the repository layer",
+    "Save points wired: on dock, on damage crossing 75/50/25% hull thresholds, on a 5 s interval for dirty ships, and on shard shutdown",
+    "Crash test: node process writes state, is killed with SIGKILL, restarted, loadSystemState returns the last saved state (position within 100 m tolerance, cargo exact, credits exact)",
+    "Writes are batched (one transaction per save point, not per field) and the 5 s interval save causes no measurable tick spike (>5 ms) in a unit benchmark with 16 ships",
+    "Unit tests: each save point triggers a write (spy on repository); dirty flag clears after save; interval save skips clean ships",
+    "`npm run test` green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Implement save/load service",
+      "details": "PersistService with dirty-set tracking; saveShip updates ships row (position, velocity, hull, shields, state, updated_at); saveCargo upserts cargo_items; transactions wrap multi-row saves.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Wire save points",
+      "details": "Expose hooks: onDock(ship), onDamage(ship) (milestone check inside), interval timer (5 s, process-level, iterates dirty ships), onShardShutdown(systemId). Each calls the repository through a single transaction.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Crash recovery test",
+      "details": "Test spawns a child node process that opens the db, saves a ship at a known position, and exits via process.exit(9). Parent restarts load path and asserts restored values within tolerance.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Performance guard",
+      "details": "Benchmark: 16 dirty ships, one interval save, assert wall time < 20 ms and no single write > 5 ms on the dev machine; record numbers in task log.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-62"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "SQLite writes are synchronous: keep the hot path off the sim tick by doing interval saves on the same thread but batching — if the 5 ms guard fails, move to WAL mode (PRAGMA journal_mode=WAL)."
+  ]
+}

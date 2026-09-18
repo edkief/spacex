@@ -1,0 +1,41 @@
+{
+  "id": "TASK-4",
+  "title": "System generator (planets, docks, deposits, AI roster)",
+  "category": "functional",
+  "description": "For a given (seed, starId), deterministically generate the star system: planets/moons with class, radius, atmosphere, landability, dock placement, surface resource deposit fields, and the rogue-AI ship roster.",
+  "acceptanceCriteria": [
+    "`src/shared/galaxy/system.ts` exports `generateSystem(seed: string, starId: string): SystemGen` with SystemGen = { systemId: string, name: string, star: {class, name}, planets: Planet[] }",
+    "Planet = { id, name, class ('rocky'|'terran'|'ocean'|'gas'|'ice'), radiusKm, hasAtmosphere, landable, dockCount (0..3, >=1 for landable), resourceTypes: string[], aiRoster: {count, classes: ShipClassId[]} }",
+    "2-6 planets per system; at least one landable planet with atmosphere in >80% of systems (assert over 200 generated systems in a test)",
+    "Gas giants are never landable; landable planets have dockCount >= 1",
+    "Golden snapshot test for system of star #0 of dev seed; determinism test across two calls and across two independent Rng instances",
+    "aiRoster count 2..5, classes drawn from the 3 ship classes (TASK-19 ids), stable per seed",
+    "`npm run test` green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Implement planet generation",
+      "details": "generateSystem: sub-seed = hash2(seedFromString(seed), starId). Planet count 2-6; per planet j: class weighted pick (terran/rocky/ice/ocean/gas), radiusKm seeded (gas giants 20k-60k km, others 2k-8k), hasAtmosphere per class probability, landable = !gas && seeded, docks 1-3 if landable else 0, resourceTypes = 1-3 picks from ['iron','copper','silicon','rare-earths','water','gas-compounds'], aiRoster count 2-5 + classes.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "System id + naming",
+      "details": "systemId = hex(hash2(masterSeed, starId)); name = star name + ' system' or seeded designation (e.g. 'DR-042'). Deterministic ordering: planets sorted by index, never by runtime values.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Golden fixture + statistical tests",
+      "details": "Commit fixture for star index 0 (dev seed). Statistical test over 200 systems: landable+atmosphere >= 80%, gas never landable, dockCount bounds, aiRoster bounds. `npm run test` + `npm run typecheck` green.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-3"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "resourceTypes here are the *fields* (which types exist on this planet); actual node placement is per-chunk in TASK-5.",
+    "ship class ids must match TASK-19 catalog ids ('scout'|'freighter'|'interceptor')."
+  ]
+}

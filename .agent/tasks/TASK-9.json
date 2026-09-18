@@ -1,0 +1,53 @@
+{
+  "id": "TASK-9",
+  "title": "WS protocol: typed versioned message schema + handshake",
+  "category": "api-endpoint",
+  "description": "Define the complete client↔server WebSocket protocol: versioned envelope, zod-validated message types, handshake flow (hello → auth → join), ping/pong keepalive, and structured error codes.",
+  "acceptanceCriteria": [
+    "`src/shared/protocol.ts` defines: Envelope = {v: number, type: string, payload: unknown}; current PROTOCOL_VERSION = 1; message types at least: hello, auth, join_system, enter_system, state_snapshot, entity_update, chat, input, warp, interact, mine, sell, buy_ship, set_livery, exit_ship, enter_ship, repair, error, ping, pong, presence, target_update, combat_event",
+    "Every payload has a zod schema in `src/shared/protocol/schemas.ts` with a parse helper `parseMessage(type, payload)`; schemas are shared by client and server",
+    "Handshake: client connects → sends hello{v} → server replies version-ok or {code:'version-mismatch'}; then auth{token or callsign}; then join_system{systemId}; server responds enter_system{snapshot} or a structured error",
+    "Structured errors: {code, message} with codes: version-mismatch, unauthenticated, system-full, system-not-found, rate-limited, invalid-message, unknown-type; server never crashes on unknown types (responds unknown-type, drops after 10)",
+    "Ping/pong: server pings every 15 s, drops connections silent > 45 s",
+    "Unit tests: every schema accepts a valid example and rejects a malformed one (parametrized table); handshake flow test against a real ws server in-process; unknown-type handling test",
+    "`npm run test` green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Envelope + versioning",
+      "details": "shared/protocol.ts: version constant, Envelope type, encode/decode helpers (JSON), and a type registry mapping type name → zod schema. Client and server both import it.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Payload schemas",
+      "details": "schemas.ts: one zod schema per message type (input: {seq, thrust, turn, pitch, yaw, fire, lock, action}; entity_update: {entities: EntityState[]}; state_snapshot: {systemId, entities, nodes, chat: last 100, players}; combat_event: {kind: hit|kill, attacker, target, weapon, damage}). All numbers finite-checked.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Server connection handler",
+      "details": "src/server/ws.ts: on connect → state 'hello' → enforce handshake order (reject out-of-order with error), track per-connection state (authed playerId, systemId), dispatch parsed messages to handlers by type; unknown type counter with drop-at-10.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Keepalive",
+      "details": "Server setInterval 15 s: send ping to idle connections; last-pong tracker; terminate after 45 s silence. Unit test with fake timers or a slow client.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Protocol tests",
+      "details": "Parametrized schema tests (valid+invalid per type); in-process integration: real Fastify+ws boot, real ws client, full hello→auth→join flow with a stubbed system returning a canned snapshot; error-code assertions for each failure path.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-68"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "This protocol doc doubles as the contract for TASK-69 documentation — keep names stable.",
+    "EntityState = {id, kind: 'ship'|'character'|'ai-ship'|'wreck', pos, vel, regime, hull, shields, targetId, classId, callsign?, livery?} — one shape for all snapshot traffic."
+  ]
+}

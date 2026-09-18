@@ -1,0 +1,47 @@
+{
+  "id": "TASK-33",
+  "title": "On-foot interaction: prompt, pick up, examine",
+  "category": "functional",
+  "description": "The on-foot interaction system: when facing an interactable object within reach, a prompt appears (E to interact); v1 interactables are resource deposits (pick up, TASK-38), ship (re-enter prompt, TASK-35), and dock terminals (open dock UI, TASK-40/53).",
+  "acceptanceCriteria": [
+    "src/client/input/interaction.ts: each frame, raycast from the character (max 3 m, forward cone 30°) against interactable entities; the nearest hit drives the prompt: '[E] Take ore', '[E] Enter ship', '[E] Dock terminal' — prompt shows bottom-center, hidden when nothing in range",
+    "Pressing E sends 'interact' {targetId} to the server; the server validates (target exists, within 3 m of the player's character, correct regime) and applies the effect (delegated to the subsystem: pickup → TASK-38, terminal → opens the dock UI via a 'ui-open' server message, enter ship → TASK-35)",
+    "Invalid interactions: out of range (> 3 m) → {code:'out-of-range'}; wrong regime (in a ship) → {code:'wrong-regime'}; missing target → {code:'not-found'}; the prompt itself only ever shows valid targets (client pre-filters)",
+    "Remote players see interactions: when a pickup happens, all clients get the entity_update (object removed/quantity changed) within one snapshot",
+    "Interactable registration: a central InteractableRegistry (client) maps entity kind → {prompt, handler}; adding a new interactable type = one registry entry (no scattered if-chains — enforced by a lint-style test: the registry is the only place 'interact' is dispatched)",
+    "Unit tests: raycast cone math, nearest-selection, prompt visibility state machine (show/hide/switch between two targets); server validation tests (all error codes); WS test: two clients, one picks up, both see the update",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Client raycast + prompt",
+      "details": "Per-frame (cheap: only against a small interactable list, not the scene graph — interactables are sparse seed entities): ray from character eye, cone filter, nearest ≤ 3 m; prompt React component with the target's prompt text.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Server interact handler",
+      "details": "shard.handleInteract: load target entity, range check (3 m, server-side position), regime check, dispatch by target kind (pickup/terminal/ship — the latter two stubbed until their tasks land); unknown kind → 'not-found'.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Registry",
+      "details": "InteractableRegistry: Map<kind, {prompt(entity), onInteract(entity)}>; the interact dispatch reads only from the registry. The registry test asserts no other dispatch site exists (grep-based test or a build-time marker).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "All listed; run full suite + typecheck.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-32", "TASK-5"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "Interactables are a bounded set (seed deposits ≤ 200 per system, ships, terminals) — the raycast list is tiny; no spatial hash needed in v1.",
+    "The 'ui-open' server message (for dock terminals) is defined here: {ui: 'dock', payload} — the dock UI task consumes it; keep the message generic for future terminals."
+  ]
+}

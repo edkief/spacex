@@ -1,0 +1,48 @@
+{
+  "id": "TASK-69",
+  "title": "Documentation: README, architecture, protocol, ops, contribution",
+  "category": "documentation",
+  "description": "The project documentation set: a root README (what/why/run), the architecture doc (shards, determinism, the seamless-transition design), the WS protocol reference, the ops/runbook (env, Postgres, backups), and a contribution guide (task workflow, perf gates) — everything a new developer or operator needs.",
+  "acceptanceCriteria": [
+    "README.md (root): the game pitch (2 paragraphs), a feature list, a quick start (env setup from .env.local, npm install in app/, npm run dev, the URL, the claims screen), the control list, the tech stack, and links to the docs below; a new developer can clone → run → claim a callsign → fly, following only the README (verified by a clean-clone dry run in a temp directory)",
+    "docs/architecture.md: the system diagram (ASCII is fine): client (three.js + DOM UI) ↔ WS ↔ Fastify server (router → shards → sim) ↔ SQLite/Postgres; the determinism model (seed → world, only state persists); the seamless-transition design (regimes, streaming, prediction/reconciliation, camera handoff); the combat pipeline (one path for PvP/PvE); the single-instance + in-process shards decision and its scaling seam (the Router interface); each section links to the owning source files",
+    "docs/protocol.md: the complete WS protocol (every message type both directions, from the TASK-9 protocol + every addition: mining, combat, targeting, cargo, ui-open, close codes incl. 4001) + the REST API (every endpoint, params, errors) — generated-adjacent: written from the zod schemas (a check in the contribution guide: schema change → protocol doc update in the same PR)",
+    "docs/ops.md: env variables (every one, from .env.local + the code), the SQLite→Postgres switch (DB_DRIVER=postgres + DATABASE_URL, what was verified in TASK-62 and the proceed-gap note), backups (sqlite file copy / pg_dump), a restart procedure (graceful SIGTERM, TASK-12), and the known gaps (session expiry with no recovery, mobile = rendering floor only, no audio, no key rebinding — the v1 scope lines from the PRD)",
+    "docs/contributing.md: the Ralph task workflow (one task per invocation, .agent/tasks.json, the STEERING.md check, the passes:false convention), the test gates (npm run test, test:e2e, load:smoke before merging combat/economy changes), the perf contract (the benchmark owners + the 'fix it in the same PR' rule), and the code-quality bar (from AGENTS.md: 200-300 line files, conventional commits, no comments unless needed)",
+    "docs/performance.md: the TASK-61 report (the numbers + the SC-3/SC-4 verdicts) — linked from the README",
+    "Accuracy check: every command in the docs was run during this task (the quick start, the perf:report, the backup commands); every file path referenced exists; every env var documented is read by the code (a grep cross-check); the clean-clone dry run passes; npm run test green (docs don't break the build)"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "README + quick-start dry run",
+      "details": "Write the README; then do the clean-clone dry run (git clone into /tmp, install, dev, claims screen in Playwright) — fix the README until it works verbatim.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Architecture + protocol",
+      "details": "architecture.md (the six sections above, with source links); protocol.md from the zod schemas + the close codes + the REST table; cross-check: every message type in the code appears in the doc and vice versa (a manual diff, recorded in the task log).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Ops + contribution",
+      "details": "ops.md (env, PG switch + the proceed-gap honesty note, backups, restart, known gaps); contributing.md (the task workflow, test gates, perf contract, quality bar); verify every command runs.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Accuracy pass + commit",
+      "details": "The grep cross-checks (env vars, file paths, message types); link the performance report from the README; commit with a conventional docs message.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-12", "TASK-26", "TASK-61", "TASK-18"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "This task lands last: it documents the finished system, so it must run after the perf verification (TASK-61) and the load test (TASK-18) to cite real numbers.",
+    "The 'known gaps' section is load-bearing: it is where the v1 scope lines (no recovery, no audio, no touch controls) live for operators and players alike.",
+    "Keep the docs commands-real: a doc with a command that doesn't run is a bug."
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "id": "TASK-14",
+  "title": "Client prediction + server reconciliation",
+  "category": "functional",
+  "description": "Client-side prediction of the local ship's movement using the shared flight model, with server reconciliation so remote players see smooth motion even at 10 Hz snapshots and ~150 ms simulated latency.",
+  "acceptanceCriteria": [
+    "src/client/net/prediction.ts: on each local input, the client immediately integrates the local ship with the same integrateShip (TASK-22) at the render frame dt; sends input {seq} to the server",
+    "On snapshot arrival: compare server state with the predicted state; if distance < 5 u and angle < 0.2 rad, blend (no visible snap); otherwise rewind: re-apply queued unacked inputs (server echoes last-applied seq) from the server state",
+    "Remote entities: 200 ms interpolation buffer — render remote ships at t - 200 ms using the two surrounding snapshots (lerp position, slerp rotation); on buffer underrun, render latest and mark stale (no teleporting)",
+    "Latency simulation test (unit, vitest with virtual clock): 150 ms RTT, constant thrust — max correction event distance < 5 u after the first 2 s (no sustained rubber-banding)",
+    "Interpolation test: snapshot gap jitter (10 Hz ± 20 ms) produces no visible jumps in a scripted render capture (assert max per-frame delta < threshold)",
+    "npm run test green; Playwright smoke: local ship responds to input with no perceptible lag (manual check + screenshot)"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Prediction engine",
+      "details": "ClientShipPredictor: holds serverState (last snapshot), inputQueue (inputs since last ack), predictedState. step(dt, newInput): push input, integrate. reconcile(serverState, ackedSeq): diff, blend or rewind per thresholds. Reuse integrateShip verbatim — never reimplement physics client-side.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Server ack",
+      "details": "Extend the server: entity_update for the owning player includes lastAppliedSeq (or a separate ack field). Minimal protocol change — document in TASK-69.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Remote interpolation buffer",
+      "details": "RemoteEntityBuffer per remote entity: ring of {t, state}; render at (now - 200 ms); lerp/slerp between neighbors; stale > 1 s → freeze + dim (client-side, no protocol change).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Latency tests",
+      "details": "Unit tests with a virtual clock + synthetic 150 ms delayed snapshots; measure correction events; assert thresholds. Interpolation jitter test per acceptance. Run full suite.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Smoke in browser",
+      "details": "Playwright: load app, fly forward 5 s, capture console (no errors), screenshot at start/mid/end; manual feel check noted in task log.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-13", "TASK-22"],
+  "estimatedComplexity": "high",
+  "technicalNotes": [
+    "The 200 ms render delay for remotes is the standard trade: smoothness over freshness. Do not try to 'predict' remote ships — keep them honest.",
+    "If rewind cost spikes (large input queue after a stall), cap queue at 10 s and force-snap with a 0.1 s blend instead of a visible teleport."
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "id": "TASK-45",
+  "title": "Rogue AI ship placement (seeded, per-system roster)",
+  "category": "functional",
+  "description": "Each star system has a seeded roster of rogue AI ships (pirates) patrolling its space — deterministic per system, with class distribution from the catalog, and respawn rules that keep the threat level stable.",
+  "acceptanceCriteria": [
+    "src/shared/world/ai.ts: rosterFor(systemId) → 6-10 rogue ships: {aiId, classId (weighted: scout 50%, interceptor 35%, freighter 15% — freighters are cargo hauls for the player to destroy or outrun), spawnPos (seeded, 500-3000 u from the star, never within 200 u of a station), patrolCenter, patrolRadius (200-800 u)} — identical for client and server from the seed",
+    "AI ships are persistent per-system entities: their hull/damage state persists with the shard (in-memory while the shard lives; on shard reap they reset to full — documented: rogues are a renewable threat, not a persistent world state); a destroyed rogue respawns at its spawnPos after 120 s (server timer), with a 'rogue respawn' debug log",
+    "AI names: seeded from a pirate-callsign list (40 names, no duplicates within a roster, no collision with the 3-16 char callsign validation — they look like player callsigns in the presence list, marked with a small 'AI' tag in the HUD (TASK-50) so the player can tell)",
+    "AI ships appear in snapshots like player ships (same EntityState, kind 'ship', ai: true flag) — the client renders them identically (livery = a per-class default pirate scheme, seeded)",
+    "No AI on the surface in v1 (rogues are space-only; surface threats are environmental, TASK-48) — a roster never spawns inside an atmosphere radius (placement test)",
+    "Unit tests: roster determinism (same seed → same roster, 3 systems), class distribution bounds (6-10 ships, weights hold over 100 seeded samples), spacing from stations, no-atmosphere placement; integration: shard spawn loads the roster, kill one rogue, it respawns after 120 s (fake timers), shard reap resets rogues to full",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Roster derivation",
+      "details": "rosterFor(systemId) per spec; names from a shared list (src/shared/ai/names.ts, 40 pirate callsigns); spawn positions seeded with rejection (station proximity, atmosphere); patrol parameters seeded.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Shard integration",
+      "details": "Shard spawn: create AI ship entities from the roster (full hull/shields, docked=false, state 'patrolling' — the behavior is TASK-46; this task gives them the entities + respawn timers); reap: AI state discarded (ships are re-derived on next spawn); respawn timer per destroyed rogue (120 s).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Client rendering",
+      "details": "AI ships render like player ships (same mesh builder, default pirate livery); the presence list shows them with an 'AI' tag (they are in the snapshot entity list, not the presence list — the PlayerList gets an AI section from the entity list: callsigns with ai:true); targetable/lockable like players (TASK-44 works on them).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "All listed; run full suite + typecheck.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-4", "TASK-42", "TASK-13"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "6-10 rogues per system × up to 3 active shards × 16 players — the sim budget (TASK-13 benchmark) must absorb up to ~10 AI ships per shard (it does: the benchmark uses 16 ships).",
+    "AI ships are the PvE focus (PRD): they give new players something to do before PvP exists in their session."
+  ]
+}

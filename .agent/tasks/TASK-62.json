@@ -1,0 +1,52 @@
+{
+  "id": "TASK-62",
+  "title": "Drizzle data layer: dual-driver schema (SQLite/Postgres)",
+  "category": "data-model",
+  "description": "Create the Drizzle ORM schema (players, ships, cargo_items, sessions, resource_node_state, system_registry) that compiles against both better-sqlite3 (local) and Postgres (prod), with migrations and a repository interface.",
+  "acceptanceCriteria": [
+    "Schema in `src/server/db/schema.ts` defines all six tables exactly per PRD §8 (field names, types, constraints): players (id uuid pk, callsign unique, credits int default 500, home_system_id, created_at), ships (id uuid pk, owner_id fk, class_id, livery json, hull real, shields real, position json, velocity json, state enum docked|flying|onfoot|destroyed, updated_at), cargo_items (id pk, ship_id fk, resource_type, quantity, unique(ship_id, resource_type)), sessions (token_hash pk, player_id fk, system_id nullable, created_at, expires_at), resource_node_state (node_id pk, quantity_remaining, respawn_at nullable), system_registry (system_id pk, name, shard_active, last_active_at)",
+    "Driver selected by DB_DRIVER env: sqlite (default, file at DB_PATH) or postgres (DATABASE_URL); both compile from the same schema definition",
+    "Migrations for the SQLite driver run cleanly on a fresh file (migrate in tests); Postgres parity verified by schema-compile test (drizzle-kit generate for pg produces DDL without error)",
+    "Repository interface (`src/server/db/repo.ts`): createPlayer, findPlayerByCallsign, getOrCreateStarterShip, saveShipState, saveCargo, addCredits/withdrawCredits, upsertNodeState, listNodeStates(systemId), session CRUD — implemented generically over the driver",
+    "Unit tests (vitest, sqlite in tmp dir): full CRUD round-trip per repository method; unique callsign violation raises typed error; insufficient-credits withdraw raises typed error",
+    "`npm run test` + `npm run typecheck` green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Define schema",
+      "details": "Use drizzle-orm/sqlite-core and drizzle-orm/pg-core with a shared column-definition approach (define each table once with driver-agnostic types where possible; where types diverge, use a small buildTable(driver) helper). UUIDs: text pk (crypto.randomUUID()). Enums as text with check constraints (sqlite) / pg enum (postgres).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Driver factory + env wiring",
+      "details": "src/server/db/client.ts: read DB_DRIVER; sqlite -> better-sqlite3 file (mkdir -p dirname), migrate() on boot; postgres -> pg Pool from DATABASE_URL. Export `db` and `migrate()`.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Migrations",
+      "details": "Generate SQLite migration SQL (hand-written or drizzle-kit); store in src/server/db/migrations/*.sql; apply sequentially with a _migrations tracking table. Add drizzle.config.ts for pg DDL generation (used by CI parity test).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Repository layer",
+      "details": "Implement every method in the interface with parameterized queries only (no string concatenation of user input). Typed errors: CallsignTakenError, InsufficientCreditsError, NotFoundError.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Tests + pg parity check",
+      "details": "Unit tests per method against a tmp sqlite file. CI parity: a test that runs drizzle-kit generate for postgres to a temp dir and asserts it exits 0 (no live PG needed). Run full suite green.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-68"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "Only mutable state is ever stored — geometry stays derived from the seed (PRD §8). Do not add tables for stars/planets/terrain.",
+    "position/velocity/livery are JSON columns: store plain objects; validate shapes with zod at the repository boundary."
+  ]
+}

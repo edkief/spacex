@@ -1,0 +1,41 @@
+{
+  "id": "TASK-17",
+  "title": "Reconnect and resync without world reset",
+  "category": "functional",
+  "description": "When a player's connection drops (network blip, tab sleep), the ship keeps living in the shard; on reconnect the player resumes seamlessly with a full resync and no world reset, no duplicate entities.",
+  "acceptanceCriteria": [
+    "Disconnect: connection removed from shard, presence_leave broadcast; ship remains simulated (idle) for as long as the shard lives (TASK-12 grace/reap rules unchanged)",
+    "Reconnect: same token, join_system to the same system → receives full snapshot containing their own ship at its current (possibly moved-while-idle) position; prediction state rebuilt (TASK-14 rewind path handles the gap)",
+    "No duplicates: reconnecting never creates a second ship entity for the player (ship is keyed by playerId in the sim — test asserts entity count unchanged after reconnect)",
+    "Reconnect within 60 s of drop: client shows 'Reconnected' toast, no full UI reset (chat log and player list preserved if the system is unchanged)",
+    "Long absence: if the shard reaped while away (no one else in the system), the player re-joins the reloaded shard and finds their ship exactly where the last flush put it (TASK-24)",
+    "WS integration tests: drop (close socket mid-flight), reconnect, position continuity < 1 u from where inputs stopped; duplicate-entity assertion; reap-and-rejoin test with fake timers",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Idle continuation",
+      "details": "Already implied by TASK-12 (ships persist after leave). Add: on leave, the sim marks the ship 'idle' (no inputs accepted from that conn) — inputs from a stale connId are dropped with a debug log.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Reconnect resync",
+      "details": "Client: on ws 'open' after a close (client auto-retry with 1 s backoff up to 30 s, then show a 'Connection lost' overlay with Retry button), re-run auth + join_system. On snapshot: reset PredictionEngine and RemoteBuffers, rebuild presence; keep UI state (chat, list) if same systemId.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Tests",
+      "details": "Integration tests per acceptance: mid-flight drop (send inputs, close, wait 2 s, reconnect, compare position), entity-count invariant, reap-rejoin. Run full suite.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-10", "TASK-12", "TASK-14"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "Auto-retry lives in the client ws wrapper (src/client/net/socket.ts) with exponential backoff capped at 5 s.",
+    "The 'Connection lost' overlay is the only full-screen UI in v1; it must not block the ESC menu."
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "id": "TASK-41",
+  "title": "Credits balance with persistence and spend rules",
+  "category": "functional",
+  "description": "Implement the player credit balance: persisted integer, atomic add/withdraw with insufficient-funds rejection, no debt, and audit-friendly transitions used by the resource loop and shop.",
+  "acceptanceCriteria": [
+    "players.credits is a persisted non-negative integer (new players start at 500)",
+    "addCredits(playerId, amount) and withdrawCredits(playerId, amount) go through the repository in a single transaction; withdraw below balance raises InsufficientCreditsError and leaves the balance unchanged",
+    "Atomicity test: 100 concurrent withdrawals of 10 against a balance of 500 result in exactly 50 successful and a final balance of 0 (sqlite serialized writes)",
+    "REST: GET /api/players/me returns credits; no endpoint exposes other players' balances in v1",
+    "Unit tests: start 500, add, withdraw, insufficient, zero floor, transaction rollback on mid-failure",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Repository methods",
+      "details": "Add to repo (TASK-62): getBalance, addCredits, withdrawCredits. withdraw: UPDATE players SET credits = credits - ? WHERE id = ? AND credits >= ?; rowsAffected 0 → throw InsufficientCreditsError. All inside transactions when paired with other writes (e.g. sell).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "REST surface",
+      "details": "GET /api/players/me (auth) returns {callsign, credits, homeSystemId, shipId}. Wire auth middleware from TASK-10.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Concurrency + unit tests",
+      "details": "Run the 100-concurrent-withdrawals test (sqlite busy timeout + serialized transactions). Standard unit cases. Run full suite + typecheck.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-62", "TASK-10"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "Credits are the only currency; no transactions between players in v1 (no market), so no double-entry bookkeeping needed.",
+    "Keep amounts as integers (credits) — no floats in money math."
+  ]
+}

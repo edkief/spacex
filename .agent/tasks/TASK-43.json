@@ -1,0 +1,48 @@
+{
+  "id": "TASK-43",
+  "title": "Weapons: lasers and missiles with per-class loadouts",
+  "category": "functional",
+  "description": "The two v1 weapon systems: instant-hit lasers and arcing guided missiles, with per-class loadouts from the ship catalog, fire-rate limits, energy costs, and client-side firing FX.",
+  "acceptanceCriteria": [
+    "Lasers: fire on weapon key (LMB in flight, LMB on foot = character... no guns on foot in v1 — on-foot LMB is unused); instant ray from the ship's nose to max range (400 m); damage 8 per hit; fire rate 3/s; energy cost 2 (energy regenerates 10/s, max 100 — no energy = 'LOW ENERGY' prompt, firing denied); the ray resolves through TASK-42 resolveHit at the first valid target (or terrain occlusion point)",
+    "Missiles: fire rate 0.5/s, range 800 m, damage 25 on impact, homing: a moving entity (speed 120 u/s) that turns toward the target each tick (turn rate 1.5 rad/s) — if the target evades (turns faster than the missile can track within 5 s), the missile expires (no hit); missiles are visible entities (small tracer) in snapshots for all clients; on impact: a 5 m radius splash (damage 25 to the target, 12 to others in radius — friendly fire applies)",
+    "Loadouts from TASK-19: scout {laser x1}, interceptor {laser x2, missiles x4}, freighter {laser x1}; weapon selection (1/2 keys) switches active weapon; the HUD (TASK-50) shows the current weapon + energy",
+    "Server authority: 'fire' {weapon, targetId?} message — the server re-derives everything (rate, energy, range, LOS, target validity); a client claiming a hit or firing off-rate gains nothing (rate-limited drops logged, energy not spent on denied fires); anti-spam: 30 fires/s from one client → weapon locked for 5 s ({code:'weapon-locked'})",
+    "FX (client): laser = a 60 ms line flash (billboard), muzzle spark; missile = tracer mesh + smoke trail (cheap: a fading ribbon of ≤ 8 quads); impact = a small flash + a screen shake 2 px (cosmetic, TASK-50 tunes); all FX are event-driven from combat_event (never from the local fire intent alone — a denied fire shows no FX)",
+    "Unit tests: laser range/LOS, fire-rate enforcement (exact 3/s), energy gating, missile homing convergence (straight target → hit in < 5 s, evading target → expire), splash radius damage split, weapon lock; integration: ship A fires at B, B's shields drop, C sees the FX events; e2e: fire a laser in the browser, screenshot the flash",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Weapon defs + loadouts",
+      "details": "src/shared/weapons.ts: LASER {damage 8, range 400, rate 3/s, energy 2}, MISSILE {damage 25, splash 12, radius 5, range 800, speed 120, turn 1.5, rate 0.5/s, energy 10}; loadoutFor(classId) from the catalog; energy model (max 100, regen 10/s) in the shared ship state.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Server fire handler + projectiles",
+      "details": "shard.handleFire: loadout check, rate check (per-weapon cooldown), energy check (deduct on accepted fire only), range/LOS via TASK-42; laser: resolve immediately at first hit; missile: spawn a projectile entity {pos, vel, targetId, ttl 5 s}; sim tick moves projectiles (homing), contact → resolveHit (+ splash). Weapon-lock counter per conn.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Client FX + HUD stub",
+      "details": "fx.ts: event → effect map (hit/destroyed/missile-impact/laser-fired by self); line flash (a stretched quad, additive blending), tracer mesh pool (≤ 16 concurrent missiles, recycled), impact flash + 2 px shake (camera nudge, decays 100 ms). A minimal weapon HUD stub (active weapon name + energy bar) — the full HUD is TASK-50.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests + e2e",
+      "details": "All listed; e2e fires a laser with a flash screenshot. Run full suite + e2e.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-42", "TASK-19"],
+  "estimatedComplexity": "high",
+  "technicalNotes": [
+    "Missiles cap at 16 concurrent per shard (entity budget); oldest expires first when the cap is hit (logged).",
+    "Energy is per-ship and persists with the ship (TASK-24) — regenerating while docked is fine (idle tick).",
+    "On-foot has no weapons in v1 (PRD: on-foot = walk/look/interact/pickup). Surface combat is ship-vs-hazards (TASK-48) and ship-vs-ship near the surface."
+  ]
+}

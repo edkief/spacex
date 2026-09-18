@@ -1,0 +1,40 @@
+{
+  "id": "TASK-15",
+  "title": "Presence: in-system player list and toasts",
+  "category": "functional",
+  "description": "Every client sees who else is in the current system: a live player list (callsigns), join/leave toasts, and the per-system occupancy count feeds the star chart.",
+  "acceptanceCriteria": [
+    "Client maintains inSystemPlayers: Map<playerId, {callsign, shipId, onFoot?}> built from the join snapshot and presence_join/presence_leave events (TASK-12)",
+    "Player list HUD (bottom-left, minimal): callsigns with a small status dot (in-ship vs on-foot); updates within one snapshot of a change",
+    "Toasts: 'CALLSIGN joined' / 'CALLSIGN left' (non-intrusive, top-right, 3 s fade); toast flood limited to 3 visible (queue the rest)",
+    "Occupancy: GET /api/galaxy/health (TASK-11) data feeds the star chart — systems with active shards show a player count badge (TASK-7 consumes it)",
+    "WS integration test: 3 clients in one system — each sees exactly the other 2 in its list; one leaves — the other two update within 1 s; one joins a different system — not listed",
+    "npm run test green; Playwright smoke: join with two browser contexts, both lists show both callsigns (screenshot)"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Client presence store",
+      "details": "src/client/net/presence.ts: PresenceStore with join/leave/leaveAll (on system change); subscribable (simple event emitter); excludes own callsign from the list but shows a '(you)' marker.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "HUD list + toasts",
+      "details": "PlayerList React component (bottom-left, compact, monospace); ToastStack (top-right). Both read PresenceStore; no re-render per snapshot (only on presence events).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Tests",
+      "details": "WS integration test per acceptance; Playwright two-context smoke with screenshot. Run full suite + typecheck.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-12", "TASK-13"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "No ping/latency display in v1 (was cut for scope); the store keeps a lastSeen timestamp in case it returns.",
+    "onFoot flag arrives with TASK-36; the store field exists from the start (optional)."
+  ]
+}

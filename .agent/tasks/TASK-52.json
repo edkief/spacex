@@ -1,0 +1,47 @@
+{
+  "id": "TASK-52",
+  "title": "On-foot HUD: exposure, inventory, interaction line",
+  "category": "ui-ux",
+  "description": "The surface-mode HUD: the exposure/radiation meter, the inventory weight bar, and the unified interaction prompt line — the on-foot counterpart of the ship HUD.",
+  "acceptanceCriteria": [
+    "Exposure meter (bottom-right, above the weight bar): a vertical bar (50 max) that fills as exposure is lost (TASK-48); green > 25, amber 10-25, red < 10; a radiation icon when in a rad zone, a storm icon in a storm; a 'RECOVERING' state (bar frozen, pulsing red, 5 s countdown) when knocked down",
+    "Weight bar (bottom-right): the TASK-34 weight bar (weightUsed/40, amber near cap, red at cap) with the item counts on hover ('iron x12, crystal x2'); updates at 10 Hz",
+    "Interaction line (bottom-center): the single prompt line for all on-foot actions (TASK-33): '[E] Take iron x3' / '[E] Enter ship' / '[E] Dock terminal' / '[E] Mine (hold)' with the mining radial progress (TASK-38) drawn around it; one prompt at a time (nearest wins); hidden when nothing is in range",
+    "Mode coherence: when on foot, the ship HUD's flight readouts (speed/altitude/nav) are hidden and the on-foot elements show — and vice versa when in the ship; the switch happens at the regime change frame (no lingering elements, no overlap with the camera handoff, TASK-27)",
+    "Performance: on-foot HUD work < 0.5 ms/frame (snapshot-driven; the only rAF work is the mining radial, a conic-gradient angle write)",
+    "Unit/component tests: exposure bar states (exact thresholds), recovering countdown (fake timers), weight bar formatting, prompt line exclusivity (two targets in range → only the nearest shows), mode switch (no element from the other mode renders after the switch); e2e: on-foot HUD screenshot (exposure meter visible in a rad zone)",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Exposure meter",
+      "details": "ExposureMeter: from the player's hazard state (snapshot field exposure, recoveringUntil — extend the snapshot's player state in this task, small protocol addition); icon by active hazard kind (the snapshot includes the current hazard id when inside one).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Weight bar + prompt line",
+      "details": "WeightBar (TASK-34, moved into the on-foot HUD slot with hover counts); InteractionLine: the unified prompt (the TASK-33 prompt is already single — this task gives it its final layout + the mining radial (a conic-gradient ring, rAF angle write from the server's miningProgress).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Mode switch",
+      "details": "HUD mode = the player's activeEntity kind (ship/character) — a single source of truth; the HUD root renders the ShipHUD or OnFootHUD subtree (never both); the switch is atomic with the camera handoff (same event).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests + e2e",
+      "details": "All listed; e2e rad-zone screenshot. Run full suite + e2e.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-34", "TASK-33"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "The snapshot player-state extension (exposure, hazard id) is the only protocol change — keep it in the existing entity_update envelope.",
+    "One HUD mode at a time is a hard rule — the mode-switch test enforces it."
+  ]
+}

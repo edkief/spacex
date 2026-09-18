@@ -1,0 +1,47 @@
+{
+  "id": "TASK-39",
+  "title": "Ship cargo hold: load, capacity, transfer",
+  "category": "functional",
+  "description": "The ship's cargo hold: class-based capacity (TASK-19), loading ore from the on-foot inventory into the hold at a docked ship, and the ship-to-inventory transfer for selling — the haul leg of the resource loop.",
+  "acceptanceCriteria": [
+    "Cargo hold state {stacks: {resourceId: amount}, weightUsed, capacity} on the ship entity; capacity = class.cargoSlots * 10 weight units (scout 40, interceptor 20, freighter 120 — from TASK-19 stats, asserted in tests)",
+    "Transfer at a docked ship: on foot within 5 m of the own docked ship, the prompt '[E] Open cargo' → 'cargo' UI (DOM panel): shows inventory stacks + hold stacks with 'Move' buttons (move 1 / move all per resource); server 'cargo_transfer' {resourceId, amount, from: 'inv'|'hold'} validates (owns the amount, hold has space) and moves atomically",
+    "The hold is on the ship: it persists with the ship (TASK-24), survives restart (test), and travels with the ship across warp (warping with cargo keeps the cargo — test)",
+    "Selling consumes from the hold (TASK-40), not the on-foot inventory — the loop is: mine (inventory) → load (hold) → fly to dock → sell (hold)",
+    "Cargo UI is also reachable from the ship (in flight, docked): a 'Cargo' button in the ship HUD (stub now, TASK-51) opens the same panel showing the hold (no inventory side while in flight — transfer requires being on foot at the ship)",
+    "Unit tests: capacity math per class, atomic transfer (partial when hold nears cap), persistence + warp round trip; WS tests: transfer round trip, invalid transfers (not own ship, not docked, insufficient), two players can't touch each other's holds",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Cargo model + persistence",
+      "details": "src/shared/cargo.ts (types + capacity math); ships.cargo JSON column (schema migration); load/save with the ship state (TASK-24 flush already ships the JSON field — extend it).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Transfer handler + UI",
+      "details": "shard.handleCargoTransfer (docked + ownership + amounts, one transaction); 'cargo' UI React panel (two columns, Move buttons, weight bars); prompt via the TASK-33 registry (ship kind, sub-prompt by proximity: Enter ship / Open cargo).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Warp round trip",
+      "details": "Warp (TASK-8) moves the whole ship entity including cargo — verify with a test: load 10 iron, warp A→B, hold still has 10.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "All listed; run full suite + typecheck.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-34", "TASK-19", "TASK-62"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "Capacity formula (slots × 10) keeps one stat (cargoSlots) driving both UI and math — no second source of truth.",
+    "The freighter's 120 capacity is the economic differentiator: ~3 trips of scout cargo per freighter trip — the reason to buy it."
+  ]
+}

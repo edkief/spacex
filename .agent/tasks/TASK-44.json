@@ -1,0 +1,47 @@
+{
+  "id": "TASK-44",
+  "title": "Targeting: lock-on, target box, threat ping",
+  "category": "functional",
+  "description": "The targeting system: a player can lock a target (T key or click-to-target), the locked target is shown in a HUD target box, missiles prefer the locked target, and being fired at produces a threat ping (audio-free visual indicator).",
+  "acceptanceCriteria": [
+    "Lock-on: pressing T locks the nearest valid target within 500 m and 30° of the ship's forward (ships only — no target lock on deposits/stations in v1); 'TARGET LOCKED: <callsign or AI name>' toast + the target box appears (HUD, TASK-50 renders it — this task provides the state)",
+    "Target box state: {targetId, callsign, distance (live, updated per snapshot), hullPct, shieldPct, bearing (relative angle)}; auto-release when the target is destroyed, exits 1500 m, or 30 s elapse (whichever first); re-pressing T on an already-locked target releases it (toggle)",
+    "Missiles prefer the lock: a fired missile homes on the locked target if one is valid, otherwise on fire the server picks the nearest target in the nose cone (30°, 800 m) — no target → the missile flies straight and expires (no wasted ammo silently: 'NO TARGET' prompt on denied missile fire)",
+    "Threat ping: when a combat_event hit/destroyed with source != self arrives, a red arc indicator appears on the HUD pointing toward the source (bearing from the event's source position at hit time, updated while the source is in the snapshot); fades after 3 s; multiple attackers → the strongest recent source (last 5 s) wins the indicator",
+    "Server: 'target_lock' {targetId} / 'target_release' messages — the lock is per-player server state (used by missile targeting + shown to others as a small lock icon above the targeted ship, so PvP is readable); invalid targets rejected ({code:'invalid-target': not in range / not a ship / destroyed})",
+    "Unit tests: lock selection (nearest in cone, exact boundary cases), auto-release timers (fake clock), missile target preference (lock > nearest > straight), threat ping selection (multiple sources, 5 s window); integration: A locks B, B sees the lock icon, A's missile hits B, threat ping appears on B's client state; e2e: lock a target, screenshot the target box",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Server lock state",
+      "details": "shard.targets: Map<playerId, {targetId, lockedAt}>; handleTargetLock (range 500 m + cone 30° check + target validity), handleTargetRelease; per tick: auto-release checks; lock icon broadcast (the targeted ship's entity_update gains a targetedBy list — cheap: only when it changes).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Missile preference",
+      "details": "TASK-43 missile spawn: targetId = the shooter's lock (if valid) else nearest-in-cone else null (straight); update TASK-43's tests for the preference.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Client target box state + threat ping",
+      "details": "src/client/combat/targeting.ts: TargetingState (lock, box data, threat pings) fed by the protocol + local combat events; the HUD (TASK-50) consumes it; threat ping bearing math (source pos → self pos, relative to ship yaw).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests + e2e",
+      "details": "All listed; e2e lock + target-box screenshot. Run full suite + e2e.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-42", "TASK-43"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "Locks are social information in v1 (the lock icon is visible to the targeted player and others) — this is what makes PvP readable without a full HUD radar.",
+    "No radar/minimap in v1 (scope cut) — the threat ping + lock icon carry the situational awareness."
+  ]
+}

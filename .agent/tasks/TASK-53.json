@@ -1,0 +1,47 @@
+{
+  "id": "TASK-53",
+  "title": "Menu shell: ESC menu, pause, and the dock panel assembly",
+  "category": "ui-ux",
+  "description": "The ESC menu shell (resume, systems, ships, settings, credits) and the assembled dock panel (Sell / Ships / Repair tabs) — the two big DOM surfaces that tie the game's systems together.",
+  "acceptanceCriteria": [
+    "ESC menu: pressing ESC (in any regime, in or out of a ship) opens a centered menu panel: Resume / Systems (opens the star chart, TASK-7) / Ships (opens the ship panel) / Settings (TASK-55) / Credits + callsign (footer); the game keeps running while the menu is open (no pause — multiplayer world; the menu is a transient overlay, documented); ESC closes it; the menu is modal (game input suppressed while open, except ESC)",
+    "Ship panel (from the menu, or the 'Cargo' button in the ship HUD, TASK-39): tabs — Overview (class stats from TASK-19, hull/shield/energy bars, livery colors with pickers → POST /api/ships/livery, TASK-21), Cargo (the TASK-39 panel), Repair (cost preview from TASK-23 + a Repair button when docked, disabled with a reason otherwise)",
+    "Dock panel (from the on-foot 'Dock terminal' prompt, TASK-33): the same tab shell with the Sell tab active (TASK-40) — the dock panel and ship panel share one component (different available tabs by context: docked-ship context adds Repair, on-foot dock context adds Sell)",
+    "All menu navigation is keyboard-first: Tab cycles, Enter activates, arrow keys switch tabs, ESC backs out one level (panel → menu → closed); focus is trapped inside the open surface and restored on close (TASK-54 builds the full a11y pass on this)",
+    "Performance: opening the menu costs < 20 ms (no heavy work — panels render data already in memory; the livery picker is the only network-touching control, and it debounces 500 ms before saving)",
+    "Component tests: ESC open/close, modal input suppression (game input events ignored while open), tab switching, focus trap (Tab wraps, ESC stack), docked/undocked Repair button states, livery debounce (5 rapid changes → 1 request); e2e: open ESC menu → Systems → close (screenshot of the menu)",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Menu shell + input gating",
+      "details": "MenuShell (a React context: open surface stack); the input map (TASK-25 controls) checks the stack: non-ESC input is dropped while a surface is open; ESC pops the stack; the world keeps simulating (no pause message — the server is unaware).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Ship panel (shared tabs)",
+      "details": "ShipPanel: Overview (stats + livery pickers with 500 ms debounce → the TASK-21 endpoint), Cargo (the TASK-39 component, embedded), Repair (TASK-23 cost preview + action, docked-gated); the tab set is context-driven ({docked: [Overview, Cargo, Repair], in-flight: [Overview, Cargo], on-foot-dock: [Overview, Cargo, Sell]}).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Dock panel",
+      "details": "DockPanel = ShipPanel with the Sell tab (TASK-40) + the on-foot context; opened by the 'ui-open' message / the terminal prompt; the same shell component (one implementation, context props — no duplicated panel code).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests + e2e",
+      "details": "All listed; e2e menu screenshot. Run full suite + e2e.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-7", "TASK-40", "TASK-20", "TASK-23", "TASK-21", "TASK-16"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "The menu does not pause the world (multiplayer) — a player who opens the menu can still be shot; that is by design (documented in the settings + first launch, TASK-56).",
+    "One panel component for ship/dock contexts is a hard requirement (the tab-set test enforces it) — it keeps the dock UI and ship UI from drifting apart."
+  ]
+}

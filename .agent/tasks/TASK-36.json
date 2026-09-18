@@ -1,0 +1,47 @@
+{
+  "id": "TASK-36",
+  "title": "On-foot multiplayer: remote characters and shared surface",
+  "category": "functional",
+  "description": "Multiple players on the surface of the same planet at once: remote characters rendered with interpolation, shared ground items, and presence showing who is on foot — the surface is as multiplayer as space.",
+  "acceptanceCriteria": [
+    "Two players on the surface of the same planet see each other's characters in real time (position within one interpolation window, ~200 ms), each with their callsign floating above (small label, 10 m billboard fade)",
+    "Remote character movement is smooth (200 ms buffer, TASK-14) even across slope changes; a character walking on a slope is not rendered sliding through terrain (y from snapshots, same terrain on both clients by seed)",
+    "Ground items are shared: player A drops ore, player B sees it appear (within one snapshot), can walk to it and pick it up — A's drop is removed for both",
+    "Presence list (TASK-15) marks on-foot players with a different icon (walking figure vs ship) and the player list stays correct when players disembark/re-enter (icon switches live)",
+    "Scale: 8 players on the same surface (4 on foot, 4 in ships) — all character positions interpolate without hitches (frame monitor p95 within baseline + 4 ms, TASK-57)",
+    "WS integration tests: 3 players, mixed ship/foot, position exchange assertions (each client's view of a remote character is within 2 m of the server truth after 1 s), ground-item round trip between two clients, presence icon switching; e2e: two contexts on the surface, both see each other (screenshots)",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Remote character rendering",
+      "details": "CharacterMesh for remote players (same capsule as local, livery-colored); label sprite (callsign) as a screen-space DOM overlay positioned per-frame (cheap: ≤ 16 labels); into the existing RemoteEntityBuffer pipeline (kind 'character').",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Presence onFoot flag",
+      "details": "PresenceStore (TASK-15) gains onFoot from the entity list (activeEntity kind); the PlayerList icon switches; join/leave toasts unchanged.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Shared ground items",
+      "details": "Already server-broadcast (TASK-34) — verify the client renders ground items for all players (small glowing ore chunk mesh) and the interact prompt works for any player (server validates ownership of the pickup effect: the picker's inventory, not the dropper's).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Scale test + e2e",
+      "details": "8-player integration (4 ws clients on foot + 4 in ships, scripted movement), frame-time assertion via server-side sim timing (client headless can't easily do 8 tabs — use the server tick budget as the proxy + a 2-tab e2e for visuals). Run full suite + e2e.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-35", "TASK-13", "TASK-15"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "No character-character collision in v1 (players can overlap — documented assumption, matches the ship model).",
+    "Call-sign labels: DOM, not sprites — a11y-friendly and cheap at ≤ 16."
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "id": "TASK-28",
+  "title": "Atmospheric entry/exit: drag ramp and visual transition",
+  "category": "functional",
+  "description": "The feel and visuals of crossing the atmosphere boundary: physics drag ramps continuously (shared with TASK-22), and the view transitions (skybox → atmosphere haze → skybox) with no hard cut.",
+  "acceptanceCriteria": [
+    "Physics: crossing the atmosphere boundary applies the shared drag ramp (TASK-22: k ramps 0 to full over 1 km of boundary depth) — sim test: entering at 100 u/s, the speed profile matches the analytic drag curve within 2% (integration vs closed-form over 10 s)",
+    "Visuals: skybox crossfades to an atmosphere dome (planet-colored haze shader) as the player descends through the boundary band (0 at space, 1 at surface); the transition is a continuous blend over the same 1 km band — no pop at any altitude",
+    "Haze density scales with planet.atmosphereDensity (a thin-atmosphere planet is visibly less hazy — two planets in the seeded galaxy differ, asserted in a render test: haze factor at mid-boundary differs by > 20%)",
+    "Re-entry heating is NOT simulated in v1 (documented assumption) — the visual cue is a subtle orange tint ramp at > 200 u/s descent inside the boundary, cosmetic only",
+    "Unit tests: drag ramp continuity (no discontinuity in the acceleration function at any boundary altitude), blend factor math, per-planet density scaling; sim integration test vs analytic curve",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Shared boundary function",
+      "details": "src/shared/physics/atmosphere.ts: boundaryFactor(alt, planet) → 0..1 (1 at surface, 0 above enter radius + 1 km ramp); drag k = k_max * boundaryFactor; the existing TASK-22 ramp is refactored to call this (single source of truth — update TASK-22's tests to cover the refactor).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Atmosphere dome",
+      "details": "Back-face sphere shader around the planet: mix(skyboxColor, atmosphereColor, haze) where haze = boundaryFactor * densityScale; rendered only when the player is within the boundary band (cheap: one draw call). Skybox (starfield) fades out with the same factor — both driven by the same number, so they can never desync.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Cosmic re-entry tint",
+      "details": "If descent speed > 200 u/s and boundaryFactor > 0: add an orange rim tint to the cockpit frame (simple full-screen quad or CSS overlay — pick the cheapest that looks right in the screenshot check).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "Continuity + analytic-curve sim test + per-planet density render assertion (headless pixel sample of the dome color at mid-boundary on two seeded planets). Run full suite.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-25", "TASK-22", "TASK-5"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "The dome is per-planet geometry (radius = atmosphereRadius * 1.01); at most one dome is active at a time (nearest planet only).",
+    "Refactoring TASK-22's inline ramp into the shared function is in scope — run TASK-22's golden fixtures to prove no behavior change."
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "id": "TASK-18",
+  "title": "16-player concurrent load test over real WebSockets",
+  "category": "performance",
+  "description": "The full-stack load test: 16 real WebSocket clients in one system (mixed ship/foot/combat/mining), measuring end-to-end latency, snapshot delivery, and server stability — the multiplayer contract at the v1 cap.",
+  "acceptanceCriteria": [
+    "Load harness: tests/load/ — 16 ws clients (one process, real sockets to a real server on a random port, sqlite in-memory... no: a file DB in tmp, since the shard flush hits it) joining one system; each client runs a scripted role (8 flying + firing, 4 on foot + mining, 2 warping in/out every 60 s, 2 idle) for 5 minutes",
+    "Snapshot delivery: every client receives ≥ 9.5 entity_update messages per second (10 Hz nominal, ≤ 5% loss) over the full run; p95 message size < 16 KB; no client is starved (a client with 0 snapshots for > 2 s fails the test)",
+    "End-to-end latency: each flying client measures input→snapshot-ack RTT (the server echoes lastAppliedSeq, TASK-14); p95 RTT < 100 ms on the dev machine (localhost — this is the server's processing + loopback, not network)",
+    "Server stability: no tick drops below 15 Hz sustained (TASK-60 rule, now with real sockets), no unhandled rejections, no memory growth > 30 MB over the 5 min (heap check at start/end), all 16 sessions remain authenticated (no spurious 4001 kicks except the 2 warping clients' expected disconnects)",
+    "Reconnect under load: at t=2 min, 4 clients drop (close sockets) and reconnect within 3 s — the shard handles it (no entity corruption: every client's entity list is consistent — no duplicates, no missing ships — verified by a per-client entity-count assertion after rejoin)",
+    "Cap enforcement under load: a 17th client attempting to join receives {code:'system-full'} (the cap holds at exactly 16) — and is NOT counted in any shard (the router's count stays 16)",
+    "The load test is committed: npm run load (5 min) + npm run load:smoke (30 s, 16 clients, asserts the snapshot-rate + cap rules only); both green; numbers recorded (RTT percentiles, tick histogram, heap delta) for TASK-61; npm run test green (unit suite unaffected)"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Load harness",
+      "details": "tests/load/harness.ts: client role scripts (deterministic input patterns), RTT measurement (send input with a monotonic counter, match the server's lastAppliedSeq echo, timestamp delta), the snapshot rate counter, the entity-count consistency checker (per client: a set of entity ids, assert no dups + expected membership).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Scenario run",
+      "details": "The 5-minute scenario per acceptance (roles + the t=2 min reconnect wave + the 17th-client cap probe at t=1 min); collect all metrics into a JSON report (printed + written to a tmp file).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Assertions + tuning loop",
+      "details": "Assert every acceptance metric from the report; if the server fails (RTT or tick rate), take the TASK-60 per-phase table, apply the next optimization, re-run — repeat until green (the load test is the gate that validates the in-process tuning under real I/O).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Commit",
+      "details": "load (5 min) + load:smoke (30 s) scripts; record the final metrics for TASK-61; commit.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-17", "TASK-36", "TASK-47", "TASK-60"],
+  "estimatedComplexity": "high",
+  "technicalNotes": [
+    "This is the multiplayer proof at the cap: if TASK-60's tuning was sim-only, this task is where socket I/O, flush cadence, and reconnect storms meet it.",
+    "The 17th-client probe is a correctness check (cap), not a performance one — keep it separate in the report.",
+    "Run it before merging any combat/economy change (add to the review checklist in TASK-69's contribution guide)."
+  ]
+}

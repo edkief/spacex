@@ -1,0 +1,47 @@
+{
+  "id": "TASK-37",
+  "title": "Resource deposits: seeded placement and persistence",
+  "category": "data-model",
+  "description": "Resource deposits (iron, copper, rare-earth, crystal) are placed deterministically from the seed on planetary surfaces and station outposts; their remaining quantities persist so mining depletes them for everyone.",
+  "acceptanceCriteria": [
+    "src/shared/world/deposits.ts: depositsFor(systemId) → up to 120 deposits per system: {depositId, planetId, pos (on terrain surface, from heightAt), resourceId, amount (initial 10-50 units), discovered: false}; placement: seeded Poisson-ish scatter over habitable/rocky terrain (no deposits in atmosphere space, none below terrain, min spacing 200 m — all from the seed, identical on client and server)",
+    "Resource catalog in src/shared/resources.ts: iron {weight 1, basePrice 5}, copper {1, 8}, rare-earth {2, 25}, crystal {3, 60} credits per unit (base prices for the dock, TASK-40)",
+    "Persistence: deposit state (remaining amount) in the deposits table (seed-derived row created lazily on first mine); a mined deposit's remaining amount persists across restarts (test); a fully depleted deposit despawns (entity removed, row remains with amount 0)",
+    "Client: deposits within 500 m of the player render as ore rocks (color per resource: iron grey, copper orange, rare-earth blue, crystal violet) with a subtle emissive pulse when < 10 units remain; beyond 500 m not rendered (streamed with the entity system, not terrain chunks)",
+    "Discovery: a deposit is 'discovered' when any player comes within 50 m (client-side marker on a minimap stub is out of scope — discovery just gates the star-chart resource summary, also out of scope for v1; keep the flag for the future and assert it flips server-side in tests)",
+    "Unit tests: placement determinism (same seed → identical list, 3 systems), spacing constraint, surface placement (every deposit pos has heightAt ≈ pos.y ± 0.5), catalog weights/prices; persistence test: mine 5 units, restart, remaining = initial - 5",
+    "npm run test green"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Catalog + placement",
+      "details": "resources.ts (catalog) + deposits.ts (placement): seeded RNG per (systemId, 'deposits'); candidate rejection: terrain slope > 30° rejected, spacing 200 m rejected, count cap 120; amount from a seeded range; resource type weighted (iron 40%, copper 30%, rare-earth 20%, crystal 10%).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Persistence",
+      "details": "Schema: deposits {id, system_id, planet_id, pos (json), resource_id, remaining, discovered, PRIMARY KEY (system_id, deposit_seq)} — upsert-on-first-mine; remaining decremented atomically in the mine transaction (TASK-38).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Client rendering",
+      "details": "OreRock meshes (low-poly dodecahedron variant per resource, emissive pulse < 10); streamed by distance (500 m) from the deposit list (client derives it — same seed); part of the entity snapshot only when discovered or within range (server sends 'deposit' entities for the player's 500 m ring — keep the snapshot lean).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "All listed incl. the restart persistence test (child server process, like TASK-24). Run full suite + typecheck.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-5", "TASK-62", "TASK-63"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "120 deposits × ≤ 50 units per system is a bounded economy — depletion over days, not hours, for a 16-player system; tuned in TASK-40 if sales data says otherwise.",
+    "Deposit positions are derived, not stored — the table stores only deltas (remaining, discovered). This keeps the DB tiny and the seed the source of truth (PRD §6)."
+  ]
+}

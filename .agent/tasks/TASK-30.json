@@ -1,0 +1,48 @@
+{
+  "id": "TASK-30",
+  "title": "Transition hitch budget: every regime change stays under 4 ms",
+  "category": "performance",
+  "description": "Verify and enforce the core promise: every seamless transition (space to atmosphere, atmosphere to surface, disembark, re-enter) costs no more than 4 ms of frame time on the reference client, with no visible pop or cut.",
+  "acceptanceCriteria": [
+    "Benchmark harness: a scripted full transition cycle (space → atmosphere → surface on pad → disembark → walk 10 m → re-enter → atmosphere → space) runs headless with the TASK-57 monitor sampling per-frame time and per-transition phase time",
+    "Every transition phase (regime flip frame, camera handoff frames, chunk-load spike frames, material swaps) has a measured max frame delta < 4 ms above the baseline frame time of the same scene without the transition (i.e., the transition adds < 4 ms, not < 4 ms absolute)",
+    "No-pull check: during the entire cycle, the frame monitor records no frame > 100 ms (no GC spikes, no chunk stalls) on the reference client profile (default quality preset)",
+    "Budget failures are actionable: each measured phase reports {transition, frameIndex, baselineMs, measuredMs, deltaMs} so a regression names the exact culprit",
+    "The benchmark is repeatable: run 5 times, p95 of the per-run worst delta is stable (variance < 20% — flakiness check in the test itself)",
+    "Benchmark committed as a script (npm run bench:transitions) AND as a CI test (npm run test includes a fast 1-cycle version)",
+    "All budget checks green on the dev machine; numbers recorded in the task log for TASK-61's reference-hardware run"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Scripted cycle driver",
+      "details": "src/client/test/transitionCycle.ts (dev-only): drives the game through the full cycle with synthetic inputs (no real player needed) — uses the existing dev test hooks (TASK-27 hook + a sim-teleport hook). Exposes onFrame(phase, frameStats) callback.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Baseline + delta measurement",
+      "details": "Run the scene idle for 3 s to establish baseline p50/p95; run the cycle; attribute each frame to a phase (regime change ± 2 frames, handoff window, first chunk gen after boundary crossing); compute deltas; budgetCheck per phase via TASK-57.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Fix violations",
+      "details": "Expected hotspots: first chunk generation at the boundary (mitigate: the 7x7 fast-movement ring from TASK-26 should have pre-generated it — verify), camera handoff path sampling (5 heightAt calls — cache), material swaps (pre-built from TASK-21/26 mip chains). Fix each violation found and re-run until green.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "CI + repeatability",
+      "details": "Fast 1-cycle version in the unit/e2e suite (60 s budget); 5-run variance assertion in the full bench script. Run both; commit with recorded numbers.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-27", "TASK-28", "TASK-29", "TASK-31", "TASK-32", "TASK-35", "TASK-57"],
+  "estimatedComplexity": "high",
+  "technicalNotes": [
+    "This task may require small fixes in earlier tasks — that is its job. Keep fixes minimal and covered by their own tests.",
+    "If the dev machine is too slow to hold 4 ms on some phase, record the absolute numbers and flag TASK-61 (reference hardware) as the final gate — but the delta methodology still applies.",
+    "Do not optimize by pre-loading the whole world — that breaks the streaming design; optimize the pipeline (caching, pre-build, slicing)."
+  ]
+}
