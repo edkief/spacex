@@ -5,6 +5,7 @@ dist/
 # Local app data and test artifacts
 app/data/
 playwright-report/
+test-results/
 
 # Local environment and secrets
 .env

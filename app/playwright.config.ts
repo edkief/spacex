@@ -17,12 +17,11 @@ export default defineConfig({
     viewport: { width: 1366, height: 768 },
   },
 
-
   // NB: only chromium will run in Docker (arm64).
   projects: [
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-    }
+    },
   ],
 });

@@ -3,12 +3,23 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-29
-**Tasks Completed:** 1
-**Current Task:** TASK-1 Complete
+**Tasks Completed:** 2
+**Current Task:** TASK-68 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-09-29 — TASK-68: Scaffold TS monorepo (client/server/shared) with tooling
+Stood up the `app/` scaffold (work was partially present uncommitted from a prior pass; verified, fixed, and completed it):
+- Source trees `app/src/{shared,client,server}` with `@shared/*`, `@client/*`, `@server/*` aliases in tsconfig.json, vite.config.ts, and vitest.config.ts (strict, ESNext/bundler, ES2022).
+- Server: `src/server/index.ts` (dotenv from PROJECT_ROOT/.env.local, Fastify + ws at WS_PATH, PORT from env), `server.ts` (buildServer for inject() tests), `env.ts` (zod-validated env with defaults: PORT, SESSION_SECRET, GALAXY_SEED, DB_DRIVER, DB_PATH, SYSTEM_INSTANCE_COUNT, WS_PATH). Client: `src/client/main.tsx` React shell with stable `#game-canvas` placeholder.
+- Vite dev server proxies `/api` and `/ws` to the Node server (port 3001) so the browser stays same-origin.
+- npm scripts: dev (concurrently vite + tsx server), build, test, test:e2e, typecheck, lint, start. Deps per spec (three, react, fastify, ws, drizzle-orm, better-sqlite3, zod, dotenv, tsx, concurrently, typescript-eslint, etc.).
+- eslint flat config (typescript-eslint recommended) + .prettierrc (semi, singleQuote, printWidth 100). `.env.local` and `data/` confirmed git-ignored; added `test-results/` to root .gitignore.
+- Tests: `src/shared/health.test.ts` (vitest), `src/server/health.test.ts` (Fastify inject → /api/health 200 {ok, galaxySeed}), Playwright `tests/scaffold.spec.ts` (canvas + health + no console errors).
+- Verified: `npm run dev` boots both (vite :3000, server :3001), /api/health 200 via proxy, WS welcome on /ws; lint/typecheck/test/build all green; Playwright 1/1 passed.
+- Screenshot: `.agent/screenshots/TASK-68-1.png`
 
 ### 2026-09-29 — TASK-1: Verify project prerequisites and access
 Verified all prerequisites; task passes.

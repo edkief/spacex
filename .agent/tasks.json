@@ -11,7 +11,7 @@
     "title": "Scaffold TS monorepo (client/server/shared) with tooling",
     "category": "setup",
     "specFilePath": ".agent/tasks/TASK-68.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-2",
