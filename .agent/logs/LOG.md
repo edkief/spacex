@@ -3,12 +3,21 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-29
-**Tasks Completed:** 2
-**Current Task:** TASK-68 Complete
+**Tasks Completed:** 3
+**Current Task:** TASK-2 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-09-29 — TASK-2: Shared deterministic PRNG + hash library
+Implemented `app/src/shared/random.ts` — pure, zero-import module (root of galaxy determinism):
+- `seedFromString(s): bigint` — FNV-1a 64-bit over UTF-8 bytes (BigInt arithmetic). Verified against the known 'hello' vector (0xa430d84680aabd0b) and the '' offset basis.
+- `Rng` (xoshiro128** over 4×U32, seeded via splitmix64 from a 128-bit seed): `nextU32()`, `nextF64()` (24-bit precision, documented tradeoff), `nextRange(min,max)`, `nextInt(n)`, `pick(arr)`, `nextGauss(mean,sd)` (Box-Muller, log(0)-guarded). Zero-state guard for all-zero seeds.
+- `hash2(a,b): bigint` — order-sensitive 64-bit key combiner (splitmix finalizer) for per-entity sub-seeds.
+- Tests: `random.test.ts` (node) — golden values for seed 'drift-dev-seed-001' (8× nextU32 + 5× nextF64 hardcoded), 3 known seedFromString strings, hash2 golden values, determinism/divergence, helper bounds + coverage, gauss moments, source-grep purity test (no Math.random/Date.now/crypto/performance.now/new Date, comments stripped), 100k-sample chi-square-lite uniformity (<20% bin deviation). `random.browser.test.ts` — `@vitest-environment happy-dom` parity suite asserting the identical golden constants.
+- Added `happy-dom` devDependency for the parity environment. No UI changes → Playwright/e2e skipped (unit coverage complete).
+- Verified: `npm run typecheck`, `eslint --fix` + `prettier --write`, full `npm run test` → 4 files / 23 tests all pass.
 
 ### 2026-09-29 — TASK-68: Scaffold TS monorepo (client/server/shared) with tooling
 Stood up the `app/` scaffold (work was partially present uncommitted from a prior pass; verified, fixed, and completed it):

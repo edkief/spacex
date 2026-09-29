@@ -18,7 +18,7 @@
     "title": "Shared deterministic PRNG + hash library",
     "category": "functional",
     "specFilePath": ".agent/tasks/TASK-2.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-3",

@@ -17,7 +17,8 @@ Excludes dotfiles, tests, and config.
 │       │   ├── index.ts      # process entry: Fastify + ws, listens on PORT
 │       │   └── server.ts     # buildServer() for tests/inject()
 │       └── shared/
-│           └── health.ts     # HealthPayload type
+│           ├── health.ts     # HealthPayload type
+│           └── random.ts     # Deterministic PRNG (xoshiro128**) + FNV-1a/splitmix hashing
 ├── ralph/                    # Ralph loop implementation (TypeScript)
 │   └── src/
 └── scripts/
