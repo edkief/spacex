@@ -102,7 +102,7 @@
     "title": "Ship catalog: 3 data-driven ship classes",
     "category": "functional",
     "specFilePath": ".agent/tasks/TASK-19.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-41",

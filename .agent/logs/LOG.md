@@ -3,12 +3,19 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-29
-**Tasks Completed:** 14
-**Current Task:** TASK-66 Complete
+**Tasks Completed:** 15
+**Current Task:** TASK-19 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-09-29 — TASK-19: Ship catalog: 3 data-driven ship classes
+Added the v1 ship catalog as pure shared data, single source of truth for server sim + client UI:
+- `app/src/shared/ships.ts` (steps 1-2): `SHIP_CLASSES: Record<ShipClassId, ShipClass>` with `ShipClassId = 'scout' | 'freighter' | 'interceptor'` and all spec fields (mass, maxVelocity, acceleration, turnRate, cargoSlots, maxWeight, weaponMounts `{laser: 1|2, missiles: 0|4}`, shieldCapacity, hull, repairCostPerPoint, price, liverySlots=3 paint zones); numbers exactly per spec (scout free starter / freighter 4000 / interceptor 2500) with a rationale comment header. Helpers (module stays import-free, pure): `shipStats(id)` throwing a typed `UnknownShipClassError` (carries `classId`), `totalWeaponCount(cls)`, `shipPrice(id)` for the dock UI, and `compareShips(a, b, key)` accepting ids or objects over all numeric stat keys + `totalWeapons`.
+- Tests `app/src/shared/ships.test.ts` (step 3, 14): exactly the three classes with stable ids, non-empty names/descriptions, every stat positive & finite, cargoSlots ≥ 1, liverySlots = 3; balance invariants (freighter = most cargo + lowest speed, interceptor = highest speed + the only missiles, scout = free middle starter, prices ascending scout < interceptor < freighter); helper behavior (lookup identity, typed throw on unknown ids incl. case-sensitivity, weapon sums 1/1/6, price lookups, compareShips ordering incl. sort-stability and unknown-id throw).
+- No UI changes → Playwright/e2e skipped (pure shared data module).
+- Verified: `tsc --noEmit`, `eslint --fix` + `prettier --write` clean, full `npm run test` → 25 files / 285 tests all pass (+14 new).
 
 ### 2026-09-29 — TASK-66: Session token integrity (signing, expiry, revocation)
 Hardened session tokens: explicit revocation, exhaustive tamper/expiry tables, and a CI log-leak guard proving secrets/tokens never reach the logs:

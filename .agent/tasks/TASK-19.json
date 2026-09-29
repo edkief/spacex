@@ -16,22 +16,24 @@
       "step": 1,
       "description": "Define types + data",
       "details": "Pick concrete numbers (document rationale in a comment header): scout {mass 20, maxVel 120, acc 40, turn 0.8, cargo 4, weight 40, laser 1, missiles 0, shield 50, hull 100, price 0 (starter)}; freighter {mass 120, maxVel 60, acc 12, turn 0.4, cargo 12, weight 240, laser 1, missiles 0, shield 80, hull 200, price 4000}; interceptor {mass 30, maxVel 180, acc 70, turn 1.2, cargo 2, weight 20, laser 2, missiles 4, shield 40, hull 80, price 2500}. Units are arbitrary sim units (u).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Helpers",
       "details": "shipStats(id) with typed errors; totalWeaponCount(class); price lookup for dock UI. Keep the module pure (no imports).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Tests",
       "details": "Balance invariants, positive-finite stats, unknown-id throw. Run full suite + typecheck.",
-      "pass": false
+      "pass": true
     }
   ],
-  "dependencies": ["TASK-68"],
+  "dependencies": [
+    "TASK-68"
+  ],
   "estimatedComplexity": "low",
   "technicalNotes": [
     "These numbers feed TASK-22 (flight model), TASK-43 (weapons), and TASK-45 (AI roster class picks) — keep ids stable ('scout'|'freighter'|'interceptor').",

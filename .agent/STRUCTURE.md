@@ -47,6 +47,7 @@ Excludes dotfiles, tests, and config.
 │           ├── protocol.ts       # TASK-9: version constant, Envelope, encode/decode, parseMessage, error codes
 │           ├── protocol/
 │           │   └── schemas.ts    # TASK-9: zod payload schema per message type + EntityState/StateSnapshot shapes
+│           ├── ships.ts          # TASK-19: SHIP_CLASSES (scout/freighter/interceptor) + shipStats/compareShips/totalWeaponCount/shipPrice
 │           └── galaxy/
 │               ├── types.ts  # Star, SystemSummary, Planet, SurfaceChunk, Biome interfaces
 │               ├── config.ts # GALAXY_STAR_COUNT, spectral weights, name word lists, disk params
