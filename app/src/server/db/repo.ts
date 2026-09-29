@@ -81,8 +81,14 @@ export interface Repository {
   listShipsInSystem(systemId: string): Promise<ShipRow[]>;
   listCargo(shipIds: string[]): Promise<CargoRow[]>;
   getPlayersByIds(ids: string[]): Promise<PlayerRow[]>;
+  getBalance(playerId: string): Promise<number>;
   addCredits(playerId: string, amount: number): Promise<PlayerRow>;
   withdrawCredits(playerId: string, amount: number): Promise<PlayerRow>;
+  /**
+   * Run a multi-write operation atomically: the callback receives a fresh
+   * Repository bound to the transaction; any throw rolls every write back.
+   */
+  withTransaction<T>(fn: (repo: Repository) => Promise<T>): Promise<T>;
   upsertNodeState(
     nodeId: string,
     quantityRemaining: number,
@@ -114,6 +120,7 @@ type Dialect = {
   select: any;
   update: any;
   delete: any;
+  run: any;
 };
 
 export function createRepo(db: Db, tables: Schema): Repository {
@@ -122,6 +129,72 @@ export function createRepo(db: Db, tables: Schema): Repository {
 
   async function findOne<T>(rows: unknown[]): Promise<T | undefined> {
     return (rows[0] as T | undefined) ?? undefined;
+  }
+
+  async function balanceOf(playerId: string): Promise<number> {
+    const rows = await d
+      .select({ credits: t.players.credits })
+      .from(t.players)
+      .where(eq(t.players.id, playerId))
+      .limit(1);
+    const row = rows[0] as { credits: number } | undefined;
+    if (!row) throw new NotFoundError('player', playerId);
+    return row.credits;
+  }
+
+  async function addCredits(playerId: string, amount: number): Promise<PlayerRow> {
+    if (!Number.isInteger(amount) || amount <= 0) {
+      throw new Error(`invalid credit amount: ${amount}`);
+    }
+    await d
+      .update(t.players)
+      .set({ credits: sql`${t.players.credits} + ${amount}` })
+      .where(eq(t.players.id, playerId));
+    const rows = await d.select().from(t.players).where(eq(t.players.id, playerId)).limit(1);
+    const row = await findOne<PlayerRow>(rows);
+    if (!row) throw new NotFoundError('player', playerId);
+    return row;
+  }
+
+  async function withdrawCredits(playerId: string, amount: number): Promise<PlayerRow> {
+    if (!Number.isInteger(amount) || amount <= 0) {
+      throw new Error(`invalid credit amount: ${amount}`);
+    }
+    const before = (
+      await d.select().from(t.players).where(eq(t.players.id, playerId)).limit(1)
+    )[0] as PlayerRow | undefined;
+    if (!before) throw new NotFoundError('player', playerId);
+    // Atomic conditional update: the floor lives in the WHERE clause, so
+    // concurrent withdrawals can never drive the balance negative.
+    type RunResult = { changes?: number; rowCount?: number };
+    const result = (await d
+      .update(t.players)
+      .set({ credits: sql`${t.players.credits} - ${amount}` })
+      .where(and(eq(t.players.id, playerId), sql`${t.players.credits} >= ${amount}`))) as
+      RunResult | RunResult[];
+    const first = Array.isArray(result) ? result[0] : result;
+    const changed = Number(first?.changes ?? first?.rowCount ?? 0);
+    if (changed === 0) {
+      throw new InsufficientCreditsError(playerId, amount, await balanceOf(playerId));
+    }
+    const rows = await d.select().from(t.players).where(eq(t.players.id, playerId)).limit(1);
+    return (await findOne<PlayerRow>(rows))!;
+  }
+
+  async function withTransaction<T>(fn: (repo: Repository) => Promise<T>): Promise<T> {
+    // Explicit BEGIN/COMMIT/ROLLBACK on the connection: better-sqlite3's
+    // transaction() rejects async callbacks, and the explicit pair works
+    // identically on both dialects. Any throw (including a write failure
+    // mid-callback) rolls every write back.
+    await d.run(sql`BEGIN`);
+    try {
+      const value = await fn(createRepo(db, tables));
+      await d.run(sql`COMMIT`);
+      return value;
+    } catch (err) {
+      await d.run(sql`ROLLBACK`);
+      throw err;
+    }
   }
 
   return {
@@ -238,38 +311,10 @@ export function createRepo(db: Db, tables: Schema): Repository {
       return rows as PlayerRow[];
     },
 
-    async addCredits(playerId, amount) {
-      if (!Number.isInteger(amount) || amount <= 0) {
-        throw new Error(`invalid credit amount: ${amount}`);
-      }
-      await d
-        .update(t.players)
-        .set({ credits: sql`${t.players.credits} + ${amount}` })
-        .where(eq(t.players.id, playerId));
-      const rows = await d.select().from(t.players).where(eq(t.players.id, playerId)).limit(1);
-      const row = await findOne<PlayerRow>(rows);
-      if (!row) throw new NotFoundError('player', playerId);
-      return row;
-    },
-
-    async withdrawCredits(playerId, amount) {
-      if (!Number.isInteger(amount) || amount <= 0) {
-        throw new Error(`invalid credit amount: ${amount}`);
-      }
-      const before = (
-        await d.select().from(t.players).where(eq(t.players.id, playerId)).limit(1)
-      )[0] as PlayerRow | undefined;
-      if (!before) throw new NotFoundError('player', playerId);
-      if (before.credits < amount)
-        throw new InsufficientCreditsError(playerId, amount, before.credits);
-      // atomic conditional update; safe even if another withdrawal lands first
-      await d
-        .update(t.players)
-        .set({ credits: sql`${t.players.credits} - ${amount}` })
-        .where(and(eq(t.players.id, playerId), sql`${t.players.credits} >= ${amount}`));
-      const rows = await d.select().from(t.players).where(eq(t.players.id, playerId)).limit(1);
-      return (await findOne<PlayerRow>(rows))!;
-    },
+    getBalance: balanceOf,
+    addCredits,
+    withdrawCredits,
+    withTransaction,
 
     async upsertNodeState(nodeId, quantityRemaining, respawnAt = null) {
       if (!Number.isInteger(quantityRemaining) || quantityRemaining < 0) {

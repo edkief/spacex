@@ -3,12 +3,21 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-29
-**Tasks Completed:** 15
-**Current Task:** TASK-19 Complete
+**Tasks Completed:** 16
+**Current Task:** TASK-41 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-09-29 — TASK-41: Credits balance with persistence and spend rules
+Completed the credit-balance contract (repository already had add/withdraw from TASK-62; this iteration closes the spec gaps):
+- `app/src/server/db/repo.ts` (step 1): new `getBalance(playerId)` (NotFound for unknown ids); `withdrawCredits` now rejects via the atomic conditional UPDATE's rowsAffected — the floor lives in `WHERE credits >= ?` so concurrent spend can never go negative, and a 0-row update raises `InsufficientCreditsError` with the live balance (drizzle v1 returns the run result directly; handled `changes`/`rowCount` for both dialects). New `withTransaction(fn)`: explicit `BEGIN`/`COMMIT`/`ROLLBACK` via `db.run(sql…)` — better-sqlite3's `transaction()` rejects async callbacks in drizzle v1, and the explicit pair works identically on sqlite + pg; any throw rolls every write back.
+- `app/src/server/routes/auth.ts` (step 2): shared `bearerToken` + `requireAuth` (reused by session.ts, no duplication — its local bearer helper moved here; structured 401 reasons unchanged).
+- `app/src/server/routes/players.ts` + `routes/index.ts` (step 2): `GET /api/players/me` (auth) → `{callsign, credits, homeSystemId, shipId}`. Only the caller's own record is addressable — no endpoint takes a foreign player id, so other balances are never exposed in v1.
+- Tests (step 3): `repo.test.ts` +6 (getBalance round-trip + NotFound, zero-floor: exact-balance withdraw lands on 0 then any spend fails, withTransaction commit + mid-transaction rollback leaving credits and ship state untouched, and the acceptance test: 100 concurrent withdrawals of 10 against 500 → exactly 50 fulfill, 50 `InsufficientCreditsError`, final balance 0). New `routes/players.me.api.test.ts` (4): happy path incl. ship ownership, credit changes via repo visible in /me, structured 401s (missing/forged, token not echoed), foreign id → 404.
+- No UI changes → Playwright smoke skipped; live-server curl smoke instead (dev server on :3000): claim → GET /api/players/me 200 {credits: 500, shipId}, no token → 401, foreign id → 404.
+- Verified: `tsc --noEmit`, `eslint --fix` + `prettier --write` clean, full `npm run test` → 26 files / 295 tests all pass (+10 new).
 
 ### 2026-09-29 — TASK-19: Ship catalog: 3 data-driven ship classes
 Added the v1 ship catalog as pure shared data, single source of truth for server sim + client UI:

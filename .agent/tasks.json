@@ -109,7 +109,7 @@
     "title": "Credits balance with persistence and spend rules",
     "category": "functional",
     "specFilePath": ".agent/tasks/TASK-41.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-22",

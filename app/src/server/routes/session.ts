@@ -1,14 +1,6 @@
 import type { FastifyInstance } from 'fastify';
+import { bearerToken, requireAuth } from './auth';
 import type { RouteDeps } from './callsigns';
-
-const BEARER_PREFIX = 'Bearer ';
-
-/** Extract the bearer token from an Authorization header, if present. */
-function bearerToken(header: unknown): string | null {
-  if (typeof header !== 'string' || !header.startsWith(BEARER_PREFIX)) return null;
-  const token = header.slice(BEARER_PREFIX.length).trim();
-  return token.length > 0 ? token : null;
-}
 
 /**
  * /api/session routes (TASK-10 + TASK-66). GET resolves the bearer token to
@@ -19,15 +11,11 @@ function bearerToken(header: unknown): string | null {
  */
 export function registerSessionRoutes(app: FastifyInstance, deps: RouteDeps): void {
   app.get('/api/session', async (req, reply) => {
-    const token = bearerToken(req.headers.authorization);
-    if (!token) {
-      return reply.code(401).send({ code: 'unauthenticated', reason: 'missing bearer token' });
+    const auth = await requireAuth(req, deps.sessions);
+    if (!auth.ok) {
+      return reply.code(401).send({ code: 'unauthenticated', reason: auth.reason });
     }
-    const result = await deps.sessions.verify(token);
-    if (!result.ok) {
-      return reply.code(401).send({ code: 'unauthenticated', reason: result.reason });
-    }
-    const player = result.player;
+    const player = auth.player;
     // Idempotent: returns the existing ship when the player has one.
     const ship = await deps.repo.getOrCreateStarterShip(player.id, { classId: 'scout' });
     return {
@@ -39,17 +27,13 @@ export function registerSessionRoutes(app: FastifyInstance, deps: RouteDeps): vo
   });
 
   app.post('/api/session/logout', async (req, reply) => {
-    const token = bearerToken(req.headers.authorization);
-    if (!token) {
-      return reply.code(401).send({ code: 'unauthenticated', reason: 'missing bearer token' });
-    }
     // Verify first so a revoked/forged token gets the same structured 401
     // (and a valid-but-already-revoked one reports unknown-session).
-    const result = await deps.sessions.verify(token);
-    if (!result.ok) {
-      return reply.code(401).send({ code: 'unauthenticated', reason: result.reason });
+    const auth = await requireAuth(req, deps.sessions);
+    if (!auth.ok) {
+      return reply.code(401).send({ code: 'unauthenticated', reason: auth.reason });
     }
-    await deps.sessions.revoke(token);
+    await deps.sessions.revoke(bearerToken(req.headers.authorization)!);
     return reply.code(200).send({ code: 'logged-out' });
   });
 }

@@ -15,26 +15,29 @@
     {
       "step": 1,
       "description": "Repository methods",
-      "details": "Add to repo (TASK-62): getBalance, addCredits, withdrawCredits. withdraw: UPDATE players SET credits = credits - ? WHERE id = ? AND credits >= ?; rowsAffected 0 → throw InsufficientCreditsError. All inside transactions when paired with other writes (e.g. sell).",
-      "pass": false
+      "details": "Add to repo (TASK-62): getBalance, addCredits, withdrawCredits. withdraw: UPDATE players SET credits = credits - ? WHERE id = ? AND credits >= ?; rowsAffected 0 \u2192 throw InsufficientCreditsError. All inside transactions when paired with other writes (e.g. sell).",
+      "pass": true
     },
     {
       "step": 2,
       "description": "REST surface",
       "details": "GET /api/players/me (auth) returns {callsign, credits, homeSystemId, shipId}. Wire auth middleware from TASK-10.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Concurrency + unit tests",
       "details": "Run the 100-concurrent-withdrawals test (sqlite busy timeout + serialized transactions). Standard unit cases. Run full suite + typecheck.",
-      "pass": false
+      "pass": true
     }
   ],
-  "dependencies": ["TASK-62", "TASK-10"],
+  "dependencies": [
+    "TASK-62",
+    "TASK-10"
+  ],
   "estimatedComplexity": "low",
   "technicalNotes": [
     "Credits are the only currency; no transactions between players in v1 (no market), so no double-entry bookkeeping needed.",
-    "Keep amounts as integers (credits) — no floats in money math."
+    "Keep amounts as integers (credits) \u2014 no floats in money math."
   ]
 }

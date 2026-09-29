@@ -188,6 +188,82 @@ describe('repo: credits', () => {
   });
 });
 
+describe('repo: credits (TASK-41)', () => {
+  it('getBalance starts at the 500 default and tracks add/withdraw', async () => {
+    const p = await repo.createPlayer({ callsign: 'LEDGER-1', homeSystemId: 'sys-0' });
+    expect(await repo.getBalance(p.id)).toBe(500);
+    await repo.addCredits(p.id, 250);
+    expect(await repo.getBalance(p.id)).toBe(750);
+    await repo.withdrawCredits(p.id, 250);
+    expect(await repo.getBalance(p.id)).toBe(500);
+  });
+
+  it('getBalance on an unknown player raises NotFoundError', async () => {
+    await expect(repo.getBalance('nope')).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it('withdraw honours the zero floor: exact-balance withdraw lands on 0, then any further spend fails', async () => {
+    const p = await repo.createPlayer({ callsign: 'FLOOR-1', homeSystemId: 'sys-0' });
+    const zeroed = await repo.withdrawCredits(p.id, 500);
+    expect(zeroed.credits).toBe(0);
+    await expect(repo.withdrawCredits(p.id, 1)).rejects.toBeInstanceOf(InsufficientCreditsError);
+    expect(await repo.getBalance(p.id)).toBe(0);
+  });
+
+  it('withTransaction commits all writes when the callback resolves', async () => {
+    const p = await repo.createPlayer({ callsign: 'TX-OK', homeSystemId: 'sys-0' });
+    await repo.withTransaction(async (txn) => {
+      await txn.addCredits(p.id, 100);
+      await txn.saveShipState((await txn.getOrCreateStarterShip(p.id)).id, {
+        hull: 42,
+        shields: 80,
+        position: { systemId: 'sys-0', x: 1, y: 2, z: 3 },
+        velocity: { x: 0, y: 0, z: 0 },
+        state: 'docked',
+      });
+    });
+    expect(await repo.getBalance(p.id)).toBe(600);
+  });
+
+  it('withTransaction rolls back every write when the callback throws mid-transaction', async () => {
+    const p = await repo.createPlayer({ callsign: 'TX-ROLL', homeSystemId: 'sys-0' });
+    const ship = await repo.getOrCreateStarterShip(p.id);
+    await expect(
+      repo.withTransaction(async (txn) => {
+        await txn.addCredits(p.id, 500);
+        await txn.saveShipState(ship.id, {
+          hull: 1,
+          shields: 1,
+          position: { systemId: 'sys-0', x: 0, y: 0, z: 0 },
+          velocity: { x: 0, y: 0, z: 0 },
+          state: 'destroyed',
+        });
+        throw new Error('mid-transaction failure');
+      }),
+    ).rejects.toThrow('mid-transaction failure');
+    // Nothing committed: credits and ship state are untouched.
+    expect(await repo.getBalance(p.id)).toBe(500);
+    const reloaded = await repo.listShipsInSystem(ship.position.systemId);
+    const row = reloaded.find((s) => s.id === ship.id)!;
+    expect(row.hull).toBe(100);
+    expect(row.state).toBe('docked');
+  });
+
+  it('100 concurrent withdrawals of 10 against a balance of 500: exactly 50 succeed, final balance 0', async () => {
+    const p = await repo.createPlayer({ callsign: 'RACE-1', homeSystemId: 'sys-0' });
+    const results = await Promise.allSettled(
+      Array.from({ length: 100 }, () => repo.withdrawCredits(p.id, 10)),
+    );
+    const succeeded = results.filter((r) => r.status === 'fulfilled');
+    const failed = results.filter(
+      (r) => r.status === 'rejected' && r.reason instanceof InsufficientCreditsError,
+    );
+    expect(succeeded.length).toBe(50);
+    expect(failed.length).toBe(50);
+    expect(await repo.getBalance(p.id)).toBe(0);
+  });
+});
+
 describe('repo: resource node state', () => {
   it('upsertNodeState inserts then updates; respawn_at is nullable', async () => {
     const a = await repo.upsertNodeState('sys-1:node-a', 200, null);
