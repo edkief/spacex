@@ -71,6 +71,14 @@ export interface Repository {
   ): Promise<ShipRow>;
   saveShipState(shipId: string, state: ShipStateInput): Promise<ShipRow>;
   saveCargo(shipId: string, resourceType: string, quantity: number): Promise<CargoRow>;
+  /**
+   * Ships whose persisted position lives in `systemId`. Relies on the
+   * repository invariant that position JSON is always written with
+   * `systemId` as the first key (every write goes through this layer).
+   */
+  listShipsInSystem(systemId: string): Promise<ShipRow[]>;
+  listCargo(shipIds: string[]): Promise<CargoRow[]>;
+  getPlayersByIds(ids: string[]): Promise<PlayerRow[]>;
   addCredits(playerId: string, amount: number): Promise<PlayerRow>;
   withdrawCredits(playerId: string, amount: number): Promise<PlayerRow>;
   upsertNodeState(
@@ -200,6 +208,31 @@ export function createRepo(db: Db, tables: Schema): Repository {
         })
         .returning();
       return upserted[0] as CargoRow;
+    },
+
+    async listShipsInSystem(systemId) {
+      // system ids are 16-hex by construction; reject anything that could
+      // escape the LIKE pattern
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(systemId)) {
+        throw new Error(`invalid systemId: ${systemId}`);
+      }
+      const rows = await d
+        .select()
+        .from(t.ships)
+        .where(like(t.ships.position, `%"systemId":"${systemId}"%`));
+      return rows as ShipRow[];
+    },
+
+    async listCargo(shipIds) {
+      if (shipIds.length === 0) return [];
+      const rows = await d.select().from(t.cargoItems).where(inArray(t.cargoItems.shipId, shipIds));
+      return rows as CargoRow[];
+    },
+
+    async getPlayersByIds(ids) {
+      if (ids.length === 0) return [];
+      const rows = await d.select().from(t.players).where(inArray(t.players.id, ids));
+      return rows as PlayerRow[];
     },
 
     async addCredits(playerId, amount) {

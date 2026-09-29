@@ -3,12 +3,22 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-29
-**Tasks Completed:** 8
-**Current Task:** TASK-62 Complete
+**Tasks Completed:** 9
+**Current Task:** TASK-63 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-09-29 — TASK-63: Persistence service with save points and crash recovery
+Built the save-point persistence layer on top of the TASK-62 repo (PRD §8 — mutable state only survives restarts):
+- `app/src/server/persist.ts` — `createPersistService({ handle, repo, options })` + `getPersistService()` singleton and module-level `saveShip(ship)` / `saveCargo(shipId, items)` / `saveNodeStates(systemId, states)` / `loadSystemState(systemId)` wrappers. Dirty-set + ship-snapshot cache; milestone tracker per ship. Save points: `onDock(ship)`, `onDamage(ship)` (saves only on downward crossings of HULL_MILESTONES [75,50,25] since last persisted hull), `saveDirty()` on a 5 s interval timer (default 5000 ms, unref'd, injectable `intervalMs`), `onShardShutdown(systemId, nodeStates?)`. All multi-row writes are one transaction per save point: postgres via drizzle async tx; sqlite via manual BEGIN/COMMIT/ROLLBACK on the single better-sqlite3 connection (drizzle's sqlite tx only accepts *synchronous* callbacks while repo methods are async — documented in code). `repoForTransaction` option lets tests inject a spy factory.
+- `app/src/server/db/repo.ts` — added `listShipsInSystem` (LIKE on position JSON, invariant: systemId is always the first key — documented), `listCargo(shipIds)`, `getPlayersByIds(ids)`; `loadSystemState` now returns ships + cargo + owner credits + node states.
+- `app/src/server/db/client.ts` — `PRAGMA journal_mode=WAL` (task technical note: needed to keep the 5 ms write guard green).
+- `app/src/server/persist-crash-child.ts` — test helper: child process that writes player/ship/cargo through the real service, prints READY, idles until SIGKILL (relative imports since tsx ignores tsconfig paths).
+- Tests `persist.test.ts` (9): save points fire repository writes (spies + tx factory), dirty flag clears, interval save skips clean ships (no tx, {saved:0,ms:0}), damage-milestone sequence (baseline no-write, 75/50/25 crossings, repair no-write), batch rollback on bad cargo quantity, loadSystemState round-trip + system isolation; **crash test**: tsx child saves then gets real SIGKILL (signal asserted), parent reloads — position exact (≪100 m tol), cargo exact, credits exact; **benchmark (numbers recorded per step 4): 16 dirty ships, one interval save = 5.503 ms total, max single write 0.438 ms** (budgets: 20 ms / 5 ms).
+- No UI changes → Playwright/e2e skipped (pure server logic).
+- Verified: `tsc --noEmit`, `npm run lint` clean, full `npm run test` → 12 files / 124 tests all pass.
 
 ### 2026-09-29 — TASK-62: Drizzle data layer — dual-driver schema (SQLite/Postgres)
 Built the persistent data layer (PRD §8: only mutable state, never geometry):

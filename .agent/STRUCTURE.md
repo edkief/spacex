@@ -19,9 +19,11 @@ Excludes dotfiles, tests, and config.
 │       │   ├── env.ts        # zod-validated env (PROJECT_ROOT/.env.local)
 │       │   ├── index.ts      # process entry: Fastify + ws, listens on PORT
 │       │   ├── server.ts     # buildServer() for tests/inject()
+│       │   ├── persist.ts               # TASK-63 save-point service: dock/damage-milestone/5s-interval/shutdown, crash-load
+│       │   ├── persist-crash-child.ts   # TASK-63 test helper: child process that saves state, then gets SIGKILL'd
 │       │   └── db/
 │       │       ├── schema.ts          # dual-driver Drizzle schema (sqlite + pg), 6 tables + row types
-│       │       ├── client.ts          # createDb/getDb: DB_DRIVER → better-sqlite3 file | pg Pool; migrate on boot
+│       │       ├── client.ts          # createDb/getDb: DB_DRIVER → better-sqlite3 file (WAL) | pg Pool; migrate on boot
 │       │       ├── migrate.ts         # sequential .sql migrator with _migrations tracking table (sqlite)
 │       │       ├── repo.ts            # Repository: players/ships/cargo/credits/nodes/sessions; zod-validated JSON
 │       │       ├── errors.ts          # CallsignTakenError, InsufficientCreditsError, NotFoundError

@@ -46,6 +46,9 @@ export function createDb(options: DbOptions = {}): DbHandle {
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     const raw = new BetterSQLite3(dbPath);
     raw.pragma('foreign_keys = ON');
+    // WAL keeps interval-save commits off the reader path and fast enough
+    // for the TASK-63 5 ms write guard (see persist.test.ts benchmark).
+    raw.pragma('journal_mode = WAL');
     migrateSqlite(raw);
     const db = sqliteDrizzle(raw, { schema: sqliteTables });
     return { db, driver, raw };

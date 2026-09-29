@@ -60,7 +60,7 @@
     "title": "Persistence service with save points and crash recovery",
     "category": "data-model",
     "specFilePath": ".agent/tasks/TASK-63.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-9",
