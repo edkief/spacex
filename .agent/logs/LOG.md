@@ -3,12 +3,22 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-29
-**Tasks Completed:** 17
-**Current Task:** TASK-22 Complete
+**Tasks Completed:** 18
+**Current Task:** TASK-20 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-09-29 — TASK-20: Ship acquisition: starter ship + dock purchase
+Implemented starter-ship spawning at a seed-derived dock, the dock purchase endpoint, and the in-process shard notification for in-place ship swaps:
+- `app/src/shared/galaxy/dock.ts` (step 1): `homeDockPosition(galaxySeed, systemId)` — seed-derived dock coordinates (same sub-seed scheme as the galaxy; integer metres in a 200 m square, y=0 docking plane). `callsigns.ts` now spawns the starter scout there with class-cap hull/shields (repo `getOrCreateStarterShip` gained optional hull/shields opts).
+- `app/src/server/routes/ships.ts` (step 2): `GET /api/ships` (auth) returns the player's ship with TASK-19 catalog stats merged (`class`, null for unknown ids). `POST /api/ships/buy {classId}`: auth → body (strict) → catalog lookup → already-owned 409 / not-docked 409 → balance precheck 422 {code:'insufficient-credits', balance, price} → one `withTransaction`: withdraw (skipped at price 0, atomic floor still enforced for races) → `deleteShipWithCargo` (v1 scrub rule) → `createShip` docked at the system dock with class-full hull/shields → emits the ship-swap event. Errors: 400 unknown-class/invalid-body, 409 already-owned/not-docked, 422 insufficient-credits (incl. mid-transaction `InsufficientCreditsError` race).
+- `app/src/server/db/repo.ts`: new `getShip`, `getShipByOwner`, `createShip`, `deleteShipWithCargo`; `withTransaction` now hands the callback the same repository instance (same connection under both drivers — behaviour identical, and test-injectable).
+- `app/src/server/shards.ts` (step 3): in-process ship-swap `EventEmitter` bus (`createShipSwapBus`) + `shipToEntity` (row → protocol EntityState, hull/shields normalized 0..1, livery filtered to valid hex colors) + `attachShipSwapBroadcast(bus, wsConnections, repo)` — replaces the ship entity in place with a stable per-player entity id (first swap takes over the scrubbed ship's id, later swaps keep it) and broadcasts `entity_update` to every authenticated peer in the ship's system; no shard active → no-op. Wired in `index.ts`. TASK-11/12 folds the bridge into the real shard lifecycle.
+- Tests (step 4): `dock.test.ts` (4) determinism/range/variation; `ships.api.test.ts` (10) starter at seed-derived dock with merged stats + 401; buy each of the 3 classes (credits deducted, old ship + cargo scrubbed, exactly one ship owned, docked full); 422/409×2/400×2/401 error paths; rollback test injects a `deleteShipWithCargo` failure mid-transaction → 500 with credits/ship/cargo all untouched. `ship-swap.ws.test.ts` (2) real-ws integration: in-system peer receives entity_update with stable entity id across two consecutive swaps (classId + dock pos + callsign + full hull/shields), peer in another system receives nothing, and buys with no one in-system still succeed.
+- No UI changes (dock UI is TASK-53) → Playwright skipped; live-server curl smoke instead: claim → GET /api/ships 200 (scout 100/50 hull/shields at seed dock coords, class merged), buy freighter → 422, unknown class → 400, scout again → 409 already-owned, no token → 401.
+- Verified: `tsc --noEmit`, `eslint` + `prettier --check` clean, full `npm run test` → 31 files / 346 tests all pass (+16 new).
 
 ### 2026-09-29 — TASK-22: Shared flight model: space, atmosphere, VTOL (deterministic)
 Implemented the deterministic ship physics in `src/shared/physics`, used verbatim by the server sim (authority) and client prediction (TASK-14):

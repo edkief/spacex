@@ -123,7 +123,7 @@
     "title": "Ship acquisition: starter ship + dock purchase",
     "category": "functional",
     "specFilePath": ".agent/tasks/TASK-20.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-21",

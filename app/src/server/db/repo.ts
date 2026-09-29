@@ -69,8 +69,28 @@ export interface Repository {
   findPlayerByCallsign(callsign: string): Promise<PlayerRow | undefined>;
   getOrCreateStarterShip(
     playerId: string,
-    opts?: { classId?: (typeof SHIP_CLASS_IDS)[number]; position?: ShipPosition },
+    opts?: {
+      classId?: (typeof SHIP_CLASS_IDS)[number];
+      position?: ShipPosition;
+      /** Class caps to spawn at; defaults to the 100/100 schema defaults. */
+      hull?: number;
+      shields?: number;
+    },
   ): Promise<ShipRow>;
+  getShip(shipId: string): Promise<ShipRow | undefined>;
+  getShipByOwner(playerId: string): Promise<ShipRow | undefined>;
+  /** Insert a ship (used by dock purchases, TASK-20); caller sets class-full hull/shields. */
+  createShip(input: {
+    ownerId: string;
+    classId: string;
+    hull: number;
+    shields: number;
+    position: ShipPosition;
+    state: ShipState;
+    livery?: Livery;
+  }): Promise<ShipRow>;
+  /** Delete a ship and scrub its cargo (the v1 "sell to dock" rule). */
+  deleteShipWithCargo(shipId: string): Promise<void>;
   saveShipState(shipId: string, state: ShipStateInput): Promise<ShipRow>;
   saveCargo(shipId: string, resourceType: string, quantity: number): Promise<CargoRow>;
   /**
@@ -85,8 +105,9 @@ export interface Repository {
   addCredits(playerId: string, amount: number): Promise<PlayerRow>;
   withdrawCredits(playerId: string, amount: number): Promise<PlayerRow>;
   /**
-   * Run a multi-write operation atomically: the callback receives a fresh
-   * Repository bound to the transaction; any throw rolls every write back.
+   * Run a multi-write operation atomically: the callback receives the
+   * repository bound to the transaction (same instance — all statements run
+   * on the same connection); any throw rolls every write back.
    */
   withTransaction<T>(fn: (repo: Repository) => Promise<T>): Promise<T>;
   upsertNodeState(
@@ -181,23 +202,7 @@ export function createRepo(db: Db, tables: Schema): Repository {
     return (await findOne<PlayerRow>(rows))!;
   }
 
-  async function withTransaction<T>(fn: (repo: Repository) => Promise<T>): Promise<T> {
-    // Explicit BEGIN/COMMIT/ROLLBACK on the connection: better-sqlite3's
-    // transaction() rejects async callbacks, and the explicit pair works
-    // identically on both dialects. Any throw (including a write failure
-    // mid-callback) rolls every write back.
-    await d.run(sql`BEGIN`);
-    try {
-      const value = await fn(createRepo(db, tables));
-      await d.run(sql`COMMIT`);
-      return value;
-    } catch (err) {
-      await d.run(sql`ROLLBACK`);
-      throw err;
-    }
-  }
-
-  return {
+  const repo: Repository = {
     async createPlayer(input) {
       const player: Omit<PlayerRow, 'id'> = {
         callsign: input.callsign,
@@ -236,8 +241,8 @@ export function createRepo(db: Db, tables: Schema): Repository {
           ownerId: playerId,
           classId: opts?.classId ?? 'scout',
           livery: {} satisfies Livery,
-          hull: 100,
-          shields: 100,
+          hull: opts?.hull ?? 100,
+          shields: opts?.shields ?? 100,
           position:
             opts?.position ?? ({ systemId: 'home', x: 0, y: 0, z: 0 } satisfies ShipPosition),
           velocity: { x: 0, y: 0, z: 0 } satisfies Vec3,
@@ -246,6 +251,44 @@ export function createRepo(db: Db, tables: Schema): Repository {
         })
         .returning();
       return inserted[0] as ShipRow;
+    },
+
+    async getShip(shipId) {
+      const rows = await d.select().from(t.ships).where(eq(t.ships.id, shipId)).limit(1);
+      return rows[0] as ShipRow | undefined;
+    },
+
+    async getShipByOwner(playerId) {
+      const rows = await d.select().from(t.ships).where(eq(t.ships.ownerId, playerId)).limit(1);
+      return rows[0] as ShipRow | undefined;
+    },
+
+    async createShip(input) {
+      ShipPositionSchema.parse(input.position);
+      if (!SHIP_STATES.includes(input.state)) {
+        throw new Error(`invalid ship state: ${input.state}`);
+      }
+      const inserted = await d
+        .insert(t.ships)
+        .values({
+          id: uuid(),
+          ownerId: input.ownerId,
+          classId: input.classId,
+          livery: input.livery ?? ({} satisfies Livery),
+          hull: input.hull,
+          shields: input.shields,
+          position: input.position,
+          velocity: { x: 0, y: 0, z: 0 } satisfies Vec3,
+          state: input.state,
+          updatedAt: nowIso(),
+        })
+        .returning();
+      return inserted[0] as ShipRow;
+    },
+
+    async deleteShipWithCargo(shipId) {
+      await d.delete(t.cargoItems).where(eq(t.cargoItems.shipId, shipId));
+      await d.delete(t.ships).where(eq(t.ships.id, shipId));
     },
 
     async saveShipState(shipId, state) {
@@ -314,7 +357,23 @@ export function createRepo(db: Db, tables: Schema): Repository {
     getBalance: balanceOf,
     addCredits,
     withdrawCredits,
-    withTransaction,
+
+    async withTransaction<T>(fn: (repo: Repository) => Promise<T>) {
+      // Explicit BEGIN/COMMIT/ROLLBACK on the connection: better-sqlite3's
+      // transaction() rejects async callbacks, and the explicit pair works
+      // identically on both dialects. The callback gets this same instance
+      // (one connection under both drivers), so every write lands inside
+      // the transaction; any throw rolls them all back.
+      await d.run(sql`BEGIN`);
+      try {
+        const value = await fn(repo);
+        await d.run(sql`COMMIT`);
+        return value;
+      } catch (err) {
+        await d.run(sql`ROLLBACK`);
+        throw err;
+      }
+    },
 
     async upsertNodeState(nodeId, quantityRemaining, respawnAt = null) {
       if (!Number.isInteger(quantityRemaining) || quantityRemaining < 0) {
@@ -398,6 +457,8 @@ export function createRepo(db: Db, tables: Schema): Repository {
       return expired.length;
     },
   };
+
+  return repo;
 }
 
 export type { Livery, ShipPosition, Vec3 };

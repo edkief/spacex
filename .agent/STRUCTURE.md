@@ -19,17 +19,19 @@ Excludes dotfiles, tests, and config.
 │       │   └── main.tsx      # React shell + #game-canvas placeholder
 │       ├── server/
 │       │   ├── env.ts        # zod-validated env (PROJECT_ROOT/.env.local)
-│       │   ├── index.ts      # process entry: Fastify + ws, REST auth routes + token authenticate, listens on PORT
+│       │   ├── index.ts      # process entry: Fastify + ws, REST routes + token auth + ship-swap broadcast, listens on PORT
+│       ├── shards.ts     # TASK-20: in-process ship-swap bus + shipToEntity + entity_update broadcast bridge (folds into TASK-11/12)
 │       │   ├── server.ts     # buildServer() for tests/inject()
 │       │   ├── auth/
 │       │   │   ├── token.ts       # TASK-10: HMAC-SHA256 token codec (base64url body + MAC, constant-time, 30 s exp skew)
 │       │   │   └── session.ts     # TASK-10: session service (sha256-stored tokens, 7 d TTL) + WS token authenticator
 │       │   └── routes/
-│       │       ├── index.ts        # registerApiRoutes(repo, sessions, galaxySeed)
+│       │       ├── index.ts        # registerApiRoutes(repo, sessions, galaxySeed, shipSwapBus)
 │       │       ├── auth.ts         # TASK-41: shared Bearer extraction + requireAuth (structured 401 reasons)
 │       │       ├── callsigns.ts    # TASK-10: POST /api/callsigns (claim → player + starter ship + session token)
 │       │       ├── players.ts      # TASK-41: GET /api/players/me (Bearer → own profile incl. credits)
-│       │       └── session.ts      # TASK-10: GET /api/session (Bearer → profile, structured 401s)
+│       │       ├── session.ts      # TASK-10: GET /api/session (Bearer → profile, structured 401s)
+│       │       └── ships.ts        # TASK-20: GET /api/ships + POST /api/ships/buy (docked purchase, tx: withdraw + scrub + insert)
 │       │   ├── ws.ts         # TASK-9 WS lifecycle: handshake state machine, structured errors, presence, 15s/45s keepalive
 │       │   ├── persist.ts               # TASK-63 save-point service: dock/damage-milestone/5s-interval/shutdown, crash-load
 │       │   ├── persist-crash-child.ts   # TASK-63 test helper: child process that saves state, then gets SIGKILL'd
@@ -62,6 +64,7 @@ Excludes dotfiles, tests, and config.
 │               ├── stars.ts  # generateStars(seed, count) — seeded thin-disk galaxy layout
 │               ├── system.ts # generateSystem(seed, starId) — planets, docks, deposits, AI roster
 │               ├── home.ts   # TASK-10: homeSystemIdForPlayer(seed, playerId) — deterministic spawn system
+│               └── dock.ts   # TASK-20: homeDockPosition(seed, systemId) — seed-derived dock coordinates
 │               └── surface.ts# generateSurfaceChunk(seed, planet, chunkX, chunkZ) — heightmap, biome, nodes, pads
 ├── ralph/                    # Ralph loop implementation (TypeScript)
 │   └── src/
