@@ -12,13 +12,21 @@ Excludes dotfiles, tests, and config.
 │   │   ├── gen-surface-fixture.ts  # regenerates the TASK-5 golden chunk fixture
 │   │   └── gen-galaxy-snapshots.ts # npm run snapshot:update — regenerates the 6 TASK-6 snapshot fixtures
 │   ├── smoke-task1.mjs       # TASK-1 Playwright smoke script (chromium screenshot)
+│   ├── smoke-task10.mjs      # TASK-10 live smoke: REST claim/session + WS token auth over the :3000 proxy
 │   └── src/
 │       ├── client/
 │       │   └── main.tsx      # React shell + #game-canvas placeholder
 │       ├── server/
 │       │   ├── env.ts        # zod-validated env (PROJECT_ROOT/.env.local)
-│       │   ├── index.ts      # process entry: Fastify + ws (attachWebSocket + registry gateway), listens on PORT
+│       │   ├── index.ts      # process entry: Fastify + ws, REST auth routes + token authenticate, listens on PORT
 │       │   ├── server.ts     # buildServer() for tests/inject()
+│       │   ├── auth/
+│       │   │   ├── token.ts       # TASK-10: HMAC-SHA256 token codec (base64url body + MAC, constant-time, 30 s exp skew)
+│       │   │   └── session.ts     # TASK-10: session service (sha256-stored tokens, 7 d TTL) + WS token authenticator
+│       │   └── routes/
+│       │       ├── index.ts        # registerApiRoutes(repo, sessions, galaxySeed)
+│       │       ├── callsigns.ts    # TASK-10: POST /api/callsigns (claim → player + starter ship + session token)
+│       │       └── session.ts      # TASK-10: GET /api/session (Bearer → profile, structured 401s)
 │       │   ├── ws.ts         # TASK-9 WS lifecycle: handshake state machine, structured errors, presence, 15s/45s keepalive
 │       │   ├── persist.ts               # TASK-63 save-point service: dock/damage-milestone/5s-interval/shutdown, crash-load
 │       │   ├── persist-crash-child.ts   # TASK-63 test helper: child process that saves state, then gets SIGKILL'd
@@ -33,6 +41,7 @@ Excludes dotfiles, tests, and config.
 │       │           └── 000000_init.sql # initial SQLite DDL
 │       └── shared/
 │           ├── canonical.ts  # canonicalJson: stable key-sorted JSON for checksums
+│           ├── callsign.ts   # TASK-10: shared zod callsign schema (3-16 alnum+dash, lowercase transform)
 │           ├── health.ts     # HealthPayload type
 │           ├── random.ts     # Deterministic PRNG (xoshiro128**) + FNV-1a/splitmix hashing
 │           ├── protocol.ts       # TASK-9: version constant, Envelope, encode/decode, parseMessage, error codes
@@ -44,6 +53,7 @@ Excludes dotfiles, tests, and config.
 │               ├── noise.ts  # deterministic 2D value noise + fBm (world-space lattice)
 │               ├── stars.ts  # generateStars(seed, count) — seeded thin-disk galaxy layout
 │               ├── system.ts # generateSystem(seed, starId) — planets, docks, deposits, AI roster
+│               ├── home.ts   # TASK-10: homeSystemIdForPlayer(seed, playerId) — deterministic spawn system
 │               └── surface.ts# generateSurfaceChunk(seed, planet, chunkX, chunkZ) — heightmap, biome, nodes, pads
 ├── ralph/                    # Ralph loop implementation (TypeScript)
 │   └── src/

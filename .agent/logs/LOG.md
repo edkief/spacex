@@ -3,12 +3,26 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-29
-**Tasks Completed:** 12
-**Current Task:** TASK-65 Complete
+**Tasks Completed:** 13
+**Current Task:** TASK-10 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-09-29 — TASK-10: Callsign-only auth with signed session tokens
+Implemented callsign-only authentication with HMAC-signed session tokens; no passwords anywhere:
+- `app/src/shared/callsign.ts` (step 1): shared zod `callsignSchema` — 3-16 chars, alphanumeric + dash, with a lowercase transform so the unique callsign column gives case-insensitive uniqueness on both drivers.
+- `app/src/shared/galaxy/home.ts` (step 1): `homeSystemIdForPlayer(galaxySeed, playerId)` — star index = first 15 de-dashed hex digits of the player id mod star count; system id derived from the exact same (seed, starId) sub-seed as `generateSystem`, so home systems always exist in the seeded galaxy with zero stored geometry.
+- `app/src/server/auth/token.ts` (step 2): `createTokenCodec(secret, {now?})` — base64url(JSON {playerId, systemId?, exp}) + "." + base64url(HMAC-SHA256); constant-time MAC via `timingSafeEqual`; 30 s exp skew tolerance; never throws; raw token/secret never logged.
+- `app/src/server/auth/session.ts` (step 3): `createSessionService({repo, codec, now?})` — `issue()` signs a 7-day token and stores only its sha256 in the sessions table; `verify()` = codec check → token_hash lookup → row expires_at check → player row (reasons: malformed-token / invalid-signature / expired-token / unknown-session). `createTokenAuthenticate()` is the WS authenticator: token-only (callsign claims are REST-only).
+- `app/src/server/routes/callsigns.ts` (step 1): POST /api/callsigns — strict body validation (400 invalid-callsign), caller-generated player id (new optional `Repository.createPlayer({id})` so the home system can key off it pre-insert), CallsignTakenError → 409 {code:'callsign-taken'}, starter scout ship docked at the home origin, 201 {callsign, token, playerId, homeSystemId, shipId}.
+- `app/src/server/routes/session.ts` (step 3): GET /api/session — Bearer parse (missing/malformed → 401 'missing bearer token'), full session verify (any failure → 401 {code:'unauthenticated', reason}), 200 {callsign, credits, homeSystemId, shipId}; the raw token is never echoed in responses.
+- `app/src/server/index.ts` (step 4): production wiring — codec from SESSION_SECRET, session service, `registerApiRoutes`, and `attachWebSocket` with `createTokenAuthenticate` (the dev placeholder in ws.ts is now test-only, commented).
+- Tests (step 5): `auth/token.test.ts` (8, fake clock) round-trip, tampered body/MAC/secret, malformed shapes, expiry at the inclusive boundary, 29 s vs 31 s skew; `routes/callsigns.api.test.ts` (11, fastify inject + fake clock) claim→player+ship+token, 409 exact and case-insensitive, 400s (short/long/charset/unknown-field), session 200 profile, 401s (missing, wrong-secret, never-issued unknown-session), token-not-echoed, 200 at TTL+29 s then 401 expired at TTL+31 s; `routes/auth.ws.test.ts` (5, live in-process server) hello→auth{token}→join home system, pre-auth join/input → unauthenticated, garbage token then valid token on the same connection, callsign-only auth rejected (no phantom player), wrong-secret token rejected; `galaxy/home.test.ts` (5) 16-hex shape, formula match against `generateSystem` for 4 star indices, determinism, seed sensitivity, spread.
+- Live smoke: `npm run dev`, `app/smoke-task10.mjs` over the :3000 proxy — health 200, claim 201, upper-case duplicate 409, invalid 400, session 401/200/forged-401, WS valid token passed the auth gate (system-not-found for the unregistered home, not unauthenticated), WS forged token → unauthenticated. SMOKE PASS.
+- No UI changes → Playwright e2e skipped (server-side security; REST inject + live-ws integration covered).
+- Verified: `tsc --noEmit`, `npm run lint` clean, full `npm run test` → 22 files / 247 tests all pass (+30 new).
 
 ### 2026-09-29 — TASK-65: Per-connection rate limiting and chat spam control
 Enforced per-connection rate limits and chat spam control so one client can't flood the shard or the chat:

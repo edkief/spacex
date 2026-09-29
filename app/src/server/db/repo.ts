@@ -63,6 +63,8 @@ export interface Repository {
     callsign: string;
     homeSystemId: string;
     credits?: number;
+    /** Caller-supplied id (e.g. so derived values can key off it pre-insert). */
+    id?: string;
   }): Promise<PlayerRow>;
   findPlayerByCallsign(callsign: string): Promise<PlayerRow | undefined>;
   getOrCreateStarterShip(
@@ -133,7 +135,7 @@ export function createRepo(db: Db, tables: Schema): Repository {
       try {
         const inserted = await d
           .insert(t.players)
-          .values({ ...player, id: uuid() })
+          .values({ ...player, id: input.id ?? uuid() })
           .returning();
         return inserted[0] as PlayerRow;
       } catch (err) {

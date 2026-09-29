@@ -95,6 +95,10 @@ const SYSTEM_SCOPED: ReadonlySet<string> = new Set([
   'target_update',
 ]);
 
+/**
+ * Test/dev fallback only: production wiring (index.ts) passes
+ * createTokenAuthenticate from @server/auth/session instead (TASK-10).
+ */
 export const devAuthenticate: Authenticate = async (payload) => {
   if (payload.callsign) {
     return { ok: true, playerId: randomUUID(), callsign: payload.callsign };

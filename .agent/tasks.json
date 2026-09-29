@@ -88,7 +88,7 @@
     "title": "Callsign-only auth with signed session tokens",
     "category": "security",
     "specFilePath": ".agent/tasks/TASK-10.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-66",
