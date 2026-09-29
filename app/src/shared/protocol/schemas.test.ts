@@ -45,6 +45,7 @@ const CASES: Record<string, { valid: unknown; invalid: unknown }> = {
   hello: { valid: { v: 1 }, invalid: { v: 'one' } },
   auth: { valid: { callsign: 'drifter' }, invalid: {} },
   join_system: { valid: { systemId: 'sys-1' }, invalid: { systemId: '' } },
+  logout: { valid: {}, invalid: { token: 'extra-field' } },
   enter_system: { valid: { snapshot }, invalid: { snapshot: { ...snapshot, chat: 5 } } },
   state_snapshot: {
     valid: snapshot,

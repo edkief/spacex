@@ -21,6 +21,7 @@ attachWebSocket(app, {
   path: env.WS_PATH,
   gateway,
   authenticate: createTokenAuthenticate(sessions),
+  revokeToken: (token) => sessions.revoke(token),
 });
 
 app.listen({ port: env.PORT, host: '0.0.0.0' }).catch((err) => {

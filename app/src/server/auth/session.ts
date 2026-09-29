@@ -20,6 +20,12 @@ export interface SessionService {
   issue(playerId: string, systemId?: string): Promise<string>;
   /** Signature + exp + sessions-row lookup. The raw token never hits the db. */
   verify(token: string): Promise<SessionVerifyResult>;
+  /**
+   * Revoke the presenting token by deleting its sessions row (TASK-66).
+   * Returns true when a row was actually deleted; false when the token was
+   * never issued or already revoked (revocation is idempotent).
+   */
+  revoke(token: string): Promise<boolean>;
   /** sha256 hex of the raw token — the only form ever persisted. */
   tokenHash(token: string): string;
 }
@@ -37,6 +43,13 @@ export interface SessionDeps {
  * stored or logged — only its sha256 lives in the sessions table, and every
  * verification re-checks the MAC, the exp (30 s skew) and the row's
  * expires_at, so a leaked hash is worthless and revocation is a delete.
+ *
+ * Shared account model (TASK-66): verify is stateless over the sessions row,
+ * so the same token may legitimately back several simultaneous connections
+ * (e.g. two tabs) — both keep working until the token is revoked via
+ * revoke() (logout), after which every further use is rejected. Already-open
+ * WS connections are not force-closed on revocation; the token is only
+ * re-checked at handshake.
  */
 export function createSessionService(deps: SessionDeps): SessionService {
   const now = deps.now ?? Date.now;
@@ -61,6 +74,13 @@ export function createSessionService(deps: SessionDeps): SessionService {
         expiresAt: new Date(now() + ttlMs).toISOString(),
       });
       return token;
+    },
+    async revoke(token) {
+      const hash = tokenHash(token);
+      const row = await deps.repo.findSession(hash);
+      if (!row) return false;
+      await deps.repo.deleteSession(hash);
+      return true;
     },
     async verify(token) {
       const checked = deps.codec.verify(token);

@@ -7,9 +7,15 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: true,
-    // tests/ holds Playwright e2e specs; validation-fuzz is the only node spec
-    // living there (TASK-64) — named explicitly so scaffold.spec.ts is skipped.
-    include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'tests/validation-fuzz.spec.ts'],
+    // tests/ holds Playwright e2e specs; validation-fuzz (TASK-64) and
+    // session-log-leak (TASK-66) are the node specs living there — named
+    // explicitly so scaffold.spec.ts is skipped.
+    include: [
+      'src/**/*.test.ts',
+      'src/**/*.test.tsx',
+      'tests/validation-fuzz.spec.ts',
+      'tests/session-log-leak.spec.ts',
+    ],
   },
   resolve: {
     alias: {

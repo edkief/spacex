@@ -95,7 +95,7 @@
     "title": "Session token integrity (signing, expiry, revocation)",
     "category": "security",
     "specFilePath": ".agent/tasks/TASK-66.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-19",

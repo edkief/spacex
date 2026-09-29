@@ -25,6 +25,21 @@ export interface TokenCodec {
 /** exp is honoured up to this much server clock skew (spec: 30 s). */
 export const TOKEN_SKEW_TOLERANCE_MS = 30_000;
 
+const B64URL_CHARS = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * Strict base64url decode (TASK-66): rejects invalid characters and
+ * non-canonical encodings — e.g. a last char with trailing padding bits set,
+ * which Node's decoder would silently drop. Guarantees any single-character
+ * mutation of a segment changes (or invalidates) the decoded bytes, so it can
+ * never verify as an identical token.
+ */
+function decodeB64url(segment: string): Buffer | undefined {
+  if (!B64URL_CHARS.test(segment)) return undefined;
+  const buf = Buffer.from(segment, 'base64url');
+  return buf.toString('base64url') === segment ? buf : undefined;
+}
+
 /**
  * HMAC-SHA256 session token codec (TASK-10). The payload is public data —
  * only the MAC binds it, so the token can travel in a Bearer header without
@@ -49,10 +64,13 @@ export function createTokenCodec(secret: string, opts: { now?: () => number } = 
         return { ok: false, reason: 'malformed-token' };
       }
       const body = token.slice(0, dot);
-      const given = Buffer.from(token.slice(dot + 1), 'base64url');
+      const bodyBuf = decodeB64url(body);
+      if (!bodyBuf) return { ok: false, reason: 'malformed-token' };
+      const given = decodeB64url(token.slice(dot + 1));
+      if (!given) return { ok: false, reason: 'invalid-signature' };
       let raw: unknown;
       try {
-        raw = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+        raw = JSON.parse(bodyBuf.toString('utf8'));
       } catch {
         return { ok: false, reason: 'malformed-token' };
       }

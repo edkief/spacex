@@ -64,6 +64,11 @@ export interface Conn {
   stage: ConnStage;
   playerId: string | null;
   callsign: string | null;
+  /**
+   * The raw token the connection authenticated with (memory only — never
+   * stored or logged), so a 'logout' can revoke it (TASK-66).
+   */
+  token: string | null;
   systemId: string | null;
   unknownTypes: number;
   /** Rejected (undecodable or schema-failing) messages; drop at 50 (TASK-64). */
@@ -149,6 +154,8 @@ export interface AttachWebSocketOptions {
   /** Gameplay dispatch (shards wire in later tasks); validated messages only. */
   onGameMessage?: (conn: Conn, type: string, payload: unknown) => void;
   keepalive?: { pingIntervalMs?: number; dropAfterMs?: number };
+  /** Revokes a token presented at auth (WS 'logout', TASK-66). */
+  revokeToken?: (token: string) => boolean | void | Promise<boolean> | Promise<void>;
 }
 
 export interface WebSocketHandle {
@@ -215,6 +222,7 @@ export function attachWebSocket(
         }
         conn.playerId = result.playerId;
         conn.callsign = result.callsign;
+        conn.token = (payload as AuthPayload).token ?? null;
         conn.stage = 'authed';
         return;
       }
@@ -244,6 +252,17 @@ export function attachWebSocket(
           send(peer, 'presence', { event: 'join', player: presenceEntry(conn) });
         }
         send(conn, 'enter_system', { snapshot: outcome.snapshot });
+        return;
+      }
+      case 'logout': {
+        // TASK-66: only an authenticated connection owns a token to revoke.
+        if (conn.stage !== 'authed') {
+          return sendError(conn, PROTOCOL_ERRORS.UNAUTHENTICATED, 'auth required before logout');
+        }
+        if (conn.token) await options.revokeToken?.(conn.token);
+        // Clean close: the token is already revoked, no further handshake
+        // with it can succeed.
+        conn.socket.close(1000, 'logged-out');
         return;
       }
       case 'ping':
@@ -341,6 +360,7 @@ export function attachWebSocket(
       stage: 'hello',
       playerId: null,
       callsign: null,
+      token: null,
       systemId: null,
       unknownTypes: 0,
       invalidMessages: 0,

@@ -123,6 +123,54 @@ describe('POST /api/callsigns', () => {
   });
 });
 
+describe('POST /api/session/logout (TASK-66)', () => {
+  it('revokes the presenting token; a second use returns 401', async () => {
+    const { token } = (await claim('Golf-3')).json();
+    expect((await sessionOf(token)).statusCode).toBe(200);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/session/logout',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ code: 'logged-out' });
+
+    // Second use of the same token (profile or logout) is a 401.
+    const again = await sessionOf(token);
+    expect(again.statusCode).toBe(401);
+    expect(again.json()).toEqual({ code: 'unauthenticated', reason: 'unknown-session' });
+    const logoutAgain = await app.inject({
+      method: 'POST',
+      url: '/api/session/logout',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(logoutAgain.statusCode).toBe(401);
+    expect(logoutAgain.json()).toEqual({ code: 'unauthenticated', reason: 'unknown-session' });
+  });
+
+  it('rejects logout with a missing or unverified bearer token (401, structured)', async () => {
+    const missing = await app.inject({ method: 'POST', url: '/api/session/logout' });
+    expect(missing.statusCode).toBe(401);
+    expect(missing.json()).toEqual({ code: 'unauthenticated', reason: 'missing bearer token' });
+
+    const otherCodec = createTokenCodec('a-different-secret', { now: () => nowMs });
+    const forged = otherCodec.sign({
+      playerId: (await repo.findPlayerByCallsign('alpha-1'))!.id,
+      exp: Math.floor((nowMs + 3600_000) / 1000),
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/session/logout',
+      headers: { authorization: `Bearer ${forged}` },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(res.json()).toEqual({ code: 'unauthenticated', reason: 'invalid-signature' });
+    // The raw forged token is not echoed.
+    expect(res.body).not.toContain(forged);
+  });
+});
+
 describe('GET /api/session', () => {
   it('returns the player profile for a valid bearer token', async () => {
     const { token } = (await claim('Echo-5')).json();

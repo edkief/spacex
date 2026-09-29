@@ -30,6 +30,7 @@ const env: Env = {
 let dir: string;
 let app: FastifyInstance;
 let repo: ReturnType<typeof createRepo>;
+let sessions: ReturnType<typeof createSessionService>;
 let handle: WebSocketHandle;
 let wsUrl: string;
 
@@ -37,7 +38,7 @@ beforeAll(async () => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'drift-authws-'));
   const { db } = createDb({ driver: 'sqlite', dbPath: path.join(dir, 'test.db') });
   repo = createRepo(db, sqliteTables);
-  const sessions = createSessionService({ repo, codec: createTokenCodec('ws-test-secret') });
+  sessions = createSessionService({ repo, codec: createTokenCodec('ws-test-secret') });
   app = buildServer(env);
   registerApiRoutes(app, { repo, sessions, galaxySeed: env.GALAXY_SEED });
   handle = attachWebSocket(app, {
@@ -51,6 +52,7 @@ beforeAll(async () => {
       },
     },
     authenticate: createTokenAuthenticate(sessions),
+    revokeToken: (token) => sessions.revoke(token),
     keepalive: { pingIntervalMs: 60_000, dropAfterMs: 180_000 },
   });
   await app.listen({ port: 0, host: '127.0.0.1' });
@@ -74,6 +76,7 @@ class Client {
   private queue: Envelope[] = [];
   private waiters: Array<() => void> = [];
   closed = false;
+  closeCode: number | null = null;
 
   constructor(url: string) {
     this.ws = new WebSocket(url);
@@ -82,7 +85,25 @@ class Client {
       this.queue.push(JSON.parse(String(data)) as Envelope);
       for (const w of this.waiters.splice(0)) w();
     });
-    this.ws.on('close', () => (this.closed = true));
+    this.ws.on('close', (code) => {
+      this.closed = true;
+      this.closeCode = code;
+    });
+  }
+
+  /** Resolve with the close code once the server closes the socket. */
+  waitClose(ms = 2000): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const deadline = Date.now() + ms;
+      const check = (): void => {
+        if (this.closeCode !== null) return resolve(this.closeCode);
+        if (Date.now() > deadline) {
+          return reject(new Error(`timed out waiting for close (code so far: ${this.closeCode})`));
+        }
+        setTimeout(check, 10);
+      };
+      check();
+    });
   }
 
   open(): Promise<void> {
@@ -216,5 +237,81 @@ describe('WS auth with session tokens (TASK-10)', () => {
     const err = await client.error();
     expect(err.payload).toMatchObject({ code: 'unauthenticated', message: 'invalid-signature' });
     client.close();
+  });
+});
+
+describe('WS logout + revocation (TASK-66)', () => {
+  it('logout revokes the presenting token and closes with code 1000', async () => {
+    const { token, homeSystemId } = await claim('ws-logout-1');
+    await repo.upsertSystem(homeSystemId, 'Home');
+    const client = new Client(wsUrl);
+    await client.open();
+    client.hello();
+    client.auth(token);
+    client.send({ v: 1, type: 'join_system', payload: { systemId: homeSystemId } });
+    await client.next((m) => m.type === 'enter_system', 'enter_system');
+    client.send({ v: 1, type: 'logout', payload: {} });
+    expect(await client.waitClose()).toBe(1000);
+
+    // The token is revoked: REST use is a 401...
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/session',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(res.json()).toEqual({ code: 'unauthenticated', reason: 'unknown-session' });
+
+    // ...and a fresh WS handshake with it is rejected.
+    const other = new Client(wsUrl);
+    await other.open();
+    other.hello();
+    other.auth(token);
+    const err = await other.error();
+    expect(err.payload).toMatchObject({ code: 'unauthenticated', message: 'unknown-session' });
+    other.close();
+  });
+
+  it('logout before auth is rejected with unauthenticated', async () => {
+    const client = new Client(wsUrl);
+    await client.open();
+    client.send({ v: 1, type: 'logout', payload: {} });
+    const err = await client.error();
+    expect(err.payload).toMatchObject({ code: 'unauthenticated' });
+    client.close();
+  });
+
+  it('shared account model: the same token backs two connections until revocation', async () => {
+    const { token, homeSystemId } = await claim('ws-shared-1');
+    await repo.upsertSystem(homeSystemId, 'Home');
+    const a = new Client(wsUrl);
+    const b = new Client(wsUrl);
+    await a.open();
+    await b.open();
+    for (const c of [a, b]) {
+      c.hello();
+      c.auth(token); // same token on both connections — both admitted
+      c.send({ v: 1, type: 'join_system', payload: { systemId: homeSystemId } });
+    }
+    await a.next((m) => m.type === 'enter_system', 'a enters');
+    await b.next((m) => m.type === 'enter_system', 'b enters');
+
+    // Revocation through one connection's logout...
+    a.send({ v: 1, type: 'logout', payload: {} });
+    expect(await a.waitClose()).toBe(1000);
+
+    // ...does not kick the other already-authenticated connection (the token
+    // is only re-checked at handshake)...
+    expect(b.closed).toBe(false);
+
+    // ...but every new use of the token fails.
+    const c = new Client(wsUrl);
+    await c.open();
+    c.hello();
+    c.auth(token);
+    const err = await c.error();
+    expect(err.payload).toMatchObject({ code: 'unauthenticated', message: 'unknown-session' });
+    c.close();
+    b.close();
   });
 });

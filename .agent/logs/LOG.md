@@ -3,12 +3,23 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-29
-**Tasks Completed:** 13
-**Current Task:** TASK-10 Complete
+**Tasks Completed:** 14
+**Current Task:** TASK-66 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-09-29 — TASK-66: Session token integrity (signing, expiry, revocation)
+Hardened session tokens: explicit revocation, exhaustive tamper/expiry tables, and a CI log-leak guard proving secrets/tokens never reach the logs:
+- `app/src/server/auth/session.ts` (step 1): `SessionService.revoke(token)` — deletes the sessions row for the presenting token (idempotent, false when never issued); documented the **shared account model**: verify is stateless over the row, so one token may back several simultaneous connections until revocation; open WS connections are not force-closed (token only re-checked at handshake).
+- `app/src/server/routes/session.ts` (step 1): `POST /api/session/logout` — verifies the bearer first (so forged/revoked tokens get the same structured 401s, token never echoed), then revokes; 200 `{code:'logged-out'}`. Shared `bearerToken()` helper with GET /api/session.
+- `app/src/shared/protocol/schemas.ts` + `app/src/server/ws.ts` (step 1): new `logout` message type (strict empty payload). Conn now remembers the raw auth token (memory only); `attachWebSocket` takes an optional `revokeToken` hook; `logout` before auth → `unauthenticated`, else the token is revoked and the socket closes **1000 'logged-out'**. Wired in `index.ts` via `sessions.revoke`.
+- Codec hardening found by the tamper sweep (`auth/token.ts`): Node's base64 decoder silently drops trailing padding bits, so a single-char mutation of the MAC's last char could decode to the *identical* 32-byte signature. Added strict `decodeB64url` (charset + canonical round-trip check) for both body and MAC — now **every** single-character mutation of any valid token is rejected.
+- Log-sink hook (step 3): `buildServer(env, { loggerInstance })` — fastify v5 rejects pino instances passed as `logger`, so tests inject via `loggerInstance`; default stays logging-off. `pino` added as devDependency.
+- Tests: `auth/token.test.ts` (+5) exhaustive table — valid entries, **every single-character mutation** of a valid token (~7k at codec level), every proper truncation, non-canonical MAC padding regression, expiry table (past / 29 s / 30 s boundary / 31 s / far future), 17-case garbage table (all via the same verify() the server uses); `auth/session.test.ts` (new, 9) service-level table through `createSessionService` (same verify path as REST/WS) with fake repo + clock: mutation/truncation/expiry/unknown-session/garbage, revoke deletes row + idempotent + never-issued false, **shared account model** (concurrent verifies both succeed until revocation), hash-only storage; `routes/callsigns.api.test.ts` (+2) REST logout: 200 then second use (profile and logout) 401 unknown-session, missing/forged bearer 401s with no token echo; `routes/auth.ws.test.ts` (+3, revokeToken wired) WS logout → close 1000 then REST 401 + fresh handshake rejected, logout-before-auth unauthenticated, shared account model over the wire (two connections on one token both enter, one logs out → 1000, other stays connected, new use rejected); `protocol/schemas.test.ts` (+2) logout schema cases; `tests/session-log-leak.spec.ts` (new, 1) **log-leak regression guard**: full claim → session → logout (REST + WS) cycle against a pino capture sink at trace level, scanning every line for SESSION_SECRET, both issued tokens and both sha256 hashes — fails on any match (sink non-emptiness asserted so it can't pass vacuously).
+- Live smoke: `npm run dev`, `smoke-task66` over the :3000 proxy — health 200, claim 201, session 200, logout 200, second use 401 unknown-session (token not echoed), WS hello→auth→logout → close 1000 'logged-out', then REST 401. SMOKE PASS (12 checks). No UI changes → Playwright e2e skipped (server-side security).
+- Verified: `tsc --noEmit`, `eslint --fix` + `prettier --write` clean, full `npm run test` → 24 files / 271 tests all pass (+24 new).
 
 ### 2026-09-29 — TASK-10: Callsign-only auth with signed session tokens
 Implemented callsign-only authentication with HMAC-signed session tokens; no passwords anywhere:

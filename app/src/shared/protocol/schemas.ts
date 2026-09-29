@@ -111,6 +111,8 @@ export const messageSchemas = {
       message: 'auth requires a token or a callsign',
     }),
   join_system: z.object({ systemId: z.string().min(1).max(64) }).strict(),
+  /** TASK-66: revokes the connection's auth token, then the server closes 1000. */
+  logout: z.object({}).strict(),
   enter_system: z.object({ snapshot: stateSnapshotSchema }).strict(),
   state_snapshot: stateSnapshotSchema,
   entity_update: z.object({ entities: z.array(entityStateSchema).min(1).max(1000) }).strict(),
