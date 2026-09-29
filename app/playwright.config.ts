@@ -5,6 +5,8 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './tests',
+  // Node (vitest) spec living next to the e2e specs — not a Playwright test.
+  testIgnore: ['**/validation-fuzz.spec.ts'],
   fullyParallel: true,
   globalTimeout: 30 * 60 * 1000,
   forbidOnly: !!process.env.CI,

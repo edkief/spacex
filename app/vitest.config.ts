@@ -7,7 +7,9 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: true,
-    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+    // tests/ holds Playwright e2e specs; validation-fuzz is the only node spec
+    // living there (TASK-64) — named explicitly so scaffold.spec.ts is skipped.
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'tests/validation-fuzz.spec.ts'],
   },
   resolve: {
     alias: {

@@ -3,12 +3,22 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-29
-**Tasks Completed:** 10
-**Current Task:** TASK-9 Complete
+**Tasks Completed:** 11
+**Current Task:** TASK-64 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-09-29 — TASK-64: Input validation on all inbound messages (zod)
+Closed the validation surface so no server code path ever reads an unvalidated inbound field (PRD security requirement):
+- Audit (step 1): the only inbound surfaces are the WS envelope (validated via `parseMessage` in `ws.ts` before dispatch — all three handler field reads, hello.v / auth payload / join_system.systemId, happen post-validation) and REST. The only REST route is `GET /api/health` (no body/params/queries) — nothing else to validate. All 23 message types already had schemas in `shared/protocol/schemas.ts`.
+- Hardened schemas (step 2): every payload schema in `messageSchemas` plus the shared nested shapes (vec3, entityState, resourceNode, chatMessage, presenceEntry, stateSnapshot) are now `.strict()` — unknown fields are rejected, not stripped, so field-spraying probes fail validation. Added `MAX_MESSAGE_BYTES = 64 KB` and `INVALID_MESSAGE_DROP_LIMIT = 50` to `shared/protocol.ts`.
+- Hardened dispatch (`ws.ts`): `onRawMessage` checks message length before JSON parsing (>64 KB → structured invalid-message, no parse); new `rejectInvalid()` centralizes rejections — increments the per-connection `invalidMessages` counter (terminate at 50), sends `{code:'invalid-message', message}`, and logs at debug level with only type + code (raw payload never echoed or logged). `wss.maxPayload` raised to 2 MB so oversized frames arrive as structured rejections instead of bare 1009 policy closes.
+- Fuzz suite (step 3): `app/tests/validation-fuzz.spec.ts` (node/vitest, not playwright) — boots the real server in-process and fires 20 crafted payloads (non-JSON, JSON array, non-integer v, empty type, wrong types, `1e999`→Infinity on the wire, NaN-in-string, depth-30 nesting, 1 MB string, negative seq, unknown fields, bad enums, out-of-range hull/quantity/token) over one live connection: all 20 return `invalid-message`, connection stays alive; then `/api/health` answers 200 and a fresh valid hello→auth→join_system on the same connection yields `enter_system` (state never mutated). Plus: connection drops at exactly 50 invalid messages; in-process unit checks for NaN/Infinity/unknown-field/depth-30 via `parseMessage` (all use safeParse — no throw-based control flow).
+- Config: vitest includes the node spec explicitly (not `tests/**` — scaffold.spec.ts there is playwright); playwright `testIgnore` excludes it from e2e.
+- Live smoke: `npm run dev`, sent non-JSON + negative-seq-with-unknown-field envelopes through the :3000 proxy → both got structured `invalid-message` (second proves strict() rejects unknown fields live). Playwright scaffold e2e passed (1.8 s). No UI changes → no new screenshots.
+- Verified: `tsc --noEmit`, `npm run lint` (eslint + prettier) clean, full `npm run test` → 16 files / 202 tests all pass (+6 new).
 
 ### 2026-09-29 — TASK-9: WS protocol — typed versioned message schema + handshake
 Defined the full client↔server WebSocket protocol and its server-side lifecycle (PRD §TASK-9):

@@ -6,7 +6,7 @@
   "acceptanceCriteria": [
     "No server code path reads an unvalidated message field: WS dispatch validates via parseMessage before handler; REST routes validate bodies/params/queries with shared schemas",
     "Invalid messages return structured error {code:'invalid-message', message} and do not mutate state; connection stays alive for valid messages afterwards",
-    "Fuzz test: 20 crafted malformed payloads (wrong types, NaN, Infinity, depth-30 nesting, 1 MB string, negative seq, unknown fields where forbidden) sent to a live server — all rejected with invalid-message, server still answers /api/health",
+    "Fuzz test: 20 crafted malformed payloads (wrong types, NaN, Infinity, depth-30 nesting, 1 MB string, negative seq, unknown fields where forbidden) sent to a live server \u2014 all rejected with invalid-message, server still answers /api/health",
     "zod safeParse results used (no throw-based control flow); validation errors logged at debug level without echoing raw payload to the client beyond the error code",
     "Unit tests green; lint/typecheck green"
   ],
@@ -15,31 +15,34 @@
       "step": 1,
       "description": "Audit current validation surface",
       "details": "Grep server handlers for direct payload field access; list every message type and REST route; confirm each has a schema (add missing ones to shared/protocol/schemas.ts).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Harden dispatch",
-      "details": "WS dispatcher: safeParse → on failure send invalid-message error, increment per-connection invalid counter (drop at 50). REST: fastify schema validation or manual safeParse in a preHandler; 400 responses with {code, message} only.",
-      "pass": false
+      "details": "WS dispatcher: safeParse \u2192 on failure send invalid-message error, increment per-connection invalid counter (drop at 50). REST: fastify schema validation or manual safeParse in a preHandler; 400 responses with {code, message} only.",
+      "pass": true
     },
     {
       "step": 3,
       "description": "Fuzz test suite",
-      "details": "tests/validation-fuzz.spec.ts (node, not playwright): boot server in-process, open ws, send the 20 payloads, assert invalid-message each time, then assert health endpoint still 200 and a valid hello→auth flow still succeeds.",
-      "pass": false
+      "details": "tests/validation-fuzz.spec.ts (node, not playwright): boot server in-process, open ws, send the 20 payloads, assert invalid-message each time, then assert health endpoint still 200 and a valid hello\u2192auth flow still succeeds.",
+      "pass": true
     },
     {
       "step": 4,
       "description": "Verify and log",
       "details": "Run npm run lint && npm run typecheck && npm run test; record results; commit.",
-      "pass": false
+      "pass": true
     }
   ],
-  "dependencies": ["TASK-9"],
+  "dependencies": [
+    "TASK-9"
+  ],
   "estimatedComplexity": "low",
   "technicalNotes": [
     "Use .strict() on payload schemas so unknown fields are rejected (prevents field-spraying probes).",
     "Depth/size limits: cap JSON parse size at 64 KB per message at the ws layer (on 'message', check length before parse)."
-  ]
+  ],
+  "passes": true
 }

@@ -18,6 +18,12 @@ export const DROP_AFTER_MS = 45_000;
 /** A connection is terminated after this many unknown message types. */
 export const UNKNOWN_TYPE_DROP_LIMIT = 10;
 
+/** A connection is terminated after this many invalid messages (TASK-64). */
+export const INVALID_MESSAGE_DROP_LIMIT = 50;
+
+/** Inbound messages larger than this are rejected before JSON parsing (TASK-64). */
+export const MAX_MESSAGE_BYTES = 64 * 1024;
+
 /** Structured error codes; every server error is {code, message}. */
 export const PROTOCOL_ERRORS = {
   VERSION_MISMATCH: 'version-mismatch',

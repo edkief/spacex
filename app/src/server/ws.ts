@@ -6,6 +6,8 @@ import type { IncomingMessage } from 'http';
 
 import {
   DROP_AFTER_MS,
+  INVALID_MESSAGE_DROP_LIMIT,
+  MAX_MESSAGE_BYTES,
   PING_INTERVAL_MS,
   PROTOCOL_ERRORS,
   PROTOCOL_VERSION,
@@ -57,6 +59,8 @@ export interface Conn {
   callsign: string | null;
   systemId: string | null;
   unknownTypes: number;
+  /** Rejected (undecodable or schema-failing) messages; drop at 50 (TASK-64). */
+  invalidMessages: number;
   lastActivityAt: number;
   /** Handlers are async (auth, gateway); a per-connection chain preserves order. */
   queue: Promise<void>;
@@ -144,7 +148,10 @@ export function attachWebSocket(
   const pingMs = options.keepalive?.pingIntervalMs ?? PING_INTERVAL_MS;
   const dropMs = options.keepalive?.dropAfterMs ?? DROP_AFTER_MS;
 
-  const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
+  // maxPayload must exceed MAX_MESSAGE_BYTES so oversized frames reach
+  // onRawMessage and get a structured invalid-message instead of a bare 1009
+  // policy close.
+  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE_BYTES * 32 });
   const connections = new Set<Conn>();
 
   function peersIn(systemId: string): Conn[] {
@@ -244,11 +251,28 @@ export function attachWebSocket(
     }
   }
 
+  /**
+   * Structured rejection of an invalid inbound message: counters toward the
+   * per-connection drop limit and answers invalid-message without echoing the
+   * raw payload (logged at debug with type + code only).
+   */
+  function rejectInvalid(conn: Conn, type: string | null, reason: string): void {
+    conn.invalidMessages += 1;
+    server.log.debug({ type, code: PROTOCOL_ERRORS.INVALID_MESSAGE }, 'rejected inbound message');
+    sendError(conn, PROTOCOL_ERRORS.INVALID_MESSAGE, reason);
+    if (conn.invalidMessages >= INVALID_MESSAGE_DROP_LIMIT) {
+      conn.socket.terminate();
+    }
+  }
+
   function onRawMessage(conn: Conn, data: Buffer): void {
     conn.lastActivityAt = Date.now();
+    if (data.length > MAX_MESSAGE_BYTES) {
+      return rejectInvalid(conn, null, `message exceeds ${MAX_MESSAGE_BYTES} bytes`);
+    }
     const decoded = decodeMessage(data);
     if (!decoded.ok) {
-      return sendError(conn, PROTOCOL_ERRORS.INVALID_MESSAGE, decoded.message);
+      return rejectInvalid(conn, null, decoded.message);
     }
     const parsed = parseMessage(decoded.envelope.type, decoded.envelope.payload);
     if (!parsed.ok) {
@@ -259,7 +283,7 @@ export function attachWebSocket(
           conn.socket.terminate();
         }
       } else {
-        sendError(conn, PROTOCOL_ERRORS.INVALID_MESSAGE, parsed.message);
+        rejectInvalid(conn, decoded.envelope.type, parsed.message);
       }
       return;
     }
@@ -280,6 +304,7 @@ export function attachWebSocket(
       callsign: null,
       systemId: null,
       unknownTypes: 0,
+      invalidMessages: 0,
       lastActivityAt: Date.now(),
       queue: Promise.resolve(),
     };
