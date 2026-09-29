@@ -3,12 +3,22 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-29
-**Tasks Completed:** 4
-**Current Task:** TASK-3 Complete
+**Tasks Completed:** 5
+**Current Task:** TASK-4 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-09-29 — TASK-4: System generator (planets, docks, deposits, AI roster)
+Implemented pure, deterministic star-system generation on top of the TASK-3 star generator:
+- `app/src/shared/galaxy/system.ts` — `generateSystem(seed, starId): SystemGen` + `generatePlanet(seed, starId, index): Planet`. Sub-seed = hash2(seedFromString(seed), seedFromString(starId)); per-planet sub-seed hash2(systemSub, j) so planets are order-independent and planet ids (16-hex) are stable keys for TASK-5. systemId = hex of the system sub-seed; name = star name + ' system'; star class/name drawn from the same sub-seed Rng (reused exported `pickSpectralClass`/`makeStarName` from stars.ts).
+- Per-planet fixed draw order: class (weighted rocky 32/terran 18/ice 20/ocean 12/gas 18), radiusKm (gas 20k–60k, else 2k–8k), hasAtmosphere (per-class probability), landable (gas never; per-class probability), dockCount (1–3 landable / 0 else), resourceTypes (1–3 unique from iron/copper/silicon/rare-earths/water/gas-compounds), aiRoster (count 2–5, classes from scout/freighter/interceptor matching TASK-19 ids), name (prefix+root, deterministic re-draw on in-system collision).
+- `types.ts` — Planet rebuilt to TASK-4 shape (class, radiusKm, hasAtmosphere, landable, dockCount, resourceTypes, aiRoster); added PlanetClass, ShipClassId, AiRoster, SystemGen. `config.ts` — planet class weights, per-class atmosphere/landable chances, RESOURCE_TYPES, SHIP_CLASS_IDS.
+- Golden fixture `__fixtures__/system-dev-seed-star0.json`: star #0 of dev seed 'drift-dev-seed-001' (id 7dc36749a54c15d8), sha256=67f44440…fe418 of canonical JSON.
+- Tests `system.test.ts` (16): golden snapshot (deep-equal + checksum), determinism across two calls, per-planet independence vs generatePlanet (fresh independent Rng per planet), two identically-seeded Rng instances draw identically, divergence on star/seed change, systemId formula check; 200-system statistical suite: 2–6 planets, unique 16-hex ids, unique names, radius bounds, gas never landable, dockCount bounds, resource/roster bounds — and 182/200 (91%) systems have ≥1 landable+atmosphere planet (>80% required); invariants repeated for 3 other seeds (incl. unicode + empty) × 30 systems.
+- No UI changes → Playwright/e2e skipped (pure logic, unit coverage complete).
+- Verified: `tsc --noEmit`, `eslint --fix` + `prettier --write`, full `npm run test` → 6 files / 63 tests all pass.
 
 ### 2026-09-29 — TASK-3: Star generator (seeded galaxy layout)
 Implemented pure, deterministic galaxy star generation on top of the TASK-2 PRNG:

@@ -17,19 +17,19 @@
       "step": 1,
       "description": "Implement planet generation",
       "details": "generateSystem: sub-seed = hash2(seedFromString(seed), starId). Planet count 2-6; per planet j: class weighted pick (terran/rocky/ice/ocean/gas), radiusKm seeded (gas giants 20k-60k km, others 2k-8k), hasAtmosphere per class probability, landable = !gas && seeded, docks 1-3 if landable else 0, resourceTypes = 1-3 picks from ['iron','copper','silicon','rare-earths','water','gas-compounds'], aiRoster count 2-5 + classes.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "System id + naming",
       "details": "systemId = hex(hash2(masterSeed, starId)); name = star name + ' system' or seeded designation (e.g. 'DR-042'). Deterministic ordering: planets sorted by index, never by runtime values.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Golden fixture + statistical tests",
       "details": "Commit fixture for star index 0 (dev seed). Statistical test over 200 systems: landable+atmosphere >= 80%, gas never landable, dockCount bounds, aiRoster bounds. `npm run test` + `npm run typecheck` green.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-3"],

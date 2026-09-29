@@ -23,7 +23,8 @@ Excludes dotfiles, tests, and config.
 │           └── galaxy/
 │               ├── types.ts  # Star, SystemSummary, Planet, SurfaceChunk interfaces
 │               ├── config.ts # GALAXY_STAR_COUNT, spectral weights, name word lists, disk params
-│               └── stars.ts  # generateStars(seed, count) — seeded thin-disk galaxy layout
+│               ├── stars.ts  # generateStars(seed, count) — seeded thin-disk galaxy layout
+│               └── system.ts # generateSystem(seed, starId) — planets, docks, deposits, AI roster
 ├── ralph/                    # Ralph loop implementation (TypeScript)
 │   └── src/
 └── scripts/

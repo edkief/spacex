@@ -1,0 +1,85 @@
+{
+  "seed": "drift-dev-seed-001",
+  "starId": "7dc36749a54c15d8",
+  "checksum": "67f44440e1c121b1442aac70ed713f1a86ef671ce288975e860fd6ed742fe418",
+  "system": {
+    "systemId": "7c27d511675057f2",
+    "name": "Sarora Vault system",
+    "star": {
+      "class": "M",
+      "name": "Sarora Vault"
+    },
+    "planets": [
+      {
+        "id": "c96c4673ae3343f3",
+        "name": "Torolm",
+        "class": "ice",
+        "radiusKm": 2735.168771352619,
+        "hasAtmosphere": true,
+        "landable": true,
+        "dockCount": 1,
+        "resourceTypes": ["water", "silicon"],
+        "aiRoster": {
+          "count": 4,
+          "classes": ["scout", "interceptor", "interceptor", "scout"]
+        }
+      },
+      {
+        "id": "407c8ef47fc06c1a",
+        "name": "Alde",
+        "class": "rocky",
+        "radiusKm": 6052.788195665926,
+        "hasAtmosphere": false,
+        "landable": true,
+        "dockCount": 3,
+        "resourceTypes": ["water"],
+        "aiRoster": {
+          "count": 4,
+          "classes": ["interceptor", "interceptor", "scout", "scout"]
+        }
+      },
+      {
+        "id": "5cb55a2b74f283a9",
+        "name": "Jorell",
+        "class": "terran",
+        "radiusKm": 6053.956649731845,
+        "hasAtmosphere": true,
+        "landable": true,
+        "dockCount": 3,
+        "resourceTypes": ["iron"],
+        "aiRoster": {
+          "count": 2,
+          "classes": ["freighter", "scout"]
+        }
+      },
+      {
+        "id": "4c567d21fda39ea8",
+        "name": "Wynax",
+        "class": "gas",
+        "radiusKm": 34912.11381740868,
+        "hasAtmosphere": true,
+        "landable": false,
+        "dockCount": 0,
+        "resourceTypes": ["iron", "rare-earths", "water"],
+        "aiRoster": {
+          "count": 3,
+          "classes": ["scout", "freighter", "interceptor"]
+        }
+      },
+      {
+        "id": "043a452bbec949b9",
+        "name": "Brinora",
+        "class": "ice",
+        "radiusKm": 5834.045749623328,
+        "hasAtmosphere": true,
+        "landable": true,
+        "dockCount": 1,
+        "resourceTypes": ["gas-compounds"],
+        "aiRoster": {
+          "count": 5,
+          "classes": ["freighter", "freighter", "freighter", "scout", "scout"]
+        }
+      }
+    ]
+  }
+}

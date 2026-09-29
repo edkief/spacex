@@ -20,7 +20,7 @@ import {
 import type { SpectralClass, Star } from './types.js';
 
 /** Weighted spectral-class pick. Weights need not sum to 1. */
-function pickClass(rng: Rng): SpectralClass {
+export function pickSpectralClass(rng: Rng): SpectralClass {
   const total = SPECTRAL_WEIGHTS.reduce((sum, [, w]) => sum + w, 0);
   let roll = rng.nextF64() * total;
   for (const [cls, w] of SPECTRAL_WEIGHTS) {
@@ -31,7 +31,7 @@ function pickClass(rng: Rng): SpectralClass {
 }
 
 /** prefix + root + suffix, each drawn from a seeded word list. */
-function makeName(rng: Rng): string {
+export function makeStarName(rng: Rng): string {
   return rng.pick(NAME_PREFIXES) + rng.pick(NAME_ROOTS) + rng.pick(NAME_SUFFIXES);
 }
 
@@ -64,12 +64,12 @@ export function generateStars(seed: string, count: number = GALAXY_STAR_COUNT): 
       Math.min(GALAXY_THICKNESS, rng.nextGauss(0, GALAXY_THICKNESS / 3)),
     );
 
-    const cls = pickClass(rng);
-    let name = makeName(rng);
+    const cls = pickSpectralClass(rng);
+    let name = makeStarName(rng);
     let attempt = 0;
     while (usedNames.has(name) && attempt < 64) {
       // Deterministic re-draw: mix the sub-seed with the attempt counter.
-      name = makeName(new Rng(hash2(subSeed, BigInt(++attempt))));
+      name = makeStarName(new Rng(hash2(subSeed, BigInt(++attempt))));
     }
     usedNames.add(name);
 

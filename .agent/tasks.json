@@ -32,7 +32,7 @@
     "title": "System generator (planets, docks, deposits, AI roster)",
     "category": "functional",
     "specFilePath": ".agent/tasks/TASK-4.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-5",
