@@ -22,6 +22,7 @@ Excludes dotfiles, tests, and config.
 │       │   ├── ws.ts         # TASK-9 WS lifecycle: handshake state machine, structured errors, presence, 15s/45s keepalive
 │       │   ├── persist.ts               # TASK-63 save-point service: dock/damage-milestone/5s-interval/shutdown, crash-load
 │       │   ├── persist-crash-child.ts   # TASK-63 test helper: child process that saves state, then gets SIGKILL'd
+│       │   ├── ratelimit.ts             # TASK-65 per-conn token bucket (20/s, burst 40), chat limiter (2 s gap / 280 chars / 10 per 30 s), 3-in-10 s escalation
 │       │   └── db/
 │       │       ├── schema.ts          # dual-driver Drizzle schema (sqlite + pg), 6 tables + row types
 │       │       ├── client.ts          # createDb/getDb: DB_DRIVER → better-sqlite3 file (WAL) | pg Pool; migrate on boot

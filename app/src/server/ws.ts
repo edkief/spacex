@@ -19,6 +19,13 @@ import {
 import type { MessageType } from '@shared/protocol';
 import type { AuthPayload, PresenceEntry, StateSnapshot } from '@shared/protocol/schemas';
 import type { Repository } from '@server/db/repo';
+import {
+  ChatLimiter,
+  MESSAGE_BURST,
+  MESSAGE_RATE,
+  TokenBucket,
+  ViolationTracker,
+} from '@server/ratelimit';
 
 /**
  * WS connection lifecycle (TASK-9): handshake state machine
@@ -61,6 +68,12 @@ export interface Conn {
   unknownTypes: number;
   /** Rejected (undecodable or schema-failing) messages; drop at 50 (TASK-64). */
   invalidMessages: number;
+  /** Inbound token bucket: 20 msg/s, burst 40 (TASK-65). */
+  bucket: TokenBucket;
+  /** Per-connection chat limiter: 2 s gap, 280 chars, 10/30 s window (TASK-65). */
+  chatLimiter: ChatLimiter;
+  /** Rate-limit violations; 3 within 10 s closes the socket (TASK-65). */
+  violations: ViolationTracker;
   lastActivityAt: number;
   /** Handlers are async (auth, gateway); a per-connection chain preserves order. */
   queue: Promise<void>;
@@ -245,6 +258,12 @@ export function attachWebSocket(
             `join a system before sending ${type}`,
           );
         }
+        if (type === 'chat') {
+          const verdict = conn.chatLimiter.check((payload as { text: string }).text);
+          if (!verdict.ok) {
+            return rejectRateLimited(conn, verdict.reason);
+          }
+        }
         options.onGameMessage?.(conn, type, payload);
         return;
       }
@@ -265,8 +284,24 @@ export function attachWebSocket(
     }
   }
 
+  /**
+   * Rate-limit rejection: answers {code: 'rate-limited'} and drops the excess.
+   * Every rejection counts toward escalation; 3 violations in 10 s closes the
+   * socket with 4009 'flooded' (TASK-65).
+   */
+  function rejectRateLimited(conn: Conn, reason: string): void {
+    server.log.debug({ code: PROTOCOL_ERRORS.RATE_LIMITED, reason }, 'dropped inbound message');
+    sendError(conn, PROTOCOL_ERRORS.RATE_LIMITED, reason);
+    if (conn.violations.record()) {
+      conn.socket.close(4009, 'flooded');
+    }
+  }
+
   function onRawMessage(conn: Conn, data: Buffer): void {
     conn.lastActivityAt = Date.now();
+    if (!conn.bucket.take()) {
+      return rejectRateLimited(conn, `message rate limit: at most ${MESSAGE_RATE} msg/s`);
+    }
     if (data.length > MAX_MESSAGE_BYTES) {
       return rejectInvalid(conn, null, `message exceeds ${MAX_MESSAGE_BYTES} bytes`);
     }
@@ -305,6 +340,9 @@ export function attachWebSocket(
       systemId: null,
       unknownTypes: 0,
       invalidMessages: 0,
+      bucket: new TokenBucket(MESSAGE_RATE, MESSAGE_BURST),
+      chatLimiter: new ChatLimiter(),
+      violations: new ViolationTracker(),
       lastActivityAt: Date.now(),
       queue: Promise.resolve(),
     };

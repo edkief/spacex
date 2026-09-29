@@ -3,12 +3,22 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-29
-**Tasks Completed:** 11
-**Current Task:** TASK-64 Complete
+**Tasks Completed:** 12
+**Current Task:** TASK-65 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-09-29 — TASK-65: Per-connection rate limiting and chat spam control
+Enforced per-connection rate limits and chat spam control so one client can't flood the shard or the chat:
+- `app/src/server/ratelimit.ts` (step 1+3): `TokenBucket(rate, burst, now)` — continuous refill capped at burst, injected clock for fake-time tests (20 msg/s, burst 40 per the spec); `ChatLimiter(now)` — 2 s min gap, 280-char max, 10 messages / 30 s sliding window; rejected messages never consume window slots or reset the gap; `ViolationTracker(windowMs=10 s, limit=3, now)` — sliding violation counter for escalation.
+- Wired into dispatch (`ws.ts`, step 2): every connection gets a bucket/limiter/tracker on connect (freed with the Conn on close). `onRawMessage` calls `bucket.take()` **before** decode/validation — a miss sends `{code:'rate-limited'}` and drops the excess; the chat branch in `handleMessage` checks `chatLimiter.check(text)` before `onGameMessage`. `rejectRateLimited()` sends the structured error and records a violation; 3 within 10 s → `ws.close(4009, 'flooded')`.
+- Schema: chat text max raised 256 → 280 (inbound + `chatMessage`) to match the spec's chat length limit.
+- Tests (step 4): `ratelimit.test.ts` (10, fake clock) — accept/accept/reject burst math, 10 Hz sustained input never trips (the technical-note check), burst-cap refill, 100 msg/s throttled to ~20/s, chat gap/rejected-don't-count/window-sliding/280-char, violation escalation incl. exact-boundary aging (a violation exactly 10 s old prunes; 1 ms later it counts). `ratelimit-flood.test.ts` (4, live in-process server + real ws client) — **flood benchmark: a scripted client flooding 100 msg/s is throttled (rate-limited errors, <100 msgs ever reach dispatch), dropped with 4009 in ~0.5 s (≪ the ~5 s bound), while 16 simulated entities ticking every 20 ms stay at p95 ≪ 30 ms**; 10 Hz gameplay inputs pass 3 s unthrottled; two-client chat limiter over the wire (2 s gap rejected with rate-limited, rejected message never reaches dispatch, 280-char message accepted after the gap); 3-violation drop with 4009.
+- Interaction fix: TASK-64's "drop at 50 invalid messages" fuzz test sent all 50 unpaced, which now correctly trips the rate-limit escalation first — paced the sends under 20 msg/s so the invalid-message cap remains testable (its own behavior is unchanged).
+- No UI changes → Playwright/e2e skipped (server-side security; covered by in-process + live-ws integration tests).
+- Verified: `tsc --noEmit`, `eslint --fix` + `prettier --write` clean, full `npm run test` → 18 files / 217 tests all pass (+15 new).
 
 ### 2026-09-29 — TASK-64: Input validation on all inbound messages (zod)
 Closed the validation surface so no server code path ever reads an unvalidated inbound field (PRD security requirement):

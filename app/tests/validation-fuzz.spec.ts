@@ -230,6 +230,9 @@ describe('validation fuzz (20 malformed payloads, live server)', () => {
     await server.close();
   });
 
+  // Paced under the 20 msg/s rate limit (TASK-65) so the invalid-message
+  // counter can reach its own drop cap: an unpaced burst trips the
+  // rate-limit escalation (4009) first, which is the correct behavior.
   it('drops a connection after 50 invalid messages', async () => {
     const server = await boot();
     const client = new TestClient(server.url);
@@ -239,10 +242,11 @@ describe('validation fuzz (20 malformed payloads, live server)', () => {
     for (let i = 0; i < INVALID_MESSAGE_DROP_LIMIT; i++) {
       client.send(bad);
       await client.next((m) => m.type === 'error', `invalid-message ${i + 1}`);
+      await new Promise((resolve) => setTimeout(resolve, 60));
     }
     await closeSeen;
     await server.close();
-  });
+  }, 30_000);
 });
 
 describe('validation unit checks (in-process)', () => {

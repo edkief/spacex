@@ -65,7 +65,7 @@ export const chatMessageSchema = z
     authorId: z.string().min(1),
     callsign: z.string().min(1).max(24),
     channel: z.enum(CHAT_CHANNELS),
-    text: z.string().max(256),
+    text: z.string().max(280),
     ts: z.string().min(1),
   })
   .strict();
@@ -117,7 +117,7 @@ export const messageSchemas = {
   chat: z
     .object({
       channel: z.enum(CHAT_CHANNELS).default('local'),
-      text: z.string().min(1).max(256),
+      text: z.string().min(1).max(280),
     })
     .strict(),
   input: z

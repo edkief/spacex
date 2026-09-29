@@ -81,7 +81,7 @@
     "title": "Per-connection rate limiting and chat spam control",
     "category": "security",
     "specFilePath": ".agent/tasks/TASK-65.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-10",
