@@ -25,7 +25,7 @@
     "title": "Star generator (seeded galaxy layout)",
     "category": "functional",
     "specFilePath": ".agent/tasks/TASK-3.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-4",

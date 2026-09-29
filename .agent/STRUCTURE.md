@@ -17,8 +17,13 @@ Excludes dotfiles, tests, and config.
 │       │   ├── index.ts      # process entry: Fastify + ws, listens on PORT
 │       │   └── server.ts     # buildServer() for tests/inject()
 │       └── shared/
+│           ├── canonical.ts  # canonicalJson: stable key-sorted JSON for checksums
 │           ├── health.ts     # HealthPayload type
-│           └── random.ts     # Deterministic PRNG (xoshiro128**) + FNV-1a/splitmix hashing
+│           ├── random.ts     # Deterministic PRNG (xoshiro128**) + FNV-1a/splitmix hashing
+│           └── galaxy/
+│               ├── types.ts  # Star, SystemSummary, Planet, SurfaceChunk interfaces
+│               ├── config.ts # GALAXY_STAR_COUNT, spectral weights, name word lists, disk params
+│               └── stars.ts  # generateStars(seed, count) — seeded thin-disk galaxy layout
 ├── ralph/                    # Ralph loop implementation (TypeScript)
 │   └── src/
 └── scripts/

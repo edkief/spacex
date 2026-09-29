@@ -3,12 +3,23 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-29
-**Tasks Completed:** 3
-**Current Task:** TASK-2 Complete
+**Tasks Completed:** 4
+**Current Task:** TASK-3 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-09-29 — TASK-3: Star generator (seeded galaxy layout)
+Implemented pure, deterministic galaxy star generation on top of the TASK-2 PRNG:
+- `app/src/shared/galaxy/types.ts` — Star, SystemSummary, Planet, SurfaceChunk interfaces (forward-looking; later tasks extend).
+- `app/src/shared/galaxy/config.ts` — GALAXY_STAR_COUNT=200, GALAXY_RADIUS=1000, GALAXY_THICKNESS=40, spectral weights (O:1 B:5 A:10 F:15 G:20 K:28 M:21), name word lists (45 prefixes / 44 roots / 43 suffixes, all unique), log-normal disk-radius helper.
+- `app/src/shared/galaxy/stars.ts` — `generateStars(seed, count=200)`: per-star sub-seed `hash2(seedFromString(seed), i)` → Rng; thin-disk position (log-normal radius, uniform angle, clamped gaussian z), weighted spectral class, seeded 40+ word-combiner name with deterministic collision re-draw (guarantees uniqueness), systemCount 2..8, id = 16-hex sub-seed (stable key for TASK-4 / DB).
+- `app/src/shared/canonical.ts` — `canonicalJson` (recursively key-sorted) for platform-stable checksums.
+- Golden fixture `app/src/shared/galaxy/__fixtures__/stars-dev-seed.json`: seed 'drift-dev-seed-001', 200 stars, first 25 embedded, sha256=1b043184…6b0e90 of canonical JSON of all stars.
+- Tests `stars.test.ts`: golden snapshot (deep-equal + length + checksum), default/custom count + prefix property, 5 seeds (incl. unicode + empty) × determinism / unique 16-hex ids / unique names / coordinate bounds / systemCount + class validity, distribution check (O+B < 25, K+M > 70 of 200). 24 new tests.
+- No UI changes → Playwright/e2e skipped (pure logic, unit coverage complete).
+- Verified: `tsc --noEmit`, `eslint --fix` + `prettier --write`, full `npm run test` → 5 files / 47 tests all pass.
 
 ### 2026-09-29 — TASK-2: Shared deterministic PRNG + hash library
 Implemented `app/src/shared/random.ts` — pure, zero-import module (root of galaxy determinism):

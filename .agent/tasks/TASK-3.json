@@ -16,25 +16,25 @@
       "step": 1,
       "description": "Define Star types and config",
       "details": "In src/shared/galaxy/types.ts define Star, SystemSummary, Planet, SurfaceChunk interfaces (extend in later tasks). In src/shared/galaxy/config.ts: GALAXY_STAR_COUNT=200, spectral class weights, name word lists (prefix/root/suffix arrays, 40+ entries each).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Implement generateStars",
       "details": "Use Rng(seedFromString(seed)). For each star i: sub-seed = hash2(masterSeed, i); position = galactic disk (radius ~ log-normal, thin z), class = weighted pick, name = combine(sub-seed), systemCount = 2..8 (seeded), id = hex of sub-seed. No side effects, no sorting by wall-clock.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Golden snapshot fixture",
       "details": "Generate once and commit `src/shared/galaxy/__fixtures__/stars-dev-seed.json` (first 25 stars, total length, sha256 of canonical JSON of all stars). Test regenerates and compares; a mutation in the generator fails the test.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Property-style unit tests",
       "details": "Test with 5 different seeds: determinism, unique ids, unique names, coordinate bounds, systemCount range. Run `npm run test` + `npm run typecheck`.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-2"],
