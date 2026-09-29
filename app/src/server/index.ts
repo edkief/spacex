@@ -1,26 +1,19 @@
-import { WebSocketServer } from 'ws';
-import type { IncomingMessage } from 'http';
-import type { Duplex } from 'stream';
 import { loadEnv } from '@server/env';
 import { buildServer } from '@server/server';
+import { attachWebSocket, createRegistryGateway } from '@server/ws';
+import { getDb } from '@server/db/client';
+import { createRepo } from '@server/db/repo';
+import { pgTables, sqliteTables } from '@server/db/schema';
 
 const env = loadEnv();
 const app = buildServer(env);
 
-// Upgrade handling for the ws connection at env.WS_PATH.
-const wss = new WebSocketServer({ noServer: true });
-wss.on('connection', (socket) => {
-  socket.send(JSON.stringify({ type: 'welcome' }));
-});
+const dbHandle = getDb();
+const gateway = createRegistryGateway(
+  createRepo(dbHandle.db, dbHandle.driver === 'sqlite' ? sqliteTables : pgTables),
+);
 
-app.server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
-  const url = new URL(req.url ?? '/', 'http://localhost');
-  if (url.pathname !== env.WS_PATH) {
-    socket.destroy();
-    return;
-  }
-  wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
-});
+attachWebSocket(app, { path: env.WS_PATH, gateway });
 
 app.listen({ port: env.PORT, host: '0.0.0.0' }).catch((err) => {
   app.log.error(err);

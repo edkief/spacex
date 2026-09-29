@@ -1,14 +1,24 @@
-# Project Build Log
+# Project Build Log 
 
 `Current Status`
 =================
 **Last Updated:** 2026-09-29
-**Tasks Completed:** 9
-**Current Task:** TASK-63 Complete
+**Tasks Completed:** 10
+**Current Task:** TASK-9 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-09-29 — TASK-9: WS protocol — typed versioned message schema + handshake
+Defined the full client↔server WebSocket protocol and its server-side lifecycle (PRD §TASK-9):
+- `app/src/shared/protocol/schemas.ts` — one zod schema per message type in the `messageSchemas` registry (all 23 types: hello, auth, join_system, enter_system, state_snapshot, entity_update, chat, input, warp, interact, mine, sell, buy_ship, set_livery, exit_ship, enter_ship, repair, error, ping, pong, presence, target_update, combat_event). Shared shapes: `EntityState` (one shape for all snapshot traffic: id/kind/pos/vel/regime/hull/shields/targetId/classId/callsign?/livery?), `StateSnapshot` (systemId, entities, nodes, chat ≤100, players), `Vec3`, `Livery`, `ChatMessage`, `PresenceEntry`. All numbers `finite()`-checked.
+- `app/src/shared/protocol.ts` — `PROTOCOL_VERSION = 1`, `Envelope {v, type, payload}`, JSON `encodeMessage`/`decodeMessage` (never throws), `parseMessage(type, payload)` returning typed payload or `{code:'invalid-message'|'unknown-type', message}` with the first failing path; `PROTOCOL_ERRORS` (the seven structured codes), `PING_INTERVAL_MS=15s`, `DROP_AFTER_MS=45s`, `UNKNOWN_TYPE_DROP_LIMIT=10`.
+- `app/src/server/ws.ts` — `attachWebSocket(fastify, {path, gateway, authenticate?, onGameMessage?, keepalive?})`: per-connection state machine hello → auth → join_system (out-of-order → structured error), per-connection async handler queue so hello/auth/join never interleave, dispatch by type with system-scoped gating, unknown-type counter → terminate at 10, presence join/leave broadcast to in-system peers, 15 s ping / 45 s silence-drop keepalive (intervals injectable for tests). `SystemGateway` seam for shards; `createRegistryGateway(repo)` resolves ids against system_registry (unknown → system-not-found, empty snapshot until TASK-12 shards exist); `devAuthenticate` placeholder until TASK-10.
+- `app/src/server/index.ts` — rewired to `attachWebSocket` with the registry gateway (replaces the old `welcome` stub); `db/repo.ts` gained `findSystem`.
+- Tests: `protocol.test.ts` (8) envelope round-trip/version/decode rejections + parseMessage codes; `protocol/schemas.test.ts` (51) parametrized valid+malformed table covering every registered type exactly once + finite-number and chat-cap edge cases; `ws.test.ts` (12) in-process integration — real Fastify+ws boot on an ephemeral port, full hello→auth→join flow against a canned snapshot, version-mismatch (close 1002), out-of-order, system-not-found, system-full, auth rejection, malformed-payload survival, system-scoped gating, unknown-type 9-tolerate/10-drop, presence join/leave broadcast, keepalive drop-after-silence and pong-keeps-alive.
+- Smoke: `npm run dev` boot, `/api/health` 200 via :3000 proxy, live ws handshake over the proxy returns structured `system-not-found` for an unregistered system. No UI changes → Playwright e2e skipped.
+- Verified: `tsc --noEmit`, `npm run lint` clean, full `npm run test` → 15 files / 196 tests all pass.
 
 ### 2026-09-29 — TASK-63: Persistence service with save points and crash recovery
 Built the save-point persistence layer on top of the TASK-62 repo (PRD §8 — mutable state only survives restarts):

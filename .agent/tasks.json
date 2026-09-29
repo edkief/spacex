@@ -67,7 +67,7 @@
     "title": "WS protocol: typed versioned message schema + handshake",
     "category": "api-endpoint",
     "specFilePath": ".agent/tasks/TASK-9.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-64",

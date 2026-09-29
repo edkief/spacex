@@ -93,6 +93,7 @@ export interface Repository {
    */
   listNodeStates(systemId: string, nodeIds?: string[]): Promise<NodeStateRow[]>;
   upsertSystem(systemId: string, name: string, shardActive?: boolean): Promise<SystemRow>;
+  findSystem(systemId: string): Promise<SystemRow | undefined>;
   createSession(input: SessionInput): Promise<SessionRow>;
   findSession(tokenHash: string): Promise<SessionRow | undefined>;
   setSessionSystem(tokenHash: string, systemId: string | null): Promise<void>;
@@ -302,6 +303,14 @@ export function createRepo(db: Db, tables: Schema): Repository {
         })
         .returning();
       return upserted[0] as SystemRow;
+    },
+
+    async findSystem(systemId) {
+      const rows = await d
+        .select()
+        .from(t.systemRegistry)
+        .where(eq(t.systemRegistry.systemId, systemId));
+      return rows[0] as SystemRow | undefined;
     },
 
     async createSession(input) {

@@ -17,8 +17,9 @@ Excludes dotfiles, tests, and config.
 │       │   └── main.tsx      # React shell + #game-canvas placeholder
 │       ├── server/
 │       │   ├── env.ts        # zod-validated env (PROJECT_ROOT/.env.local)
-│       │   ├── index.ts      # process entry: Fastify + ws, listens on PORT
+│       │   ├── index.ts      # process entry: Fastify + ws (attachWebSocket + registry gateway), listens on PORT
 │       │   ├── server.ts     # buildServer() for tests/inject()
+│       │   ├── ws.ts         # TASK-9 WS lifecycle: handshake state machine, structured errors, presence, 15s/45s keepalive
 │       │   ├── persist.ts               # TASK-63 save-point service: dock/damage-milestone/5s-interval/shutdown, crash-load
 │       │   ├── persist-crash-child.ts   # TASK-63 test helper: child process that saves state, then gets SIGKILL'd
 │       │   └── db/
@@ -33,6 +34,9 @@ Excludes dotfiles, tests, and config.
 │           ├── canonical.ts  # canonicalJson: stable key-sorted JSON for checksums
 │           ├── health.ts     # HealthPayload type
 │           ├── random.ts     # Deterministic PRNG (xoshiro128**) + FNV-1a/splitmix hashing
+│           ├── protocol.ts       # TASK-9: version constant, Envelope, encode/decode, parseMessage, error codes
+│           ├── protocol/
+│           │   └── schemas.ts    # TASK-9: zod payload schema per message type + EntityState/StateSnapshot shapes
 │           └── galaxy/
 │               ├── types.ts  # Star, SystemSummary, Planet, SurfaceChunk, Biome interfaces
 │               ├── config.ts # GALAXY_STAR_COUNT, spectral weights, name word lists, disk params
