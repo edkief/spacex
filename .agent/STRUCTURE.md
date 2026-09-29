@@ -10,7 +10,8 @@ Excludes dotfiles, tests, and config.
 │   ├── index.html            # Vite entry
 │   ├── scripts/
 │   │   ├── gen-surface-fixture.ts  # regenerates the TASK-5 golden chunk fixture
-│   │   └── gen-galaxy-snapshots.ts # npm run snapshot:update — regenerates the 6 TASK-6 snapshot fixtures
+│   │   ├── gen-galaxy-snapshots.ts # npm run snapshot:update — regenerates the 6 TASK-6 snapshot fixtures
+│   │   └── gen-flight-fixtures.ts  # npm run snapshot:update:flight — regenerates the 2 TASK-22 golden trajectory fixtures
 │   ├── smoke-task1.mjs       # TASK-1 Playwright smoke script (chromium screenshot)
 │   ├── smoke-task10.mjs      # TASK-10 live smoke: REST claim/session + WS token auth over the :3000 proxy
 │   └── src/
@@ -50,6 +51,10 @@ Excludes dotfiles, tests, and config.
 │           ├── protocol/
 │           │   └── schemas.ts    # TASK-9: zod payload schema per message type + EntityState/StateSnapshot shapes
 │           ├── ships.ts          # TASK-19: SHIP_CLASSES (scout/freighter/interceptor) + shipStats/compareShips/totalWeaponCount/shipPrice
+│           ├── physics/
+│           │   ├── vec.ts        # TASK-22: Vec3/Quat ops (add/scale/dot/cross/normalize/lerp, fromEuler/multiply/toMat3/rotateVector)
+│           │   ├── atmosphere.ts # TASK-22: 1 km drag boundary ramp atmosphereFactor (shared with TASK-28)
+│           │   └── flight.ts     # TASK-22: integrateShip — deterministic space/atmosphere/VTOL physics + ground collision (substepped)
 │           └── galaxy/
 │               ├── types.ts  # Star, SystemSummary, Planet, SurfaceChunk, Biome interfaces
 │               ├── config.ts # GALAXY_STAR_COUNT, spectral weights, name word lists, disk params

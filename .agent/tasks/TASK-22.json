@@ -18,34 +18,36 @@
       "step": 1,
       "description": "Vector/quaternion math",
       "details": "src/shared/physics/vec.ts: Vec3 ops (add, scale, dot, cross, normalize, lerp), Quat (fromEuler, multiply, toMat3, rotateVector). Plain objects + functions, no dependencies.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Space integration",
       "details": "integrateShip space branch: angular velocity from input (yaw/pitch/roll) at turnRate; thrust = forward*input.thrust*accel; vel += (thrust/mass)*dt; soft cap: if |vel| > maxVel, scale excess by 0.95 per step; pos += vel*dt; quat *= dRotation.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Atmosphere + VTOL + ground",
       "details": "drag = -k*|v|*v with k = planet.atmoDensity * (mass/area); ramp k across the 1 km boundary (TASK-28 shares the same boundary function from a common module). VTOL: if input.up and |vel_horizontal| < 5 u/s, vel.y += vtolThrust*dt; ground: terrainY from a heightAt(x,z) callback injected by the caller (server: from surface gen; tests: analytic), clamp with substepping.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Golden trajectory fixture",
       "details": "Record a 60 s space flight (constant inputs) + a 30 s atmo descent to a pad into fixtures; tests re-run integration and deep-compare with tolerance 1e-9 (determinism) and 0.01 u (rounding).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 5,
       "description": "Full test pass",
       "details": "All listed unit tests; run npm run lint && npm run typecheck && npm run test.",
-      "pass": false
+      "pass": true
     }
   ],
-  "dependencies": ["TASK-19"],
+  "dependencies": [
+    "TASK-19"
+  ],
   "estimatedComplexity": "medium",
   "technicalNotes": [
     "The heightAt callback keeps this module planet-agnostic; the server injects the real chunk-based height lookup, tests inject analytic terrain.",

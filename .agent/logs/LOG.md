@@ -3,12 +3,22 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-29
-**Tasks Completed:** 16
-**Current Task:** TASK-41 Complete
+**Tasks Completed:** 17
+**Current Task:** TASK-22 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-09-29 — TASK-22: Shared flight model: space, atmosphere, VTOL (deterministic)
+Implemented the deterministic ship physics in `src/shared/physics`, used verbatim by the server sim (authority) and client prediction (TASK-14):
+- `app/src/shared/physics/vec.ts` (step 1): dependency-free Vec3 ops (add/sub/scale/dot/cross/length/normalize/lerp) + Hamilton quaternions (fromAxisAngle, fromEuler yaw·pitch·roll, multiply, normalize, toMat3 row-major, rotateVector). Pure, deterministic (only +,-,*,/).
+- `app/src/shared/physics/atmosphere.ts` (step 3, shared with TASK-28): `atmosphereFactor(altitude)` — drag coefficient ramps 0→k linearly across the 1 km boundary band (`ATMOSPHERE_BOUNDARY_M = 1000`); continuous (C⁰), no step change.
+- `app/src/shared/physics/flight.ts` (steps 2-3): `integrateShip(state, input, dt, regime, planet?, shipClass, options?)` — pure, no Math.random. Space: thrust along the ship forward axis (accel stat = effective u/s²), rotation at turnRate, soft speed cap (excess above maxVelocity decays 0.95/tick, applied once per tick, not per substep). Atmosphere: quadratic drag a = -k·|v|·v with k = ρ·area/mass (area = 2√mass), factor ramped across the boundary; gravity 9.8 u/s²; VTOL lift = input.up·9.8 (exactly cancels gravity → hover converges to vel.y = 0 via drag), gated at |vel_h| < 5 u/s and heading-independent; ground collision at caller-injected `heightAt(x,z)` (planet-agnostic: server wires chunk lookup, tests use analytic terrain), substepped whenever |vel|·dt > 2 u so fast ships never tunnel. `onPad` set when settled (on ground, |vel.y| < 1 u/s, |vel_h| < 5 u/s) within a pad's 4 u radius; unknown regime throws `UnknownRegimeError`; inputs clamped to [-1,1]; dt must be positive finite.
+- Golden fixtures (step 4): `scripts/gen-flight-fixtures.ts` (`npm run snapshot:update:flight`) records 60 s space flight (constant thrust+yaw+pitch, scout) and 30 s atmosphere descent (freighter, ρ=0.1) ending settled on the pad at the origin → `src/shared/physics/__fixtures__/flight-{space-60s,atmo-30s}.json` (60/30 samples at 1 s).
+- Tests (step 5): `vec.test.ts` (10) op identities, Euler axes, composition order, toMat3 vs rotateVector + orthonormality, determinism, normalize-drift guard; `flight.test.ts` (24) — straight-line Euler trajectory (incl. the ½·a·dt half-step offset), Newton first law, turnRate cap, soft-cap decay math (129.5 → 129.025) and ≤maxVel invariant, terminal velocity v = √(g/k) (exact equilibrium + 100 s convergence to 46.81 u/s), ground collision no-tunneling at 1000 u/s (substepped) + sloped heightAt + below-terrain snap, VTOL hover convergence (falls from -8 u/s to <0.1 u/s, bounded drop, holds), lift heading-independence + horizontal-speed gating, onPad set/off-pad/off-radius/sliding/in-space, boundary ramp values + continuous crossing (no velocity kick beyond smooth (g+k·v²)·dt), bit-identical determinism, both golden fixtures replay within 1e-9 (atmo ends onPad='pad-0'), input clamping, UnknownRegimeError, dt validation, unknown ship class id.
+- No UI changes → Playwright/e2e skipped (pure shared physics module; `tsc` + lint + 329-test suite cover it).
+- Verified: `tsc --noEmit`, `npm run lint` (eslint + prettier) clean, full `npm run test` → 28 files / 329 tests all pass (+34 new).
 
 ### 2026-09-29 — TASK-41: Credits balance with persistence and spend rules
 Completed the credit-balance contract (repository already had add/withdraw from TASK-62; this iteration closes the spec gaps):

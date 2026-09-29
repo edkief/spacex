@@ -116,7 +116,7 @@
     "title": "Shared flight model: space, atmosphere, VTOL (deterministic)",
     "category": "functional",
     "specFilePath": ".agent/tasks/TASK-22.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-20",

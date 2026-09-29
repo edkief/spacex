@@ -4,6 +4,7 @@
     "build": "vite build",
     "test": "vitest run",
     "snapshot:update": "tsx scripts/gen-galaxy-snapshots.ts",
+    "snapshot:update:flight": "tsx scripts/gen-flight-fixtures.ts",
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . && prettier --check .",
