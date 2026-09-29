@@ -1,0 +1,98 @@
+{
+  "seed": "drift-dev-seed-001",
+  "starId": "b69ea1a459229c21",
+  "value": {
+    "name": "Vorion Tavi system",
+    "planets": [
+      {
+        "aiRoster": {
+          "classes": ["scout", "scout", "scout"],
+          "count": 3
+        },
+        "class": "terran",
+        "dockCount": 2,
+        "hasAtmosphere": true,
+        "id": "d1c1ee27f303c290",
+        "landable": true,
+        "name": "Yanyr",
+        "radiusKm": 3457.519946154207,
+        "resourceTypes": ["rare-earths", "water", "silicon"]
+      },
+      {
+        "aiRoster": {
+          "classes": ["freighter", "freighter", "interceptor", "scout"],
+          "count": 4
+        },
+        "class": "terran",
+        "dockCount": 2,
+        "hasAtmosphere": true,
+        "id": "207c8eac583b0221",
+        "landable": true,
+        "name": "Caelari",
+        "radiusKm": 4474.488876294345,
+        "resourceTypes": ["water"]
+      },
+      {
+        "aiRoster": {
+          "classes": ["freighter", "freighter", "scout", "freighter", "interceptor"],
+          "count": 5
+        },
+        "class": "rocky",
+        "dockCount": 1,
+        "hasAtmosphere": false,
+        "id": "1accd0d8c7fd61ae",
+        "landable": true,
+        "name": "Orenell",
+        "radiusKm": 7367.554704193026,
+        "resourceTypes": ["water", "gas-compounds"]
+      },
+      {
+        "aiRoster": {
+          "classes": ["scout", "freighter", "interceptor"],
+          "count": 3
+        },
+        "class": "rocky",
+        "dockCount": 3,
+        "hasAtmosphere": false,
+        "id": "1148f3e5e6869b35",
+        "landable": true,
+        "name": "Moror",
+        "radiusKm": 2785.3399966843426,
+        "resourceTypes": ["gas-compounds", "rare-earths"]
+      },
+      {
+        "aiRoster": {
+          "classes": ["freighter", "interceptor", "interceptor"],
+          "count": 3
+        },
+        "class": "rocky",
+        "dockCount": 1,
+        "hasAtmosphere": true,
+        "id": "24a8ac4bb87edda6",
+        "landable": true,
+        "name": "Nerolm",
+        "radiusKm": 6416.413271334022,
+        "resourceTypes": ["gas-compounds", "water", "copper"]
+      },
+      {
+        "aiRoster": {
+          "classes": ["interceptor", "interceptor", "scout"],
+          "count": 3
+        },
+        "class": "ice",
+        "dockCount": 0,
+        "hasAtmosphere": true,
+        "id": "f89c8f5571a08a13",
+        "landable": false,
+        "name": "Alduna",
+        "radiusKm": 6933.777722995728,
+        "resourceTypes": ["silicon", "gas-compounds"]
+      }
+    ],
+    "star": {
+      "class": "K",
+      "name": "Vorion Tavi"
+    },
+    "systemId": "7c435831d08f68d7"
+  }
+}

@@ -46,7 +46,7 @@
     "title": "Galaxy determinism verification (snapshot fixtures)",
     "category": "functional",
     "specFilePath": ".agent/tasks/TASK-6.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-62",

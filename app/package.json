@@ -3,6 +3,7 @@
     "dev": "concurrently -k \"vite --port 3000\" \"PORT=3001 tsx src/server/index.ts\"",
     "build": "vite build",
     "test": "vitest run",
+    "snapshot:update": "tsx scripts/gen-galaxy-snapshots.ts",
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . && prettier --check .",

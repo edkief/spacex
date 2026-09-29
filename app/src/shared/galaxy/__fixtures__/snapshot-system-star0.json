@@ -1,0 +1,84 @@
+{
+  "seed": "drift-dev-seed-001",
+  "starId": "7dc36749a54c15d8",
+  "value": {
+    "name": "Sarora Vault system",
+    "planets": [
+      {
+        "aiRoster": {
+          "classes": ["scout", "interceptor", "interceptor", "scout"],
+          "count": 4
+        },
+        "class": "ice",
+        "dockCount": 1,
+        "hasAtmosphere": true,
+        "id": "c96c4673ae3343f3",
+        "landable": true,
+        "name": "Torolm",
+        "radiusKm": 2735.168771352619,
+        "resourceTypes": ["water", "silicon"]
+      },
+      {
+        "aiRoster": {
+          "classes": ["interceptor", "interceptor", "scout", "scout"],
+          "count": 4
+        },
+        "class": "rocky",
+        "dockCount": 3,
+        "hasAtmosphere": false,
+        "id": "407c8ef47fc06c1a",
+        "landable": true,
+        "name": "Alde",
+        "radiusKm": 6052.788195665926,
+        "resourceTypes": ["water"]
+      },
+      {
+        "aiRoster": {
+          "classes": ["freighter", "scout"],
+          "count": 2
+        },
+        "class": "terran",
+        "dockCount": 3,
+        "hasAtmosphere": true,
+        "id": "5cb55a2b74f283a9",
+        "landable": true,
+        "name": "Jorell",
+        "radiusKm": 6053.956649731845,
+        "resourceTypes": ["iron"]
+      },
+      {
+        "aiRoster": {
+          "classes": ["scout", "freighter", "interceptor"],
+          "count": 3
+        },
+        "class": "gas",
+        "dockCount": 0,
+        "hasAtmosphere": true,
+        "id": "4c567d21fda39ea8",
+        "landable": false,
+        "name": "Wynax",
+        "radiusKm": 34912.11381740868,
+        "resourceTypes": ["iron", "rare-earths", "water"]
+      },
+      {
+        "aiRoster": {
+          "classes": ["freighter", "freighter", "freighter", "scout", "scout"],
+          "count": 5
+        },
+        "class": "ice",
+        "dockCount": 1,
+        "hasAtmosphere": true,
+        "id": "043a452bbec949b9",
+        "landable": true,
+        "name": "Brinora",
+        "radiusKm": 5834.045749623328,
+        "resourceTypes": ["gas-compounds"]
+      }
+    ],
+    "star": {
+      "class": "M",
+      "name": "Sarora Vault"
+    },
+    "systemId": "7c27d511675057f2"
+  }
+}

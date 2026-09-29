@@ -11,7 +11,10 @@ export function canonicalJson(value: unknown): string {
 }
 
 function canonicalize(value: unknown): string {
-  if (value === null || typeof value !== 'object') {
+  if (value === undefined) {
+    return 'null';
+  }
+  if (typeof value !== 'object' || value === null) {
     return JSON.stringify(value);
   }
   if (Array.isArray(value)) {

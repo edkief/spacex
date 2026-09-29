@@ -9,7 +9,8 @@ Excludes dotfiles, tests, and config.
 │   │   └── drift.db          # local SQLite db (git-ignored)
 │   ├── index.html            # Vite entry
 │   ├── scripts/
-│   │   └── gen-surface-fixture.ts  # regenerates the TASK-5 golden chunk fixture
+│   │   ├── gen-surface-fixture.ts  # regenerates the TASK-5 golden chunk fixture
+│   │   └── gen-galaxy-snapshots.ts # npm run snapshot:update — regenerates the 6 TASK-6 snapshot fixtures
 │   ├── smoke-task1.mjs       # TASK-1 Playwright smoke script (chromium screenshot)
 │   └── src/
 │       ├── client/
