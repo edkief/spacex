@@ -7,7 +7,7 @@
     "`PROJECT_ROOT/.env.local` exists with placeholder entries for every required environment variable name listed in the PRD: PORT, SESSION_SECRET, GALAXY_SEED, DB_DRIVER, DB_PATH, DATABASE_URL, SYSTEM_INSTANCE_COUNT, WS_PATH",
     "Real secret values are not written to the PRD, task specs, repository, logs, or chat",
     "The user has manually filled SESSION_SECRET (and DATABASE_URL if using Postgres) in `.env.local`",
-    "SQLite storage works with no external service (better-sqlite3 installs and a test db file can be created at DB_PATH); live Postgres is NOT available in this sandbox — recorded as a user-approved proceed gap (PG parity via Drizzle dual-driver unit tests)",
+    "SQLite storage works with no external service (better-sqlite3 installs and a test db file can be created at DB_PATH); live Postgres is NOT available in this sandbox \u2014 recorded as a user-approved proceed gap (PG parity via Drizzle dual-driver unit tests)",
     "MCP servers configured in `.mcp.json` (playwright, context7, sequential-thinking) are available for the implementing agent, or gaps are recorded with a user-approved proceed decision",
     "Required service documentation links are accessible: three.js, Fastify, ws, Drizzle ORM, better-sqlite3",
     "Test users require no setup (callsign-only auth); e2e will use disposable callsigns TEST-ALPHA / TEST-BRAVO"
@@ -17,37 +17,37 @@
       "step": 1,
       "description": "Read prerequisite requirements from the PRD",
       "details": "Open `.agent/prd/PRD.md` and review the `Prerequisites and Access` section. List required database access, MCPs, service docs, environment variable names, test-user needs, and open gaps (no live Postgres; headless WebGL perf limits).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Verify `.env.local` placeholder names",
       "details": "Confirm `PROJECT_ROOT/.env.local` exists and contains all eight variable names from the PRD (PORT, SESSION_SECRET, GALAXY_SEED, DB_DRIVER, DB_PATH, DATABASE_URL, SYSTEM_INSTANCE_COUNT, WS_PATH). Add any missing names with placeholder values only (e.g. `TODO_FILL_MANUALLY`). Never write real secret values.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Confirm local secret values are filled manually",
       "details": "Ask the user to confirm SESSION_SECRET contains a real random value (64+ chars). Never print, store, commit, or copy the actual value into generated files or chat. DATABASE_URL may stay a placeholder unless Postgres is used locally.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Verify storage and service access",
       "details": "Confirm Node 22 + npm are available. Verify `better-sqlite3` can be installed (npm install dry-run or in a temp dir) and a db file can be created at `./data/drift.db`. Confirm no live Postgres exists and record the user-approved proceed decision for the PG gap.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 5,
       "description": "Verify MCPs and service documentation",
       "details": "Confirm the MCP servers in `.mcp.json` (playwright, context7, sequential-thinking) are reachable for the implementing agent. Confirm the documentation links in the PRD (threejs.org/docs, fastify.dev/docs, github.com/websockets/ws, orm.drizzle.team, github.com/WiseLibs/better-sqlite3) are accessible and sufficient.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 6,
       "description": "Verify test user availability",
       "details": "Confirm no real test accounts are needed (callsign-only). Document that e2e will create disposable callsigns TEST-ALPHA and TEST-BRAVO at runtime. No passwords or secret values exist or are stored.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": [],

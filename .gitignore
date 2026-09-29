@@ -2,6 +2,10 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# Local app data and test artifacts
+app/data/
+playwright-report/
+
 # Local environment and secrets
 .env
 .env.*.local
