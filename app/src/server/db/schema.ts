@@ -24,7 +24,8 @@ export type ShipClassId = (typeof SHIP_CLASS_IDS)[number];
 
 export type Vec3 = { x: number; y: number; z: number };
 export type ShipPosition = { systemId: string; x: number; y: number; z: number };
-export type Livery = Record<string, unknown>;
+/** Three paint slots, hex strings (shared contract, TASK-21). */
+export type Livery = { hull: string; accent: string; trim: string };
 
 export interface PlayerRow {
   id: string;
@@ -100,7 +101,10 @@ export const ships = sqliteTable(
       .notNull()
       .references(() => players.id),
     classId: text('class_id').notNull(),
-    livery: text('livery', { mode: 'json' }).$type<Livery>().notNull().default({}),
+    livery: text('livery', { mode: 'json' })
+      .$type<Livery>()
+      .notNull()
+      .default({ hull: '#000000', accent: '#000000', trim: '#000000' }),
     hull: real('hull').notNull().default(100),
     shields: real('shields').notNull().default(100),
     position: text('position', { mode: 'json' }).$type<ShipPosition>().notNull(),
@@ -181,7 +185,10 @@ export const pgShips = pgTable(
       .notNull()
       .references(() => pgPlayers.id),
     classId: pgText('class_id').notNull(),
-    livery: jsonb('livery').$type<Livery>().notNull().default({}),
+    livery: jsonb('livery')
+      .$type<Livery>()
+      .notNull()
+      .default({ hull: '#000000', accent: '#000000', trim: '#000000' }),
     hull: pgReal('hull').notNull().default(100),
     shields: pgReal('shields').notNull().default(100),
     position: jsonb('position').$type<ShipPosition>().notNull(),

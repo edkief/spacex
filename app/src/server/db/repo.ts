@@ -1,6 +1,7 @@
 import { and, eq, inArray, like, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { SHIP_CLASSES } from '@shared/ships';
 import type { Db } from './client';
 import {
   CallsignTakenError,
@@ -31,7 +32,14 @@ export const Vec3Schema = z.object({
   z: z.number().finite(),
 });
 export const ShipPositionSchema = Vec3Schema.extend({ systemId: z.string().min(1) });
-export const LiverySchema = z.record(z.string(), z.unknown());
+/** Strict 3-slot livery: hex colors only, no extra keys (TASK-21). */
+export const LiverySchema = z
+  .object({
+    hull: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+    accent: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+    trim: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  })
+  .strict();
 
 const uuid = (): string => crypto.randomUUID();
 const nowIso = (): string => new Date().toISOString();
@@ -42,6 +50,14 @@ export interface ShipStateInput {
   position: ShipPosition;
   velocity: Vec3;
   state: ShipState;
+  /** TASK-21: full 3-slot livery; only written when provided. */
+  livery?: Livery;
+}
+
+/** The class default for a known id, neutral black livery otherwise. */
+function defaultLiveryFor(classId: string): Livery {
+  const cls = SHIP_CLASSES[classId as keyof typeof SHIP_CLASSES];
+  return cls?.defaultLivery ?? { hull: '#000000', accent: '#000000', trim: '#000000' };
 }
 
 export interface SessionInput {
@@ -240,7 +256,7 @@ export function createRepo(db: Db, tables: Schema): Repository {
           id: uuid(),
           ownerId: playerId,
           classId: opts?.classId ?? 'scout',
-          livery: {} satisfies Livery,
+          livery: defaultLiveryFor(opts?.classId ?? 'scout'),
           hull: opts?.hull ?? 100,
           shields: opts?.shields ?? 100,
           position:
@@ -274,7 +290,7 @@ export function createRepo(db: Db, tables: Schema): Repository {
           id: uuid(),
           ownerId: input.ownerId,
           classId: input.classId,
-          livery: input.livery ?? ({} satisfies Livery),
+          livery: input.livery ?? defaultLiveryFor(input.classId),
           hull: input.hull,
           shields: input.shields,
           position: input.position,
@@ -295,6 +311,7 @@ export function createRepo(db: Db, tables: Schema): Repository {
       ShipPositionSchema.parse(state.position);
       Vec3Schema.parse(state.velocity);
       if (!SHIP_STATES.includes(state.state)) throw new Error(`invalid ship state: ${state.state}`);
+      const livery = state.livery ? LiverySchema.parse(state.livery) : undefined;
       await d
         .update(t.ships)
         .set({
@@ -303,6 +320,7 @@ export function createRepo(db: Db, tables: Schema): Repository {
           position: state.position,
           velocity: state.velocity,
           state: state.state,
+          ...(livery ? { livery } : {}),
           updatedAt: nowIso(),
         })
         .where(eq(t.ships.id, shipId));

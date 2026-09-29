@@ -19,6 +19,27 @@
 
 export type ShipClassId = 'scout' | 'freighter' | 'interceptor';
 
+/** Hex color, the only color format that crosses the wire (TASK-21). */
+export const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+/** The three paint zones every class exposes (hull body, accent panels, trim lines). */
+export const LIVERY_SLOTS = ['hull', 'accent', 'trim'] as const;
+export type LiverySlot = (typeof LIVERY_SLOTS)[number];
+export type Livery = Record<LiverySlot, string>;
+
+/**
+ * True when the value is exactly the 3-slot livery shape with hex colors —
+ * missing slots, extra keys, and CSS names all fail.
+ */
+export function isLivery(value: unknown): value is Livery {
+  if (typeof value !== 'object' || value === null) return false;
+  const record = value as Record<string, unknown>;
+  if (Object.keys(record).length !== LIVERY_SLOTS.length) return false;
+  return LIVERY_SLOTS.every(
+    (slot) => typeof record[slot] === 'string' && HEX_COLOR.test(record[slot]),
+  );
+}
+
 export interface ShipClass {
   id: ShipClassId;
   name: string;
@@ -45,6 +66,8 @@ export interface ShipClass {
   /** Purchase price in credits (starter ship is free). */
   price: number;
   liverySlots: number;
+  /** Paint applied to a fresh ship (ships.livery default, TASK-21). */
+  defaultLivery: Livery;
 }
 
 export const SHIP_CLASSES: Record<ShipClassId, ShipClass> = {
@@ -64,6 +87,7 @@ export const SHIP_CLASSES: Record<ShipClassId, ShipClass> = {
     repairCostPerPoint: 2,
     price: 0,
     liverySlots: 3,
+    defaultLivery: { hull: '#9aa5b8', accent: '#e6a23c', trim: '#232a3d' },
   },
   freighter: {
     id: 'freighter',
@@ -81,6 +105,7 @@ export const SHIP_CLASSES: Record<ShipClassId, ShipClass> = {
     repairCostPerPoint: 1,
     price: 4000,
     liverySlots: 3,
+    defaultLivery: { hull: '#7d8a5c', accent: '#3e5c76', trim: '#c9a227' },
   },
   interceptor: {
     id: 'interceptor',
@@ -98,6 +123,7 @@ export const SHIP_CLASSES: Record<ShipClassId, ShipClass> = {
     repairCostPerPoint: 3,
     price: 2500,
     liverySlots: 3,
+    defaultLivery: { hull: '#5b6b85', accent: '#d0455a', trim: '#1f2733' },
   },
 };
 

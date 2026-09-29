@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { WebSocket } from 'ws';
 import { encodeMessage } from '@shared/protocol';
 import type { EntityState } from '@shared/protocol/schemas';
-import { shipStats, type ShipClass } from '@shared/ships';
+import { shipStats, type Livery, type ShipClass } from '@shared/ships';
 import type { Repository, ShipPosition } from '@server/db/repo';
 import type { Conn } from '@server/ws';
 
@@ -38,29 +38,46 @@ export interface ShipRowLike {
   state: 'docked' | 'flying' | 'onfoot' | 'destroyed';
 }
 
+/** TASK-21: a persisted livery change for a player's ship. */
+export interface LiveryChangedEvent {
+  playerId: string;
+  livery: Livery;
+}
+
 export interface ShipSwapBus {
   emitSwap(event: ShipSwapEvent): void;
   /** Subscribe to swaps; returns an unsubscribe function. */
   onSwap(handler: (event: ShipSwapEvent) => void | Promise<void>): () => void;
+  /** TASK-21: notify the player's system shard of a livery change. */
+  emitLivery(event: LiveryChangedEvent): void;
+  /** Subscribe to livery changes; returns an unsubscribe function. */
+  onLivery(handler: (event: LiveryChangedEvent) => void | Promise<void>): () => void;
 }
 
 /** One bus per process; handlers are async-safe (rejections never crash). */
 export function createShipSwapBus(): ShipSwapBus {
   const ee = new EventEmitter();
   ee.setMaxListeners(32);
+  const subscribe =
+    <E>(kind: string, label: string) =>
+    (handler: (event: E) => void | Promise<void>): (() => void) => {
+      const wrapped = (event: unknown): void => {
+        Promise.resolve(handler(event as E)).catch((err) => {
+          console.error(`${label} handler failed`, err);
+        });
+      };
+      ee.on(kind, wrapped);
+      return () => ee.off(kind, wrapped);
+    };
   return {
     emitSwap(event) {
       ee.emit('swap', event);
     },
-    onSwap(handler) {
-      const wrapped = (event: ShipSwapEvent): void => {
-        Promise.resolve(handler(event)).catch((err) => {
-          console.error('ship-swap handler failed', err);
-        });
-      };
-      ee.on('swap', wrapped);
-      return () => ee.off('swap', wrapped);
+    onSwap: subscribe<ShipSwapEvent>('swap', 'ship-swap'),
+    emitLivery(event) {
+      ee.emit('livery', event);
     },
+    onLivery: subscribe<LiveryChangedEvent>('livery', 'ship-livery'),
   };
 }
 
@@ -92,23 +109,42 @@ export function shipToEntity(ship: ShipRowLike, cls: ShipClass, entityId?: strin
 }
 
 /**
- * Wire the ship-swap bus to the WS connection table: on a swap, replace the
- * player's ship entity in place and broadcast `entity_update` to every
- * authenticated peer in that system. The entity identity is stable per
- * player (first swap takes over the scrubbed ship's id — the id clients
- * currently hold — and keeps it across later swaps), which is the in-place
- * semantics the real shard (TASK-12) must preserve.
- * Returns an unsubscribe function.
+ * Wire the ship-swap bus to the WS connection table. Two events reach the
+ * wire: on a swap, the player's ship entity is replaced in place; on a
+ * livery change (TASK-21), the persisted ship re-emits as `entity_update`
+ * with the new colors. Both go to every authenticated peer in that system.
+ * The entity identity is stable per player (first swap takes over the
+ * scrubbed ship's id — the id clients currently hold — and livery updates
+ * reuse the same map), which is the in-place semantics the real shard
+ * (TASK-12) must preserve.
+ * Returns an unsubscribe function for both subscriptions.
  */
 export function attachShipSwapBroadcast(
   bus: ShipSwapBus,
   connections: ReadonlySet<Conn> | Iterable<Conn>,
-  repo: Pick<Repository, 'getPlayersByIds'>,
+  repo: Pick<Repository, 'getPlayersByIds' | 'getShipByOwner'>,
 ): () => void {
-  const peerSets: Iterable<Conn> = connections;
-  /** playerId → entity id, stable across swaps (in-place replacement). */
+  const peers: Iterable<Conn> = connections;
+  /** playerId → entity id, stable across swaps and livery updates. */
   const entityIds = new Map<string, string>();
-  return bus.onSwap(async ({ playerId, ship, oldShipId }) => {
+
+  async function broadcast(
+    ship: ShipRowLike,
+    cls: ShipClass,
+    playerId: string,
+    entityId: string,
+    callsign: string | undefined,
+  ): Promise<void> {
+    const entity = shipToEntity(ship, cls, entityId);
+    if (callsign) entity.callsign = callsign;
+    for (const conn of peers) {
+      if (conn.stage !== 'authed' || conn.systemId !== ship.position.systemId) continue;
+      if (conn.socket.readyState !== WebSocket.OPEN) continue;
+      conn.socket.send(encodeMessage('entity_update', { entities: [entity] }));
+    }
+  }
+
+  const offSwap = bus.onSwap(async ({ playerId, ship, oldShipId }) => {
     let cls: ShipClass;
     try {
       cls = shipStats(ship.classId);
@@ -119,12 +155,27 @@ export function attachShipSwapBroadcast(
     if (!player) return;
     const entityId = entityIds.get(playerId) ?? oldShipId;
     entityIds.set(playerId, entityId);
-    const entity = shipToEntity(ship, cls, entityId);
-    entity.callsign = player.callsign;
-    for (const conn of peerSets) {
-      if (conn.stage !== 'authed' || conn.systemId !== ship.position.systemId) continue;
-      if (conn.socket.readyState !== WebSocket.OPEN) continue;
-      conn.socket.send(encodeMessage('entity_update', { entities: [entity] }));
-    }
+    await broadcast(ship, cls, playerId, entityId, player.callsign);
   });
+
+  const offLivery = bus.onLivery(async ({ playerId, livery }) => {
+    const ship = await repo.getShipByOwner(playerId);
+    if (!ship) return; // sold/scrubbed in the meantime
+    let cls: ShipClass;
+    try {
+      cls = shipStats(ship.classId);
+    } catch {
+      return;
+    }
+    const [player] = await repo.getPlayersByIds([playerId]);
+    if (!player) return;
+    const entityId = entityIds.get(playerId) ?? ship.id;
+    entityIds.set(playerId, entityId);
+    await broadcast({ ...ship, livery }, cls, playerId, entityId, player.callsign);
+  });
+
+  return () => {
+    offSwap();
+    offLivery();
+  };
 }

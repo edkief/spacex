@@ -3,12 +3,25 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-29
-**Tasks Completed:** 18
-**Current Task:** TASK-20 Complete
+**Tasks Completed:** 19
+**Current Task:** TASK-21 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-09-29 — TASK-21: Persistent ship livery customization
+Dock livery (3 hex paint slots: hull/accent/trim) — persisted, broadcast to in-system peers, applied to client ship materials:
+- `app/src/shared/ships.ts` — `Livery` = `{hull, accent, trim}` hex contract, `HEX_COLOR`, `LIVERY_SLOTS`, strict `isLivery()`; `ShipClass.defaultLivery` (per-class catalog default).
+- `app/src/server/routes/ships.ts` — POST /api/ships/livery `{colors}` (auth): strict zod schema (3 named hex slots, no extras), 400 invalid-livery / 401 / 404 no-ship; persists via `repo.saveShipState` (new optional `livery` field) and emits the bus event.
+- `app/src/server/db/repo.ts` — `LiverySchema` strict 3-slot hex; `saveShipState` accepts + validates optional livery (writes only when provided); starter ships and dock purchases now insert the class `defaultLivery`. `db/schema.ts` `Livery` type tightened to the 3-slot shape (dual-driver).
+- `app/src/server/shards.ts` — bus gains `emitLivery/onLivery`; `attachShipSwapBroadcast` now bridges both events and shares the stable playerId→entityId map, so a livery change after a ship swap targets the entity id clients hold; `entity_update` to every authed in-system peer (entityState.livery per TASK-9 protocol).
+- `app/src/client/render/ship-mesh.ts` — ShipMeshBuilder: 3 paint zones (hull body, accent wings, trim lines) each on one shared MeshStandardMaterial; `applyLivery` sets material colors in place (partial/invalid values fall back per-slot to class defaults; zero geometry/material churn → no frame hitch); `disposeShipMesh` for cleanup.
+- `app/src/server/ws-test-client.ts` — extracted the WS handshake test client (now shared by the swap + livery ws tests).
+- Tests: `livery.api.test.ts` (7) — valid update + atomic re-paint, invalid hex per slot, partial/extra-key payloads 400, 401, 404, class-default on purchase, **restart persistence** (full app+db restart, same token, livery intact); `livery.ws.test.ts` (3) — in-system broadcast with new colors, stable entity id across swap→livery + default livery on the wire after a buy, no-op without peers; `ship-mesh.test.ts` (6); shared `ships.test.ts` +`isLivery`/default-livery checks (16 total); `repo.test.ts` starter-livery expectation updated to the catalog default.
+- Live smoke `app/smoke-task21.mjs` — REST happy path over the :3000 proxy (default livery on starter ship, 200 update, 400 invalid) + Playwright page load: canvas + HUD visible, **0 console errors**.
+- Verified: `npm run typecheck`, `eslint --fix` + `prettier --write` (lint + prettier --check clean), full `npm run test` → 34 files / 365 tests all pass.
+- Screenshot: `.agent/screenshots/TASK-21-1.png`
 
 ### 2026-09-29 — TASK-20: Ship acquisition: starter ship + dock purchase
 Implemented starter-ship spawning at a seed-derived dock, the dock purchase endpoint, and the in-process shard notification for in-place ship swaps:

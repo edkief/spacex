@@ -9,6 +9,14 @@ import type { RouteDeps } from './callsigns';
 
 const buyBody = z.object({ classId: z.string().min(1).max(32) }).strict();
 
+/** TASK-21: exactly the three named paint slots, hex colors, no extras. */
+const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+const liveryBody = z
+  .object({
+    colors: z.object({ hull: hexColor, accent: hexColor, trim: hexColor }).strict(),
+  })
+  .strict();
+
 /** Ship row with its catalog class merged in (class: null if the id is unknown). */
 function shipPayload(ship: ShipRow): { ship: ShipRow; class: ShipClass | null } {
   let cls: ShipClass | null;
@@ -130,5 +138,46 @@ export function registerShipRoutes(app: FastifyInstance, deps: RouteDeps): void 
     deps.shipSwapBus?.emitSwap({ playerId: player.id, ship: newShip, oldShipId });
 
     return reply.code(201).send({ ...shipPayload(newShip), balance });
+  });
+
+  /**
+   * POST /api/ships/livery (TASK-21) — dock customization. Replaces all
+   * three paint slots in one atomic write; any peer in the ship's system
+   * gets an `entity_update` with the new colors.
+   */
+  app.post('/api/ships/livery', async (req, reply) => {
+    const auth = await requireAuth(req, deps.sessions);
+    if (!auth.ok) {
+      return reply.code(401).send({ code: 'unauthenticated', reason: auth.reason });
+    }
+    const player = auth.player;
+
+    const parsed = liveryBody.safeParse(req.body);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      return reply.code(400).send({
+        code: 'invalid-livery',
+        message: issue?.message ?? 'expected {colors: {hull, accent, trim}} hex colors',
+      });
+    }
+
+    const ship = await deps.repo.getShipByOwner(player.id);
+    if (!ship) {
+      return reply.code(404).send({ code: 'no-ship', message: 'player has no ship' });
+    }
+
+    const updated = await deps.repo.saveShipState(ship.id, {
+      hull: ship.hull,
+      shields: ship.shields,
+      position: ship.position,
+      velocity: ship.velocity,
+      state: ship.state,
+      livery: parsed.data.colors,
+    });
+
+    // Notify the system shard (no-op when no shard is active for the system).
+    deps.shipSwapBus?.emitLivery({ playerId: player.id, livery: parsed.data.colors });
+
+    return shipPayload(updated);
   });
 }

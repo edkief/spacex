@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  HEX_COLOR,
+  LIVERY_SLOTS,
   SHIP_CLASSES,
   UnknownShipClassError,
   compareShips,
+  isLivery,
   shipPrice,
   shipStats,
   totalWeaponCount,
@@ -57,6 +60,31 @@ describe('SHIP_CLASSES', () => {
     for (const cls of Object.values(SHIP_CLASSES)) {
       expect(cls.liverySlots).toBe(3);
     }
+  });
+
+  it('exposes a catalog default livery with valid hex colors per class', () => {
+    for (const cls of Object.values(SHIP_CLASSES)) {
+      expect(Object.keys(cls.defaultLivery).sort()).toEqual([...LIVERY_SLOTS].sort());
+      for (const slot of LIVERY_SLOTS) {
+        expect(HEX_COLOR.test(cls.defaultLivery[slot]), `${cls.id}.${slot}`).toBe(true);
+      }
+      expect(isLivery(cls.defaultLivery)).toBe(true);
+    }
+  });
+});
+
+describe('isLivery (TASK-21)', () => {
+  it('accepts only the full 3-slot hex shape', () => {
+    expect(isLivery({ hull: '#123456', accent: '#abcdef', trim: '#000000' })).toBe(true);
+    expect(isLivery({ hull: '#123456', accent: '#abcdef' })).toBe(false);
+    expect(isLivery({ hull: 'red', accent: '#abcdef', trim: '#000000' })).toBe(false);
+    expect(
+      isLivery({ hull: '#123456', accent: '#abcdef', trim: '#000000', extra: '#111111' }),
+    ).toBe(false);
+    expect(isLivery({})).toBe(false);
+    expect(isLivery(null)).toBe(false);
+    expect(isLivery('nope')).toBe(false);
+    expect(isLivery(42)).toBe(false);
   });
 });
 

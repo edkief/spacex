@@ -130,7 +130,7 @@
     "title": "Persistent ship livery customization",
     "category": "functional",
     "specFilePath": ".agent/tasks/TASK-21.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-13",

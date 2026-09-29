@@ -17,11 +17,11 @@ import { attachShipSwapBroadcast, createShipSwapBus } from '@server/shards';
 import { attachWebSocket, createRegistryGateway } from '@server/ws';
 import { WsTestClient, joinSystem } from '@server/ws-test-client';
 import type { EntityState } from '@shared/protocol/schemas';
-import { homeDockPosition } from '@shared/galaxy/dock';
+import { SHIP_CLASSES } from '@shared/ships';
 
 const env: Env = {
   PORT: 3001,
-  SESSION_SECRET: 'swap-test-secret',
+  SESSION_SECRET: 'livery-ws-secret',
   GALAXY_SEED: 'drift-dev-seed-001',
   DB_DRIVER: 'sqlite',
   DB_PATH: './data/drift.db',
@@ -31,7 +31,7 @@ const env: Env = {
 };
 
 const GALAXY_SEED = env.GALAXY_SEED;
-const OTHER_SYSTEM = 'f'.repeat(16);
+const OTHER_SYSTEM = 'e'.repeat(16);
 
 let dir: string;
 let app: FastifyInstance;
@@ -41,12 +41,12 @@ let wsUrl: string;
 let closeServer: () => Promise<void>;
 
 beforeAll(async () => {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'drift-swap-'));
-  const { db } = createDb({ driver: 'sqlite', dbPath: path.join(dir, 'swap.db') });
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'drift-livery-ws-'));
+  const { db } = createDb({ driver: 'sqlite', dbPath: path.join(dir, 'livery.db') });
   repo = createRepo(db, sqliteTables);
   const sessions = createSessionService({
     repo,
-    codec: createTokenCodec('swap-test-secret'),
+    codec: createTokenCodec('livery-ws-secret'),
   });
   const bus = createShipSwapBus();
   app = buildServer(env);
@@ -89,56 +89,45 @@ async function claim(
   };
 }
 
-describe('ship-swap broadcast (TASK-20, ws integration)', () => {
-  it('replaces the ship entity in place and broadcasts entity_update to in-system peers', async () => {
-    const p = await claim('Swap-1');
+async function setLivery(token: string, colors: Record<string, string>) {
+  const res = await fetch(`${httpUrl}/api/ships/livery`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify({ colors }),
+  });
+  return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+}
+
+describe('livery broadcast (TASK-21, ws integration)', () => {
+  it('broadcasts entity_update with the new livery to in-system peers', async () => {
+    const p = await claim('Paint-1');
     await repo.upsertSystem(p.homeSystemId, 'Home');
     await repo.upsertSystem(OTHER_SYSTEM, 'Elsewhere');
-    await repo.addCredits(p.playerId, 10_000);
 
     const inSystem = new WsTestClient(wsUrl);
     const elsewhere = new WsTestClient(wsUrl);
     await joinSystem(inSystem, p.token, p.homeSystemId);
-    // A second player's connection in another system must not see the swap.
-    const other = await claim('Bystander-1');
+    const other = await claim('Paint-Bystander');
     await joinSystem(elsewhere, other.token, OTHER_SYSTEM);
 
-    const buyRes = await fetch(`${httpUrl}/api/ships/buy`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${p.token}` },
-      body: JSON.stringify({ classId: 'freighter' }),
-    });
-    expect(buyRes.status).toBe(201);
-    const bought = (await buyRes.json()) as { ship: { id: string } };
+    const colors = { hull: '#aa0000', accent: '#00aa00', trim: '#0000aa' };
+    const res = await setLivery(p.token, colors);
+    expect(res.status).toBe(200);
 
     const msg = await inSystem.next((m) => m.type === 'entity_update', 'entity_update');
     const entities = (msg.payload as { entities: EntityState[] }).entities;
     expect(entities.length).toBe(1);
     const e = entities[0];
-    // Replaced in place: the scrubbed ship's id keeps its slot, new class stats.
-    expect(e.id).toBe(p.shipId);
+    expect(e.id).toBe(p.shipId); // no swap happened: the ship id is the entity id
     expect(e.kind).toBe('ship');
-    expect(e.classId).toBe('freighter');
-    expect(e.regime).toBe('docked');
-    expect(e.hull).toBe(1);
-    expect(e.shields).toBe(1);
-    expect(e.callsign).toBe('swap-1');
-    expect(e.pos).toEqual(homeDockPosition(GALAXY_SEED, p.homeSystemId));
-    expect(bought.ship.id).not.toBe(p.shipId); // persisted row is a new ship
+    expect(e.classId).toBe('scout');
+    expect(e.livery).toEqual(colors);
+    expect(e.callsign).toBe('paint-1');
 
-    // A second swap keeps the same entity id (still in-place for the shard).
-    const buy2 = await fetch(`${httpUrl}/api/ships/buy`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${p.token}` },
-      body: JSON.stringify({ classId: 'interceptor' }),
-    });
-    expect(buy2.status).toBe(201);
-    const msg2 = await inSystem.next((m) => m.type === 'entity_update', 'entity_update');
-    const e2 = (msg2.payload as { entities: EntityState[] }).entities[0];
-    expect(e2.id).toBe(p.shipId);
-    expect(e2.classId).toBe('interceptor');
+    // The update landed in the database too.
+    expect((await repo.getShipByOwner(p.playerId))?.livery).toEqual(colors);
 
-    // No swap traffic reached the other system.
+    // No livery traffic reached the other system.
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(elsewhere.messages.some((m) => m.type === 'entity_update')).toBe(false);
 
@@ -146,21 +135,54 @@ describe('ship-swap broadcast (TASK-20, ws integration)', () => {
     elsewhere.close();
   });
 
-  it('does not broadcast when the player is not in-system', async () => {
-    const p = await claim('Alone-1');
+  it('targets the swapped entity id and shows class defaults until painted', async () => {
+    const p = await claim('Paint-2');
     await repo.upsertSystem(p.homeSystemId, 'Home');
     await repo.addCredits(p.playerId, 10_000);
 
-    // Nobody is in the player's system: the emit is a no-op and the buy
-    // still succeeds (REST does not depend on shard liveness).
+    const inSystem = new WsTestClient(wsUrl);
+    await joinSystem(inSystem, p.token, p.homeSystemId);
+
+    // Buy first: the entity keeps the original ship's id in-system.
     const buyRes = await fetch(`${httpUrl}/api/ships/buy`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${p.token}` },
       body: JSON.stringify({ classId: 'interceptor' }),
     });
     expect(buyRes.status).toBe(201);
-    const ship = await repo.getShipByOwner(p.playerId);
-    expect(ship?.classId).toBe('interceptor');
-    expect(ship?.state).toBe('docked');
+    const bought = (await buyRes.json()) as {
+      ship: { id: string; livery: Record<string, string> };
+    };
+    const swapMsg = await inSystem.next((m) => m.type === 'entity_update', 'swap entity_update');
+    expect((swapMsg.payload as { entities: EntityState[] }).entities[0].id).toBe(p.shipId);
+    // The new ship carries its catalog default livery on the wire.
+    expect((swapMsg.payload as { entities: EntityState[] }).entities[0].livery).toEqual(
+      SHIP_CLASSES.interceptor.defaultLivery,
+    );
+
+    const colors = { hull: '#010203', accent: '#040506', trim: '#070809' };
+    const res = await setLivery(p.token, colors);
+    expect(res.status).toBe(200);
+
+    const msg = await inSystem.next((m) => m.type === 'entity_update', 'livery entity_update');
+    const e = (msg.payload as { entities: EntityState[] }).entities[0];
+    expect(e.id).toBe(p.shipId); // still the pre-swap id the clients hold
+    expect(e.classId).toBe('interceptor');
+    expect(e.livery).toEqual(colors);
+    expect(bought.ship.id).not.toBe(p.shipId);
+
+    inSystem.close();
+  });
+
+  it('is a no-op for a player whose system has no active peers', async () => {
+    const p = await claim('Paint-3');
+    await repo.upsertSystem(p.homeSystemId, 'Home');
+    const res = await setLivery(p.token, { hull: '#121212', accent: '#343434', trim: '#565656' });
+    expect(res.status).toBe(200);
+    expect((await repo.getShipByOwner(p.playerId))?.livery).toEqual({
+      hull: '#121212',
+      accent: '#343434',
+      trim: '#565656',
+    });
   });
 });

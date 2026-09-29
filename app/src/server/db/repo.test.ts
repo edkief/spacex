@@ -9,6 +9,7 @@ import { migrateSqlite } from '@server/db/migrate';
 import { CallsignTakenError, InsufficientCreditsError, NotFoundError } from '@server/db/errors';
 import { createRepo } from '@server/db/repo';
 import { sqliteTables, type ShipPosition, type ShipRow } from '@server/db/schema';
+import { SHIP_CLASSES } from '@shared/ships';
 
 let dir: string;
 let repo: ReturnType<typeof createRepo>;
@@ -69,7 +70,7 @@ describe('repo: ships', () => {
     expect(ship.state).toBe('docked');
     expect(ship.position).toEqual({ systemId: 'home', x: 0, y: 0, z: 0 });
     expect(ship.velocity).toEqual({ x: 0, y: 0, z: 0 });
-    expect(ship.livery).toEqual({});
+    expect(ship.livery).toEqual(SHIP_CLASSES.scout.defaultLivery);
   });
 
   it('getOrCreateStarterShip is idempotent per player', async () => {

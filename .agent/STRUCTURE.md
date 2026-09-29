@@ -14,13 +14,16 @@ Excludes dotfiles, tests, and config.
 │   │   └── gen-flight-fixtures.ts  # npm run snapshot:update:flight — regenerates the 2 TASK-22 golden trajectory fixtures
 │   ├── smoke-task1.mjs       # TASK-1 Playwright smoke script (chromium screenshot)
 │   ├── smoke-task10.mjs      # TASK-10 live smoke: REST claim/session + WS token auth over the :3000 proxy
+│   ├── smoke-task21.mjs      # TASK-21 live smoke: livery REST happy path + Playwright page load/screenshot
 │   └── src/
 │       ├── client/
-│       │   └── main.tsx      # React shell + #game-canvas placeholder
+│       │   ├── main.tsx      # React shell + #game-canvas placeholder
+│       │   └── render/
+│       │       └── ship-mesh.ts # TASK-21: ShipMeshBuilder — 3 paint-zone materials + in-place applyLivery
 │       ├── server/
 │       │   ├── env.ts        # zod-validated env (PROJECT_ROOT/.env.local)
 │       │   ├── index.ts      # process entry: Fastify + ws, REST routes + token auth + ship-swap broadcast, listens on PORT
-│       ├── shards.ts     # TASK-20: in-process ship-swap bus + shipToEntity + entity_update broadcast bridge (folds into TASK-11/12)
+│       ├── shards.ts     # TASK-20/21: in-process ship-swap + livery bus, shipToEntity, entity_update broadcast bridge (folds into TASK-11/12)
 │       │   ├── server.ts     # buildServer() for tests/inject()
 │       │   ├── auth/
 │       │   │   ├── token.ts       # TASK-10: HMAC-SHA256 token codec (base64url body + MAC, constant-time, 30 s exp skew)
@@ -31,7 +34,7 @@ Excludes dotfiles, tests, and config.
 │       │       ├── callsigns.ts    # TASK-10: POST /api/callsigns (claim → player + starter ship + session token)
 │       │       ├── players.ts      # TASK-41: GET /api/players/me (Bearer → own profile incl. credits)
 │       │       ├── session.ts      # TASK-10: GET /api/session (Bearer → profile, structured 401s)
-│       │       └── ships.ts        # TASK-20: GET /api/ships + POST /api/ships/buy (docked purchase, tx: withdraw + scrub + insert)
+│       │       └── ships.ts        # TASK-20/21: GET /api/ships, POST /api/ships/buy (docked purchase), POST /api/ships/livery (3-slot hex paint)
 │       │   ├── ws.ts         # TASK-9 WS lifecycle: handshake state machine, structured errors, presence, 15s/45s keepalive
 │       │   ├── persist.ts               # TASK-63 save-point service: dock/damage-milestone/5s-interval/shutdown, crash-load
 │       │   ├── persist-crash-child.ts   # TASK-63 test helper: child process that saves state, then gets SIGKILL'd
@@ -40,7 +43,7 @@ Excludes dotfiles, tests, and config.
 │       │       ├── schema.ts          # dual-driver Drizzle schema (sqlite + pg), 6 tables + row types
 │       │       ├── client.ts          # createDb/getDb: DB_DRIVER → better-sqlite3 file (WAL) | pg Pool; migrate on boot
 │       │       ├── migrate.ts         # sequential .sql migrator with _migrations tracking table (sqlite)
-│       │       ├── repo.ts            # Repository: players/ships/cargo/credits/nodes/sessions; zod-validated JSON
+│       │       ├── repo.ts            # Repository: players/ships/cargo/credits/nodes/sessions; zod-validated JSON (strict 3-slot livery, TASK-21)
 │       │       ├── errors.ts          # CallsignTakenError, InsufficientCreditsError, NotFoundError
 │       │       └── migrations/
 │       │           └── 000000_init.sql # initial SQLite DDL
@@ -52,7 +55,7 @@ Excludes dotfiles, tests, and config.
 │           ├── protocol.ts       # TASK-9: version constant, Envelope, encode/decode, parseMessage, error codes
 │           ├── protocol/
 │           │   └── schemas.ts    # TASK-9: zod payload schema per message type + EntityState/StateSnapshot shapes
-│           ├── ships.ts          # TASK-19: SHIP_CLASSES (scout/freighter/interceptor) + shipStats/compareShips/totalWeaponCount/shipPrice
+│           ├── ships.ts          # TASK-19/21: SHIP_CLASSES + shipStats/compareShips/totalWeaponCount/shipPrice, Livery type + per-class defaultLivery
 │           ├── physics/
 │           │   ├── vec.ts        # TASK-22: Vec3/Quat ops (add/scale/dot/cross/normalize/lerp, fromEuler/multiply/toMat3/rotateVector)
 │           │   ├── atmosphere.ts # TASK-22: 1 km drag boundary ramp atmosphereFactor (shared with TASK-28)
