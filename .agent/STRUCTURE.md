@@ -18,7 +18,15 @@ Excludes dotfiles, tests, and config.
 │       ├── server/
 │       │   ├── env.ts        # zod-validated env (PROJECT_ROOT/.env.local)
 │       │   ├── index.ts      # process entry: Fastify + ws, listens on PORT
-│       │   └── server.ts     # buildServer() for tests/inject()
+│       │   ├── server.ts     # buildServer() for tests/inject()
+│       │   └── db/
+│       │       ├── schema.ts          # dual-driver Drizzle schema (sqlite + pg), 6 tables + row types
+│       │       ├── client.ts          # createDb/getDb: DB_DRIVER → better-sqlite3 file | pg Pool; migrate on boot
+│       │       ├── migrate.ts         # sequential .sql migrator with _migrations tracking table (sqlite)
+│       │       ├── repo.ts            # Repository: players/ships/cargo/credits/nodes/sessions; zod-validated JSON
+│       │       ├── errors.ts          # CallsignTakenError, InsufficientCreditsError, NotFoundError
+│       │       └── migrations/
+│       │           └── 000000_init.sql # initial SQLite DDL
 │       └── shared/
 │           ├── canonical.ts  # canonicalJson: stable key-sorted JSON for checksums
 │           ├── health.ts     # HealthPayload type

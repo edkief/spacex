@@ -8,6 +8,7 @@ const env: Env = {
   GALAXY_SEED: 'DRIFT-SEED-0001',
   DB_DRIVER: 'sqlite',
   DB_PATH: './data/drift.db',
+  DATABASE_URL: '',
   SYSTEM_INSTANCE_COUNT: 3,
   WS_PATH: '/ws',
 };

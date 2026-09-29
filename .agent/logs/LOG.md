@@ -3,12 +3,25 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-29
-**Tasks Completed:** 7
-**Current Task:** TASK-6 Complete
+**Tasks Completed:** 8
+**Current Task:** TASK-62 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-09-29 — TASK-62: Drizzle data layer — dual-driver schema (SQLite/Postgres)
+Built the persistent data layer (PRD §8: only mutable state, never geometry):
+- `app/src/server/db/schema.ts` — one schema definition per dialect (sqlite-core + pg-core) for all six tables (players, ships, cargo_items, sessions, resource_node_state, system_registry) with exact PRD fields: uuid-text PKs, callsign unique, credits int default 500, JSON position/velocity/livery, ship state as text+CHECK (sqlite) / pgEnum (postgres), unique(ship_id, resource_type), nullable session system_id / node respawn_at. Timestamps are ISO strings on both drivers (pg `timestamptz mode:'string'`) so the repo is dialect-agnostic. Tables are individual consts (a single self-referencing object literal broke drizzle's type inference under TS 6 — recorded as the reason).
+- `app/src/server/db/client.ts` — `createDb()`/`getDb()`: DB_DRIVER=sqlite → better-sqlite3 file at DB_PATH (mkdir -p, FK pragma, migrate on boot); postgres → pg Pool from DATABASE_URL (rejects the TODO placeholder).
+- `app/src/server/db/migrate.ts` + `migrations/000000_init.sql` — sequential .sql migrator with a `_migrations` tracking table, one transaction per file, idempotent.
+- `app/src/server/db/repo.ts` — single `createRepo(db, tables)` implementation over the shared query-builder surface: createPlayer, findPlayerByCallsign, getOrCreateStarterShip (idempotent), saveShipState (zod-validated JSON columns), saveCargo (ON CONFLICT upsert on the unique pair), addCredits/withdrawCredits (atomic conditional `credits >= amount` update → InsufficientCreditsError), upsertNodeState, listNodeStates (exact IN with seed-derived nodeIds, or node_id prefix for system-prefixed ids — documented), upsertSystem, full session CRUD + deleteExpiredSessions. All parameterized.
+- `app/src/server/db/errors.ts` — CallsignTakenError / InsufficientCreditsError / NotFoundError (+ unique-violation sniffing).
+- `env.ts` — added DATABASE_URL to the zod env schema. Deps: `pg` + `@types/pg`, `drizzle-kit` (dev).
+- `app/drizzle.config.ts` — postgresql dialect for drizzle-kit DDL generation.
+- Tests: `repo.test.ts` (24) — CRUD round-trip for every method against a tmp sqlite file, typed-error paths (duplicate callsign, insufficient credits, not-found), zod boundary rejections, migration apply-once/idempotent; `pg-parity.test.ts` (1) — spawns `drizzle-kit generate --dialect postgresql` into a temp dir, asserts exit 0 and all six tables in the DDL (no live PG needed). Generated DDL inspected: jsonb columns, ship_state enum, CHECK constraint, FKs, unique index all present.
+- No UI changes → Playwright skipped. Dev-server boot re-verified (/api/health 200 via :3000 proxy).
+- Verified: `npm run typecheck`, `npm run lint` (eslint + prettier clean), full `npm run test` → 11 files / 115 tests all pass.
 
 ### 2026-09-29 — TASK-6: Galaxy determinism verification (snapshot fixtures)
 Locked the determinism contract (SC-2) with committed snapshot fixtures that must regenerate byte-stably for the dev seed:

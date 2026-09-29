@@ -12,6 +12,7 @@ const schema = z.object({
   GALAXY_SEED: z.string().min(1).default('DRIFT-SEED-0001'),
   DB_DRIVER: z.enum(['sqlite', 'postgres']).default('sqlite'),
   DB_PATH: z.string().min(1).default('./data/drift.db'),
+  DATABASE_URL: z.string().default(''),
   SYSTEM_INSTANCE_COUNT: z.coerce.number().int().positive().default(3),
   WS_PATH: z.string().min(2).startsWith('/').default('/ws'),
 });

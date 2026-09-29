@@ -53,7 +53,7 @@
     "title": "Drizzle data layer: dual-driver schema (SQLite/Postgres)",
     "category": "data-model",
     "specFilePath": ".agent/tasks/TASK-62.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-63",
