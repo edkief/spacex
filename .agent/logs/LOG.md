@@ -3,12 +3,25 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-29
-**Tasks Completed:** 19
-**Current Task:** TASK-21 Complete
+**Tasks Completed:** 20
+**Current Task:** TASK-13 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-09-29 — TASK-13: Server sim: 20 Hz tick with 10 Hz snapshots
+Authoritative per-system sim: fixed 20 Hz tick (drift-corrected setTimeout chain, 5-tick max catch-up with input-drop signalling), latest-input-wins queues with stale-seq protection, 10 Hz entity_update broadcast, tick-time histogram, and the 16-ship p95 < 30 ms benchmark:
+- `app/src/server/shard/sim.ts` — `SimLoop`: setTimeout-chain (no setInterval) with an ideal-tick anchor, so timer jitter never accumulates; public `step(t)` accumulator core (unit-testable without event-loop stalls); `inputDrops` flag engages after an over-catch-up burst and clears when the loop is on-time again.
+- `app/src/server/shard/histogram.ts` — `TickHistogram`: ring buffer (2048 samples) with p50/p95/p99 (nearest-rank), min/max, reset.
+- `app/src/server/shard/terrain.ts` — `TerrainContext`: per-planet 3×3 surface-chunk neighborhood cache (320 m chunks → ~1 km coverage); bilinear `heightAt` in O(1) steady state (one `generateSurfaceChunk` per chunk crossed); landing pads emitted in **world** metres (chunk offset applied — chunk-local coords would mis-detect pads outside chunk (0,0)).
+- `app/src/server/shard/shard.ts` — `SystemShard implements Shard`: single-writer invariant (handlers only enqueue via `enqueueInput`; every entity mutation happens in the tick); drains latest input per connection, integrates via the shared `integrateShip` with per-entity regime context (atmosphere density from the generated planet, chunk-cached terrain, pads; space = no planet context); `action:'vtol'` maps to full VTOL lift (protocol v1 has no up channel); AI ships stubbed until TASK-46. Every 2nd tick: snapshot validated once against the wire schema, `encodeMessage`d **once**, the same buffer sent to every in-system connection (>32 KB warns once for TASK-60 input). Per-tick wall time → histogram; 'tick'/'player-joined'/'player-left' events; persist hook on stop(); ship-swap/livery bus keeps in-shard entities in place.
+- `app/src/server/shard/types.ts` + `index.ts` — `Shard = {systemId, sim, connections: Map<connId, ConnState>, entities, events, persist}` per spec; `ConnState = {playerId, callsign, lastSeq, input?, send(buffer)}`; barrel exports.
+- `app/src/server/ws.ts` — `onJoinSystem`/`onLeaveSystem` hooks on `attachWebSocket` (shards spawn entities / release connections without WS-layer knowledge of sharding).
+- `app/src/server/index.ts` — real entry now runs the test-only single shard (seed's first star system, registered in system_registry, 20 Hz) until the TASK-11 router; WS 'input' enqueues, join/leave bridge to the shard.
+- Tests: `sim.test.ts` (6) — first tick at exactly dt, **no drift over 1000 ticks**, jitter absorption (55 ms steps stay within 1 tick of ideal over 1000), 4-tick stall catch-up, 6-owed → 5-run cap + inputDrops lifecycle, stop/start counter continuity; `shard.test.ts` (11) — latest-input-wins (only seq 3 of 3 queued integrates, bit-identical quat), stale seq ignored + **debug-logged drop**, unknown-player drop, **snapshot cadence exactly 10 Hz** (20 ticks → 10 frames, 21st tick silent; single shared buffer; hull/shields/targetId on the wire), per-conn fan-out after unregister, no-broadcast-with-no-conns, atmosphere fall against chunk-cached terrain (no tunneling, spawn above local ground), VTOL `action:'vtol'` settles on the chunk-(0,0) pad (`onPad` + docked wire regime), histogram fills 1:1 with ticks, **16-ship / 1200-tick (60 s) benchmark: p95 < 30 ms** (logs p50/p95/p99), docked/pad regime mapping, hull normalization; `shard.ws.test.ts` (1) — live-server integration: claim → join shard system → entity spawned docked → seq'd thrust inputs → 5 snapshots show +Z motion + sublight regime → **stale seq from the wire ignored** → clean leave releases the conn.
+- Live smoke `app/smoke-task13.mjs` over the :3000 proxy — 13 checks incl. measured snapshot cadence (11/s ≈ 10 Hz), motion, stale-seq: SMOKE PASS.
+- Verified: `tsc --noEmit`, `eslint` + `prettier --check` clean, full `npm run test` → 37 files / 384 tests all pass (+19 new).
 
 ### 2026-09-29 — TASK-21: Persistent ship livery customization
 Dock livery (3 hex paint slots: hull/accent/trim) — persisted, broadcast to in-system peers, applied to client ship materials:

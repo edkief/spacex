@@ -137,7 +137,7 @@
     "title": "Server sim: 20 Hz tick with 10 Hz snapshots",
     "category": "functional",
     "specFilePath": ".agent/tasks/TASK-13.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-14",

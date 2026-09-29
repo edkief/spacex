@@ -1,0 +1,85 @@
+import type { EventEmitter } from 'node:events';
+
+import type { EntityState, InputPayload } from '@shared/protocol/schemas';
+import type { ShipState } from '@shared/physics/flight';
+import type { SimLoop } from './sim';
+
+/**
+ * Shard record types (TASK-13). A shard is the authoritative simulation for
+ * one star system: a fixed 20 Hz SimLoop, one entity per player, per-connection
+ * input queues, and a 10 Hz snapshot broadcast.
+ *
+ * Invariant (PRD determinism): ALL entity mutation happens inside the sim
+ * tick (single writer). Message handlers only ENQUEUE; they never touch
+ * entities directly.
+ */
+
+/** One WS connection's sim-side state. */
+export interface ConnState {
+  /** Stable id assigned when the connection joins the shard. */
+  connId: string;
+  playerId: string;
+  callsign: string;
+  /** Last accepted input seq; inputs with seq <= lastSeq are stale (dropped). */
+  lastSeq: number;
+  /** Latest accepted input awaiting the next tick (latest-wins). */
+  input?: InputPayload;
+  /**
+   * Deliver a serialized protocol frame (the 10 Hz snapshot buffer, encoded
+   * ONCE per broadcast and shared by every in-system connection).
+   */
+  send(buffer: string): void;
+}
+
+/** A simulated entity in the shard (player ship; AI ships arrive in TASK-46). */
+export interface SimEntity {
+  /** Wire-stable entity id (the ship id clients hold; survives ship swaps). */
+  id: string;
+  kind: 'ship' | 'ai-ship';
+  /** Owner (null for AI ships). One entity per player. */
+  playerId: string | null;
+  callsign?: string;
+  classId: string;
+  /** Kinematic state — mutated only inside the tick. */
+  ship: ShipState;
+  /** Normalized hull / shields (0..1), combat-ready state (TASK-23 fills in). */
+  hull: number;
+  shields: number;
+  targetId: string | null;
+  livery?: Record<string, string>;
+  /**
+   * Persisted 'docked' ships stay in the 'docked' wire regime until their
+   * first input (which takes them off the dock plane).
+   */
+  docked: boolean;
+  /** Planet whose surface this ship flies above (atmosphere regime only). */
+  planetId?: string;
+}
+
+/** The shard the router (TASK-11) will instantiate per system. */
+export interface Shard {
+  systemId: string;
+  sim: SimLoop;
+  connections: Map<string, ConnState>;
+  entities: Map<string, SimEntity>;
+  /** Lifecycle notifications: 'tick', 'player-joined', 'player-left'. */
+  events: EventEmitter;
+  /**
+   * Save hook (TASK-63 wires the real persistence service). Called on stop()
+   * with the final snapshot; no-op by default.
+   */
+  persist: (entities: EntityState[]) => void;
+}
+
+/** Structured log surface the shard writes to (defaults to console). */
+export interface ShardLogger {
+  debug(msg: string, meta?: Record<string, unknown>): void;
+  warn(msg: string, meta?: Record<string, unknown>): void;
+  info(msg: string, meta?: Record<string, unknown>): void;
+}
+
+export const defaultLogger: ShardLogger = {
+  debug: (msg, meta) => console.debug(`[shard:debug] ${msg}`, meta ?? ''),
+  warn: (msg, meta) => console.warn(`[shard:warn] ${msg}`, meta ?? ''),
+  info: (msg, meta) => console.info(`[shard:info] ${msg}`, meta ?? ''),
+};

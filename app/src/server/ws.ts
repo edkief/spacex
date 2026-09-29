@@ -153,6 +153,10 @@ export interface AttachWebSocketOptions {
   authenticate?: Authenticate;
   /** Gameplay dispatch (shards wire in later tasks); validated messages only. */
   onGameMessage?: (conn: Conn, type: string, payload: unknown) => void;
+  /** Called after a successful join_system (shards spawn the player's entity). */
+  onJoinSystem?: (conn: Conn, systemId: string) => void | Promise<void>;
+  /** Called when a joined connection closes (shards release the connection). */
+  onLeaveSystem?: (conn: Conn, systemId: string) => void | Promise<void>;
   keepalive?: { pingIntervalMs?: number; dropAfterMs?: number };
   /** Revokes a token presented at auth (WS 'logout', TASK-66). */
   revokeToken?: (token: string) => boolean | void | Promise<boolean> | Promise<void>;
@@ -252,6 +256,7 @@ export function attachWebSocket(
           send(peer, 'presence', { event: 'join', player: presenceEntry(conn) });
         }
         send(conn, 'enter_system', { snapshot: outcome.snapshot });
+        void options.onJoinSystem?.(conn, conn.systemId);
         return;
       }
       case 'logout': {
@@ -379,6 +384,7 @@ export function attachWebSocket(
         for (const peer of peersIn(conn.systemId)) {
           send(peer, 'presence', { event: 'leave', player: presenceEntry(conn) });
         }
+        void options.onLeaveSystem?.(conn, conn.systemId);
         void options.gateway.leaveSystem?.(conn.systemId, {
           playerId: conn.playerId,
           callsign: conn.callsign,

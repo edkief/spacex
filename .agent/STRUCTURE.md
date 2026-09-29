@@ -14,6 +14,7 @@ Excludes dotfiles, tests, and config.
 │   │   └── gen-flight-fixtures.ts  # npm run snapshot:update:flight — regenerates the 2 TASK-22 golden trajectory fixtures
 │   ├── smoke-task1.mjs       # TASK-1 Playwright smoke script (chromium screenshot)
 │   ├── smoke-task10.mjs      # TASK-10 live smoke: REST claim/session + WS token auth over the :3000 proxy
+│   ├── smoke-task13.mjs      # TASK-13 live smoke: shard join + 10 Hz snapshots + input integration + stale seq over the :3000 proxy
 │   ├── smoke-task21.mjs      # TASK-21 live smoke: livery REST happy path + Playwright page load/screenshot
 │   └── src/
 │       ├── client/
@@ -36,6 +37,13 @@ Excludes dotfiles, tests, and config.
 │       │       ├── session.ts      # TASK-10: GET /api/session (Bearer → profile, structured 401s)
 │       │       └── ships.ts        # TASK-20/21: GET /api/ships, POST /api/ships/buy (docked purchase), POST /api/ships/livery (3-slot hex paint)
 │       │   ├── ws.ts         # TASK-9 WS lifecycle: handshake state machine, structured errors, presence, 15s/45s keepalive
+│       │   ├── shard/
+│       │   │   ├── sim.ts  # TASK-13: SimLoop — 20 Hz fixed tick, drift-corrected setTimeout chain, 5-tick max catch-up + input-drop flag
+│       │   │   ├── histogram.ts  # TASK-13: TickHistogram — ring-buffer tick durations, p50/p95/p99
+│       │   │   ├── terrain.ts  # TASK-13: TerrainContext — 3x3 chunk neighborhood cache, bilinear O(1) heightAt, world-coord pads
+│       │   │   ├── shard.ts  # TASK-13: SystemShard — input queues (latest-wins, stale seq), integrateShip per tick, 10 Hz shared-buffer snapshots
+│       │   │   ├── types.ts  # TASK-13: Shard/ConnState/SimEntity contracts
+│       │   │   └── index.ts  # TASK-13: barrel exports
 │       │   ├── persist.ts               # TASK-63 save-point service: dock/damage-milestone/5s-interval/shutdown, crash-load
 │       │   ├── persist-crash-child.ts   # TASK-63 test helper: child process that saves state, then gets SIGKILL'd
 │       │   ├── ratelimit.ts             # TASK-65 per-conn token bucket (20/s, burst 40), chat limiter (2 s gap / 280 chars / 10 per 30 s), 3-in-10 s escalation
