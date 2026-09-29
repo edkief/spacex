@@ -79,14 +79,45 @@ export interface SystemGen {
   planets: Planet[];
 }
 
+/** Surface biome of a chunk. */
+export type Biome = 'plains' | 'rock' | 'canyon' | 'frozen' | 'wetland';
+
+/** A surface resource node (stable id keys the resource_node_state table). */
+export interface ResourceNode {
+  /** 16-hex-char id derived from (seed, planetId, chunkX, chunkZ, nodeIndex). */
+  nodeId: string;
+  /** Resource type; always one of the planet's resourceTypes. */
+  type: string;
+  /** X position in meters from the chunk origin (cell-aligned). */
+  x: number;
+  /** Z position in meters from the chunk origin (cell-aligned). */
+  z: number;
+  /** Initial extractable quantity (50..200). */
+  baseQuantity: number;
+}
+
+/** A landing pad on a chunk. */
+export interface LandingPad {
+  /** 16-hex-char id derived from the chunk sub-seed. */
+  id: string;
+  /** X position in meters from the chunk origin (cell-aligned). */
+  x: number;
+  /** Z position in meters from the chunk origin (cell-aligned). */
+  z: number;
+}
+
 /** A streaming surface chunk of a planet (generated in TASK-5). */
 export interface SurfaceChunk {
-  /** Planet id this chunk belongs to. */
-  planetId: string;
   /** Sector column index on the planet's surface grid. */
-  sectorX: number;
+  chunkX: number;
   /** Sector row index on the planet's surface grid. */
-  sectorY: number;
-  /** Deterministic seed for terrain/noise in this chunk. */
-  terrainSeed: bigint;
+  chunkZ: number;
+  /** 64x64 row-major heightmap in meters (Uint16-safe integers). */
+  heightmap: number[];
+  /** Dominant biome of the chunk. */
+  biome: Biome;
+  /** 1..4 resource nodes (0 on non-landable planets). */
+  resourceNodes: ResourceNode[];
+  /** 0..1 landing pad (always exactly 1 on chunk (0,0) of a landable planet). */
+  landingPads: LandingPad[];
 }

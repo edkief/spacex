@@ -18,25 +18,25 @@
       "step": 1,
       "description": "Implement value-noise + fBm from PRNG",
       "details": "Value noise: 2D lattice of pseudo-random values derived from hash2(chunkSeed, ix, iz), smoothstep interpolation. fBm: 4-5 octaves. Height = fBm(x*freq, z*freq) scaled by planet radius/terrain scale; biomes by height+moisture second noise channel.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Implement node and pad placement",
       "details": "Nodes: seeded count 1-4, positions from seeded rejection sampling (avoid biome 'wetland' for solid resources, avoid within 20m of pads), baseQuantity 50-200. Pads: 0-1 per chunk by seeded probability 0.25, snap to nearest flat area (gradient check); chunk (0,0) forced to 1 pad on landable planets.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Boundary continuity",
       "details": "Noise lattice coordinates are in *world* space (not chunk-local) so adjacent chunks share boundary samples. Test: generate chunks (0,0) and (1,0); max |delta| between shared column < noise epsilon (e.g. 0.5m at default scale).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Fixtures + determinism tests",
       "details": "Commit chunk fixture; add the 100-random-chunk stability loop (hash of each chunk JSON stable across two runs in same process and across a fresh Rng). Run `npm run test` + `npm run typecheck`.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-4"],

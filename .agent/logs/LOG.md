@@ -3,12 +3,22 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-29
-**Tasks Completed:** 5
-**Current Task:** TASK-4 Complete
+**Tasks Completed:** 6
+**Current Task:** TASK-5 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-09-29 — TASK-5: Surface chunk generator (terrain, nodes, landing pads)
+Implemented pure, deterministic surface-chunk generation so any client can reconstruct any chunk identically:
+- `app/src/shared/galaxy/noise.ts` — deterministic 2D value noise + 5-octave fBm on top of `hash2`; lattice lives in *world* cell space (`floor(world/LATTICE_CELLS)`), so neighboring chunks share boundary samples exactly; per-channel memo cache.
+- `app/src/shared/galaxy/surface.ts` — `generateSurfaceChunk(seed, planet, chunkX, chunkZ): SurfaceChunk`. Planet-wide terrain field seeded only from (seed, planetId) (chunk sub-seed drives placement only — first version seeded noise per-chunk and showed a 107 m seam at borders, fixed by moving the field seed above the chunk); 64x64 integer-meter heightmap (Uint16-safe), amplitude scaled by planet radius (250 + radiusKm/8000*350 m); biome from center-cell height + second moisture noise channel (frozen reachable on ice-class worlds); pads first (forced 1 on landable chunk (0,0), else 25% seeded roll, snapped to flattest 3x3 patch within 4 cells, center fallback); then 1-4 nodes, types restricted to `planet.resourceTypes`, seeded rejection >= 20 m from pads, solid types re-rolled to liquid types on wetland chunks when liquids exist, baseQuantity 50..200; nodeId/padId = 16-hex hashes of the chunk sub-seed tuple. Non-landable planets: terrain + biome only.
+- `types.ts` — `SurfaceChunk` reshaped to spec {chunkX, chunkZ, heightmap, biome, resourceNodes, landingPads}; added `Biome`, `ResourceNode`, `LandingPad`.
+- Golden fixture `__fixtures__/surface-dev-seed-chunk00.json` (chunk (0,0), landable planet #0 of dev-seed star 0: 16 heightmap samples + nodes + pads + sha256 of the full canonical chunk) + `app/scripts/gen-surface-fixture.ts` to regenerate it.
+- Tests `surface.test.ts` (13): golden snapshot (deep-equal + full checksum), two-call determinism, 100 random chunks x 3 planets stable with fresh Rng instances (canonical-JSON sha256 compared), sub-seed formula, border continuity (max edge delta < 0.15x amplitude for (0,0)/(1,0) and (0,0)/(0,1)), structural invariants (heightmap bounds, biome set, pad/node bounds + ids + nodeId formula + clearance + wetland rule, non-landable empty), stats (pad rate 0.1-0.4 around the 0.25 target, node counts span >= 3 of {1..4}, biomes plural + frozen on ice worlds).
+- No UI changes → Playwright/e2e skipped (pure logic, unit coverage complete).
+- Verified: `tsc --noEmit`, `eslint --fix` + `prettier --write` (lint + prettier --check clean), full `npm run test` → 7 files / 76 tests all pass.
 
 ### 2026-09-29 — TASK-4: System generator (planets, docks, deposits, AI roster)
 Implemented pure, deterministic star-system generation on top of the TASK-3 star generator:

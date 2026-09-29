@@ -1,0 +1,42 @@
+{
+  "seed": "drift-dev-seed-001",
+  "starId": "7dc36749a54c15d8",
+  "planetIndex": 0,
+  "planetId": "c96c4673ae3343f3",
+  "planetClass": "ice",
+  "chunkX": 0,
+  "chunkZ": 0,
+  "biome": "plains",
+  "heightmapSamples": [142, 188, 214, 231, 183, 195, 228, 221, 151, 177, 170, 229, 88, 76, 66, 110],
+  "resourceNodes": [
+    {
+      "nodeId": "9e7568f90004f4bf",
+      "type": "water",
+      "x": 230,
+      "z": 210,
+      "baseQuantity": 109
+    },
+    {
+      "nodeId": "adf9645e60c13107",
+      "type": "silicon",
+      "x": 145,
+      "z": 50,
+      "baseQuantity": 141
+    },
+    {
+      "nodeId": "bb2a374865d1ec0b",
+      "type": "silicon",
+      "x": 90,
+      "z": 250,
+      "baseQuantity": 72
+    }
+  ],
+  "landingPads": [
+    {
+      "id": "91adcb073633a596",
+      "x": 110,
+      "z": 175
+    }
+  ],
+  "fullChecksum": "d840f82e2fdd489df672bef6c916e4022b6a1a5942a5a091b436742f070804d0"
+}
