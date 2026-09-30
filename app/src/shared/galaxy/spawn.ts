@@ -32,7 +32,7 @@ export const SPAWN_GATE_POS = {
  */
 export const SPAWN_GATE_QUAT: Quat = (() => {
   const half = Math.PI / 4; // θ/2 for θ = −90° about Y
-  const quat: Quat = { x: -Math.sin(half), y: 0, z: 0, w: Math.cos(half) };
+  const quat: Quat = { x: 0, y: -Math.sin(half), z: 0, w: Math.cos(half) };
   // Sanity: this constant must map the forward axis onto −X.
   const forward = quatRotateVector(quat, { x: 0, y: 0, z: 1 });
   if (Math.abs(forward.x + 1) > 1e-9 || Math.abs(forward.z) > 1e-9) {

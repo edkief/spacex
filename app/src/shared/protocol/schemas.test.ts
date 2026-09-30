@@ -52,6 +52,10 @@ const CASES: Record<string, { valid: unknown; invalid: unknown }> = {
     invalid: { seq: 1, thrust: Infinity, turn: 0, pitch: 0, yaw: 0, fire: true, lock: false },
   },
   warp: { valid: { destinationSystemId: 'sys-2' }, invalid: { destinationSystemId: 123 } },
+  warp_arrived: {
+    valid: { systemId: 'sys-2', snapshot },
+    invalid: { systemId: '', snapshot },
+  },
   interact: {
     valid: { targetId: 't-1', action: 'board' },
     invalid: { targetId: 't-1', action: '' },

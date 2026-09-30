@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { generateSystem, generatePlanet } from './system';
+import { generateSystem, generatePlanet, systemForId } from './system';
 import { generateStars } from './stars';
 import { Rng, hash2, seedFromString } from '../random.js';
 import { canonicalJson } from '../canonical.js';

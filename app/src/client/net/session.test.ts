@@ -255,3 +255,105 @@ describe('ClientSession reconnect and resync (TASK-17)', () => {
     });
   });
 });
+
+/**
+ * TASK-8: warpTo over a scripted socket. The optimistic lastSystemId commit
+ * (reconnect mid-warp targets the DESTINATION), the warp_arrived resolution
+ * (full-boot onSnapshot path), the server-rejection rollback to the source,
+ * and the close-mid-warp rejection.
+ */
+describe('ClientSession warpTo (TASK-8)', () => {
+  const session2: ClaimedSession = { ...session, homeSystemId: 'sys1' };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function mkWarpSession(h: ReturnType<typeof makeHarness>) {
+    const snapshots: Array<{ systemId: string; reconnect: boolean }> = [];
+    const s = new ClientSession('ws://test', session2, {
+      wsFactory: h.wsFactory,
+      onSnapshot: (snap, reconnect) => snapshots.push({ systemId: snap.systemId, reconnect }),
+      retry: RETRY,
+    });
+    return { s, snapshots };
+  }
+
+  function warpAnd(h: ReturnType<typeof makeHarness>, s: ClientSession, to: string) {
+    const pending = s.warpTo(to);
+    return { pending, frame: h.sockets[0].sent.at(-1) };
+  }
+
+  it('sends the warp frame and resolves with the warp_arrived snapshot (full-boot path)', async () => {
+    const h = makeHarness();
+    const { s, snapshots } = mkWarpSession(h);
+    await boot(h, s);
+    snapshots.length = 0;
+
+    const { pending, frame } = warpAnd(h, s, 'sys2');
+    expect(frame).toBe(encodeMessage('warp', { destinationSystemId: 'sys2' }));
+
+    h.deliver(0, 'warp_arrived', { systemId: 'sys2', snapshot: snapshotFor('sys2') });
+    await expect(pending).resolves.toEqual(snapshotFor('sys2'));
+    expect(snapshots).toEqual([{ systemId: 'sys2', reconnect: false }]);
+
+    // A drop after arrival reconnects into the destination.
+    h.drop(0, 1006);
+    vi.advanceTimersByTime(10);
+    h.open(1);
+    const frames = h.sockets[1].sent.map((f) => JSON.parse(String(f)) as { type: string });
+    expect(frames.map((f) => f.type)).toEqual(['hello', 'auth', 'join_system']);
+  });
+
+  it('server rejection: rejects with WarpRejectedError and rolls the reconnect target back', async () => {
+    const h = makeHarness();
+    const { s } = mkWarpSession(h);
+    await boot(h, s);
+
+    const { pending } = warpAnd(h, s, 'sys2');
+    h.deliver(0, 'error', { code: 'system-full', message: 'system sys2 is full (16 players)' });
+    await expect(pending).rejects.toMatchObject({
+      name: 'WarpRejectedError',
+      code: 'system-full',
+    });
+
+    // Optimistic commit rolled back: a drop now reconnects into the SOURCE.
+    h.drop(0, 1006);
+    vi.advanceTimersByTime(10);
+    h.open(1);
+    const joinFrame = h.sockets[1].sent
+      .map((f) => JSON.parse(String(f)) as { type: string; payload?: { systemId?: string } })
+      .find((f) => f.type === 'join_system');
+    expect(joinFrame?.payload?.systemId).toBe('sys1');
+  });
+
+  it('close mid-warp: the pending warp rejects (optimistic commit stands)', async () => {
+    const h = makeHarness();
+    const { s } = mkWarpSession(h);
+    await boot(h, s);
+
+    const { pending } = warpAnd(h, s, 'sys2');
+    h.drop(0, 1006);
+    await expect(pending).rejects.toThrow(/connection closed/);
+
+    // The commit stands: the retry re-joins the DESTINATION (the server
+    // either completed the move or the row still homes the re-adopt).
+    vi.advanceTimersByTime(10);
+    h.open(1);
+    const joinFrame = h.sockets[1].sent
+      .map((f) => JSON.parse(String(f)) as { type: string; payload?: { systemId?: string } })
+      .find((f) => f.type === 'join_system');
+    expect(joinFrame?.payload?.systemId).toBe('sys2');
+  });
+
+  it('warpTo without an active system rejects', async () => {
+    const h = makeHarness();
+    const { s } = mkWarpSession(h);
+    await expect(s.warpTo('sys2')).rejects.toThrow(/no active system/);
+    expect(h.sockets).toHaveLength(0); // nothing was ever dialed
+  });
+});
