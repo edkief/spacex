@@ -1,7 +1,11 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { HealthPayload } from '@shared/health';
-import { ClientSession, type ClaimedSession } from '@client/net/session';
+import {
+  ClientSession,
+  type ClaimedSession,
+  type ConnectionState,
+} from '@client/net/session';
 import { PresenceStore } from '@client/net/presence';
 import { ChatStore } from '@client/net/chat';
 import { PlayerList } from '@client/hud/player-list';
@@ -54,7 +58,16 @@ function wsUrl(): string {
  * TASK-15: boot the game session (WS → join home system) and keep the
  * PresenceStore fed from the snapshot + presence events. A `?sys=` URL
  * param overrides the join target (used by e2e + dev to meet a peer in a
- * specific system). No reconnect logic yet (TASK-17).
+ * specific system).
+ *
+ * TASK-17: reconnect resync. ClientSession auto-retries dropped sockets
+ * (1 s backoff, cap 5 s) and re-joins the SAME system; every enter_system
+ * snapshot arrives through onSnapshot. First join = full boot (fresh
+ * stores); resync into the same system = rebuild presence (emits only on
+ * real change), merge the chat history (preserved, no reset), and fire the
+ * 'reconnected' toast — no full UI reset. Prediction/remote buffers are
+ * rebuilt from the same snapshot by the render layer (the prediction
+ * rewind path absorbs the away-gap).
  */
 function useGameSession(
   session: ClaimedSession | null,
@@ -68,10 +81,13 @@ function useGameSession(
     [],
   );
   const [systemId, setSystemId] = React.useState<string | null>(null);
+  const [connState, setConnState] = React.useState<ConnectionState>('connecting');
+  const systemIdRef = React.useRef<string | null>(null);
 
   React.useEffect(() => {
     if (!session) {
       setSystemId(null);
+      setConnState('closed');
       return;
     }
     let cancelled = false;
@@ -88,20 +104,36 @@ function useGameSession(
         if (event === 'join') store.presenceJoin(player as never);
         else store.presenceLeave(player as never);
       },
+      onState: (state) => {
+        if (!cancelled) setConnState(state);
+      },
+      onSnapshot: (snapshot, reconnect) => {
+        if (cancelled) return;
+        if (reconnect && snapshot.systemId === systemIdRef.current) {
+          // Same system: the world kept living while we were away.
+          // Rebuild presence (unchanged set → no emit, list preserved) and
+          // merge only the chat we missed — no reset, then the toast.
+          store.applySnapshot(snapshot.players);
+          chatStore.mergeSnapshot(snapshot.chat);
+          store.reconnected();
+        } else {
+          // First join (or a different system): full boot.
+          store.leaveAll(); // fresh system: drop any stale entries first
+          store.applySnapshot(snapshot.players);
+          // TASK-16: system-scoped log — the snapshot carries the shard's
+          // last 100 (or empties the log on a system change / fresh shard).
+          chatStore.loadSnapshot(snapshot.chat);
+        }
+        systemIdRef.current = snapshot.systemId;
+        setSystemId(snapshot.systemId);
+      },
     });
     clientRef.current = client;
     (async () => {
       try {
         await client.connect();
         if (cancelled) return;
-        const snapshot = await client.joinSystem(target);
-        if (cancelled) return;
-        store.leaveAll(); // fresh system: drop any stale entries first
-        store.applySnapshot(snapshot.players);
-        // TASK-16: system-scoped log — the snapshot carries the shard's last
-        // 100 (or empties the log on a system change / fresh shard).
-        chatStore.loadSnapshot(snapshot.chat);
-        setSystemId(target);
+        await client.joinSystem(target);
       } catch (err) {
         if (!cancelled) onError(err instanceof Error ? err.message : String(err));
       }
@@ -114,7 +146,7 @@ function useGameSession(
     };
   }, [session, store, chatStore, clientRef, systemParam]);
 
-  return systemId;
+  return { systemId, connState };
 }
 
 /** Minimal callsign claim form; on success the session boots automatically. */
@@ -197,7 +229,7 @@ function App() {
   // the "N aboard" occupancy below stays live.
   const [, bumpPresence] = React.useReducer((n: number) => n + 1, 0);
   React.useEffect(() => store.subscribe(bumpPresence), [store]);
-  const systemId = useGameSession(session, store, chatStore, clientRef, (msg) => {
+  const { systemId, connState } = useGameSession(session, store, chatStore, clientRef, (msg) => {
     setError(msg);
     setSession(null); // token may be stale → back to the claim form
     localStorage.removeItem(SESSION_KEY);
@@ -214,6 +246,8 @@ function App() {
         <h1 style={styles.title}>DRIFT</h1>
         <p style={styles.status}>
           {health?.ok ? `server ok — seed ${health.galaxySeed}` : 'server unreachable'}
+          {connState === 'reconnecting' && ' · reconnecting…'}
+          {connState === 'lost' && ' · connection lost'}
         </p>
         {systemId && (
           <p id="sys-id" style={styles.sysId}>
@@ -235,6 +269,33 @@ function App() {
       )}
       <PlayerList store={store} />
       <ToastStack store={store} />
+      {connState === 'lost' && session && (
+        <ConnectionLostOverlay onRetry={() => clientRef.current?.retryNow()} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * TASK-17: the only full-screen UI in v1 — shown when the connection has
+ * been down past the auto-retry patience window (30 s). Auto-retry keeps
+ * running in the background (a returning server reconnects without a
+ * click); the button just skips the current backoff step. The backdrop is
+ * pointer-transparent except the card, so it can never block other UI (e.g.
+ * the future ESC menu) or keyboard input.
+ */
+function ConnectionLostOverlay({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div id="connection-lost-overlay" style={overlayStyles.backdrop} role="alertdialog" aria-label="Connection lost">
+      <div style={overlayStyles.card}>
+        <h2 style={overlayStyles.title}>CONNECTION LOST</h2>
+        <p style={overlayStyles.text}>
+          The server is unreachable. Drift is reconnecting automatically…
+        </p>
+        <button id="reconnect-retry" type="button" style={overlayStyles.button} onClick={onRetry}>
+          RETRY NOW
+        </button>
+      </div>
     </div>
   );
 }
@@ -260,6 +321,42 @@ const styles: Record<string, React.CSSProperties> = {
   title: { margin: 0, fontSize: '1.4rem', letterSpacing: '0.08em' },
   status: { margin: '0.5rem 0 0', color: '#8b97ab' },
   sysId: { margin: '0.25rem 0 0', color: '#5b6678', fontSize: '0.75rem' },
+};
+
+const overlayStyles: Record<string, React.CSSProperties> = {
+  // Pointer-transparent backdrop: never blocks clicks or keyboard on the UI
+  // underneath (the ESC menu, TASK-53, must stay operable).
+  backdrop: {
+    position: 'fixed',
+    inset: 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'rgba(11, 14, 20, 0.55)',
+    pointerEvents: 'none',
+    zIndex: 100,
+  },
+  card: {
+    pointerEvents: 'auto',
+    padding: '1.5rem 2rem',
+    border: '1px solid #2a3346',
+    borderRadius: 12,
+    background: 'rgba(17, 21, 31, 0.95)',
+    textAlign: 'center',
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  },
+  title: { margin: 0, fontSize: '1.1rem', letterSpacing: '0.12em', color: '#f87171' },
+  text: { margin: '0.75rem 0 1rem', color: '#8b97ab', fontSize: '0.85rem' },
+  button: {
+    background: '#1d2739',
+    border: '1px solid #2a3346',
+    borderRadius: 6,
+    color: '#d6deeb',
+    padding: '0.45rem 1rem',
+    letterSpacing: '0.08em',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
 };
 
 const claimStyles: Record<string, React.CSSProperties> = {

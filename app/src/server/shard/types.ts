@@ -37,6 +37,13 @@ export interface ConnState {
    * ONCE per broadcast and shared by every in-system connection).
    */
   send(buffer: string): void;
+  /**
+   * TASK-17: opaque identity of the owning WS connection (the WS layer
+   * passes its Conn object). Used to reject frames — inputs or leaves —
+   * arriving from a SUPERSEDED (zombie) socket of the same player after a
+   * reconnect. Absent for callers that do not care (headless/tests).
+   */
+  source?: unknown;
 }
 
 /** A simulated entity in the shard (player ship; AI ships arrive in TASK-46). */
@@ -86,6 +93,13 @@ export interface SimEntity {
    * Cleared when the owner leaves, so an abandoned ship coasts, not thrusters.
    */
   heldInput?: InputPayload;
+  /**
+   * TASK-17: the owner currently has NO live connection. The ship keeps
+   * being simulated (coasting on zero input — the held frame is cleared)
+   * for as long as the shard lives; inputs are only accepted when the
+   * player's connection is re-registered (idle back to false).
+   */
+  idle?: boolean;
 }
 
 /** The shard the router (TASK-11) will instantiate per system. */

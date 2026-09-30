@@ -46,6 +46,21 @@ export class ChatStore {
     this.emit();
   }
 
+  /**
+   * TASK-17: reconnect resync to the SAME system — the log is preserved
+   * (no reset), only messages that arrived while we were away are appended
+   * (snapshot entries newer than the local tail). Emits only when something
+   * was actually added.
+   */
+  mergeSnapshot(entries: readonly ChatMessage[]): void {
+    const lastTs = this.messages.length > 0 ? this.messages[this.messages.length - 1].ts : 0;
+    const fresh = entries.filter((e) => e.ts > lastTs);
+    if (fresh.length === 0) return;
+    this.messages.push(...fresh);
+    while (this.messages.length > CHAT_HISTORY_MAX) this.messages.shift();
+    this.emit();
+  }
+
   subscribe(listener: ChangeListener): () => void {
     this.listeners.add(listener);
     return () => {

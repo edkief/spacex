@@ -59,9 +59,10 @@ async function main(): Promise<void> {
       if (!conn.systemId || !conn.playerId) return;
       const shard = router.active(conn.systemId)?.shard;
       if (!shard) return;
-      // 'input': the tick drains the queue.
+      // 'input': the tick drains the queue. The Conn identity lets the
+      // shard drop frames from a superseded (zombie) socket (TASK-17).
       if (type === 'input') {
-        shard.enqueueInput(conn.playerId, payload as InputPayload);
+        shard.enqueueInput(conn.playerId, payload as InputPayload, conn);
         return;
       }
       // 'chat' (TASK-16): validated + rate-limited upstream; the shard

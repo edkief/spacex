@@ -9,6 +9,8 @@ import type { GalaxyRouter } from './router';
 export function createRouterGateway(router: GalaxyRouter): SystemGateway {
   return {
     enterSystem: (systemId, player) => router.enter(systemId, player),
-    leaveSystem: (systemId, player) => router.leave(systemId, player.playerId),
+    // TASK-17: the connection identity rides along so a late close of a
+    // superseded (zombie) socket cannot evict the reconnected player's conn.
+    leaveSystem: (systemId, player) => router.leave(systemId, player.playerId, player.source),
   };
 }

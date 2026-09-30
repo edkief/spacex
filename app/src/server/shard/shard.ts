@@ -167,13 +167,21 @@ export class SystemShard implements Shard {
   /**
    * Enqueue an 'input' frame for a joined player (called by the WS handler;
    * the ONLY mutation path outside the tick is this queue write).
-   * Returns false when the frame was dropped (stale seq or the sim is
-   * overloaded and dropping inputs).
+   * Returns false when the frame was dropped (stale seq, stale connection
+   * identity after a reconnect, or the sim is overloaded and dropping
+   * inputs).
    */
-  enqueueInput(playerId: string, payload: InputPayload): boolean {
+  enqueueInput(playerId: string, payload: InputPayload, source?: unknown): boolean {
     const connId = this.playerConns.get(playerId);
     const conn = connId ? this.connections.get(connId) : undefined;
     if (!conn) return false;
+    // TASK-17: inputs must come from the player's CURRENT connection. After
+    // a reconnect the old (zombie) socket still resolves to the same
+    // playerId — its frames are dropped with a debug log, never applied.
+    if (source !== undefined && conn.source !== source) {
+      this.log.debug('dropped input from stale conn', { playerId, connId, seq: payload.seq });
+      return false;
+    }
     // TASK-23: destroyed ships ignore inputs (frozen until dock respawn).
     const entity = this.playerEntities.get(playerId);
     if (entity?.destroyed) {
@@ -215,6 +223,10 @@ export class SystemShard implements Shard {
       this.entities.set(entity.id, entity);
       this.playerEntities.set(playerId, entity);
     }
+    // TASK-17: re-adopting the ship of a reconnecting player (the entity
+    // already exists, still at its idle position) un-idles it. A headless
+    // adopt (no connection) stays idle.
+    entity.idle = !this.playerConns.has(playerId);
     return entity;
   }
 
@@ -237,8 +249,18 @@ export class SystemShard implements Shard {
    * Register a connection (the WS layer does this via join(); programmatic
    * callers — the router in TASK-11 and tests — can use it directly).
    * Returns the connId.
+   *
+   * TASK-17: if the player already holds a (zombie) connection, it is
+   * SUPERSEDED here — evicted from the shard before the new one registers,
+   * so a reconnect can never leave two live connections (two slots, two
+   * integrations) for one ship. The entity itself stays untouched.
    */
-  registerConnection(playerId: string, callsign: string, send: ConnState['send']): string {
+  registerConnection(playerId: string, callsign: string, send: ConnState['send'], source?: unknown): string {
+    const staleId = this.playerConns.get(playerId);
+    if (staleId && this.connections.has(staleId)) {
+      this.connections.delete(staleId);
+      this.log.debug('superseded stale connection', { playerId, connId: staleId });
+    }
     const connId = `c${++this.connSeq}`;
     this.playerConns.set(playerId, connId);
     this.connections.set(connId, {
@@ -249,31 +271,64 @@ export class SystemShard implements Shard {
       appliedSeq: 0,
       ackSentSeq: 0,
       send,
+      ...(source !== undefined ? { source } : {}),
     });
+    // TASK-17: the ship is piloted again (covers the join-order where the
+    // entity was adopted BEFORE the connection registered).
+    const entity = this.playerEntities.get(playerId);
+    if (entity) entity.idle = false;
     return connId;
   }
 
-  /** Remove a registered connection by connId. */
+  /**
+   * Remove a registered connection by connId. The entity STAYS in the world:
+   * it goes idle (coasts on zero input, TASK-17) until the player re-joins.
+   */
   unregisterConnection(connId: string): void {
     const state = this.connections.get(connId);
     if (!state) return;
     this.connections.delete(connId);
-    this.playerConns.delete(state.playerId);
-    // The held input belongs to the connection: without a pilot the ship
-    // coasts on zero input instead of thrusting forever (TASK-14 hold
-    // semantics). A re-join re-adopts the entity with a clean slate.
-    const entity = this.playerEntities.get(state.playerId);
-    if (entity) entity.heldInput = undefined;
+    // TASK-17: a connId is only unregistered by PLAYER when it is still the
+    // player's CURRENT connection — a late close of a superseded zombie
+    // socket must not tear down the new connection.
+    const isCurrent = this.playerConns.get(state.playerId) === connId;
+    if (isCurrent) {
+      this.playerConns.delete(state.playerId);
+      // The held input belongs to the connection: without a pilot the ship
+      // coasts on zero input instead of thrusting forever (TASK-14 hold
+      // semantics). A re-join re-adopts the entity with a clean slate.
+      const entity = this.playerEntities.get(state.playerId);
+      if (entity) {
+        entity.heldInput = undefined;
+        entity.idle = true;
+      }
+    } else {
+      this.log.debug('dropped stale connection on leave', {
+        playerId: state.playerId,
+        connId,
+      });
+    }
     this.events.emit('player-left', { playerId: state.playerId, connId });
   }
 
   /**
    * Leave by player id (the router's leave path, TASK-11): remove the
-   * player's connection; the entity stays in the world.
+   * player's connection; the entity stays in the world (idle, TASK-17).
+   * When `source` is given, a leave from a SUPERSEDED connection (a zombie
+   * socket of a reconnected player) is ignored with a debug log — it must
+   * not evict the player's current connection.
    */
-  leavePlayer(playerId: string): void {
+  leavePlayer(playerId: string, source?: unknown): void {
     const connId = this.playerConns.get(playerId);
-    if (connId) this.unregisterConnection(connId);
+    if (!connId) return;
+    if (source !== undefined) {
+      const state = this.connections.get(connId);
+      if (state && state.source !== source) {
+        this.log.debug('ignored leave from stale conn', { playerId, connId });
+        return;
+      }
+    }
+    this.unregisterConnection(connId);
   }
 
   /** Leave: remove the connection; the entity stays in the world. */
@@ -451,18 +506,22 @@ export class SystemShard implements Shard {
       if (entity.ttl !== undefined && --entity.ttl === 0) this.entities.delete(id);
     }
 
-    // Drain input queues: a new frame REPLACES the held frame (latest already
-    // won at enqueue) and is held on the entity, re-integrated every tick
-    // until a newer frame arrives — the client predictor keeps integrating
-    // its last input between frames, so the authority must too (TASK-14).
-    // Ships always integrate (the sim never pauses mid-flight); a player
-    // that never sent a frame coasts on zero input. Destroyed ships (TASK-23)
+    // Integrate EVERY player ship — connected or not. A ship whose owner
+    // has no live connection is IDLE (TASK-17): its held frame was cleared
+    // when the owner left, so it coasts on zero input and the world keeps
+    // living while the player is away (no world reset on drop). A new
+    // frame REPLACES the held frame (latest already won at enqueue) and is
+    // held on the entity, re-integrated every tick until a newer frame
+    // arrives — the client predictor keeps integrating its last input
+    // between frames, so the authority must too (TASK-14). A player that
+    // never sent a frame coasts on zero input. Destroyed ships (TASK-23)
     // stop integrating and ignore inputs entirely.
-    for (const conn of this.connections.values()) {
-      const entity = this.playerEntities.get(conn.playerId);
-      if (!entity || entity.destroyed) continue;
-      const input = conn.input;
-      if (input) {
+    for (const entity of this.playerEntities.values()) {
+      if (entity.destroyed) continue;
+      const connId = entity.playerId ? this.playerConns.get(entity.playerId) : undefined;
+      const conn = connId ? this.connections.get(connId) : undefined;
+      const input = conn?.input;
+      if (conn && input) {
         conn.input = undefined; // consumed: becomes the held frame
         entity.heldInput = input; // held until a newer frame replaces it
         conn.appliedSeq = input.seq; // TASK-14: reconcilable from this tick on

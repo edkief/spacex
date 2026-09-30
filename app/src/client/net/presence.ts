@@ -16,7 +16,11 @@ export interface PlayerPresence {
 }
 
 export interface PresenceToast {
-  kind: 'join' | 'leave';
+  /**
+   * 'reconnected' (TASK-17) is a local connection event, not a presence
+   * change — it never touches the player list, only the toast stack.
+   */
+  kind: 'join' | 'leave' | 'reconnected';
   callsign: string;
   at: number;
 }
@@ -94,6 +98,15 @@ export class PresenceStore {
   presenceLeave(entry: PresenceEntry): void {
     if (this.others.delete(entry.playerId)) this.emitChange();
     this.emitToast({ kind: 'leave', callsign: entry.callsign, at: this.now() });
+  }
+
+  /**
+   * TASK-17: the local connection recovered (reconnect resync complete).
+   * Fires a one-shot 'reconnected' toast; the player list is untouched —
+   * it was rebuilt from the resync snapshot by the caller.
+   */
+  reconnected(): void {
+    this.emitToast({ kind: 'reconnected', callsign: this.self?.callsign ?? '', at: this.now() });
   }
 
   /** The player switched systems: everyone is gone until the next snapshot. */

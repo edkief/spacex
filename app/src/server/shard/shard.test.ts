@@ -559,3 +559,123 @@ describe('SystemShard system chat (TASK-16)', () => {
     expect(a.sends).toHaveLength(CHAT_HISTORY_MAX + 20); // broadcast is uncapped
   });
 });
+
+describe('SystemShard reconnect and idle continuation (TASK-17)', () => {
+  /** Shard with a debug-log capture (stale drops are logged at debug). */
+  function makeLoggedShard(): { shard: SystemShard; debugs: string[] } {
+    const debugs: string[] = [];
+    const shard = new SystemShard({
+      systemId: testSystem().systemId,
+      galaxySeed: SEED,
+      system: testSystem(),
+      repo: { getShipByOwner: async () => undefined, getPlayersByIds: async () => [] },
+      shipSwapBus: {
+        emitSwap() {},
+        onSwap: () => () => {},
+        emitLivery() {},
+        onLivery: () => () => {},
+      },
+      log: { debug: (msg) => debugs.push(msg), warn() {}, info() {} },
+    });
+    return { shard, debugs };
+  }
+
+  it('idle continuation: an owner-less ship keeps simulating (coasts on zero input)', () => {
+    vi.useFakeTimers();
+    const shard = makeShard();
+    const entity = makeEntity('p1', { x: 0, y: 0, z: 0 });
+    shard.addEntity(entity);
+    addFakeConn(shard, 'p1', 'Alpha');
+
+    // One tick of full thrust: the ship picks up velocity along +Z.
+    expect(shard.enqueueInput('p1', input(1, { thrust: 1 }))).toBe(true);
+    shard.start();
+    vi.advanceTimersByTime(TICK_DT_MS);
+    const velAfter = { ...entity.ship.vel };
+    expect(velAfter.z).toBeGreaterThan(0);
+
+    // The owner drops: held frame cleared, the ship goes IDLE (still in the world).
+    shard.leavePlayer('p1');
+    expect(shard.connections.size).toBe(0);
+    expect(entity.idle).toBe(true);
+    expect(entity.heldInput).toBeUndefined();
+
+    // The sim keeps living while the shard lives: 10 more ticks of zero
+    // input must integrate the coast exactly like the shared flight model.
+    const posAtLeave = { ...entity.ship.pos };
+    vi.advanceTimersByTime(10 * TICK_DT_MS);
+    const expected = integrateShip(
+      { pos: posAtLeave, vel: velAfter, quat: { ...entity.ship.quat }, regime: 'space' },
+      { thrust: 0, yaw: 0, pitch: 0, roll: 0, up: 0 },
+      10 * (TICK_DT_MS / 1000),
+      'space',
+      undefined,
+      'scout',
+    );
+    expect(entity.ship.pos.z).toBeCloseTo(expected.pos.z, 9);
+    expect(entity.ship.pos.z).toBeGreaterThan(posAtLeave.z); // it MOVED while idle
+    expect(entity.heldInput).toBeUndefined();
+
+    // Inputs for an idle ship (no live connection) are dropped.
+    expect(shard.enqueueInput('p1', input(2, { thrust: 1 }))).toBe(false);
+    shard.stop();
+  });
+
+  it('reconnect re-adopts the SAME entity: no duplicate, ship un-idles', () => {
+    vi.useFakeTimers();
+    const shard = makeShard();
+    const entity = makeEntity('p1', { x: 0, y: 0, z: 0 });
+    shard.addEntity(entity);
+    addFakeConn(shard, 'p1', 'Alpha');
+    expect(shard.enqueueInput('p1', input(1, { thrust: 1 }))).toBe(true);
+    shard.start();
+    vi.advanceTimersByTime(TICK_DT_MS);
+
+    shard.leavePlayer('p1');
+    expect(entity.idle).toBe(true);
+    const posAtDrop = { ...entity.ship.pos };
+    vi.advanceTimersByTime(20 * TICK_DT_MS); // idle drift
+
+    // The player reconnects: a NEW connection is registered for the same
+    // player — the entity map must stay at exactly one entity.
+    addFakeConn(shard, 'p1', 'Alpha');
+    expect(shard.entities.size).toBe(1);
+    expect(entity.idle).toBe(false);
+    // The ship is where the sim left it (no reset), and the new conn drives it.
+    expect(entity.ship.pos.z).toBeGreaterThan(posAtDrop.z);
+    expect(shard.enqueueInput('p1', input(2, { thrust: 1 }))).toBe(true);
+    shard.stop();
+  });
+
+  it('stale (superseded) conn: its inputs drop with a debug log, its late leave is ignored', () => {
+    const { shard, debugs } = makeLoggedShard();
+    const entity = makeEntity('p1', { x: 0, y: 0, z: 0 });
+    shard.addEntity(entity);
+    const zombie = { id: 'conn-zombie' };
+    const fresh = { id: 'conn-fresh' };
+    shard.registerConnection('p1', 'Alpha', () => {}, zombie);
+    // Reconnect while the zombie socket is still (half) open: it is superseded.
+    shard.registerConnection('p1', 'Alpha', () => {}, fresh);
+    expect(shard.connections.size).toBe(1); // the stale slot was evicted
+    expect([...shard.connections.values()][0].source).toBe(fresh);
+    expect(debugs.some((d) => d.includes('superseded'))).toBe(true);
+
+    // The zombie's input frame resolves to the same playerId — it must be
+    // dropped (source mismatch), even though its seq is newer than any the
+    // fresh conn sent.
+    expect(shard.enqueueInput('p1', input(2, { thrust: 0 }), fresh)).toBe(true);
+    expect(shard.enqueueInput('p1', input(9, { thrust: 1 }), zombie)).toBe(false);
+    expect(debugs.some((d) => d.includes('stale conn'))).toBe(true);
+
+    // The zombie's LATE close must not tear down the fresh connection.
+    shard.leavePlayer('p1', zombie);
+    expect(shard.connections.size).toBe(1);
+    expect(entity.idle).toBe(false);
+    expect(debugs.some((d) => d.includes('stale'))).toBe(true);
+
+    // The real close releases the ship (idle, in the world).
+    shard.leavePlayer('p1', fresh);
+    expect(shard.connections.size).toBe(0);
+    expect(entity.idle).toBe(true);
+  });
+});

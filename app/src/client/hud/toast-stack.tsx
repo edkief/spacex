@@ -5,6 +5,12 @@ interface ToastItem extends PresenceToast {
   id: number;
 }
 
+function toastText(item: ToastItem): string {
+  // TASK-17: local connection event (not a player presence change).
+  if (item.kind === 'reconnected') return 'reconnected';
+  return `${item.callsign} ${item.kind === 'join' ? 'joined' : 'left'}`;
+}
+
 /** Non-intrusive limit: at most 3 visible toasts, the rest queue (TASK-15). */
 export const MAX_VISIBLE_TOASTS = 3;
 /** Each toast lives 3 s (fade in → hold → fade out), then the queue promotes. */
@@ -12,7 +18,8 @@ export const TOAST_LIFE_MS = 3000;
 
 /**
  * TASK-15: join/leave toasts (top-right, "CALLSIGN joined" / "CALLSIGN
- * left"). Feeds off PresenceStore.onToast — never on the snapshot cadence.
+ * left"); TASK-17 adds the one-shot "reconnected" toast. Feeds off
+ * PresenceStore.onToast — never on the snapshot cadence.
  * A toast animates in and fades out over TOAST_LIFE_MS; once it is
  * removed, the next queued toast (if any) is promoted to a visible slot.
  */
@@ -79,7 +86,7 @@ export function ToastStack({ store }: { store: PresenceStore }) {
       <style>{keyframes}</style>
       {items.map((item) => (
         <div key={item.id} style={styles.toast}>
-          {item.callsign} {item.kind === 'join' ? 'joined' : 'left'}
+          {toastText(item)}
         </div>
       ))}
     </div>

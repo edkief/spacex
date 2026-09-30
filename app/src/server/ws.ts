@@ -56,6 +56,11 @@ export interface GatewayPlayer {
   playerId: string;
   callsign: string;
   send?: (buffer: string) => void;
+  /**
+   * TASK-17: opaque identity of the owning WS connection (the Conn object),
+   * so the shard can reject stale inputs/leaves from a superseded socket.
+   */
+  source?: unknown;
 }
 
 export interface SystemGateway {
@@ -258,6 +263,7 @@ export function attachWebSocket(
           send: (buffer) => {
             if (conn.socket.readyState === WebSocket.OPEN) conn.socket.send(buffer);
           },
+          source: conn, // TASK-17: stale-conn guard in the shard
         };
         // Join the NEW system first: a failure (system-full / not-found)
         // leaves the player exactly where they were (TASK-11).
@@ -423,9 +429,12 @@ export function attachWebSocket(
           send(peer, 'presence', { event: 'leave', player: presenceEntry(conn) });
         }
         void options.onLeaveSystem?.(conn, conn.systemId);
+        // TASK-17: the Conn identity lets the shard ignore a LATE close of a
+        // superseded zombie socket (a reconnected player is already in).
         void options.gateway.leaveSystem?.(conn.systemId, {
           playerId: conn.playerId,
           callsign: conn.callsign,
+          source: conn,
         });
       }
     });

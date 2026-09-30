@@ -65,6 +65,12 @@ export interface RouterPlayer {
    * layer supplies it; direct callers may omit it → frames are dropped).
    */
   send?: (buffer: string) => void;
+  /**
+   * TASK-17: opaque identity of the WS connection (the WS layer passes its
+   * Conn). Lets the shard reject stale inputs / leaves from a superseded
+   * (zombie) socket of the same player after a reconnect.
+   */
+  source?: unknown;
 }
 
 export type RouterEnterResult =
@@ -86,8 +92,12 @@ export interface GalaxyRouter {
    * the 17th concurrent join is rejected even when it races the 16th.
    */
   enter(systemId: string, player: RouterPlayer): Promise<RouterEnterResult>;
-  /** Leave: release the connection; starts the reap grace when empty. */
-  leave(systemId: string, playerId: string): void;
+  /**
+   * Leave: release the connection; starts the reap grace when empty. When
+   * `source` is given, a leave from a superseded (zombie) connection of the
+   * same player is ignored (TASK-17).
+   */
+  leave(systemId: string, playerId: string, source?: unknown): void;
   /**
    * Reap pass: stamps the grace on empty shards and stops (ships flushed
    * first) those whose grace elapsed. Returns the number of shards reaped.
@@ -252,7 +262,12 @@ export function createGalaxyRouter(deps: GalaxyRouterDeps): GalaxyRouter {
         message: `system ${systemId} is full (${MAX_PLAYERS_PER_SYSTEM} players)`,
       };
     }
-    shard.registerConnection(player.playerId, player.callsign, player.send ?? (() => {}));
+    shard.registerConnection(
+      player.playerId,
+      player.callsign,
+      player.send ?? (() => {}),
+      player.source,
+    );
     const entity = await shard.adoptEntity(player.playerId, player.callsign);
     if (!entity) {
       // No ship row (should be impossible: claim always grants a starter
@@ -268,10 +283,10 @@ export function createGalaxyRouter(deps: GalaxyRouterDeps): GalaxyRouter {
     return { ok: true, snapshot: enterSnapshot(loaded, player.playerId) };
   }
 
-  function leave(systemId: string, playerId: string): void {
+  function leave(systemId: string, playerId: string, source?: unknown): void {
     const loaded = shards.get(systemId);
     if (!loaded) return;
-    loaded.shard.leavePlayer(playerId);
+    loaded.shard.leavePlayer(playerId, source);
     if (loaded.shard.connections.size === 0) {
       // Stamp the grace exactly when the LAST player leaves.
       loaded.graceSince = loaded.graceSince ?? now();
