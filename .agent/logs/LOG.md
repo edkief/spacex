@@ -3,12 +3,25 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-30
-**Tasks Completed:** 30
-**Current Task:** TASK-71 Complete
+**Tasks Completed:** 31
+**Current Task:** TASK-7 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-09-30 — TASK-7: Star chart UI (SVG map, search, select + warp button, occupancy)
+The in-game star chart is live: `M` key or the HUD "SYSTEMS (M)" button opens a DOM/SVG panel showing the v1 chart — the player's current system + its two nearest seeded neighbours (3 systems), one spectral-class-colored node each, K3 edges labeled with light-second distances + warp times, live occupancy badges, and a Warp button wired to the new shared warp event bus (TASK-8 implements the flow).
+- `app/src/shared/galaxy/chart.ts` (NEW) — pure/deterministic `galaxyChart(seed, homeSystemId)`: finds the star hosting the home system (same (seed, starId) sub-seed scheme as generateSystem, unknown ids fall back to star 0), picks the 2 nearest stars (tie → index), projects (x, y) onto the galactic plane fitted into the 800x500 viewBox (60 px margin). Travel table: `GALACTIC_UNIT_LIGHT_SECONDS=60_000`, `WARP_SPEED_LS_PER_S=100_000`, `warpTimeSeconds` (ceil, 1 s floor) + compact label formatters (`3.2M ls`, `2m 5s`).
+- `app/src/server/routes/galaxy.ts` — `GET /api/galaxy/overview` (auth, like /health): `?home=<16hex>` (defaults to the player's DB home system) → `{seed, systems}`. Cached in-process forever keyed by (seed, home) — cheap seeded derivation, no DB. Malformed `?home=` falls back to the player home.
+- `app/src/client/state/warp.ts` (NEW, stub) — tiny pub/sub for `warp-started`/`warp-complete` events so TASK-8 only implements the transition and dispatches the same events; the chart already mirrors that state.
+- `app/src/client/ui/chart-map.tsx` (NEW) — PURE SVG presentational map (no fetch/state, so the SVG structure is a frozen function of the seeded data): nodes are focusable `role="button"` (Tab/Enter/Space, visible focus ring for TASK-54), star-class colors (standard spectral palette), current node cyan ring, selected white ring, occupancy badge hidden at 0, `Warping…` text on the source node, search dims (never removes) non-matching nodes, each undirected edge drawn once with a labeled pill.
+- `app/src/client/ui/star-chart.tsx` (NEW) — panel container: overview fetch per current system, occupancy polled every 5 s while mounted (stop on close), select → Warp button shows the ETA, warp click dispatches `warp-started` (chart stays open, source node shows `Warping…` until `warp-complete`), Escape closes.
+- `app/src/client/main.tsx` — M-key toggle (ignored while typing in inputs) + HUD Systems button + `<StarChart>` mount; chart auto-closes when there is no system.
+- Tests: `chart.test.ts` (11 — travel math, label formats, determinism, unknown-home fallback, symmetric edges, viewbox bounds, star identity), `warp.test.ts` (3), `star-chart.test.tsx` (10 — occupancy badge render/hide, selection state, current highlight, warping text placement, search dimming, edge labels, SVG-structure SNAPSHOT baseline for the determinism criterion), `galaxy-overview.test.ts` (4 — 401 shape, seeded payload, ?home= + cache, malformed fallback). E2E `tests/e2e/star-chart.spec.ts` (TASK-70 harness): M opens → 3 nodes + 3 edges → edge label format → select non-current node → Warp button enabled with ETA → screenshot → Escape closes.
+- Verified: `tsc --noEmit` clean, eslint + prettier clean (on touched files; 3 pre-existing prettier warnings in shard.ts/e2e.md/tsconfig.json are untouched by this task), `npm run test` → 62 files / 567 tests all pass, `npm run test:e2e` → 5/5 pass (57 s).
+- Interpretation note: the spec's "3 seeded systems in v1" is implemented as current system + 2 nearest seeded neighbours, so the chart ALWAYS contains the player's highlighted position and the warp origin is always on-chart; the layout stays a pure function of GALAXY_SEED (snapshot-locked).
+- Screenshots: `.agent/screenshots/TASK-7-1.png` (chart open: 3 nodes, labeled edges, current + selected rings, occupancy badge "1", enabled "WARP — 22s").
 
 ### 2026-09-30 — TASK-71: Determinism test suite + two-client e2e comparison
 Determinism coverage widened from golden snapshots to a property sweep + a live two-client comparison (SC-2):

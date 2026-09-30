@@ -19,7 +19,7 @@ Excludes dotfiles, tests, and config.
 │   ├── smoke-task21.mjs      # TASK-21 live smoke: livery REST happy path + Playwright page load/screenshot
 │   └── src/
 │       ├── client/
-│       │   ├── main.tsx      # React shell: #game-canvas, callsign claim form + session boot (WS → join, ?sys= override), presence HUD, live occupancy, chat log (TASK-16); TASK-70: starfield renderer mounted on #game-canvas; TASK-17: ConnectionLostOverlay (#connection-lost-overlay + #reconnect-retry) on 'lost' + "reconnecting…/connection lost" status-line suffixes, resync keeps chat/list UI when the system is unchanged; TASK-71: feeds __DRIFT__ the /api/health seed
+│       │   ├── main.tsx      # React shell: #game-canvas, callsign claim form + session boot (WS → join, ?sys= override), presence HUD, live occupancy, chat log (TASK-16); TASK-70: starfield renderer mounted on #game-canvas; TASK-17: ConnectionLostOverlay (#connection-lost-overlay + #reconnect-retry) on 'lost' + "reconnecting…/connection lost" status-line suffixes, resync keeps chat/list UI when the system is unchanged; TASK-71: feeds __DRIFT__ the /api/health seed; TASK-7: M-key/"SYSTEMS (M)" HUD button toggles the star chart panel (src/client/ui)
 │       │   ├── drift-debug.ts # TASK-71: dev-only window.__DRIFT__ hook (import.meta.env.DEV gate, never ships) — ready/seed + starChart()/planetList() derived from the server seed, for the two-client determinism e2e
 │       │   ├── net/
 │       │   │   ├── prediction.ts   # TASK-14: ClientShipPredictor — per-frame integrateShip + server-timeline reconcile (blend/rewind/snap, 10 s queue cap)
@@ -27,6 +27,11 @@ Excludes dotfiles, tests, and config.
 │       │   │   ├── presence.ts     # TASK-15: PresenceStore — snapshot + join/leave events, self "(you)", lastSeen, occupancy, toast events (no emit on unchanged snapshots); TASK-17: 'reconnected' toast
 │       │   │   ├── session.ts      # TASK-15/17: ClientSession — browser WS client, hello→auth(token), joinSystem → enter_system snapshot; TASK-17: lazy dial, ConnectionState (connecting/connected/reconnecting/lost), auto-retry 1 s backoff capped 5 s, 30 s 'lost' window + retryNow(), onSnapshot(snapshot, reconnect) full resync (prediction/buffers/presence rebuilt, chat merged)
 │       │   │   └── chat.ts         # TASK-16/17: ChatStore — 100-msg ring buffer, loadSnapshot (system-change clear + ts watermark), emit only on change; TASK-17: mergeSnapshot (append only newer-than-tail, no full clear on resync)
+│       │   ├── state/
+│       │   │   └── warp.ts       # TASK-7: warp event bus (warp-started/warp-complete stub; TASK-8 implements the flow) — the chart mirrors this state
+│       │   ├── ui/
+│       │   │   ├── star-chart.tsx  # TASK-7: star chart panel — overview fetch, 5 s occupancy poll, search, select + Warp button (dispatches warp-started), Esc closes
+│       │   │   └── chart-map.tsx   # TASK-7: pure SVG map (800x500) — spectral-class nodes, ls + warp-time edge labels, occupancy badges, focus rings, 'Warping…'
 │       │   ├── hud/
 │       │   │   ├── player-list.tsx # TASK-15: bottom-left monospace callsign list + status dots, presence-event re-renders only
 │       │   │   ├── toast-stack.tsx # TASK-15: top-right join/leave toasts, 3 s fade, 3 visible + queue
@@ -50,7 +55,7 @@ Excludes dotfiles, tests, and config.
 │       │       ├── index.ts        # registerApiRoutes(repo, sessions, galaxySeed, shipSwapBus)
 │       │       ├── auth.ts         # TASK-41: shared Bearer extraction + requireAuth (structured 401 reasons)
 │       │       ├── callsigns.ts    # TASK-10: POST /api/callsigns (claim → player + starter ship + session token); RouteDeps (+ optional galaxyRouter, TASK-11)
-│       │       ├── galaxy.ts       # TASK-11: GET /api/galaxy/health (auth) → {shards: [{systemId, name, players, uptimeMs}]} (feeds TASK-7 dots)
+│       │       ├── galaxy.ts       # TASK-11: GET /api/galaxy/health (auth) → {shards: [{systemId, name, players, uptimeMs}]}; TASK-7: GET /api/galaxy/overview (auth, ?home=) → 3-system seeded chart, in-process forever cache
 │       │       ├── players.ts      # TASK-41: GET /api/players/me (Bearer → own profile incl. credits)
 │       │       ├── session.ts      # TASK-10: GET /api/session (Bearer → profile, structured 401s)
 │       │       └── ships.ts        # TASK-20/21/23: GET /api/ships, POST /api/ships/buy (docked purchase), POST /api/ships/livery (3-slot hex paint), POST /api/ships/repair (docked, credit cost)
@@ -98,6 +103,7 @@ Excludes dotfiles, tests, and config.
 │               ├── stars.ts  # generateStars(seed, count) — seeded thin-disk galaxy layout
 │               ├── system.ts # generateSystem(seed, starId) — planets, docks, deposits, AI roster
 │               ├── home.ts   # TASK-10: homeSystemIdForPlayer(seed, playerId) — deterministic spawn system
+│               ├── chart.ts  # TASK-7: galaxyChart(seed, home) — v1 3-system chart (home + 2 nearest), 800x500 projection, travel table (ls/gu, warp speed) + label formats
 │               └── dock.ts   # TASK-20: homeDockPosition(seed, systemId) — seed-derived dock coordinates
 │               └── surface.ts# generateSurfaceChunk(seed, planet, chunkX, chunkZ) — heightmap, biome, nodes, pads
 ├── ralph/                    # Ralph loop implementation (TypeScript)

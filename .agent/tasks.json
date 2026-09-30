@@ -214,7 +214,7 @@
     "title": "Star chart UI: search, select target system",
     "category": "ui-ux",
     "specFilePath": ".agent/tasks/TASK-7.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-8",

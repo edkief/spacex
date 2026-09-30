@@ -12,6 +12,10 @@ export function registerApiRoutes(app: FastifyInstance, deps: RouteDeps): void {
   registerSessionRoutes(app, deps);
   registerShipRoutes(app, deps);
   if (deps.galaxyRouter) {
-    registerGalaxyRoutes(app, { sessions: deps.sessions, router: deps.galaxyRouter });
+    registerGalaxyRoutes(app, {
+      sessions: deps.sessions,
+      router: deps.galaxyRouter,
+      galaxySeed: deps.galaxySeed,
+    });
   }
 }

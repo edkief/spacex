@@ -8,6 +8,7 @@ import { PlayerList } from '@client/hud/player-list';
 import { ToastStack } from '@client/hud/toast-stack';
 import { ChatLog } from '@client/hud/chat-log';
 import { createStarfield } from '@client/render/starfield';
+import { StarChart } from '@client/ui/star-chart';
 import { installDriftDebug, reportServerSeed } from '@client/drift-debug';
 import type { ChatMessage } from '@shared/protocol/schemas';
 
@@ -240,6 +241,22 @@ function App() {
     localStorage.removeItem(SESSION_KEY);
   });
 
+  // TASK-7: the star chart (M key or the Systems button); typing in an
+  // input (chat) never toggles it.
+  const [chartOpen, setChartOpen] = React.useState(false);
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+      if (e.key === 'm' || e.key === 'M') setChartOpen((v) => !v);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  React.useEffect(() => {
+    if (!systemId) setChartOpen(false); // no system → nothing to chart
+  }, [systemId]);
+
   React.useEffect(() => {
     void fetchHealth().then((h) => {
       setHealth(h);
@@ -272,6 +289,16 @@ function App() {
             sys {systemId} · {store.occupancy} aboard
           </p>
         )}
+        {systemId && (
+          <button
+            id="systems-button"
+            type="button"
+            onClick={() => setChartOpen((v) => !v)}
+            style={styles.sysButton}
+          >
+            SYSTEMS (M)
+          </button>
+        )}
         {!session && (
           <ClaimForm
             onClaimed={(s) => {
@@ -287,6 +314,13 @@ function App() {
       )}
       <PlayerList store={store} />
       <ToastStack store={store} />
+      {chartOpen && session && systemId && (
+        <StarChart
+          token={session.token}
+          currentSystemId={systemId}
+          onClose={() => setChartOpen(false)}
+        />
+      )}
       {connState === 'lost' && session && (
         <ConnectionLostOverlay onRetry={() => clientRef.current?.retryNow()} />
       )}
@@ -344,6 +378,18 @@ const styles: Record<string, React.CSSProperties> = {
   title: { margin: 0, fontSize: '1.4rem', letterSpacing: '0.08em' },
   status: { margin: '0.5rem 0 0', color: '#8b97ab' },
   sysId: { margin: '0.25rem 0 0', color: '#5b6678', fontSize: '0.75rem' },
+  sysButton: {
+    marginTop: '0.5rem',
+    background: '#1d2739',
+    border: '1px solid #2a3346',
+    borderRadius: 6,
+    color: '#d6deeb',
+    padding: '0.35rem 0.7rem',
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+    fontSize: '0.7rem',
+    letterSpacing: '0.08em',
+    cursor: 'pointer',
+  },
 };
 
 const overlayStyles: Record<string, React.CSSProperties> = {
