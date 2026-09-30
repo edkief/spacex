@@ -11,4 +11,13 @@ export {
 export { SimLoop } from './sim';
 export { TickHistogram } from './histogram';
 export { TerrainContext } from './terrain';
+export {
+  createShardPersist,
+  startShardFlushTimer,
+  validRegime,
+  type FlushSummary,
+  type LoadedWreck,
+  type ShardPersist,
+  type ShipsLoad,
+} from './persist';
 export type { ConnState, Shard, ShardLogger, SimEntity } from './types';

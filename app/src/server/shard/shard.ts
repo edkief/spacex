@@ -13,13 +13,16 @@ import {
 import { applyDamage, type ApplyDamageResult, type DamageSource } from '@shared/physics/damage';
 import {
   integrateShip,
-  restShipState,
   type FlightOptions,
   type PlanetAtmo,
 } from '@shared/physics/flight';
-import { shipStats } from '@shared/ships';
+import { quatIdentity, type Quat } from '@shared/physics/vec';
+import { shipStats, HEX_COLOR } from '@shared/ships';
 import type { SystemGen } from '@shared/galaxy/types';
-import type { Repository, ShipPosition } from '@server/db/repo';
+import { homeDockPosition } from '@shared/galaxy/dock';
+import type { Repository } from '@server/db/repo';
+import type { ShipRow } from '@server/db/schema';
+import type { ShipsLoad } from './persist';
 import type { Conn } from '@server/ws';
 import type { ShipSwapBus } from '@server/shards';
 import { SimLoop } from './sim';
@@ -55,6 +58,13 @@ const ZERO_INPUT: InputPayload = {
   lock: false,
 };
 
+/** True for a finite 4-component quaternion (guards corrupt persisted rows). */
+function isQuat(value: unknown): value is Quat {
+  if (typeof value !== 'object' || value === null) return false;
+  const q = value as Record<string, unknown>;
+  return ['x', 'y', 'z', 'w'].every((k) => typeof q[k] === 'number' && Number.isFinite(q[k]));
+}
+
 export interface CreateSystemShardOptions {
   systemId: string;
   /** Galaxy seed — regenerates the system's planets and surface chunks. */
@@ -68,6 +78,8 @@ export interface CreateSystemShardOptions {
   persist?: (entities: EntityState[]) => void;
   log?: ShardLogger;
   dtMs?: number;
+  /** Injectable clock (tests use a fake now for destruction timestamps). */
+  now?: () => number;
 }
 
 /**
@@ -98,6 +110,7 @@ export class SystemShard implements Shard {
   private readonly system: SystemGen;
   private readonly repo: CreateSystemShardOptions['repo'];
   private readonly log: ShardLogger;
+  private readonly now: () => number;
   private readonly dt: number; // seconds
   /** Wreck ttl in TICKS (600 s at the shard's dt; 20 Hz → 12 000). */
   private readonly wreckTtlTicks: number;
@@ -114,6 +127,7 @@ export class SystemShard implements Shard {
     this.system = options.system;
     this.repo = options.repo;
     this.log = options.log ?? defaultLogger;
+    this.now = options.now ?? (() => Date.now());
     this.dt = (options.dtMs ?? TICK_DT_MS) / 1000;
     this.wreckTtlTicks = Math.max(1, Math.round(WRECK_TTL_MS / (options.dtMs ?? TICK_DT_MS)));
     this.persist = options.persist ?? (() => {});
@@ -189,19 +203,9 @@ export class SystemShard implements Shard {
 
     let entity = this.playerEntities.get(conn.playerId);
     if (!entity) {
-      entity = this.spawnEntity(
-        conn.playerId,
-        conn.callsign,
-        ship.classId,
-        ship.position,
-        ship.id,
-        {
-          hull: ship.hull,
-          shields: ship.shields,
-          livery: ship.livery,
-          docked: ship.state === 'docked',
-        },
-      );
+      // TASK-24: the entity spawns with the ship's PERSISTED flight state
+      // (pos/vel/quat/regime), not a fresh rest state — no teleports.
+      entity = this.entityFromShipRow(ship, conn.callsign);
       this.entities.set(entity.id, entity);
       this.playerEntities.set(conn.playerId, entity);
     }
@@ -325,6 +329,7 @@ export class SystemShard implements Shard {
    */
   private destroyEntity(entity: SimEntity, source: DamageSource): void {
     entity.destroyed = true;
+    entity.destroyedAtMs = this.now(); // TASK-24: wreck ttl anchor for the flush
     entity.hull = 0;
     entity.shields = 0;
     entity.targetId = null;
@@ -509,34 +514,104 @@ export class SystemShard implements Shard {
     return ctx;
   }
 
-  private spawnEntity(
-    playerId: string,
-    callsign: string,
-    classId: string,
-    position: ShipPosition,
-    shipEntityId: string,
-    combat: { hull: number; shields: number; livery?: Record<string, unknown>; docked: boolean },
-  ): SimEntity {
-    const cls = shipStats(classId);
-    const pos = { x: position.x, y: position.y, z: position.z };
+  /**
+   * TASK-24: build a sim entity from a persisted ship row. Used both by join
+   * (the player's ship appears with its last saved flight state — no
+   * teleports) and by loadShips (shard restart). Corrupt/missing fields fall
+   * back to safe defaults (identity quat, space regime) so one bad row can
+   * never wedge the shard.
+   */
+  private entityFromShipRow(ship: ShipRow, callsign?: string): SimEntity {
+    const cls = shipStats(ship.classId);
+    const docked = ship.state === 'docked';
+    // Docked ships always load at the system dock (the row's position is the
+    // home-system dock of a possibly different system; this system's dock is
+    // the canonical resting spot, seed-derived like everything else).
+    const dock = homeDockPosition(this.galaxySeed, this.systemId);
+    const pos = docked
+      ? { x: dock.x, y: dock.y, z: dock.z }
+      : { x: ship.position.x, y: ship.position.y, z: ship.position.z };
+    const quat = isQuat(ship.rotation) ? { ...ship.rotation } : quatIdentity();
+    const regime: SimEntity['ship']['regime'] =
+      ship.regime === 'atmosphere' ? 'atmosphere' : 'space';
     const livery: Record<string, string> = {};
-    for (const [key, value] of Object.entries(combat.livery ?? {})) {
-      if (typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value)) livery[key] = value;
+    for (const [key, value] of Object.entries(ship.livery ?? {})) {
+      if (typeof value === 'string' && HEX_COLOR.test(value)) livery[key] = value;
     }
+    const state = {
+      pos,
+      vel: docked ? { x: 0, y: 0, z: 0 } : { ...ship.velocity },
+      quat,
+      regime,
+      ...(ship.onPad && !docked ? { onPad: ship.onPad } : {}),
+    };
     return {
       // Ship id = the wire-stable entity id clients hold (bridge + purchases).
-      id: shipEntityId,
+      id: ship.id,
       kind: 'ship',
-      playerId,
+      playerId: ship.ownerId,
       callsign,
-      classId,
-      ship: restShipState(pos, 'space'),
-      hull: Math.min(1, cls.hull > 0 ? combat.hull / cls.hull : 0),
-      shields: Math.min(1, cls.shieldCapacity > 0 ? combat.shields / cls.shieldCapacity : 0),
+      classId: ship.classId,
+      ship: state,
+      hull: Math.min(1, cls.hull > 0 ? ship.hull / cls.hull : 0),
+      shields: Math.min(1, cls.shieldCapacity > 0 ? ship.shields / cls.shieldCapacity : 0),
       targetId: null,
       livery: Object.keys(livery).length > 0 ? livery : undefined,
-      docked: combat.docked,
+      docked,
+      destroyed: ship.state === 'destroyed',
+      destroyedAtMs: ship.destroyedAt ? Date.parse(ship.destroyedAt) : undefined,
     };
+  }
+
+  /**
+   * TASK-24: shard-spawn load — rebuild the sim from the persisted ships of
+   * this system (the result of ShardPersist.loadShips). Flying/on-foot ships
+   * come back with their saved state; docked ships at dock coords; unexpired
+   * destroyed ships as static wrecks with their remaining ttl. Entities that
+   * are already in the shard are never clobbered.
+   */
+  async loadShips(load: ShipsLoad): Promise<{ ships: number; wrecks: number }> {
+    const owners = [...new Set(load.ships.map((r) => r.ownerId))];
+    const callsigns = new Map(
+      (await this.repo.getPlayersByIds(owners)).map((p) => [p.id, p.callsign]),
+    );
+    let ships = 0;
+    for (const row of load.ships) {
+      if (this.playerEntities.has(row.ownerId)) continue; // already in-shard
+      const entity = this.entityFromShipRow(row, callsigns.get(row.ownerId));
+      this.entities.set(entity.id, entity);
+      this.playerEntities.set(row.ownerId, entity);
+      ships += 1;
+    }
+    let wrecks = 0;
+    for (const { row, remainingMs } of load.wrecks) {
+      if (this.entities.has(`wreck:${row.id}`)) continue;
+      this.entities.set(`wreck:${row.id}`, {
+        id: `wreck:${row.id}`,
+        kind: 'wreck',
+        playerId: null,
+        classId: row.classId,
+        ship: {
+          pos: { x: row.position.x, y: row.position.y, z: row.position.z },
+          vel: { x: 0, y: 0, z: 0 },
+          quat: isQuat(row.rotation) ? { ...row.rotation } : quatIdentity(),
+          regime: row.regime === 'atmosphere' ? 'atmosphere' : 'space',
+        },
+        hull: 0,
+        shields: 0,
+        targetId: null,
+        docked: false,
+        ttl: Math.max(1, Math.round(remainingMs / (this.dt * 1000))),
+      });
+      wrecks += 1;
+    }
+    this.log.info('shard loaded persisted state', {
+      systemId: this.systemId,
+      ships,
+      wrecks,
+      deletedExpired: load.deletedExpired,
+    });
+    return { ships, wrecks };
   }
 
   /** Dock purchases / livery edits replace the in-shard entity in place. */

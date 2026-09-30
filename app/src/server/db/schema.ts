@@ -23,9 +23,17 @@ export const SHIP_CLASS_IDS = ['scout', 'freighter', 'interceptor'] as const;
 export type ShipClassId = (typeof SHIP_CLASS_IDS)[number];
 
 export type Vec3 = { x: number; y: number; z: number };
+export type Quat = { x: number; y: number; z: number; w: number };
 export type ShipPosition = { systemId: string; x: number; y: number; z: number };
 /** Three paint slots, hex strings (shared contract, TASK-21). */
 export type Livery = { hull: string; accent: string; trim: string };
+
+/**
+ * Flight regimes (TASK-24): the sim's kinematic regime a ship was in when
+ * last persisted (mirrors shared/physics `Regime`).
+ */
+export const SHIP_REGIMES = ['space', 'atmosphere'] as const;
+export type ShipRegime = (typeof SHIP_REGIMES)[number];
 
 export interface PlayerRow {
   id: string;
@@ -45,6 +53,14 @@ export interface ShipRow {
   position: ShipPosition;
   velocity: Vec3;
   state: ShipState;
+  /** Sim orientation at last flush (TASK-24). */
+  rotation: Quat;
+  /** Sim kinematic regime at last flush (TASK-24). */
+  regime: ShipRegime;
+  /** Pad id the ship settled on at last flush (null = not on a pad). */
+  onPad: string | null;
+  /** When the ship was destroyed (drives the wreck ttl; null = alive). */
+  destroyedAt: string | null;
   updatedAt: string;
 }
 
@@ -113,6 +129,13 @@ export const ships = sqliteTable(
       .notNull()
       .default({ x: 0, y: 0, z: 0 }),
     state: text('state', { enum: SHIP_STATES }).notNull().default('docked'),
+    rotation: text('rotation', { mode: 'json' })
+      .$type<Quat>()
+      .notNull()
+      .default({ x: 0, y: 0, z: 0, w: 1 }),
+    regime: text('regime', { enum: SHIP_REGIMES }).notNull().default('space'),
+    onPad: text('on_pad'),
+    destroyedAt: text('destroyed_at'),
     updatedAt: text('updated_at').notNull(),
   },
   (t) => [check('chk_ships_state', sql`${t.state} IN ('docked', 'flying', 'onfoot', 'destroyed')`)],
@@ -194,10 +217,16 @@ export const pgShips = pgTable(
     position: jsonb('position').$type<ShipPosition>().notNull(),
     velocity: jsonb('velocity').$type<Vec3>().notNull().default({ x: 0, y: 0, z: 0 }),
     state: shipStateEnum('state').notNull().default('docked'),
+    rotation: jsonb('rotation').$type<Quat>().notNull().default({ x: 0, y: 0, z: 0, w: 1 }),
+    regime: pgText('regime').notNull().default('space'),
+    onPad: pgText('on_pad'),
+    destroyedAt: timestamptz('destroyed_at'),
     updatedAt: timestamptz('updated_at').notNull(),
   },
   (t) => [
     pgCheck('chk_ships_state', sql`${t.state} IN ('docked', 'flying', 'onfoot', 'destroyed')`),
+    // v1 invariant (mirrors sqlite uq_ships_owner): one ship per player.
+    pgUniqueIndex('uq_ships_owner').on(t.ownerId),
   ],
 );
 

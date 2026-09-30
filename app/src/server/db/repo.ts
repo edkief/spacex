@@ -11,14 +11,17 @@ import {
 } from './errors';
 import {
   SHIP_CLASS_IDS,
+  SHIP_REGIMES,
   SHIP_STATES,
   type CargoRow,
   type Livery,
   type NodeStateRow,
   type PlayerRow,
+  type Quat,
   type Schema,
   type SessionRow,
   type ShipPosition,
+  type ShipRegime,
   type ShipRow,
   type ShipState,
   type SystemRow,
@@ -30,6 +33,12 @@ export const Vec3Schema = z.object({
   x: z.number().finite(),
   y: z.number().finite(),
   z: z.number().finite(),
+});
+export const QuatSchema = z.object({
+  x: z.number().finite(),
+  y: z.number().finite(),
+  z: z.number().finite(),
+  w: z.number().finite(),
 });
 export const ShipPositionSchema = Vec3Schema.extend({ systemId: z.string().min(1) });
 /** Strict 3-slot livery: hex colors only, no extra keys (TASK-21). */
@@ -52,6 +61,14 @@ export interface ShipStateInput {
   state: ShipState;
   /** TASK-21: full 3-slot livery; only written when provided. */
   livery?: Livery;
+  /** TASK-24: sim orientation; only written when provided. */
+  rotation?: Quat;
+  /** TASK-24: sim kinematic regime; only written when provided. */
+  regime?: ShipRegime;
+  /** TASK-24: pad id or null (settled on a pad); only written when provided. */
+  onPad?: string | null;
+  /** TASK-24: destruction timestamp or null; only written when provided. */
+  destroyedAt?: string | null;
 }
 
 /** The class default for a known id, neutral black livery otherwise. */
@@ -107,6 +124,18 @@ export interface Repository {
   }): Promise<ShipRow>;
   /** Delete a ship and scrub its cargo (the v1 "sell to dock" rule). */
   deleteShipWithCargo(shipId: string): Promise<void>;
+  /** TASK-24: delete ship rows (expired wreck cleanup); returns rows deleted. */
+  deleteShips(shipIds: string[]): Promise<number>;
+  /**
+   * TASK-24: upsert ship states BY OWNER in ONE statement (the shard flush
+   * hot path). Multi-row INSERT ... ON CONFLICT (owner_id) DO UPDATE: a
+   * missing row (v1 invariant: one ship per player, uq_ships_owner) is
+   * inserted with the class default livery; existing rows get the full
+   * state. The whole flush is thus a single small transaction.
+   */
+  upsertShipStates(
+    rows: Array<{ ownerId: string; classId: string; state: ShipStateInput }>,
+  ): Promise<number>;
   saveShipState(shipId: string, state: ShipStateInput): Promise<ShipRow>;
   saveCargo(shipId: string, resourceType: string, quantity: number): Promise<CargoRow>;
   /**
@@ -312,6 +341,14 @@ export function createRepo(db: Db, tables: Schema): Repository {
       Vec3Schema.parse(state.velocity);
       if (!SHIP_STATES.includes(state.state)) throw new Error(`invalid ship state: ${state.state}`);
       const livery = state.livery ? LiverySchema.parse(state.livery) : undefined;
+      const rotation = state.rotation ? QuatSchema.parse(state.rotation) : undefined;
+      let regime: ShipRegime | undefined;
+      if (state.regime !== undefined) {
+        if (!(SHIP_REGIMES as readonly string[]).includes(state.regime)) {
+          throw new Error(`invalid ship regime: ${state.regime}`);
+        }
+        regime = state.regime;
+      }
       await d
         .update(t.ships)
         .set({
@@ -321,6 +358,10 @@ export function createRepo(db: Db, tables: Schema): Repository {
           velocity: state.velocity,
           state: state.state,
           ...(livery ? { livery } : {}),
+          ...(rotation ? { rotation } : {}),
+          ...(regime ? { regime } : {}),
+          ...(state.onPad !== undefined ? { onPad: state.onPad } : {}),
+          ...(state.destroyedAt !== undefined ? { destroyedAt: state.destroyedAt } : {}),
           updatedAt: nowIso(),
         })
         .where(eq(t.ships.id, shipId));
@@ -328,6 +369,76 @@ export function createRepo(db: Db, tables: Schema): Repository {
       const row = await findOne<ShipRow>(rows);
       if (!row) throw new NotFoundError('ship', shipId);
       return row;
+    },
+
+    async deleteShips(shipIds: string[]): Promise<number> {
+      if (shipIds.length === 0) return 0;
+      type RunResult = { changes?: number; rowCount?: number };
+      const result = (await d.delete(t.ships).where(inArray(t.ships.id, shipIds))) as
+        | RunResult
+        | RunResult[];
+      const first = Array.isArray(result) ? result[0] : result;
+      return Number(first?.changes ?? first?.rowCount ?? 0);
+    },
+
+    async upsertShipStates(rows) {
+      if (rows.length === 0) return 0;
+      // Hot path (shard flush): values come from the in-process sim, not a
+      // client. Keep the corrupt-row guards (finite vecs, known state — the
+      // flush must never persist NaN) but skip the full zod codec passes of
+      // saveShipState so the 30 s cadence stays under one 50 ms tick.
+      for (const { state } of rows) {
+        const p = state.position;
+        const v = state.velocity;
+        const finite = [p.x, p.y, p.z, v.x, v.y, v.z].every(
+          (n) => typeof n === 'number' && Number.isFinite(n),
+        );
+        if (!finite || typeof p.systemId !== 'string' || p.systemId.length === 0) {
+          throw new Error('non-finite or invalid ship position/velocity');
+        }
+        if (!SHIP_STATES.includes(state.state)) {
+          throw new Error(`invalid ship state: ${state.state}`);
+        }
+      }
+      const nowIso = new Date().toISOString();
+      const values = rows.map((r) => ({
+        id: uuid(),
+        ownerId: r.ownerId,
+        classId: r.classId,
+        livery: r.state.livery ?? defaultLiveryFor(r.classId),
+        hull: r.state.hull,
+        shields: r.state.shields,
+        position: r.state.position,
+        velocity: r.state.velocity,
+        state: r.state.state,
+        rotation: r.state.rotation ?? ({ x: 0, y: 0, z: 0, w: 1 } satisfies Quat),
+        regime: r.state.regime ?? 'space',
+        onPad: r.state.onPad ?? null,
+        destroyedAt: r.state.destroyedAt ?? null,
+        updatedAt: nowIso,
+      }));
+      // ONE statement for the whole batch: each row upserts on its owner key
+      // (excluded.* keeps per-row values on conflict).
+      await d
+        .insert(t.ships)
+        .values(values)
+        .onConflictDoUpdate({
+          target: t.ships.ownerId,
+          set: {
+            hull: sql`excluded.hull`,
+            shields: sql`excluded.shields`,
+            position: sql`excluded.position`,
+            velocity: sql`excluded.velocity`,
+            state: sql`excluded.state`,
+            livery: sql`excluded.livery`,
+            rotation: sql`excluded.rotation`,
+            regime: sql`excluded.regime`,
+            onPad: sql`excluded.on_pad`,
+            destroyedAt: sql`excluded.destroyed_at`,
+            updatedAt: sql`excluded.updated_at`,
+          },
+        });
+      return rows.length;
     },
 
     async saveCargo(shipId, resourceType, quantity) {

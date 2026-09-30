@@ -62,6 +62,12 @@ export interface SimEntity {
    * (frozen, hull 0 on the wire) until the dock respawn (TASK-49).
    */
   destroyed?: boolean;
+  /**
+   * TASK-24: epoch ms of the killing hit. The shard flush persists it as
+   * ships.destroyed_at, so a restarted shard can rebuild the wreck with its
+   * remaining ttl (and clean up expired wrecks).
+   */
+  destroyedAtMs?: number;
   /** TASK-23: ticks left until the entity is removed (wrecks only: 600 s). */
   ttl?: number;
   /**

@@ -15,6 +15,8 @@ const schema = z.object({
   DATABASE_URL: z.string().default(''),
   SYSTEM_INSTANCE_COUNT: z.coerce.number().int().positive().default(3),
   WS_PATH: z.string().min(2).startsWith('/').default('/ws'),
+  /** TASK-24: shard flush period (30 s; a hard crash loses up to one period). */
+  SHARD_FLUSH_INTERVAL_MS: z.coerce.number().int().positive().default(30_000),
 });
 
 export type Env = z.infer<typeof schema>;

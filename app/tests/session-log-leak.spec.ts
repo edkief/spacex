@@ -36,6 +36,7 @@ const env: Env = {
   DATABASE_URL: '',
   SYSTEM_INSTANCE_COUNT: 3,
   WS_PATH: '/ws',
+  SHARD_FLUSH_INTERVAL_MS: 30000,
 };
 
 const logLines: string[] = [];
