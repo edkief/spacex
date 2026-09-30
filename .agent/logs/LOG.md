@@ -3,12 +3,32 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-30
-**Tasks Completed:** 31
-**Current Task:** TASK-7 Complete
+**Tasks Completed:** 32
+**Current Task:** TASK-8 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-09-30 — TASK-8: Inter-system warp with in-world transition
+Warping between systems is live end-to-end: chart Warp click → 2 s CSS warp-in (streak overlay + camera shake) → WS `warp` → server moves the ship (source entity fully removed, target shard adopts at the spawn gate: 100 u +X of the star, facing it) → `warp_arrived` snapshot → client swaps the world (WorldManager builds-then-replaces, < 300 ms budget) → 2 s warp-out → normal flight. No loading screen: the canvas renders the whole time.
+- `app/src/shared/galaxy/spawn.ts` (NEW) — `SPAWN_GATE_POS` (100 u +X), `SPAWN_GATE_QUAT` (pure −90° yaw about Y: +Z → −X, self-checked at module load — first draft rotated about X and the check caught it), `spawnGatePose()`.
+- `app/src/shared/galaxy/system.ts` — `systemForId(seed, systemId)` (seeded scan, memoized per (seed, id)).
+- `app/src/shared/protocol/schemas.ts` — `warp_arrived {systemId, snapshot}` message type.
+- `app/src/server/shard/shard.ts` — `removePlayer()` (connection AND entity leave — warp departure; distinct from `leavePlayer`'s idle keep-alive, TASK-17).
+- `app/src/server/galaxy/router.ts` — `warp(from, target, player)`: validate target (seed lookup) + 16-cap with back-to-back slot reservation (no await), adopt at target + reposition at gate, persist the ship row (position.systemId = target, gate pose, 'flying') BEFORE releasing the source (conn + entity), grace stamp. Rejections leave the player exactly where they were.
+- `app/src/server/ws.ts` — `case 'warp'`: auth/join guards, same-system → invalid-message, error passthrough, mid-warp socket-close → `leaveSystem(target)` cleanup (target shard can still reap), presence leave/join to both peer sets, `warp_arrived`, conn.systemId update.
+- `app/src/client/state/warp.ts` — TASK-7 bus kept + phase store (`idle|warping-in|awaiting|warp-out`) + `WarpController` (2 s in → race request vs 10 s timeout → 2 s out; `start()` busy-guard, `abort()`, injectable delay, 'System full' toast mapping).
+- `app/src/client/net/session.ts` — `warpTo(toSystemId)`: optimistic `lastSystemId` commit to the target (mid-warp drop reconnects into the destination), `warp_arrived` → resolve + full-boot `onSnapshot(snapshot, false)`, server error → `WarpRejectedError` + rollback to source, close-mid-warp rejection.
+- `app/src/client/world/WorldManager.ts` (NEW) — owns the three.js scene on #game-canvas (camera at (150,40,150) looking at the origin), `swapWorld(system)` builds the new group THEN disposes/replaces the old (no blank frame), returns measured build ms (`WORLD_BUILD_BUDGET_MS = 300`); pure three-free `buildSystemLayout` (star by spectral class, 2 near-field planets at seeded orbit angles, gate ring).
+- `app/src/client/render/starfield.ts` — extracted `createBackground(seed)` (sky + stars) reused by both the boot starfield and WorldManager.
+- `app/src/client/ui/warp-overlay.tsx` (NEW) — CSS-only streak overlay (repeating-conic-gradient + radial core, blend screen), phase-driven fades (2 s in / hold / 2 s out / unmount), `#game-canvas.warp-shake` during warp-in.
+- `app/src/client/main.tsx` — world handover effect (first systemId: boot starfield → WorldManager; every later change: swapWorld + `reportWorldSwap`), WarpController wired to the warp bus, `<WarpOverlay>` mounted.
+- `app/src/client/ui/star-chart.tsx` — Warp button disabled for the whole transition (double-warp guard).
+- `app/src/client/net/presence.ts` + `toast-stack.tsx` — `notice` toast kind for warp failures; `app/src/client/drift-debug.ts` — `worldSwap` recording for the e2e.
+- Tests: `warp.ws.test.ts` (5 — A→B entity at gate + row + presence both sides, same-system reject, unknown target, full-system (16 conns) reject, mid-warp disconnect ≤1→exactly 1 entity); unit: `spawn.test.ts` (4), `systemForId` (3), `world-manager.test.ts` (5 — pure layout), `warp-controller.test.ts` (6 — phase sequence, double-start, rejection/timeout/abort), `session.test.ts` warpTo (4 — fake-WS arrival/rejection-rollback/close-mid-warp/pre-join); `schemas.test.ts` +warp_arrived fixture. E2E `tests/e2e/warp.spec.ts`: button disables (WARPING…), no black frame at t≈1 s (luminance variance), duration 3–6 s, worldSwap = target && buildMs < 300, star at canvas center (new `canvasCenterLuminanceMean` helper), `#sys-id` follows.
+- Verified: `tsc --noEmit` clean, eslint + prettier clean on touched files, all touched/new suites pass (shared + server/galaxy: 24 files / 282 tests; client warp/session/world: 106 tests; `warp.ws.test.ts` 5/5), `npm run test:e2e -- warp.spec.ts` green (14.3 s).
+- Screenshots: `.agent/screenshots/TASK-8-1.png` (chart: target selected), `TASK-8-2.png` (mid-warp streak overlay over the live canvas), `TASK-8-3.png` (arrived: target system star at center, sys-id updated).
 
 ### 2026-09-30 — TASK-7: Star chart UI (SVG map, search, select + warp button, occupancy)
 The in-game star chart is live: `M` key or the HUD "SYSTEMS (M)" button opens a DOM/SVG panel showing the v1 chart — the player's current system + its two nearest seeded neighbours (3 systems), one spectral-class-colored node each, K3 edges labeled with light-second distances + warp times, live occupancy badges, and a Warp button wired to the new shared warp event bus (TASK-8 implements the flow).

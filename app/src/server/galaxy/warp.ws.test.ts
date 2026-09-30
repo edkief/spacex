@@ -148,14 +148,19 @@ function sendWarp(client: WsTestClient, destinationSystemId: string): void {
   });
 }
 
-function entityIn(loaded: { shard: SystemShard } | undefined, playerId: string): SimEntity | undefined {
+function entityIn(
+  loaded: { shard: SystemShard } | undefined,
+  playerId: string,
+): SimEntity | undefined {
   const shard = loaded?.shard;
   if (!shard) return undefined;
   return [...shard.entities.values()].find((e) => e.playerId === playerId);
 }
 
-const near = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }): boolean =>
-  Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) < 1e-6;
+const near = (
+  a: { x: number; y: number; z: number },
+  b: { x: number; y: number; z: number },
+): boolean => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) < 1e-6;
 
 describe('inter-system warp over live ws (TASK-8)', () => {
   it('warp A→B: entity moves to the gate, row follows, presence to both peer sets', async () => {

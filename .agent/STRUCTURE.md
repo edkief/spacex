@@ -28,7 +28,9 @@ Excludes dotfiles, tests, and config.
 │       │   │   ├── session.ts      # TASK-15/17: ClientSession — browser WS client, hello→auth(token), joinSystem → enter_system snapshot; TASK-17: lazy dial, ConnectionState (connecting/connected/reconnecting/lost), auto-retry 1 s backoff capped 5 s, 30 s 'lost' window + retryNow(), onSnapshot(snapshot, reconnect) full resync (prediction/buffers/presence rebuilt, chat merged)
 │       │   │   └── chat.ts         # TASK-16/17: ChatStore — 100-msg ring buffer, loadSnapshot (system-change clear + ts watermark), emit only on change; TASK-17: mergeSnapshot (append only newer-than-tail, no full clear on resync)
 │       │   ├── state/
-│       │   │   └── warp.ts       # TASK-7: warp event bus (warp-started/warp-complete stub; TASK-8 implements the flow) — the chart mirrors this state
+│       │   │   └── warp.ts       # TASK-7/8: warp event bus + phase store (idle/warping-in/awaiting/warp-out) + WarpController — idle→warping-in(2s)→awaiting(net)→warp-out(2s)→idle, failure→idle+onFailed('System full' toast), injectable delay
+│       │   ├── world/
+│       │   │   └── WorldManager.ts # TASK-8: in-system three.js world on #game-canvas (star at origin, near-field planets, spawn-gate ring); swapWorld builds-then-replaces (budget < 300 ms, measured); pure buildSystemLayout (three-free)
 │       │   ├── ui/
 │       │   │   ├── star-chart.tsx  # TASK-7: star chart panel — overview fetch, 5 s occupancy poll, search, select + Warp button (dispatches warp-started), Esc closes
 │       │   │   └── chart-map.tsx   # TASK-7: pure SVG map (800x500) — spectral-class nodes, ls + warp-time edge labels, occupancy badges, focus rings, 'Warping…'

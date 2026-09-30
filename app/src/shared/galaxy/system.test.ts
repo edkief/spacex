@@ -146,3 +146,23 @@ for (const seed of SEEDS.filter((s) => s !== DEV_SEED)) {
     });
   });
 }
+
+describe('systemForId (TASK-8: seed lookup for warp targets)', () => {
+  const stars = generateStars(DEV_SEED);
+
+  it('finds a system by id and matches the direct derivation', () => {
+    const want = generateSystem(DEV_SEED, stars[3].id);
+    expect(systemForId(DEV_SEED, want.systemId)).toEqual(want);
+  });
+
+  it('returns undefined for an unknown id', () => {
+    expect(systemForId(DEV_SEED, 'ffffffffffffffff')).toBeUndefined();
+  });
+
+  it('memoizes per (seed, id): repeated lookups return the same object', () => {
+    const want = generateSystem(DEV_SEED, stars[5].id);
+    expect(systemForId(DEV_SEED, want.systemId)).toBe(systemForId(DEV_SEED, want.systemId));
+    // A different seed never shares a cached entry.
+    expect(systemForId('other-seed', want.systemId)).toBeUndefined();
+  });
+});

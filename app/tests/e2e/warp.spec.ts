@@ -1,6 +1,11 @@
 import path from 'node:path';
 import { expect, test } from './fixtures';
-import { canvasCenterLuminanceMean, canvasLuminanceVariance, collectErrors, uniqueCallsign } from './helpers';
+import {
+  canvasCenterLuminanceMean,
+  canvasLuminanceVariance,
+  collectErrors,
+  uniqueCallsign,
+} from './helpers';
 import { ClaimPage } from './pages/claim';
 
 /**
