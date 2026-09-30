@@ -86,6 +86,18 @@ export class ViolationTracker {
 export type ChatVerdict = { ok: true } | { ok: false; reason: string };
 
 /**
+ * Sliding-window chat limiter rules. Defaults are the general chat-spam
+ * rules; TASK-16's system chat passes its own (no min gap, 200 chars,
+ * 5 / 10 s window) so rapid gameplay chatter is only bounded by the window.
+ */
+export interface ChatLimiterOptions {
+  minGapMs?: number;
+  maxChars?: number;
+  windowMs?: number;
+  windowMax?: number;
+}
+
+/**
  * Per-connection chat limiter. `check()` enforces the min gap and the sliding
  * window; it only advances state when the message is accepted, so rejected
  * messages never consume window slots or reset the gap timer.
@@ -93,25 +105,39 @@ export type ChatVerdict = { ok: true } | { ok: false; reason: string };
 export class ChatLimiter {
   private lastSendAt = Number.NEGATIVE_INFINITY;
   private sends: number[] = [];
+  private readonly minGapMs: number;
+  private readonly maxChars: number;
+  private readonly windowMs: number;
+  private readonly windowMax: number;
 
-  constructor(private readonly now: Now = Date.now) {}
+  constructor(
+    private readonly now: Now = Date.now,
+    options: ChatLimiterOptions = {},
+  ) {
+    this.minGapMs = options.minGapMs ?? CHAT_MIN_GAP_MS;
+    this.maxChars = options.maxChars ?? CHAT_MAX_CHARS;
+    this.windowMs = options.windowMs ?? CHAT_WINDOW_MS;
+    this.windowMax = options.windowMax ?? CHAT_WINDOW_MAX;
+  }
 
   /** Validate a chat message; on success record it and return {ok: true}. */
   check(text: string): ChatVerdict {
     const t = this.now();
-    if (text.length > CHAT_MAX_CHARS) {
-      return { ok: false, reason: `chat message exceeds ${CHAT_MAX_CHARS} characters` };
+    if (text.length > this.maxChars) {
+      return { ok: false, reason: `chat message exceeds ${this.maxChars} characters` };
     }
-    if (t - this.lastSendAt < CHAT_MIN_GAP_MS) {
-      return { ok: false, reason: `chat messages must be at least ${CHAT_MIN_GAP_MS} ms apart` };
+    if (t - this.lastSendAt < this.minGapMs) {
+      return { ok: false, reason: `chat messages must be at least ${this.minGapMs} ms apart` };
     }
-    while (this.sends.length > 0 && this.sends[0] <= t - CHAT_WINDOW_MS) {
+    while (this.sends.length > 0 && this.sends[0] <= t - this.windowMs) {
       this.sends.shift();
     }
-    if (this.sends.length >= CHAT_WINDOW_MAX) {
+    if (this.sends.length >= this.windowMax) {
       return {
         ok: false,
-        reason: `chat rate limit: at most ${CHAT_WINDOW_MAX} messages per ${CHAT_WINDOW_MS / 1000} s`,
+        reason: `chat rate limit: at most ${this.windowMax} messages per ${
+          this.windowMs / 1000
+        } s`,
       };
     }
     this.lastSendAt = t;

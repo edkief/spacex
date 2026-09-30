@@ -55,10 +55,19 @@ async function main(): Promise<void> {
     authenticate: createTokenAuthenticate(sessions),
     revokeToken: (token) => sessions.revoke(token),
     onGameMessage: (conn, type, payload) => {
-      // WS 'input': route to the shard the connection is currently in;
-      // the tick drains the queue.
-      if (type === 'input' && conn.systemId && conn.playerId) {
-        router.active(conn.systemId)?.shard.enqueueInput(conn.playerId, payload as InputPayload);
+      // Gameplay frames route to the shard the connection is currently in.
+      if (!conn.systemId || !conn.playerId) return;
+      const shard = router.active(conn.systemId)?.shard;
+      if (!shard) return;
+      // 'input': the tick drains the queue.
+      if (type === 'input') {
+        shard.enqueueInput(conn.playerId, payload as InputPayload);
+        return;
+      }
+      // 'chat' (TASK-16): validated + rate-limited upstream; the shard
+      // assigns ts and broadcasts to the whole system.
+      if (type === 'chat' && conn.callsign) {
+        shard.handleChat(conn.callsign, (payload as { text: string }).text);
       }
     },
     // Leaves route through the gateway's leaveSystem → router.leave,

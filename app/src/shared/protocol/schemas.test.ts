@@ -26,16 +26,7 @@ const snapshot: StateSnapshot = {
   systemId: 'sys-1',
   entities: [entity],
   nodes: [{ id: 'node-1', planetId: 'planet-1', type: 'iron', pos: vec, quantity: 50 }],
-  chat: [
-    {
-      id: 'chat-1',
-      authorId: 'player-1',
-      callsign: 'drifter',
-      channel: 'local',
-      text: 'hello world',
-      ts: '2026-01-01T00:00:00Z',
-    },
-  ],
+  chat: [{ from: 'drifter', text: 'hello world', ts: 1767225600000 }],
   players: [{ playerId: 'player-1', callsign: 'drifter' }],
 };
 
@@ -52,7 +43,10 @@ const CASES: Record<string, { valid: unknown; invalid: unknown }> = {
     invalid: { systemId: 'sys-1', entities: 'nope', nodes: [], chat: [], players: [] },
   },
   entity_update: { valid: { entities: [entity] }, invalid: { entities: [] } },
-  chat: { valid: { text: 'hello' }, invalid: { text: '' } },
+  chat: {
+    valid: { text: 'hello' },
+    invalid: { text: ' '.repeat(201) }, // empty after trim
+  },
   input: {
     valid: { seq: 1, thrust: 0.5, turn: 0, pitch: 0, yaw: 0, fire: true, lock: false },
     invalid: { seq: 1, thrust: Infinity, turn: 0, pitch: 0, yaw: 0, fire: true, lock: false },
@@ -212,12 +206,37 @@ describe('message payload schemas', () => {
   });
 
   it('caps chat history at 100 messages in a snapshot', () => {
-    const msgs = Array.from({ length: 101 }, (_, i) => ({ ...snapshot.chat[0], id: `m${i}` }));
+    const msgs = Array.from(
+      { length: 101 },
+      (_, i) => ({ ...snapshot.chat[0], text: `m${i}` }),
+    );
     expect(messageSchemas.state_snapshot.safeParse({ ...snapshot, chat: msgs }).success).toBe(
       false,
     );
     expect(
       messageSchemas.state_snapshot.safeParse({ ...snapshot, chat: msgs.slice(0, 100) }).success,
     ).toBe(true);
+  });
+});
+
+/** TASK-16: the 'chat' registry entry is a union of inbound + broadcast. */
+describe('chat (TASK-16)', () => {
+  it('accepts the inbound form {text} when non-empty and <= 200 after trim', () => {
+    expect(messageSchemas.chat.safeParse({ text: 'hello' }).success).toBe(true);
+    expect(messageSchemas.chat.safeParse({ text: ` ${'x'.repeat(200)} ` }).success).toBe(true);
+  });
+
+  it('rejects empty-after-trim, overlong, non-string and extra fields', () => {
+    expect(messageSchemas.chat.safeParse({ text: '   ' }).success).toBe(false);
+    expect(messageSchemas.chat.safeParse({ text: 'x'.repeat(201) }).success).toBe(false);
+    expect(messageSchemas.chat.safeParse({ text: 123 }).success).toBe(false);
+    expect(messageSchemas.chat.safeParse({ text: 'hi', channel: 'shout' }).success).toBe(false);
+  });
+
+  it('accepts the server broadcast form {from, text, ts}', () => {
+    const m = { from: 'drifter', text: 'hello world', ts: 1767225600000 };
+    expect(messageSchemas.chat.safeParse(m).success).toBe(true);
+    expect(messageSchemas.chat.safeParse({ ...m, ts: 1.5 }).success).toBe(false);
+    expect(messageSchemas.chat.safeParse({ ...m, extra: true }).success).toBe(false);
   });
 });

@@ -114,6 +114,30 @@ describe('ChatLimiter', () => {
     clock.tick(CHAT_MIN_GAP_MS);
     expect(limiter.check('x'.repeat(CHAT_MAX_CHARS + 1))).toMatchObject({ ok: false });
   });
+
+  it('TASK-16 rules: no min gap, 200 chars, 5 messages per 10 s window', () => {
+    const clock = new FakeClock();
+    const CHAT16_MAX = 5;
+    const limiter = new ChatLimiter(clock.now, {
+      minGapMs: 0,
+      maxChars: 200,
+      windowMs: 10_000,
+      windowMax: CHAT16_MAX,
+    });
+    // Rapid sends are fine — the window, not a gap, is the bound.
+    for (let i = 0; i < CHAT16_MAX; i++) {
+      clock.tick(100);
+      expect(limiter.check(`msg ${i}`)).toEqual({ ok: true });
+    }
+    clock.tick(100);
+    expect(limiter.check('sixth in window')).toMatchObject({ ok: false });
+    // A rejected send consumes nothing: still blocked until the window slides.
+    clock.tick(5_000);
+    expect(limiter.check('still in window')).toMatchObject({ ok: false });
+    clock.tick(4_999); // first accepted send now slid out of the 10 s window
+    expect(limiter.check('after window slides')).toEqual({ ok: true });
+    expect(limiter.check('x'.repeat(201))).toMatchObject({ ok: false });
+  });
 });
 
 describe('ViolationTracker (escalation)', () => {

@@ -12,6 +12,8 @@ import {
 import { shipStats } from '@shared/ships';
 import type { EntityState, InputPayload } from '@shared/protocol/schemas';
 
+import { decodeMessage } from '@shared/protocol';
+import { CHAT_HISTORY_MAX } from '@shared/chat';
 import { entityToState, SystemShard, TICK_DT_MS } from './shard';
 import { TerrainContext } from './terrain';
 import type { SimEntity } from './types';
@@ -510,5 +512,47 @@ describe('entityToState mapping', () => {
     shard.addEntity(entity);
     const state = shard.snapshot()[0];
     expect(state.hull).toBeCloseTo(10 / cls.hull, 12);
+  });
+});
+
+describe('SystemShard system chat (TASK-16)', () => {
+  function chatFrames(sends: string[]): Array<{ from: string; text: string; ts: number }> {
+    return sends
+      .map((b) => decodeMessage(b))
+      .filter((d): d is { ok: true; envelope: { v: number; type: string; payload: unknown } } => d.ok && d.envelope.type === 'chat')
+      .map((d) => d.envelope.payload as { from: string; text: string; ts: number });
+  }
+
+  it('broadcasts to the WHOLE shard (sender echo included) with server ts', () => {
+    const shard = makeShard();
+    const a = addFakeConn(shard, 'p1', 'ALPHA');
+    const b = addFakeConn(shard, 'p2', 'BRAVO');
+    shard.handleChat('ALPHA', 'hello');
+    expect(a.sends).toHaveLength(1); // sender echo
+    expect(b.sends).toHaveLength(1); // whole shard
+    expect(chatFrames(a.sends)).toEqual(chatFrames(b.sends));
+    const [m] = chatFrames(a.sends);
+    expect(m.from).toBe('ALPHA');
+    expect(m.text).toBe('hello');
+    expect(m.ts).toBeGreaterThanOrEqual(Date.now() - 5_000);
+  });
+
+  it('ts is strictly monotonic even for same-millisecond sends', () => {
+    const shard = makeShard();
+    const a = addFakeConn(shard, 'p1', 'ALPHA');
+    for (let i = 0; i < 5; i++) shard.handleChat('ALPHA', `m${i}`);
+    const ts = chatFrames(a.sends).map((m) => m.ts);
+    for (let i = 1; i < ts.length; i++) expect(ts[i]).toBeGreaterThan(ts[i - 1]);
+  });
+
+  it('keeps a 100-message ring buffer exposed to join snapshots', () => {
+    const shard = makeShard();
+    const a = addFakeConn(shard, 'p1', 'ALPHA');
+    for (let i = 0; i < CHAT_HISTORY_MAX + 20; i++) shard.handleChat('ALPHA', `m${i}`);
+    const history = shard.chatHistory();
+    expect(history).toHaveLength(CHAT_HISTORY_MAX);
+    expect(history[0].text).toBe('m20');
+    expect(history[history.length - 1].text).toBe(`m${CHAT_HISTORY_MAX + 19}`);
+    expect(a.sends).toHaveLength(CHAT_HISTORY_MAX + 20); // broadcast is uncapped
   });
 });

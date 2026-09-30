@@ -3,8 +3,11 @@ import { createRoot } from 'react-dom/client';
 import { HealthPayload } from '@shared/health';
 import { ClientSession, type ClaimedSession } from '@client/net/session';
 import { PresenceStore } from '@client/net/presence';
+import { ChatStore } from '@client/net/chat';
 import { PlayerList } from '@client/hud/player-list';
 import { ToastStack } from '@client/hud/toast-stack';
+import { ChatLog } from '@client/hud/chat-log';
+import type { ChatMessage } from '@shared/protocol/schemas';
 
 /** Fetches the REST health endpoint through the Vite same-origin proxy. */
 async function fetchHealth(): Promise<HealthPayload | null> {
@@ -56,6 +59,8 @@ function wsUrl(): string {
 function useGameSession(
   session: ClaimedSession | null,
   store: PresenceStore,
+  chatStore: ChatStore,
+  clientRef: React.RefObject<ClientSession | null>,
   onError: (msg: string) => void,
 ) {
   const systemParam = React.useMemo(
@@ -74,12 +79,17 @@ function useGameSession(
     const target = systemParam ?? session.homeSystemId;
     const client = new ClientSession(wsUrl(), session, {
       onMessage: (msg) => {
+        if (msg.type === 'chat') {
+          chatStore.append(msg.payload as ChatMessage);
+          return;
+        }
         if (msg.type !== 'presence') return;
         const { event, player } = msg.payload as { event: 'join' | 'leave'; player: unknown };
         if (event === 'join') store.presenceJoin(player as never);
         else store.presenceLeave(player as never);
       },
     });
+    clientRef.current = client;
     (async () => {
       try {
         await client.connect();
@@ -88,6 +98,9 @@ function useGameSession(
         if (cancelled) return;
         store.leaveAll(); // fresh system: drop any stale entries first
         store.applySnapshot(snapshot.players);
+        // TASK-16: system-scoped log — the snapshot carries the shard's last
+        // 100 (or empties the log on a system change / fresh shard).
+        chatStore.loadSnapshot(snapshot.chat);
         setSystemId(target);
       } catch (err) {
         if (!cancelled) onError(err instanceof Error ? err.message : String(err));
@@ -95,10 +108,11 @@ function useGameSession(
     })();
     return () => {
       cancelled = true;
+      clientRef.current = null;
       client.close();
       store.leaveAll();
     };
-  }, [session, store, systemParam]);
+  }, [session, store, chatStore, clientRef, systemParam]);
 
   return systemId;
 }
@@ -177,11 +191,13 @@ function App() {
   const [session, setSession] = React.useState<ClaimedSession | null>(readSession);
   const [error, setError] = React.useState<string | null>(null);
   const [store] = React.useState(() => new PresenceStore());
+  const [chatStore] = React.useState(() => new ChatStore());
+  const clientRef = React.useRef<ClientSession | null>(null);
   // Re-render on presence events only (join/leave), never on snapshots, so
   // the "N aboard" occupancy below stays live.
   const [, bumpPresence] = React.useReducer((n: number) => n + 1, 0);
   React.useEffect(() => store.subscribe(bumpPresence), [store]);
-  const systemId = useGameSession(session, store, (msg) => {
+  const systemId = useGameSession(session, store, chatStore, clientRef, (msg) => {
     setError(msg);
     setSession(null); // token may be stale → back to the claim form
     localStorage.removeItem(SESSION_KEY);
@@ -214,6 +230,12 @@ function App() {
           />
         )}
       </div>
+      {systemId && (
+        <ChatLog
+          store={chatStore}
+          onSend={(text) => clientRef.current?.send('chat', { text })}
+        />
+      )}
       <PlayerList store={store} />
       <ToastStack store={store} />
     </div>

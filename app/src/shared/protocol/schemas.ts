@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CHAT_MAX_CHARS } from '@shared/chat';
 
 /**
  * Shared payload schemas for the client↔server WebSocket protocol (TASK-9).
@@ -12,8 +13,7 @@ export type EntityKind = (typeof ENTITY_KINDS)[number];
 export const REGIMES = ['sublight', 'cruise', 'warp', 'docked'] as const;
 export type Regime = (typeof REGIMES)[number];
 
-export const CHAT_CHANNELS = ['local', 'system'] as const;
-export type ChatChannel = (typeof CHAT_CHANNELS)[number];
+
 
 /**
  * Combat event kinds (TASK-23 rewired the contract: the sim broadcasts
@@ -74,14 +74,32 @@ export const resourceNodeSchema = z
   .strict();
 export type ResourceNode = z.infer<typeof resourceNodeSchema>;
 
+/**
+ * System chat contract (TASK-16):
+ * - inbound  'chat' {text}: 1..200 chars AFTER trim — enforced here so
+ *   empty / overlong / non-string payloads all fail parseMessage with
+ *   invalid-message;
+ * - outbound 'chat' {from, text, ts}: server-assigned ms-epoch ts (strictly
+ *   monotonic per shard, so every client orders identically), broadcast to
+ *   the WHOLE shard including the sender.
+ * The registry entry is a union: the client's parseMessage must accept the
+ * server's broadcast shape; only the inbound form is ever dispatched.
+ */
+export const chatInboundSchema = z
+  .object({ text: z.string() })
+  .strict()
+  .refine((p) => {
+    const trimmed = p.text.trim();
+    return trimmed.length >= 1 && trimmed.length <= CHAT_MAX_CHARS;
+  }, { message: `text must be 1..${CHAT_MAX_CHARS} characters after trim` });
+export type ChatInbound = z.infer<typeof chatInboundSchema>;
+
 export const chatMessageSchema = z
   .object({
-    id: z.string().min(1),
-    authorId: z.string().min(1),
-    callsign: z.string().min(1).max(24),
-    channel: z.enum(CHAT_CHANNELS),
-    text: z.string().max(280),
-    ts: z.string().min(1),
+    from: z.string().min(1).max(24),
+    text: z.string().min(1).max(CHAT_MAX_CHARS),
+    /** Server-assigned ms epoch; strictly increasing within a shard. */
+    ts: z.number().int().nonnegative(),
   })
   .strict();
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
@@ -138,12 +156,7 @@ export const messageSchemas = {
   enter_system: z.object({ snapshot: stateSnapshotSchema }).strict(),
   state_snapshot: stateSnapshotSchema,
   entity_update: z.object({ entities: z.array(entityStateSchema).min(1).max(1000) }).strict(),
-  chat: z
-    .object({
-      channel: z.enum(CHAT_CHANNELS).default('local'),
-      text: z.string().min(1).max(280),
-    })
-    .strict(),
+  chat: z.union([chatInboundSchema, chatMessageSchema]),
   input: z
     .object({
       seq: z.number().int().finite().nonnegative(),

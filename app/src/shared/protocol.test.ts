@@ -85,10 +85,15 @@ describe('parseMessage', () => {
     }
   });
 
-  it('applies schema defaults', () => {
+  it('parses the chat inbound form without defaults (TASK-16)', () => {
     const parsed = parseMessage('chat', { text: 'hi' });
     expect(parsed.ok).toBe(true);
-    if (parsed.ok) expect(parsed.payload).toEqual({ channel: 'local', text: 'hi' });
+    if (parsed.ok) expect(parsed.payload).toEqual({ text: 'hi' });
+  });
+
+  it('parses the chat broadcast form the server sends to peers (TASK-16)', () => {
+    const parsed = parseMessage('chat', { from: 'drifter', text: 'hi', ts: 1767225600000 });
+    expect(parsed.ok).toBe(true);
   });
 
   it('rejects a malformed payload with invalid-message and the failing path', () => {

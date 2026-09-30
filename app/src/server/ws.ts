@@ -18,6 +18,12 @@ import {
 } from '@shared/protocol';
 import type { MessageType } from '@shared/protocol';
 import type { AuthPayload, PresenceEntry, StateSnapshot } from '@shared/protocol/schemas';
+import {
+  CHAT_MAX_CHARS,
+  CHAT_WINDOW_MAX,
+  CHAT_WINDOW_MS,
+  sanitizeChatText,
+} from '@shared/chat';
 import type { Repository } from '@server/db/repo';
 import {
   ChatLimiter,
@@ -80,7 +86,11 @@ export interface Conn {
   invalidMessages: number;
   /** Inbound token bucket: 20 msg/s, burst 40 (TASK-65). */
   bucket: TokenBucket;
-  /** Per-connection chat limiter: 2 s gap, 280 chars, 10/30 s window (TASK-65). */
+  /**
+   * Per-connection chat limiter, TASK-16 rules (reusing the TASK-65 limiter):
+   * 200 chars, at most 5 messages per 10 s window, no min gap (gameplay
+   * chatter stays fluid; the window is the spam bound).
+   */
   chatLimiter: ChatLimiter;
   /** Rate-limit violations; 3 within 10 s closes the socket (TASK-65). */
   violations: ViolationTracker;
@@ -306,10 +316,19 @@ export function attachWebSocket(
           );
         }
         if (type === 'chat') {
-          const verdict = conn.chatLimiter.check((payload as { text: string }).text);
+          // TASK-16: schema already guaranteed a string of 1..200 chars after
+          // trim; sanitize strips control / format characters, and a message
+          // that is invisible after sanitization is invalid (not spam).
+          const text = sanitizeChatText((payload as { text: string }).text);
+          if (text.length < 1) {
+            return rejectInvalid(conn, type, 'chat message is empty after sanitization');
+          }
+          const verdict = conn.chatLimiter.check(text);
           if (!verdict.ok) {
             return rejectRateLimited(conn, verdict.reason);
           }
+          options.onGameMessage?.(conn, type, { text });
+          return;
         }
         options.onGameMessage?.(conn, type, payload);
         return;
@@ -389,7 +408,12 @@ export function attachWebSocket(
       unknownTypes: 0,
       invalidMessages: 0,
       bucket: new TokenBucket(MESSAGE_RATE, MESSAGE_BURST),
-      chatLimiter: new ChatLimiter(),
+      chatLimiter: new ChatLimiter(Date.now, {
+        minGapMs: 0,
+        maxChars: CHAT_MAX_CHARS,
+        windowMs: CHAT_WINDOW_MS,
+        windowMax: CHAT_WINDOW_MAX,
+      }),
       violations: new ViolationTracker(),
       lastActivityAt: Date.now(),
       queue: Promise.resolve(),

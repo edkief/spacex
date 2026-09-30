@@ -5,11 +5,14 @@ import { WebSocket } from 'ws';
 import { encodeMessage } from '@shared/protocol';
 import { inputToShipInput } from '@shared/protocol/inputs';
 import {
+  chatMessageSchema,
   messageSchemas,
+  type ChatMessage,
   type EntityState,
   type InputPayload,
   type PayloadSchemas,
 } from '@shared/protocol/schemas';
+import { CHAT_HISTORY_MAX } from '@shared/chat';
 import { applyDamage, type ApplyDamageResult, type DamageSource } from '@shared/physics/damage';
 import { integrateShip, type FlightOptions, type PlanetAtmo } from '@shared/physics/flight';
 import { quatIdentity, type Quat } from '@shared/physics/vec';
@@ -110,6 +113,9 @@ export class SystemShard implements Shard {
   private readonly dt: number; // seconds
   /** Wreck ttl in TICKS (600 s at the shard's dt; 20 Hz → 12 000). */
   private readonly wreckTtlTicks: number;
+  /** TASK-16: system chat ring buffer (last 100) + last assigned ts. */
+  private readonly chatLog: ChatMessage[] = [];
+  private lastChatTs = 0;
   private readonly terrain = new Map<string, TerrainContext>();
   private readonly playerConns = new Map<string, string>();
   private readonly playerEntities = new Map<string, SimEntity>();
@@ -282,6 +288,42 @@ export class SystemShard implements Shard {
   addEntity(entity: SimEntity): void {
     this.entities.set(entity.id, entity);
     if (entity.playerId) this.playerEntities.set(entity.playerId, entity);
+  }
+
+  /**
+   * TASK-16: system text chat. The inbound frame was schema-validated,
+   * sanitized, and per-connection rate-limited (5 / 10 s) by the WS layer
+   * before it arrives; the shard owns the rest:
+   * - server ts (ms epoch, strictly monotonic per shard so every client
+   *   orders the log identically),
+   * - the 100-message ring buffer (join-snapshot history, cleared on shard
+   *   reap — no persistence in v1),
+   * - encode-once broadcast to EVERY in-system connection, sender echo
+   *   included. No channels, no private messages in v1.
+   */
+  handleChat(from: string, text: string): void {
+    const ts = Math.max(this.now(), this.lastChatTs + 1);
+    const message = { from, text, ts } satisfies ChatMessage;
+    // Validate once against the wire contract (dev safety, mirrors broadcast()).
+    const check = chatMessageSchema.safeParse(message);
+    if (!check.success) {
+      this.log.warn('chat message failed wire validation', {
+        issue: check.error.issues[0]?.message,
+      });
+      return;
+    }
+    this.lastChatTs = ts;
+    this.chatLog.push(message);
+    if (this.chatLog.length > CHAT_HISTORY_MAX) {
+      this.chatLog.splice(0, this.chatLog.length - CHAT_HISTORY_MAX);
+    }
+    const buffer = encodeMessage('chat', message);
+    for (const conn of this.connections.values()) conn.send(buffer);
+  }
+
+  /** The shard's chat history (last 100 messages; join snapshots, TASK-16). */
+  chatHistory(): ChatMessage[] {
+    return this.chatLog;
   }
 
   /**

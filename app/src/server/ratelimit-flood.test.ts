@@ -248,7 +248,7 @@ describe('rate limiting over the wire (TASK-65)', () => {
     await server.close();
   }, 15_000);
 
-  it('applies the chat limiter: 2 s gap, 280 chars, violations reported', async () => {
+  it('applies the TASK-16 chat rules: 200 chars, 5 messages per 10 s window', async () => {
     const chats: string[] = [];
     const server = await boot((_conn, type, payload) => {
       if (type === 'chat') chats.push((payload as { text: string }).text);
@@ -264,24 +264,29 @@ describe('rate limiting over the wire (TASK-65)', () => {
     await a.next((m) => m.type === 'enter_system', 'a enter_system');
     await b.next((m) => m.type === 'enter_system', 'b enter_system');
 
-    a.send({ v: 1, type: 'chat', payload: { channel: 'local', text: 'hello' } });
-    b.send({ v: 1, type: 'chat', payload: { channel: 'local', text: 'hi b' } });
+    // No min gap (TASK-16): rapid sends are fine up to the 5 / 10 s window.
+    a.send({ v: 1, type: 'chat', payload: { text: 'hello' } });
+    b.send({ v: 1, type: 'chat', payload: { text: 'hi b' } });
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(chats).toEqual(['hello', 'hi b']);
 
-    // A speaks again 500 ms later — too soon.
-    a.send({ v: 1, type: 'chat', payload: { channel: 'local', text: 'again' } });
+    // A fills its window: 3 more pass, the 6th within 10 s is rejected.
+    a.send({ v: 1, type: 'chat', payload: { text: 'm2' } });
+    a.send({ v: 1, type: 'chat', payload: { text: 'm3' } });
+    a.send({ v: 1, type: 'chat', payload: { text: 'm4' } });
+    a.send({ v: 1, type: 'chat', payload: { text: 'm5' } });
+    a.send({ v: 1, type: 'chat', payload: { text: 'm6' } });
     const err = await a.next((m) => m.type === 'error', 'a rate-limited chat');
     expect(err.payload).toMatchObject({ code: 'rate-limited' });
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    // The rejected message never reaches dispatch.
-    expect(chats).toEqual(['hello', 'hi b']);
-
-    // B waits out the gap and sends a full 280-char message.
-    await new Promise((resolve) => setTimeout(resolve, 2_000));
-    b.send({ v: 1, type: 'chat', payload: { channel: 'local', text: 'x'.repeat(280) } });
     await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(chats).toContain('x'.repeat(280));
+    // The rejected message never reaches dispatch.
+    expect(chats).toContain('m5');
+    expect(chats).not.toContain('m6');
+
+    // B's window is per-connection: B can still send, incl. a full 200 chars.
+    b.send({ v: 1, type: 'chat', payload: { text: 'x'.repeat(200) } });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(chats).toContain('x'.repeat(200));
     expect(b.closed).toBe(false);
 
     a.close();

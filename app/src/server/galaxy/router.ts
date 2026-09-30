@@ -384,7 +384,7 @@ function enterSnapshot(loaded: ActiveShard, selfPlayerId: string): StateSnapshot
     systemId: loaded.shard.systemId,
     entities: loaded.shard.snapshot(),
     nodes: [], // node states stream in TASK-26
-    chat: [], // history arrives in TASK-16
+    chat: loaded.shard.chatHistory(), // TASK-16: last 100 system messages
     players: [...loaded.shard.connections.values()]
       .filter((c) => c.playerId !== selfPlayerId)
       .map((c) => ({ playerId: c.playerId, callsign: c.callsign })),
