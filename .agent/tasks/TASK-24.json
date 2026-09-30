@@ -16,25 +16,25 @@
       "step": 1,
       "description": "Flush service",
       "details": "shard/persist.ts: flushShips(shard) transaction: upsert ships by (player_id) with state fields; called on a 30 s interval + on SIGTERM/SIGINT (graceful shutdown hook in server main).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Load on spawn",
       "details": "loadShips(systemId): select ships where system_id = ? and state != 'destroyed' or (wreck and not expired); build sim entities. Expired wrecks deleted in the same transaction.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Crash-restart integration test",
       "details": "Test boots the real server on a random port + temp DB file (TASK-68 env), claims a callsign, ws joins, sends inputs for ~2 s, kills the child process (SIGKILL), reboots, rejoins, asserts position continuity within 1 u. Mark the test as integration (runs in CI with a 60 s timeout).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Verify",
       "details": "Run full suite; confirm flush latency logged under 8 ms at p95 in the test output.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-63", "TASK-13", "TASK-23"],

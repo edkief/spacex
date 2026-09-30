@@ -130,14 +130,17 @@ describe('flushShips (step 1)', () => {
     const summary = await persist.flushShips({
       systemId: SYSTEM_ID,
       entities: new Map([
-        ['ghost-1', shipEntity(player.id, 'ghost-1', {
-          ship: {
-            pos: { x: 5, y: 6, z: 7 },
-            vel: { x: 0, y: 0, z: 1 },
-            quat: quatIdentity(),
-            regime: 'space',
-          },
-        })],
+        [
+          'ghost-1',
+          shipEntity(player.id, 'ghost-1', {
+            ship: {
+              pos: { x: 5, y: 6, z: 7 },
+              vel: { x: 0, y: 0, z: 1 },
+              quat: quatIdentity(),
+              regime: 'space',
+            },
+          }),
+        ],
       ]),
     });
     expect(summary).toMatchObject({ saved: 1, destroyed: 0 });
@@ -156,35 +159,41 @@ describe('flushShips (step 1)', () => {
       systemId: SYSTEM_ID,
       entities: new Map([
         // the wreck entity is NOT a row — the owner row carries the state
-        [ship.id, shipEntity(ownerId, ship.id, {
-          destroyed: true,
-          destroyedAtMs,
-          hull: 0,
-          shields: 0,
-          ship: {
-            pos: { x: 1, y: 2, z: 3 },
-            vel: { x: 0, y: 0, z: 0 },
-            quat: quatIdentity(),
-            regime: 'space',
+        [
+          ship.id,
+          shipEntity(ownerId, ship.id, {
+            destroyed: true,
+            destroyedAtMs,
+            hull: 0,
+            shields: 0,
+            ship: {
+              pos: { x: 1, y: 2, z: 3 },
+              vel: { x: 0, y: 0, z: 0 },
+              quat: quatIdentity(),
+              regime: 'space',
+            },
+          }),
+        ],
+        [
+          'wreck:' + ship.id,
+          {
+            id: 'wreck:' + ship.id,
+            kind: 'wreck',
+            playerId: null,
+            classId: 'scout',
+            ship: {
+              pos: { x: 1, y: 2, z: 3 },
+              vel: { x: 0, y: 0, z: 0 },
+              quat: quatIdentity(),
+              regime: 'space',
+            },
+            hull: 0,
+            shields: 0,
+            targetId: null,
+            docked: false,
+            ttl: 12000,
           },
-        })],
-        ['wreck:' + ship.id, {
-          id: 'wreck:' + ship.id,
-          kind: 'wreck',
-          playerId: null,
-          classId: 'scout',
-          ship: {
-            pos: { x: 1, y: 2, z: 3 },
-            vel: { x: 0, y: 0, z: 0 },
-            quat: quatIdentity(),
-            regime: 'space',
-          },
-          hull: 0,
-          shields: 0,
-          targetId: null,
-          docked: false,
-          ttl: 12000,
-        }],
+        ],
       ]),
     });
     expect(summary).toMatchObject({ saved: 1, destroyed: 1 }); // wreck entity not counted
@@ -201,16 +210,19 @@ describe('flushShips (step 1)', () => {
     await persist.flushShips({
       systemId: SYSTEM_ID,
       entities: new Map([
-        [ship.id, shipEntity(ownerId, ship.id, {
-          docked: true,
-          ship: {
-            pos: { x: 4, y: 5, z: 6 },
-            vel: { x: 0, y: 0, z: 0 },
-            quat: quatIdentity(),
-            regime: 'space',
-            onPad: 'pad-abc123',
-          },
-        })],
+        [
+          ship.id,
+          shipEntity(ownerId, ship.id, {
+            docked: true,
+            ship: {
+              pos: { x: 4, y: 5, z: 6 },
+              vel: { x: 0, y: 0, z: 0 },
+              quat: quatIdentity(),
+              regime: 'space',
+              onPad: 'pad-abc123',
+            },
+          }),
+        ],
       ]),
     });
     const row = (await repo.getShip(ship.id))!;
@@ -226,9 +238,12 @@ describe('flushShips (step 1)', () => {
     await persist.flushShips({
       systemId: SYSTEM_ID,
       entities: new Map([
-        [ship.id, shipEntity(ownerId, ship.id, {
-          livery: { hull: '#ffffff' } as Record<string, string>, // not a full 3-slot livery
-        })],
+        [
+          ship.id,
+          shipEntity(ownerId, ship.id, {
+            livery: { hull: '#ffffff' } as Record<string, string>, // not a full 3-slot livery
+          }),
+        ],
       ]),
     });
     expect((await repo.getShip(ship.id))!.livery).toEqual(before);
@@ -239,22 +254,25 @@ describe('flushShips (step 1)', () => {
     const summary = await persist.flushShips({
       systemId: SYSTEM_ID,
       entities: new Map([
-        ['ai-1', {
-          id: 'ai-1',
-          kind: 'ai-ship',
-          playerId: null,
-          classId: 'interceptor',
-          ship: {
-            pos: { x: 0, y: 0, z: 0 },
-            vel: { x: 0, y: 0, z: 0 },
-            quat: quatIdentity(),
-            regime: 'space',
+        [
+          'ai-1',
+          {
+            id: 'ai-1',
+            kind: 'ai-ship',
+            playerId: null,
+            classId: 'interceptor',
+            ship: {
+              pos: { x: 0, y: 0, z: 0 },
+              vel: { x: 0, y: 0, z: 0 },
+              quat: quatIdentity(),
+              regime: 'space',
+            },
+            hull: 1,
+            shields: 1,
+            targetId: null,
+            docked: false,
           },
-          hull: 1,
-          shields: 1,
-          targetId: null,
-          docked: false,
-        }],
+        ],
       ]),
     });
     expect(summary).toEqual({ saved: 0, destroyed: 0, ms: 0 });
@@ -270,22 +288,28 @@ describe('flushShips (step 1)', () => {
       persist.flushShips({
         systemId: SYSTEM_ID,
         entities: new Map([
-          [s1.id, shipEntity(o1, s1.id, {
-            ship: {
-              pos: { x: 1, y: 1, z: 1 },
-              vel: { x: 0, y: 0, z: 0 },
-              quat: quatIdentity(),
-              regime: 'space',
-            },
-          })],
-          [s2.id, shipEntity(o2, s2.id, {
-            ship: {
-              pos: { x: Number.NaN, y: 0, z: 0 }, // fails Vec3 validation inside the tx
-              vel: { x: 0, y: 0, z: 0 },
-              quat: quatIdentity(),
-              regime: 'space',
-            },
-          })],
+          [
+            s1.id,
+            shipEntity(o1, s1.id, {
+              ship: {
+                pos: { x: 1, y: 1, z: 1 },
+                vel: { x: 0, y: 0, z: 0 },
+                quat: quatIdentity(),
+                regime: 'space',
+              },
+            }),
+          ],
+          [
+            s2.id,
+            shipEntity(o2, s2.id, {
+              ship: {
+                pos: { x: Number.NaN, y: 0, z: 0 }, // fails Vec3 validation inside the tx
+                vel: { x: 0, y: 0, z: 0 },
+                quat: quatIdentity(),
+                regime: 'space',
+              },
+            }),
+          ],
         ]),
       }),
     ).rejects.toThrow();
@@ -303,7 +327,8 @@ describe('loadShips (step 2)', () => {
   const LOAD_SYS = 'shard-load-sys';
   const NOW = 1_700_000_000_000;
   /** Built per test: `repo` only exists after beforeAll. */
-  const persist = () => createShardPersist({ repo, systemId: LOAD_SYS, options: { now: () => NOW } });
+  const persist = () =>
+    createShardPersist({ repo, systemId: LOAD_SYS, options: { now: () => NOW } });
 
   it('returns flying + docked ships, unexpired wrecks; deletes expired rows in the same tx', async () => {
     const flying = await makeShip('LOAD-FLY', LOAD_SYS);
@@ -452,9 +477,7 @@ describe('SystemShard restart load (shard spawn, no teleport)', () => {
   });
 
   it('a join after restart re-adopts the persisted entity instead of re-spawning', async () => {
-    const row = (await repo.listShipsInSystem(system.systemId)).find(
-      (s) => s.state === 'flying',
-    )!;
+    const row = (await repo.listShipsInSystem(system.systemId)).find((s) => s.state === 'flying')!;
     const player = (await repo.getPlayersByIds([row.ownerId]))[0];
     const conn = {
       stage: 'authed',
@@ -518,7 +541,9 @@ describe('performance guard (step 4)', () => {
       ),
     };
     const persist = createShardPersist({ repo, systemId: SYSTEM_ID, options: { log: SILENT } });
-    for (let i = 0; i < 3; i++) (await persist.flushShips(view)).saved; // warmup: settle pages
+    for (let i = 0; i < 3; i++) {
+      await persist.flushShips(view); // warmup: settle pages
+    }
     const warm = await persist.flushShips(view);
     expect(warm.saved).toBe(16);
 

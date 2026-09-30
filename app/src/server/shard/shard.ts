@@ -11,11 +11,7 @@ import {
   type PayloadSchemas,
 } from '@shared/protocol/schemas';
 import { applyDamage, type ApplyDamageResult, type DamageSource } from '@shared/physics/damage';
-import {
-  integrateShip,
-  type FlightOptions,
-  type PlanetAtmo,
-} from '@shared/physics/flight';
+import { integrateShip, type FlightOptions, type PlanetAtmo } from '@shared/physics/flight';
 import { quatIdentity, type Quat } from '@shared/physics/vec';
 import { shipStats, HEX_COLOR } from '@shared/ships';
 import type { SystemGen } from '@shared/galaxy/types';

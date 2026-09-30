@@ -3,12 +3,21 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-30
-**Tasks Completed:** 22
-**Current Task:** TASK-23 Complete
+**Tasks Completed:** 23
+**Current Task:** TASK-24 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-09-30 — TASK-24: Ship state persistence across restarts
+Ship flight state survives server restarts and hard crashes: a periodic + shutdown flush writes the whole shard to the `ships` table in ONE transaction, and shard spawn rehydrates entities from the persisted rows instead of re-spawning at rest state (no spawn teleports).
+- `app/src/server/shard/persist.ts` (NEW, step 1) — `createShardPersist({ repo, systemId, options })`: `flushShips(shard)` collects every owned non-wreck entity's {pos, vel, quat, regime, hull (normalized→points vs class caps), shields, livery (only when the exact 3-slot contract via `isLivery`), onPad, state, destroyedAt} and writes it as a SINGLE multi-row `INSERT ... ON CONFLICT (owner_id) DO UPDATE` (`repo.upsertShipStates`, new — `excluded.*` on conflict, inlined finiteness guard, no per-statement zod in the hot path) inside one transaction; NaN/invalid state rolls the whole flush back (logs, retries next tick). `loadShips()` (step 2) returns {ships, wrecks, deletedExpired} in one transaction — expired/corrupt destroyed rows are deleted in the SAME tx (no orphan rows). `startShardFlushTimer()`: unref'd interval at `SHARD_FLUSH_INTERVAL_MS` (env, default 30 000). Wired in `server/index.ts`: timer at boot + final async flush on SIGTERM/SIGINT before exit.
+- `app/src/server/shard/shard.ts` (step 2) — `SystemShard.loadShips()` + `entityFromShipRow()`: flying ships resume at saved pos/vel/quat/regime, docked ships at `homeDockPosition(seed, systemId)`, unexpired destroyed ships become static `wreck:<id>` entities with remaining ttl; `join()` re-adopts the persisted entity (no rest-state re-spawn). `SimEntity.destroyedAtMs` (types.ts) carries the destruction timestamp.
+- Schema/migration — `ships` gains `rotation` (Quat json), `regime` ('space'|'atmosphere'), `on_pad`, `destroyed_at` (sqlite + pg; pg gets `uq_ships_owner`); `000001_ship_persistence.sql` ALTERs + unique index on `owner_id` (sqlite); `repo.saveShipState` accepts the new fields, `repo.deleteShips` added for expired-wreck cleanup.
+- Tests: `shard/persist.test.ts` (14, NEW) — flush one-tx upsert, full-state round-trip, missing-row upsert, destroyed/destroyedAt, onPad→docked, partial-livery guard, AI-ship skip, NaN rollback, load classification + expired deletion + system isolation, `SystemShard` restart-load entity states + join re-adoption, timer behavior, and the perf guard (step 4): 16 ships × 40 flushes asserts p95 < 8 ms — bench line this run: p50 1.018 ms / **p95 1.524 ms** / max 2.798 ms. `shard/crash-restart.test.ts` (NEW, integration, 60 s timeout) — boots the REAL server on two random free ports over one temp DB, claims a callsign, WS-joins (same SESSION_SECRET so the 7-day token survives the reboot), ~2 s of thrust, SIGKILL, reads the surviving WAL db directly, reboots on the SAME db, rejoins: position within measured drift + 1 tick of the persisted row, still far from the dock (no teleport), velocity exactly equals the persisted velocity, hull ~full, sublight. `repo.test.ts` migration count 1→2.
+- Verified: `tsc --noEmit` clean, `eslint --fix` + `prettier --write` (lint + `prettier --check` clean), full `npm run test` → 44 files / 466 tests all pass (incl. the crash-restart integration test).
+- No UI changes (no screenshots).
 
 ### 2026-09-30 — TASK-23: Ship damage model: hull, shields, dock repair
 Server-authoritative damage pipeline foundation: shield-first damage math shared client/server, the sim's hit hook with destroyed state + static 600 s wrecks, combat_event broadcast to the whole shard, and the dock repair endpoint:

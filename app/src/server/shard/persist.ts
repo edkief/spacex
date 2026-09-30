@@ -105,9 +105,7 @@ export function createShardPersist(deps: {
       regime: e.ship.regime as ShipRegime,
       onPad: e.ship.onPad ?? null,
       state,
-      destroyedAt: e.destroyed
-        ? new Date(e.destroyedAtMs ?? now()).toISOString()
-        : null,
+      destroyedAt: e.destroyed ? new Date(e.destroyedAtMs ?? now()).toISOString() : null,
     };
     // Livery only when it is the exact 3-slot contract (the route is the
     // authoritative livery writer; a partial value must not clobber it).

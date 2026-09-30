@@ -375,8 +375,7 @@ export function createRepo(db: Db, tables: Schema): Repository {
       if (shipIds.length === 0) return 0;
       type RunResult = { changes?: number; rowCount?: number };
       const result = (await d.delete(t.ships).where(inArray(t.ships.id, shipIds))) as
-        | RunResult
-        | RunResult[];
+        RunResult | RunResult[];
       const first = Array.isArray(result) ? result[0] : result;
       return Number(first?.changes ?? first?.rowCount ?? 0);
     },

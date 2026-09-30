@@ -26,7 +26,7 @@ Excludes dotfiles, tests, and config.
 │       │       └── ship-mesh.ts # TASK-21: ShipMeshBuilder — 3 paint-zone materials + in-place applyLivery
 │       ├── server/
 │       │   ├── env.ts        # zod-validated env (PROJECT_ROOT/.env.local)
-│       │   ├── index.ts      # process entry: Fastify + ws, REST routes + token auth + ship-swap broadcast, listens on PORT
+│       │   ├── index.ts      # process entry: Fastify + ws, REST routes + token auth + ship-swap broadcast, shard flush timer + shutdown flush, listens on PORT
 │       ├── shards.ts     # TASK-20/21: in-process ship-swap + livery bus, shipToEntity, entity_update broadcast bridge (folds into TASK-11/12)
 │       │   ├── server.ts     # buildServer() for tests/inject()
 │       │   ├── auth/
@@ -44,9 +44,11 @@ Excludes dotfiles, tests, and config.
 │       │   │   ├── sim.ts  # TASK-13: SimLoop — 20 Hz fixed tick, drift-corrected setTimeout chain, 5-tick max catch-up + input-drop flag
 │       │   │   ├── histogram.ts  # TASK-13: TickHistogram — ring-buffer tick durations, p50/p95/p99
 │       │   │   ├── terrain.ts  # TASK-13: TerrainContext — 3x3 chunk neighborhood cache, bilinear O(1) heightAt, world-coord pads
-│       │   │   ├── shard.ts  # TASK-13/23: SystemShard — input queues (latest-wins, stale seq), integrateShip per tick (destroyed skipped), applyHit + static 600 s wrecks, 10 Hz shared-buffer snapshots
-│       │   │   ├── types.ts  # TASK-13/23: Shard/ConnState/SimEntity contracts (kind 'wreck', destroyed/ttl)
-│       │   │   └── index.ts  # TASK-13: barrel exports
+│       │   │   ├── shard.ts  # TASK-13/23/24: SystemShard — input queues (latest-wins, stale seq), integrateShip per tick (destroyed skipped), applyHit + static 600 s wrecks, 10 Hz shared-buffer snapshots; loadShips() restart rehydration (saved flight state / dock coords / unexpired wrecks)
+│       │   │   ├── types.ts  # TASK-13/23/24: Shard/ConnState/SimEntity contracts (kind 'wreck', destroyed/ttl, destroyedAtMs)
+│       │   │   ├── persist.ts  # TASK-24: shard flush/load service — one-tx multi-row upsert to ships + load with expired-wreck cleanup, flush timer
+│       │   │   ├── index.ts  # TASK-13: barrel exports
+│       │   │   └── (tests) persist.test.ts (flush/load + p95 < 8 ms bench), crash-restart.test.ts (SIGKILL restart integration, real child server)
 │       │   ├── persist.ts               # TASK-63 save-point service: dock/damage-milestone/5s-interval/shutdown, crash-load
 │       │   ├── persist-crash-child.ts   # TASK-63 test helper: child process that saves state, then gets SIGKILL'd
 │       │   ├── ratelimit.ts             # TASK-65 per-conn token bucket (20/s, burst 40), chat limiter (2 s gap / 280 chars / 10 per 30 s), 3-in-10 s escalation
@@ -57,7 +59,8 @@ Excludes dotfiles, tests, and config.
 │       │       ├── repo.ts            # Repository: players/ships/cargo/credits/nodes/sessions; zod-validated JSON (strict 3-slot livery, TASK-21)
 │       │       ├── errors.ts          # CallsignTakenError, InsufficientCreditsError, NotFoundError
 │       │       └── migrations/
-│       │           └── 000000_init.sql # initial SQLite DDL
+│       │           ├── 000000_init.sql # initial SQLite DDL
+│       │           └── 000001_ship_persistence.sql # TASK-24: ships +rotation/regime/on_pad/destroyed_at + uq_ships_owner
 │       └── shared/
 │           ├── canonical.ts  # canonicalJson: stable key-sorted JSON for checksums
 │           ├── callsign.ts   # TASK-10: shared zod callsign schema (3-16 alnum+dash, lowercase transform)

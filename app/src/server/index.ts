@@ -10,11 +10,7 @@ import { registerApiRoutes } from '@server/routes';
 import { attachShipSwapBroadcast, createShipSwapBus } from '@server/shards';
 import { generateStars } from '@shared/galaxy/stars';
 import { generateSystem } from '@shared/galaxy/system';
-import {
-  SystemShard,
-  createShardPersist,
-  startShardFlushTimer,
-} from '@server/shard';
+import { SystemShard, createShardPersist, startShardFlushTimer } from '@server/shard';
 
 const env = loadEnv();
 const app = buildServer(env);
@@ -62,7 +58,12 @@ async function main(): Promise<void> {
   const load = await shardPersist.loadShips();
   await shard.loadShips(load);
   app.log.info(
-    { systemId: simSystem.systemId, ships: load.ships.length, wrecks: load.wrecks.length, deletedExpired: load.deletedExpired },
+    {
+      systemId: simSystem.systemId,
+      ships: load.ships.length,
+      wrecks: load.wrecks.length,
+      deletedExpired: load.deletedExpired,
+    },
     'shard state loaded',
   );
 

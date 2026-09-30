@@ -157,10 +157,7 @@ class WsClient {
     const found = this.queue.find(predicate);
     if (found) return found;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(
-        () => reject(new Error(`timeout waiting for ${what}`)),
-        timeoutMs,
-      );
+      const timer = setTimeout(() => reject(new Error(`timeout waiting for ${what}`)), timeoutMs);
       this.waiters.push({
         predicate: (m) => {
           if (!predicate(m)) return false;
