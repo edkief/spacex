@@ -11,7 +11,8 @@
     "backoffMs": 15000
   },
   "stall": {
-    "maxUnproductiveIterations": 3
+    "maxUnproductiveIterations": 3,
+    "onRepeatedTimeout": "propose"
   },
   "permissions": {
     "fallback": "allow",
