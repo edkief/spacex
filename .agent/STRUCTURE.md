@@ -38,14 +38,14 @@ Excludes dotfiles, tests, and config.
 │       │       ├── callsigns.ts    # TASK-10: POST /api/callsigns (claim → player + starter ship + session token)
 │       │       ├── players.ts      # TASK-41: GET /api/players/me (Bearer → own profile incl. credits)
 │       │       ├── session.ts      # TASK-10: GET /api/session (Bearer → profile, structured 401s)
-│       │       └── ships.ts        # TASK-20/21: GET /api/ships, POST /api/ships/buy (docked purchase), POST /api/ships/livery (3-slot hex paint)
+│       │       └── ships.ts        # TASK-20/21/23: GET /api/ships, POST /api/ships/buy (docked purchase), POST /api/ships/livery (3-slot hex paint), POST /api/ships/repair (docked, credit cost)
 │       │   ├── ws.ts         # TASK-9 WS lifecycle: handshake state machine, structured errors, presence, 15s/45s keepalive
 │       │   ├── shard/
 │       │   │   ├── sim.ts  # TASK-13: SimLoop — 20 Hz fixed tick, drift-corrected setTimeout chain, 5-tick max catch-up + input-drop flag
 │       │   │   ├── histogram.ts  # TASK-13: TickHistogram — ring-buffer tick durations, p50/p95/p99
 │       │   │   ├── terrain.ts  # TASK-13: TerrainContext — 3x3 chunk neighborhood cache, bilinear O(1) heightAt, world-coord pads
-│       │   │   ├── shard.ts  # TASK-13: SystemShard — input queues (latest-wins, stale seq), integrateShip per tick, 10 Hz shared-buffer snapshots
-│       │   │   ├── types.ts  # TASK-13: Shard/ConnState/SimEntity contracts
+│       │   │   ├── shard.ts  # TASK-13/23: SystemShard — input queues (latest-wins, stale seq), integrateShip per tick (destroyed skipped), applyHit + static 600 s wrecks, 10 Hz shared-buffer snapshots
+│       │   │   ├── types.ts  # TASK-13/23: Shard/ConnState/SimEntity contracts (kind 'wreck', destroyed/ttl)
 │       │   │   └── index.ts  # TASK-13: barrel exports
 │       │   ├── persist.ts               # TASK-63 save-point service: dock/damage-milestone/5s-interval/shutdown, crash-load
 │       │   ├── persist-crash-child.ts   # TASK-63 test helper: child process that saves state, then gets SIGKILL'd
@@ -65,12 +65,13 @@ Excludes dotfiles, tests, and config.
 │           ├── random.ts     # Deterministic PRNG (xoshiro128**) + FNV-1a/splitmix hashing
 │           ├── protocol.ts       # TASK-9: version constant, Envelope, encode/decode, parseMessage, error codes
 │           ├── protocol/
-│           │   └── schemas.ts    # TASK-9: zod payload schema per message type + EntityState/StateSnapshot shapes
+│           │   └── schemas.ts    # TASK-9/23: zod payload schema per message type (combat_event damaged/destroyed) + EntityState/StateSnapshot shapes
 │           ├── ships.ts          # TASK-19/21: SHIP_CLASSES + shipStats/compareShips/totalWeaponCount/shipPrice, Livery type + per-class defaultLivery
 │           ├── physics/
 │           │   ├── vec.ts        # TASK-22: Vec3/Quat ops (add/scale/dot/cross/normalize/lerp, fromEuler/multiply/toMat3/rotateVector)
 │           │   ├── atmosphere.ts # TASK-22: 1 km drag boundary ramp atmosphereFactor (shared with TASK-28)
-│           │   └── flight.ts     # TASK-22: integrateShip — deterministic space/atmosphere/VTOL physics + ground collision (substepped)
+│           │   ├── flight.ts     # TASK-22: integrateShip — deterministic space/atmosphere/VTOL physics + ground collision (substepped)
+│           │   └── damage.ts     # TASK-23: applyDamage (pure, shield-first, destroyed at hull zero, double-destroy guard) + repairCost
 │           └── galaxy/
 │               ├── types.ts  # Star, SystemSummary, Planet, SurfaceChunk, Biome interfaces
 │               ├── config.ts # GALAXY_STAR_COUNT, spectral weights, name word lists, disk params

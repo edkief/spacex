@@ -88,8 +88,22 @@ const CASES: Record<string, { valid: unknown; invalid: unknown }> = {
   },
   target_update: { valid: { targetId: null }, invalid: { targetId: 42 } },
   combat_event: {
-    valid: { kind: 'hit', attacker: 'a', target: 'b', weapon: 'laser', damage: 12 },
-    invalid: { kind: 'nuke', attacker: 'a', target: 'b', weapon: 'laser', damage: 12 },
+    valid: {
+      kind: 'damaged',
+      target: 'b',
+      source: { kind: 'player', id: 'a' },
+      amount: 12,
+      shieldHit: 8,
+      hullHit: 4,
+    },
+    invalid: {
+      kind: 'nuke',
+      target: 'b',
+      source: { kind: 'player', id: 'a' },
+      amount: 12,
+      shieldHit: 8,
+      hullHit: 4,
+    },
   },
 };
 
@@ -123,11 +137,56 @@ describe('message payload schemas', () => {
     );
     expect(
       messageSchemas.combat_event.safeParse({
+        kind: 'damaged',
+        target: 'b',
+        source: { kind: 'player', id: 'a' },
+        amount: Infinity,
+        shieldHit: 0,
+        hullHit: 0,
+      }).success,
+    ).toBe(false);
+  });
+
+  it('combat_event accepts the killed variant and rejects unknown kinds and shapes', () => {
+    // The killing hit: {kind:'destroyed', target, source} — no damage fields.
+    expect(
+      messageSchemas.combat_event.safeParse({
+        kind: 'destroyed',
+        target: 'b',
+        source: { kind: 'ai', id: 'rogue-1' },
+      }).success,
+    ).toBe(true);
+    // Old placeholder kinds are gone (TASK-23 rewired the contract).
+    expect(
+      messageSchemas.combat_event.safeParse({ kind: 'hit', attacker: 'a', target: 'b' }).success,
+    ).toBe(false);
+    expect(
+      messageSchemas.combat_event.safeParse({
         kind: 'kill',
         attacker: 'a',
         target: 'b',
         weapon: 'torpedo',
-        damage: Infinity,
+        damage: 1,
+      }).success,
+    ).toBe(false);
+    // Strict: the destroyed variant takes no damage fields.
+    expect(
+      messageSchemas.combat_event.safeParse({
+        kind: 'destroyed',
+        target: 'b',
+        source: { kind: 'player', id: 'a' },
+        amount: 5,
+      }).success,
+    ).toBe(false);
+    // Source must be a player/ai discriminant.
+    expect(
+      messageSchemas.combat_event.safeParse({
+        kind: 'damaged',
+        target: 'b',
+        source: { kind: 'alien', id: 'a' },
+        amount: 1,
+        shieldHit: 0,
+        hullHit: 1,
       }).success,
     ).toBe(false);
   });

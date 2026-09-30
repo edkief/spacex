@@ -15,7 +15,12 @@ export type Regime = (typeof REGIMES)[number];
 export const CHAT_CHANNELS = ['local', 'system'] as const;
 export type ChatChannel = (typeof CHAT_CHANNELS)[number];
 
-export const COMBAT_EVENT_KINDS = ['hit', 'kill'] as const;
+/**
+ * Combat event kinds (TASK-23 rewired the contract: the sim broadcasts
+ * 'damaged' per hit and 'destroyed' on the killing hit — the old 'hit'/'kill'
+ * placeholders were never produced. Wire contract change noted for TASK-69).
+ */
+export const COMBAT_EVENT_KINDS = ['damaged', 'destroyed'] as const;
 export type CombatEventKind = (typeof COMBAT_EVENT_KINDS)[number];
 
 export const PRESENCE_EVENTS = ['join', 'leave'] as const;
@@ -89,6 +94,13 @@ export const presenceEntrySchema = z
   })
   .strict();
 export type PresenceEntry = z.infer<typeof presenceEntrySchema>;
+
+/** Who landed a hit: player or AI (HUD attribution, TASK-23). */
+export const damageSourceSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('player'), id: z.string().min(1) }).strict(),
+  z.object({ kind: z.literal('ai'), id: z.string().min(1) }).strict(),
+]);
+export type DamageSource = z.infer<typeof damageSourceSchema>;
 
 /** Full world state for a system; chat holds only the last 100 messages. */
 export const stateSnapshotSchema = z
@@ -173,15 +185,32 @@ export const messageSchemas = {
     })
     .strict(),
   target_update: z.object({ targetId: z.string().min(1).nullable() }).strict(),
-  combat_event: z
-    .object({
-      kind: z.enum(COMBAT_EVENT_KINDS),
-      attacker: z.string().min(1),
-      target: z.string().min(1),
-      weapon: z.string().min(1),
-      damage: finite.min(0),
-    })
-    .strict(),
+  /**
+   * TASK-23: the sim broadcasts combat_event to the WHOLE shard. 'damaged'
+   * per hit (amount/shieldHit/hullHit in points, shield-first); the killing
+   * hit broadcasts 'destroyed' INSTEAD (no damage fields — the target is
+   * gone). Source mirrors the domain DamageSource in @shared/physics/damage
+   * (HUD attribution).
+   */
+  combat_event: z.discriminatedUnion('kind', [
+    z
+      .object({
+        kind: z.literal('damaged'),
+        target: z.string().min(1),
+        source: damageSourceSchema,
+        amount: finite.min(0),
+        shieldHit: finite.min(0),
+        hullHit: finite.min(0),
+      })
+      .strict(),
+    z
+      .object({
+        kind: z.literal('destroyed'),
+        target: z.string().min(1),
+        source: damageSourceSchema,
+      })
+      .strict(),
+  ]),
 } as const;
 
 export type MessageType = keyof typeof messageSchemas;

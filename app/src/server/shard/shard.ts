@@ -4,7 +4,13 @@ import { WebSocket } from 'ws';
 
 import { encodeMessage } from '@shared/protocol';
 import { inputToShipInput } from '@shared/protocol/inputs';
-import { messageSchemas, type EntityState, type InputPayload } from '@shared/protocol/schemas';
+import {
+  messageSchemas,
+  type EntityState,
+  type InputPayload,
+  type PayloadSchemas,
+} from '@shared/protocol/schemas';
+import { applyDamage, type ApplyDamageResult, type DamageSource } from '@shared/physics/damage';
 import {
   integrateShip,
   restShipState,
@@ -35,6 +41,8 @@ export const SNAPSHOT_EVERY_TICKS = 2;
 export const SNAPSHOT_WARN_BYTES = 32 * 1024;
 /** Atmosphere density for planets that have one (flight-model units). */
 export const ATMO_DENSITY = 0.1;
+/** Wrecks (TASK-23) stay in the shard for 600 s, then are removed. */
+export const WRECK_TTL_MS = 600_000;
 
 /** Zero control frame for players with nothing queued (coast). */
 const ZERO_INPUT: InputPayload = {
@@ -91,6 +99,8 @@ export class SystemShard implements Shard {
   private readonly repo: CreateSystemShardOptions['repo'];
   private readonly log: ShardLogger;
   private readonly dt: number; // seconds
+  /** Wreck ttl in TICKS (600 s at the shard's dt; 20 Hz → 12 000). */
+  private readonly wreckTtlTicks: number;
   private readonly terrain = new Map<string, TerrainContext>();
   private readonly playerConns = new Map<string, string>();
   private readonly playerEntities = new Map<string, SimEntity>();
@@ -105,6 +115,7 @@ export class SystemShard implements Shard {
     this.repo = options.repo;
     this.log = options.log ?? defaultLogger;
     this.dt = (options.dtMs ?? TICK_DT_MS) / 1000;
+    this.wreckTtlTicks = Math.max(1, Math.round(WRECK_TTL_MS / (options.dtMs ?? TICK_DT_MS)));
     this.persist = options.persist ?? (() => {});
 
     this.sim = new SimLoop({
@@ -147,6 +158,12 @@ export class SystemShard implements Shard {
     const connId = this.playerConns.get(playerId);
     const conn = connId ? this.connections.get(connId) : undefined;
     if (!conn) return false;
+    // TASK-23: destroyed ships ignore inputs (frozen until dock respawn).
+    const entity = this.playerEntities.get(playerId);
+    if (entity?.destroyed) {
+      this.log.debug('dropped input: ship destroyed', { playerId, seq: payload.seq });
+      return false;
+    }
     if (this.sim.inputDrops) {
       this.log.debug('dropped input: sim overloaded', { playerId, seq: payload.seq });
       return false;
@@ -251,6 +268,114 @@ export class SystemShard implements Shard {
     if (entity.playerId) this.playerEntities.set(entity.playerId, entity);
   }
 
+  /**
+   * TASK-23: a weapon hit lands on the target (the sim-side hook; real
+   * weapons wire in TASK-43). Applies the shared damage model — shields
+   * absorb first, overflow reaches the hull — and broadcasts a combat_event
+   * to the WHOLE shard: 'damaged' per hit, or 'destroyed' on the killing hit.
+   *
+   * A killing hit destroys the ship: it stops integrating, ignores inputs,
+   * becomes non-targetable, and a static wreck (kind 'wreck', 600 s ttl)
+   * takes its final position. The ship entity itself stays frozen (hull 0 on
+   * the wire) until the dock respawn (TASK-49).
+   *
+   * Returns the damage result, or undefined when the target is unknown, a
+   * wreck, or already destroyed (the double-destroy guard: no second
+   * destroyed event, no second wreck).
+   */
+  applyHit(targetId: string, amount: number, source: DamageSource): ApplyDamageResult | undefined {
+    const entity = this.entities.get(targetId);
+    if (!entity || entity.kind === 'wreck' || entity.destroyed) return undefined;
+    const cls = shipStats(entity.classId);
+    // Sim entities keep normalized 0..1 fractions; the shared model works in
+    // absolute points against the class caps.
+    const result = applyDamage(
+      {
+        hull: entity.hull * cls.hull,
+        shields: entity.shields * cls.shieldCapacity,
+      },
+      amount,
+      source,
+    );
+    const hullCap = cls.hull > 0 ? cls.hull : 1;
+    const shieldCap = cls.shieldCapacity > 0 ? cls.shieldCapacity : 1;
+    entity.shields = Math.max(0, entity.shields - result.shieldHit / shieldCap);
+    entity.hull = Math.max(0, entity.hull - result.hullHit / hullCap);
+    if (result.destroyed) {
+      this.destroyEntity(entity, source);
+    } else {
+      this.broadcastCombatEvent({
+        kind: 'damaged',
+        target: entity.id,
+        source,
+        amount,
+        shieldHit: result.shieldHit,
+        hullHit: result.hullHit,
+      });
+    }
+    return result;
+  }
+
+  /**
+   * Destroy a ship (the killing step of applyHit): freeze it (hull/shields 0,
+   * no held input, no target) and spawn a static wreck at its final position
+   * with the 600 s ttl. The wreck is a NEW entity (id `wreck:<shipId>`) so
+   * the frozen ship — which a dock respawn re-adopts in TASK-49 — and the
+   * expiring wreck are independent.
+   */
+  private destroyEntity(entity: SimEntity, source: DamageSource): void {
+    entity.destroyed = true;
+    entity.hull = 0;
+    entity.shields = 0;
+    entity.targetId = null;
+    entity.heldInput = undefined;
+    const connId = entity.playerId ? this.playerConns.get(entity.playerId) : undefined;
+    if (connId) {
+      const conn = this.connections.get(connId);
+      if (conn) conn.input = undefined; // queued input is moot: the ship is gone
+    }
+    this.entities.set(`wreck:${entity.id}`, {
+      id: `wreck:${entity.id}`,
+      kind: 'wreck',
+      playerId: null,
+      classId: entity.classId,
+      ship: {
+        pos: { ...entity.ship.pos },
+        vel: { x: 0, y: 0, z: 0 },
+        quat: { ...entity.ship.quat },
+        regime: entity.ship.regime,
+      },
+      hull: 0,
+      shields: 0,
+      targetId: null,
+      docked: false, // static wreck: sublight wire regime at zero velocity
+      ttl: this.wreckTtlTicks,
+    });
+    this.broadcastCombatEvent({ kind: 'destroyed', target: entity.id, source });
+    this.log.info('ship destroyed', {
+      target: entity.id,
+      source: source.id,
+      wreck: `wreck:${entity.id}`,
+    });
+  }
+
+  /**
+   * Encode-once combat_event to every in-system connection (the shard is the
+   * whole broadcast scope in v1). Validated against the wire contract first,
+   * mirroring the snapshot path (a failing event must never crash the tick).
+   */
+  private broadcastCombatEvent(payload: PayloadSchemas['combat_event']): void {
+    const check = messageSchemas.combat_event.safeParse(payload);
+    if (!check.success) {
+      this.log.warn('combat event failed wire validation', {
+        issue: check.error.issues[0]?.message,
+      });
+      return;
+    }
+    const buffer = encodeMessage('combat_event', check.data);
+    for (const conn of this.connections.values()) conn.send(buffer);
+  }
+
   /** Protocol snapshot of all entities (10 Hz broadcast payload, joined form). */
   snapshot(): EntityState[] {
     const out: EntityState[] = [];
@@ -262,15 +387,21 @@ export class SystemShard implements Shard {
   private tick(tick: number): void {
     const t0 = performance.now();
 
+    // TASK-23: expire static wrecks (600 s ttl) — bounds the entity count.
+    for (const [id, entity] of this.entities) {
+      if (entity.ttl !== undefined && --entity.ttl === 0) this.entities.delete(id);
+    }
+
     // Drain input queues: a new frame REPLACES the held frame (latest already
     // won at enqueue) and is held on the entity, re-integrated every tick
     // until a newer frame arrives — the client predictor keeps integrating
     // its last input between frames, so the authority must too (TASK-14).
     // Ships always integrate (the sim never pauses mid-flight); a player
-    // that never sent a frame coasts on zero input.
+    // that never sent a frame coasts on zero input. Destroyed ships (TASK-23)
+    // stop integrating and ignore inputs entirely.
     for (const conn of this.connections.values()) {
       const entity = this.playerEntities.get(conn.playerId);
-      if (!entity) continue;
+      if (!entity || entity.destroyed) continue;
       const input = conn.input;
       if (input) {
         conn.input = undefined; // consumed: becomes the held frame
@@ -417,6 +548,12 @@ export class SystemShard implements Shard {
       const cls = shipStats(ship.classId);
       entity.hull = Math.min(1, cls.hull > 0 ? ship.hull / cls.hull : 0);
       entity.shields = Math.min(1, cls.shieldCapacity > 0 ? ship.shields / cls.shieldCapacity : 0);
+      // A dock repair (TASK-23 reuses this event) must also REVIVE a
+      // destroyed in-shard entity: clear the flag and the stale held frame.
+      if (entity.hull > 0) {
+        entity.destroyed = false;
+        entity.heldInput = undefined;
+      }
       entity.docked = ship.state === 'docked';
       entity.ship.pos = { x: ship.position.x, y: ship.position.y, z: ship.position.z };
       entity.ship.vel = { x: 0, y: 0, z: 0 };

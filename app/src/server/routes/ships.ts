@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import { homeDockPosition } from '@shared/galaxy/dock';
+import { repairCost } from '@shared/physics/damage';
 import { shipStats, type ShipClass } from '@shared/ships';
 import { InsufficientCreditsError } from '@server/db/errors';
 import type { ShipRow } from '@server/db/schema';
@@ -179,5 +180,82 @@ export function registerShipRoutes(app: FastifyInstance, deps: RouteDeps): void 
     deps.shipSwapBus?.emitLivery({ playerId: player.id, livery: parsed.data.colors });
 
     return shipPayload(updated);
+  });
+
+  /**
+   * POST /api/ships/repair (TASK-23) — dock repair. Full hull + shield restore
+   * for a credit cost computed from the class maxes:
+   * `ceil((1 - hull/maxHull) * 10) + ceil((1 - shields/maxShields) * 5)`.
+   * Requires a DOCKED ship. The cost is withdrawn via TASK-41 in the SAME
+   * transaction as the hull/shield reset (one atomic write: a failed reset
+   * rolls the spend back, a failed spend never resets the ship). A 0-cost
+   * call on a full ship is a no-op success. After commit the in-process bus
+   * notifies the system shard, which revives / updates the in-shard entity
+   * and its next 10 Hz snapshot carries the restored hull/shields.
+   */
+  app.post('/api/ships/repair', async (req, reply) => {
+    const auth = await requireAuth(req, deps.sessions);
+    if (!auth.ok) {
+      return reply.code(401).send({ code: 'unauthenticated', reason: auth.reason });
+    }
+    const player = auth.player;
+
+    const ship = await deps.repo.getShipByOwner(player.id);
+    if (!ship) {
+      return reply.code(404).send({ code: 'no-ship', message: 'player has no ship' });
+    }
+    if (ship.state !== 'docked') {
+      return reply.code(409).send({ code: 'not-docked', message: 'repair requires a docked ship' });
+    }
+
+    const cls = shipStats(ship.classId);
+    const cost = repairCost(ship.classId, ship.hull, ship.shields);
+    let balance = await deps.repo.getBalance(player.id);
+    if (balance < cost) {
+      return reply.code(422).send({
+        code: 'insufficient-credits',
+        message: `need ${cost} credits, have ${balance}`,
+        balance,
+        cost,
+      });
+    }
+
+    let repaired: ShipRow;
+    try {
+      // One transaction: withdraw the cost, then restore to class caps.
+      // A cost of 0 (full ship) skips the withdraw but still commits the
+      // (no-op) restore so the response reflects canonical full values.
+      repaired = await deps.repo.withTransaction(async (tx) => {
+        if (cost > 0) {
+          const paid = await tx.withdrawCredits(player.id, cost);
+          balance = paid.credits;
+        }
+        return await tx.saveShipState(ship.id, {
+          hull: cls.hull,
+          shields: cls.shieldCapacity,
+          position: ship.position,
+          velocity: ship.velocity,
+          state: ship.state,
+        });
+      });
+    } catch (err) {
+      // A concurrent spend can drive the conditional withdraw to zero rows.
+      if (err instanceof InsufficientCreditsError) {
+        return reply.code(422).send({
+          code: 'insufficient-credits',
+          message: err.message,
+          balance: err.balance,
+          cost,
+        });
+      }
+      throw err;
+    }
+
+    // Notify the system shard (no-op when no shard is active for the system).
+    // Reuses the swap event: the in-shard handler resets hull/shields in place
+    // and, if the entity was destroyed, revives it.
+    deps.shipSwapBus?.emitSwap({ playerId: player.id, ship: repaired, oldShipId: ship.id });
+
+    return { ...shipPayload(repaired), balance, cost };
   });
 }

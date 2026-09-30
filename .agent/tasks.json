@@ -151,7 +151,7 @@
     "title": "Ship damage model: hull, shields, dock repair",
     "category": "functional",
     "specFilePath": ".agent/tasks/TASK-23.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-24",

@@ -43,18 +43,27 @@ export interface ConnState {
 export interface SimEntity {
   /** Wire-stable entity id (the ship id clients hold; survives ship swaps). */
   id: string;
-  kind: 'ship' | 'ai-ship';
-  /** Owner (null for AI ships). One entity per player. */
+  /** 'wreck': static wreck of a destroyed ship (TASK-23), removed after its ttl. */
+  kind: 'ship' | 'ai-ship' | 'wreck';
+  /** Owner (null for AI ships and wrecks). One entity per player. */
   playerId: string | null;
   callsign?: string;
   classId: string;
-  /** Kinematic state — mutated only inside the tick. */
+  /** Kinematic state — mutated only inside the tick (wrecks are static). */
   ship: ShipState;
-  /** Normalized hull / shields (0..1), combat-ready state (TASK-23 fills in). */
+  /** Normalized hull / shields (0..1), combat state (TASK-23). */
   hull: number;
   shields: number;
   targetId: string | null;
   livery?: Record<string, string>;
+  /**
+   * TASK-23: the ship is destroyed (hull at zero). A destroyed entity stops
+   * integrating, ignores inputs, and is non-targetable; it stays in the world
+   * (frozen, hull 0 on the wire) until the dock respawn (TASK-49).
+   */
+  destroyed?: boolean;
+  /** TASK-23: ticks left until the entity is removed (wrecks only: 600 s). */
+  ttl?: number;
   /**
    * Persisted 'docked' ships stay in the 'docked' wire regime until their
    * first input (which takes them off the dock plane).
