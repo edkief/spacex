@@ -3,8 +3,8 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-30
-**Tasks Completed:** 32
-**Current Task:** TASK-8 Complete
+**Tasks Completed:** 31
+**Current Task:** TASK-8 implemented + verified in touched suites; pending one full-suite confirmation run (see handoff)
 
 ----------------------------------------------
 
