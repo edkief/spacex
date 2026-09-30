@@ -199,7 +199,7 @@ await expect_text(page, 'DRIFT');
 // 5 s window: the manual feel check for a rendered ship lands with the
 // client renderer (later tasks) — for now the page must stay error-free.
 await page.waitForTimeout(5000);
-const shot = path.join(import.meta.dirname, '../.agent/screenshots/TASK-14-1.png');
+const shot = path.join(import.meta.dirname, '../.ralph/screenshots/TASK-14-1.png');
 await page.screenshot({ path: shot, fullPage: true });
 assert(errors.length === 0, `browser console clean over 5 s (${errors.length} errors)`);
 await browser.close();

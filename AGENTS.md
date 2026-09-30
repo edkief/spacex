@@ -2,7 +2,7 @@
 
 Always apply these standards to all code you write.
 
-The Ralph loop that runs these tasks lives in `ralph/`; see @ralph/README.md for how it drives opencode, what it checks before an iteration, and what it writes to `.agent/history/`.
+The Ralph loop that runs these tasks lives in `ralph/`; see @ralph/README.md for how it drives opencode, what it checks before an iteration, and what it writes to `.ralph/history/`.
 
 ## Reuse Before Creating
 
@@ -29,7 +29,7 @@ Signs a file needs splitting:
 
 ## Task Execution
 
-- **One task per invocation.** When working from `.agent/tasks.json`, complete exactly one task, commit, and stop. Never batch multiple tasks.
+- **One task per invocation.** When working from `.ralph/tasks.json`, complete exactly one task, commit, and stop. Never batch multiple tasks.
 
 ## Code Style
 

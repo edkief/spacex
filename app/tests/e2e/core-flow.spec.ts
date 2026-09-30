@@ -36,7 +36,7 @@ test('core flow: claim → session → join → starfield → player list', asyn
   await expect(game.playerList).toContainText(`${callsign} (you)`);
 
   await page.screenshot({
-    path: path.join(__dirname, '../../../.agent/screenshots/TASK-70-1.png'),
+    path: path.join(__dirname, '../../../.ralph/screenshots/TASK-70-1.png'),
   });
   assertClean();
   await context.close();

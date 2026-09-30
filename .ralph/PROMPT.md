@@ -1,8 +1,8 @@
-> ⛔ **ONE TASK PER INVOCATION** — Complete one task from @.agent/tasks.json, commit, output `<promise>TASK-{ID}:DONE</promise>`, and STOP. Do NOT start the next task. Do NOT use parallel agents for multiple tasks.
+> ⛔ **ONE TASK PER INVOCATION** — Complete one task from @{{RALPH_DIR}}/tasks.json, commit, output `<promise>TASK-{ID}:DONE</promise>`, and STOP. Do NOT start the next task. Do NOT use parallel agents for multiple tasks.
 
 ## Overview
 
-You are implementing the project described in @.agent/prd/SUMMARY.md
+You are implementing the project described in @{{RALPH_DIR}}/prd/SUMMARY.md
 
 ## Required Setup
 
@@ -11,27 +11,27 @@ App will be running at http://localhost:3000
 
 ## Before Starting
 
-Check @.agent/STEERING.md for critical work. Complete items in sequence, remove when done. Only proceed to implement tasks if no critical work pending.
+Check @{{RALPH_DIR}}/STEERING.md for critical work. Complete items in sequence, remove when done. Only proceed to implement tasks if no critical work pending.
 
 ## Task Flow
 
-Tasks are listed in @.agent/tasks.json
+Tasks are listed in @{{RALPH_DIR}}/tasks.json
 
 1. Pick highest-priority task with `passes: false` in `tasks.json`
-2. Read full spec: `.agent/tasks/TASK-${ID}.json`
-3. Check existing dir structure in @.agent/STRUCTURE.md
+2. Read full spec: `{{RALPH_DIR}}/tasks/TASK-${ID}.json`
+3. Check existing dir structure in @{{RALPH_DIR}}/STRUCTURE.md
 4. Implement steps by step according to spec and write unit test
 5. **UI tasks only:** do a Playwright smoke test
    - Check console for errors
    - Write minimal e2e test (happy path only)
    - Skip e2e if unit test already covers functionality
-   - Save UI Screenshot to `.agent/screenshots/TASK-${ID}-{index}.png`, verify UI correctness. If debugging, use previous screenshots as reference.
+   - Save UI Screenshot to `{{RALPH_DIR}}/screenshots/TASK-${ID}-{index}.png`, verify UI correctness. If debugging, use previous screenshots as reference.
 6. Run `eslint --fix`, `prettier --write` and end to end tests for affected files.
 7. Run `tsc` and unit tests project-wide
 8. All tests must pass. Broke unrelated test? Fix it before proceeding.
 9. When tests pass, set `passes: true` in `tasks.json` for the task you completed.
-10. Log entry → `.agent/logs/LOG.md` (date, brief summary, screenshot path, newest at the top)
-11. Update `.agent/STRUCTURE.md` if dirs changed. Exclude dotfiles, tests and config.
+10. Log entry → `{{RALPH_DIR}}/logs/LOG.md` (date, brief summary, screenshot path, newest at the top)
+11. Update `{{RALPH_DIR}}/STRUCTURE.md` if dirs changed. Exclude dotfiles, tests and config.
 12. Commit changes, using the Conventional Commit format.
 
 ## Rules
@@ -39,7 +39,7 @@ Tasks are listed in @.agent/tasks.json
 - **CRITICAL**: Only work on **ONE task per invocation**. After committing the task, output `<promise>TASK-{ID}:DONE</promise>` and **STOP immediately**. Do NOT read the next task. Do NOT continue working. Your response **must END** after the promise tag. Any output after it is a violation.
 - Kill all background processes (dev server, etc.) before outputting the promise tag.
 - No git init/remote changes. **No git push**.
-- Check the last 5 tasks in `.agent/logs/LOG.md` for past work
+- Check the last 5 tasks in `{{RALPH_DIR}}/logs/LOG.md` for past work
 - **CRITICAL**: When **ALL** tasks pass → output `<promise>COMPLETE</promise>` and **nothing else**.
 
 ## Help Tags

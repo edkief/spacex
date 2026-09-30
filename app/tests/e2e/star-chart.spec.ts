@@ -7,7 +7,7 @@ import { ClaimPage } from './pages/claim';
  * TASK-7 star chart smoke: open the chart (M key) → 3 seeded systems render
  * as nodes with labeled edges → select a non-current node → the Warp button
  * enables with the estimated travel time → Escape closes. Screenshot:
- * .agent/screenshots/TASK-7-1.png
+ * .ralph/screenshots/TASK-7-1.png
  */
 test('star chart: open, nodes + edges, select, warp button, close', async ({
   browser,
@@ -54,7 +54,7 @@ test('star chart: open, nodes + edges, select, warp button, close', async ({
   await expect(warpButton).toHaveText(/WARP — \d+(s|m \d+s|h \d+m)/);
 
   await page.screenshot({
-    path: path.join(__dirname, '../../../.agent/screenshots/TASK-7-1.png'),
+    path: path.join(__dirname, '../../../.ralph/screenshots/TASK-7-1.png'),
   });
 
   // Escape closes the chart.

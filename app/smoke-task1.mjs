@@ -12,7 +12,7 @@ page.on('console', (m) => {
 });
 page.on('pageerror', (e) => errors.push(String(e)));
 await page.goto('http://localhost:3000', { waitUntil: 'networkidle' });
-await page.screenshot({ path: path.resolve(here, '../.agent/screenshots/TASK-1-1.png') });
+await page.screenshot({ path: path.resolve(here, '../.ralph/screenshots/TASK-1-1.png') });
 console.log('TITLE:', await page.title());
 console.log('CONSOLE_ERRORS:', JSON.stringify(errors));
 await browser.close();

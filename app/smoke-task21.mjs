@@ -61,7 +61,7 @@ page.on('pageerror', (err) => errors.push(String(err)));
 await page.goto(BASE, { waitUntil: 'networkidle' });
 assert(await page.locator('#game-canvas').isVisible(), 'game canvas visible');
 assert((await page.locator('h1').textContent()) === 'DRIFT', 'HUD title present');
-await page.screenshot({ path: '../.agent/screenshots/TASK-21-1.png', fullPage: true });
+await page.screenshot({ path: '../.ralph/screenshots/TASK-21-1.png', fullPage: true });
 assert(errors.length === 0, `no console errors (${errors.length})`);
 await browser.close();
 

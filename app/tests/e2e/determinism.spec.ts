@@ -81,7 +81,7 @@ test('two independent clients derive identical galaxy data (SC-2)', async ({
     expect(dataA.system.planets.length).toBeGreaterThan(0);
 
     await pageA.screenshot({
-      path: path.join(__dirname, '../../../.agent/screenshots/TASK-71-1.png'),
+      path: path.join(__dirname, '../../../.ralph/screenshots/TASK-71-1.png'),
     });
 
     errsA.assertClean();

@@ -3,21 +3,28 @@
 /**
  * PostToolUse hook that enforces the one-task-per-invocation rule.
  *
- * Reads .agent/tasks.json, counts tasks with passes: true,
+ * Reads .ralph/tasks.json, counts tasks with passes: true,
  * and warns if more than one task was completed since the session started.
- * The baseline is stored in .agent/.task-count (ephemeral per session).
+ * The baseline is stored in .ralph/.task-count (ephemeral per session).
  */
 
 const fs = require('fs');
 const path = require('path');
 
-// Find project root by looking for .agent directory
-function findProjectRoot() {
+// Ralph's folder, then the legacy name for projects not yet renamed
+const RALPH_DIRS = ['.ralph', '.agent'];
+
+/**
+ * Walk up from .claude/hooks to the first directory holding Ralph's
+ * tasks.json, returning that Ralph folder's path.
+ */
+function findRalphDir() {
   let dir = __dirname;
-  // Walk up from .claude/hooks
   while (dir !== path.dirname(dir)) {
-    if (fs.existsSync(path.join(dir, '.agent', 'tasks.json'))) {
-      return dir;
+    for (const name of RALPH_DIRS) {
+      if (fs.existsSync(path.join(dir, name, 'tasks.json'))) {
+        return path.join(dir, name);
+      }
     }
     dir = path.dirname(dir);
   }
@@ -53,12 +60,11 @@ try {
     process.exit(0);
   }
 
-  const root = findProjectRoot();
-  if (!root) {
+  const agentDir = findRalphDir();
+  if (!agentDir) {
     process.exit(0);
   }
 
-  const agentDir = path.join(root, '.agent');
   const tasksFile = path.join(agentDir, 'tasks.json');
   const countFile = path.join(agentDir, '.task-count');
 

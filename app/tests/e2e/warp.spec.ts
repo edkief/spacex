@@ -23,7 +23,7 @@ import { ClaimPage } from './pages/claim';
  * - the target system's star renders at the canvas center (mean
  *   luminance of a 32x32 center sample);
  * - no console/page errors.
- * Screenshots: .agent/screenshots/TASK-8-{1,2,3}.png
+ * Screenshots: .ralph/screenshots/TASK-8-{1,2,3}.png
  */
 test('warp: in-world transition to the target system', async ({ browser, e2eServer }) => {
   const callsign = uniqueCallsign('warp');
@@ -46,7 +46,7 @@ test('warp: in-world transition to the target system', async ({ browser, e2eServ
   expect(targetSys).toBeTruthy();
   expect(targetSys).not.toBe(currentSys);
 
-  await page.screenshot({ path: path.join(__dirname, '../../../.agent/screenshots/TASK-8-1.png') });
+  await page.screenshot({ path: path.join(__dirname, '../../../.ralph/screenshots/TASK-8-1.png') });
 
   // Fire the warp; the button must disable for the whole transition.
   const warpButton = page.locator('#warp-button');
@@ -60,7 +60,7 @@ test('warp: in-world transition to the target system', async ({ browser, e2eServ
   // flat frame (spec: no loading screen).
   await page.waitForTimeout(1000);
   expect(await canvasLuminanceVariance(page), 'no black frame mid-warp').toBeGreaterThan(1);
-  await page.screenshot({ path: path.join(__dirname, '../../../.agent/screenshots/TASK-8-2.png') });
+  await page.screenshot({ path: path.join(__dirname, '../../../.ralph/screenshots/TASK-8-2.png') });
 
   // The overlay (streaks + core) is mounted during the transition and
   // detaches when the phase returns to idle. Total duration: 3–6 s.
@@ -97,7 +97,7 @@ test('warp: in-world transition to the target system', async ({ browser, e2eServ
   // camera centers on the system origin, where the star sits).
   expect(await canvasCenterLuminanceMean(page), 'star at canvas center').toBeGreaterThan(100);
 
-  await page.screenshot({ path: path.join(__dirname, '../../../.agent/screenshots/TASK-8-3.png') });
+  await page.screenshot({ path: path.join(__dirname, '../../../.ralph/screenshots/TASK-8-3.png') });
 
   assertClean();
   await context.close();

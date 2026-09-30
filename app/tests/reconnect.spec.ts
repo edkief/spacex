@@ -8,7 +8,7 @@ import { test, expect, type Page } from '@playwright/test';
  * bring it back. After 30 s down the 'Connection lost' overlay shows with a
  * Retry button; on recovery the client AUTO-resyncs: a 'reconnected' toast,
  * the chat log preserved, NO UI reset (claim form stays gone, player list
- * intact). Screenshot evidence in .agent/screenshots.
+ * intact). Screenshot evidence in .ralph/screenshots.
  *
  * The proxy (installed before the app loads):
  *  - window.__dropCurrent()  closes the open socket (server-side leave),
@@ -121,7 +121,7 @@ test('socket drop → overlay after 30 s → auto-resync on recovery, chat prese
     });
     await expect(page.locator('#reconnect-retry')).toBeVisible();
     await page.screenshot({
-      path: path.join(__dirname, '../../.agent/screenshots/TASK-17-1.png'),
+      path: path.join(__dirname, '../../.ralph/screenshots/TASK-17-1.png'),
     });
 
     // Back up: the background retry (≤ 5 s backoff) resyncs WITHOUT any
@@ -137,7 +137,7 @@ test('socket drop → overlay after 30 s → auto-resync on recovery, chat prese
     await expect(page.locator('#callsign-input')).toBeHidden();
     await expect(page.locator('#connection-lost-overlay')).toBeHidden();
     await page.screenshot({
-      path: path.join(__dirname, '../../.agent/screenshots/TASK-17-2.png'),
+      path: path.join(__dirname, '../../.ralph/screenshots/TASK-17-2.png'),
     });
 
     expect(errors, `console errors: ${errors.join(' | ')}`).toEqual([]);

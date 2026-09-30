@@ -23,7 +23,7 @@ test('scaffold smoke: canvas shell + health endpoint', async ({ page }) => {
   await expect(page.locator('#root')).toContainText('server ok');
 
   await page.screenshot({
-    path: path.join(__dirname, '../../.agent/screenshots/TASK-68-1.png'),
+    path: path.join(__dirname, '../../.ralph/screenshots/TASK-68-1.png'),
     fullPage: true,
   });
 

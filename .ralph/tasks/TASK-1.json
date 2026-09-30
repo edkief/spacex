@@ -16,7 +16,7 @@
     {
       "step": 1,
       "description": "Read prerequisite requirements from the PRD",
-      "details": "Open `.agent/prd/PRD.md` and review the `Prerequisites and Access` section. List required database access, MCPs, service docs, environment variable names, test-user needs, and open gaps (no live Postgres; headless WebGL perf limits).",
+      "details": "Open `.ralph/prd/PRD.md` and review the `Prerequisites and Access` section. List required database access, MCPs, service docs, environment variable names, test-user needs, and open gaps (no live Postgres; headless WebGL perf limits).",
       "pass": true
     },
     {

@@ -4,7 +4,7 @@
 The full warp implementation (server + client) is COMPLETE and verified this session: all unit/WS suites pass, `tsc --noEmit` clean, eslint/prettier clean on touched files, and the real-browser e2e (`warp.spec.ts`) passed in 14.3 s with screenshots. This session ended before the final project-wide `npm run test` confirmation run, so `passes` was left `false` for handoff safety — flip it to `true` after one clean full-suite run.
 
 ## Done
-Everything in the spec (`.agent/tasks/TASK-8.json`) is implemented and tested:
+Everything in the spec (`.ralph/tasks/TASK-8.json`) is implemented and tested:
 
 - **Shared**
   - `app/src/shared/galaxy/spawn.ts` (NEW) — `SPAWN_GATE_POS` (100 u +X), `SPAWN_GATE_QUAT` (pure −90° yaw about Y: +Z → −X; module-load self-check), `spawnGatePose()`.
@@ -27,8 +27,8 @@ Everything in the spec (`.agent/tasks/TASK-8.json`) is implemented and tested:
   - `app/src/server/galaxy/warp.ws.test.ts` (5): A→B (entity at gate, row follows, presence to both peer sets), same-system reject, unknown target, full-system (16 real conns) reject, mid-warp disconnect (exactly 1 entity before, exactly 1 after reconnect into row's system).
   - Units: `spawn.test.ts` (4), `systemForId` in `system.test.ts` (3), `world-manager.test.ts` (5), `warp-controller.test.ts` (6), `session.test.ts` warpTo describe (4), `schemas.test.ts` +`warp_arrived` fixture.
   - E2E `app/tests/e2e/warp.spec.ts`: disables/WARPING…, no-black-frame at t≈1 s (`canvasLuminanceVariance > 1`), duration 3–6 s, `__DRIFT__.worldSwap` = target && buildMs < 300, star at canvas center (new `canvasCenterLuminanceMean` in `helpers.ts`), `#sys-id` follows.
-  - Screenshots: `.agent/screenshots/TASK-8-{1,2,3}.png`.
-- `.agent/logs/LOG.md` entry + `.agent/STRUCTURE.md` updated (commit `0b2ab21`).
+  - Screenshots: `.ralph/screenshots/TASK-8-{1,2,3}.png`.
+- `.ralph/logs/LOG.md` entry + `.ralph/STRUCTURE.md` updated (commit `0b2ab21`).
 
 ## Working tree
 - Clean except this handoff + the `passes` flip-back. Everything else is committed:
@@ -41,7 +41,7 @@ Everything in the spec (`.agent/tasks/TASK-8.json`) is implemented and tested:
 ## Next steps
 1. `cd app && npm run test` — expect all green (~75 s).
 2. `cd app && npm run test:e2e` — expect 6/6 (each spec ~10–25 s; ~2–3 min total).
-3. Both green → set `"passes": true` for TASK-8 in `.agent/tasks.json`, delete THIS handoff, commit. (LOG.md + STRUCTURE.md are already done.)
+3. Both green → set `"passes": true` for TASK-8 in `.ralph/tasks.json`, delete THIS handoff, commit. (LOG.md + STRUCTURE.md are already done.)
 4. Optional sanity: the e2e duration assert (3–6 s) could flake on a very slow machine — if flaky, widen to 3–8 s rather than re-architecting.
 
 ## Dead ends

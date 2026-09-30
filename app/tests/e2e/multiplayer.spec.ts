@@ -59,7 +59,7 @@ test('two contexts in one system see each other in the presence list', async ({
     await expect(b.game.playerList).toContainText(`${b.callsign} (you)`);
 
     await a.page.screenshot({
-      path: path.join(__dirname, '../../../.agent/screenshots/TASK-70-2.png'),
+      path: path.join(__dirname, '../../../.ralph/screenshots/TASK-70-2.png'),
     });
     a.assertClean();
     b.assertClean();
@@ -91,7 +91,7 @@ test('chat: message from A appears in B within 2 s', async ({ browser, e2eServer
     await expect(a.game.chatLog).toContainText(`${a.callsign}: e2e ping`);
 
     await b.page.screenshot({
-      path: path.join(__dirname, '../../../.agent/screenshots/TASK-70-3.png'),
+      path: path.join(__dirname, '../../../.ralph/screenshots/TASK-70-3.png'),
     });
     a.assertClean();
     b.assertClean();

@@ -4,7 +4,7 @@ import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 /**
  * TASK-15 smoke: two browser contexts (independent storage, two players)
  * join the same system — each player list shows BOTH callsigns, and the
- * joiner sees a "joined" toast. Screenshot evidence in .agent/screenshots.
+ * joiner sees a "joined" toast. Screenshot evidence in .ralph/screenshots.
  */
 async function join(page: Page, callsign: string, sysId?: string): Promise<void> {
   await page.goto(sysId ? `/?sys=${sysId}` : '/');
@@ -59,10 +59,10 @@ test('two contexts: both player lists show both callsigns', async ({ browser }) 
     await expect(pageA.locator('#toast-stack')).toContainText(`${csB} joined`);
 
     await pageA.screenshot({
-      path: path.join(__dirname, '../../.agent/screenshots/TASK-15-1.png'),
+      path: path.join(__dirname, '../../.ralph/screenshots/TASK-15-1.png'),
     });
     await pageB.screenshot({
-      path: path.join(__dirname, '../../.agent/screenshots/TASK-15-2.png'),
+      path: path.join(__dirname, '../../.ralph/screenshots/TASK-15-2.png'),
     });
 
     expect(errorsA, `console errors (context A): ${errorsA.join(' | ')}`).toEqual([]);

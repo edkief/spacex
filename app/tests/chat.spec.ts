@@ -6,7 +6,7 @@ import { test, expect, type BrowserContext, type Page } from '@playwright/test';
  * The Enter-toggled input stays out of the way until used; an XSS payload
  * arrives as INERT TEXT — no <img> element in the DOM (React text rendering,
  * never innerHTML), and the server already stripped control characters.
- * Screenshot evidence in .agent/screenshots.
+ * Screenshot evidence in .ralph/screenshots.
  */
 async function join(page: Page, callsign: string, sysId?: string): Promise<void> {
   await page.goto(sysId ? `/?sys=${sysId}` : '/');
@@ -70,10 +70,10 @@ test('system chat: shared log, inert XSS text, no console errors', async ({ brow
     }
 
     await pageA.screenshot({
-      path: path.join(__dirname, '../../.agent/screenshots/TASK-16-1.png'),
+      path: path.join(__dirname, '../../.ralph/screenshots/TASK-16-1.png'),
     });
     await pageB.screenshot({
-      path: path.join(__dirname, '../../.agent/screenshots/TASK-16-2.png'),
+      path: path.join(__dirname, '../../.ralph/screenshots/TASK-16-2.png'),
     });
 
     expect(errorsA, `console errors (context A): ${errorsA.join(' | ')}`).toEqual([]);
