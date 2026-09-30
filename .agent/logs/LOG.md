@@ -3,12 +3,25 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-30
-**Tasks Completed:** 23
-**Current Task:** TASK-24 Complete
+**Tasks Completed:** 24
+**Current Task:** TASK-11 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-09-30 — TASK-11: Galaxy router: in-process system shards, cap, dispatch
+Single app instance now hosts any number of system shards in-process: the router spawns a shard on demand when a player joins its system, reaps empty shards after a 60 s grace (ships flushed first), and enforces the 16-player per-system cap.
+- `app/src/server/galaxy/router.ts` (NEW) — `createGalaxyRouter({repo, galaxySeed, shipSwapBus, now?, graceMs?, log?})`: precomputes ALL ~200 systems once (≈20 ms) into `Map<systemId, SystemGen>` (systemId = `hash(seed, starId)` — NOT the star id — so validity is an O(1) map lookup). `getShard` idempotent with a pending-promise map collapsing concurrent spawns, and loads serialized on a `loadChain` (concurrent `persist.loadShips()` transactions on the single better-sqlite3 connection abort each other with "cannot start a transaction within a transaction" otherwise). `enter` = getShard → cap check → `shard.registerConnection` synchronously (no await between check and reserve → cap race-proof) → `shard.adoptEntity` → `{ok, snapshot}`. `leave` stamps `graceSince` on the last leave; re-enter clears it. `reapEmpty` (60 s grace, reaper on a 5 s unref'd interval): ships flushed via `queueFlush` BEFORE `shard.stop()`, shard deleted, `upsertSystem(id, name, false)`. `startPeriodicFlush(intervalMs)` flushes every active shard (the crash bound, wired from `env.SHARD_FLUSH_INTERVAL_MS`); all flushes serialize on a `flushChain`. `stats()` → `{systemId, name, players, uptimeMs}[]`; `stopAll()` for shutdown.
+- `app/src/server/galaxy/gateway.ts` (NEW) — `createRouterGateway(router)`: `SystemGateway` over the router.
+- `app/src/server/ws.ts` — `SystemGateway.enterSystem` player arg gains optional `send` (shard snapshot delivery); `join_system` now supports REJOIN: the new system is joined first, and on failure (system-full / system-not-found) the player stays exactly where they were, on success the old system is left (presence leave + `onLeaveSystem` + `gateway.leaveSystem`).
+- `app/src/server/shard/shard.ts` — `join()` split into `adoptEntity(playerId, callsign)` (entity spawn/re-adopt, no conn) + connection registration; new `leavePlayer(playerId)`; `leave(conn)` delegates.
+- `app/src/server/routes/galaxy.ts` (NEW) — GET /api/galaxy/health (Bearer via `requireAuth`) → `{shards: router.stats()}` for the TASK-7 occupancy dots. Registered when `RouteDeps.galaxyRouter` is present (new optional field in `routes/callsigns.ts` + conditional in `routes/index.ts`).
+- `app/src/server/index.ts` — rewired: the single test-only shard is gone; router + router gateway + reaper + periodic flush + `router.stopAll()` on SIGTERM/SIGINT; WS 'input' routes to `router.active(conn.systemId)?.shard.enqueueInput`.
+- `app/src/shared/protocol.ts` — `MAX_PLAYERS_PER_SYSTEM = 16`. `app/src/shared/health.ts` — `GalaxyShardHealth` / `GalaxyHealthPayload` types.
+- Tests: `galaxy/router.test.ts` (6, NEW) — concurrent-spawn collapse (10 joins / 3 systems, per-system unique entity ids, load ≤ 500 ms budget), unknown id, reap grace with fake clock (60 s, DB flush check), grace-cancel on rejoin, 16-cap + slot-free retry, restart/same-world (exact persisted velocity + planet determinism). `galaxy/router.ws.test.ts` (5, NEW, live ws) — 10 clients / 3 systems in parallel (owner-based no-bleed assertion: an entity may only appear in the system its owner joined or the owner's seed-derived home, where its starter ship is docked), cap with "stays in previous system", health endpoint 200 + 401, system-not-found.
+- Verified: `tsc --noEmit` clean, `eslint --fix` + `prettier --write` clean, full `npm run test` → 46 files / 477 tests all pass (incl. the crash-restart integration, which exercises the new index.ts wiring end-to-end); galaxy tests stable across 5+ consecutive runs.
+- No UI changes (the health endpoint feeds the TASK-7 chart) → no screenshots.
 
 ### 2026-09-30 — TASK-24: Ship state persistence across restarts
 Ship flight state survives server restarts and hard crashes: a periodic + shutdown flush writes the whole shard to the `ships` table in ONE transaction, and shard spawn rehydrates entities from the persisted rows instead of re-spawning at rest state (no spawn teleports).

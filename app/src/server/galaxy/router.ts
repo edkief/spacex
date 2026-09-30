@@ -205,7 +205,10 @@ export function createGalaxyRouter(deps: GalaxyRouterDeps): GalaxyRouter {
       () => undefined,
       () => undefined,
     );
-    pending.set(systemId, load.finally(() => pending.delete(systemId)));
+    pending.set(
+      systemId,
+      load.finally(() => pending.delete(systemId)),
+    );
     return load;
   }
 
@@ -238,7 +241,11 @@ export function createGalaxyRouter(deps: GalaxyRouterDeps): GalaxyRouter {
       // No ship row (should be impossible: claim always grants a starter
       // ship). Release the reserved slot rather than leak it.
       shard.leavePlayer(player.playerId);
-      return { ok: false, code: 'system-not-found', message: `no ship for player ${player.playerId}` };
+      return {
+        ok: false,
+        code: 'system-not-found',
+        message: `no ship for player ${player.playerId}`,
+      };
     }
     loaded.graceSince = undefined; // occupied again: any pending grace is void
     return { ok: true, snapshot: enterSnapshot(loaded, player.playerId) };
@@ -291,7 +298,9 @@ export function createGalaxyRouter(deps: GalaxyRouterDeps): GalaxyRouter {
 
   function startReaper(intervalMs: number = REAP_INTERVAL_MS): () => void {
     const timer = setInterval(() => {
-      void reapEmpty().catch((err: unknown) => log?.warn('reap pass failed', { error: String(err) }));
+      void reapEmpty().catch((err: unknown) =>
+        log?.warn('reap pass failed', { error: String(err) }),
+      );
     }, intervalMs);
     timer.unref?.();
     return () => clearInterval(timer);

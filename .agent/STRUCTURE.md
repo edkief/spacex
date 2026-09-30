@@ -26,16 +26,21 @@ Excludes dotfiles, tests, and config.
 │       │       └── ship-mesh.ts # TASK-21: ShipMeshBuilder — 3 paint-zone materials + in-place applyLivery
 │       ├── server/
 │       │   ├── env.ts        # zod-validated env (PROJECT_ROOT/.env.local)
-│       │   ├── index.ts      # process entry: Fastify + ws, REST routes + token auth + ship-swap broadcast, shard flush timer + shutdown flush, listens on PORT
-│       ├── shards.ts     # TASK-20/21: in-process ship-swap + livery bus, shipToEntity, entity_update broadcast bridge (folds into TASK-11/12)
+│       │   ├── index.ts      # process entry: Fastify + ws, REST routes + token auth, galaxy router (shards on demand + reaper + periodic flush + stopAll on signal), input routed per-conn system, listens on PORT
+│       ├── shards.ts     # TASK-20/21: in-process ship-swap + livery bus, shipToEntity, entity_update broadcast bridge
 │       │   ├── server.ts     # buildServer() for tests/inject()
 │       │   ├── auth/
 │       │   │   ├── token.ts       # TASK-10: HMAC-SHA256 token codec (base64url body + MAC, constant-time, 30 s exp skew)
 │       │   │   └── session.ts     # TASK-10: session service (sha256-stored tokens, 7 d TTL) + WS token authenticator
+│       │   ├── galaxy/
+│       │   │   ├── router.ts  # TASK-11: createGalaxyRouter — Map<systemId, Shard> on demand (pending-promise collapse + loadChain), 60 s reap grace (flush-before-stop), 16-player cap, stats/stopAll, periodic + chained flushes
+│       │   │   └── gateway.ts # TASK-11: createRouterGateway — SystemGateway over the router (enter → {snapshot}, leave → grace)
+│       │   │   └── (tests) router.test.ts (unit: collapse/reap/cap/restart, fake clock), router.ws.test.ts (live ws: 10 clients/3 systems, cap stays-put, health, not-found)
 │       │   └── routes/
 │       │       ├── index.ts        # registerApiRoutes(repo, sessions, galaxySeed, shipSwapBus)
 │       │       ├── auth.ts         # TASK-41: shared Bearer extraction + requireAuth (structured 401 reasons)
-│       │       ├── callsigns.ts    # TASK-10: POST /api/callsigns (claim → player + starter ship + session token)
+│       │       ├── callsigns.ts    # TASK-10: POST /api/callsigns (claim → player + starter ship + session token); RouteDeps (+ optional galaxyRouter, TASK-11)
+│       │       ├── galaxy.ts       # TASK-11: GET /api/galaxy/health (auth) → {shards: [{systemId, name, players, uptimeMs}]} (feeds TASK-7 dots)
 │       │       ├── players.ts      # TASK-41: GET /api/players/me (Bearer → own profile incl. credits)
 │       │       ├── session.ts      # TASK-10: GET /api/session (Bearer → profile, structured 401s)
 │       │       └── ships.ts        # TASK-20/21/23: GET /api/ships, POST /api/ships/buy (docked purchase), POST /api/ships/livery (3-slot hex paint), POST /api/ships/repair (docked, credit cost)
@@ -64,9 +69,9 @@ Excludes dotfiles, tests, and config.
 │       └── shared/
 │           ├── canonical.ts  # canonicalJson: stable key-sorted JSON for checksums
 │           ├── callsign.ts   # TASK-10: shared zod callsign schema (3-16 alnum+dash, lowercase transform)
-│           ├── health.ts     # HealthPayload type
+│           ├── health.ts     # HealthPayload + GalaxyShardHealth/GalaxyHealthPayload (TASK-11) types
 │           ├── random.ts     # Deterministic PRNG (xoshiro128**) + FNV-1a/splitmix hashing
-│           ├── protocol.ts       # TASK-9: version constant, Envelope, encode/decode, parseMessage, error codes
+│           ├── protocol.ts       # TASK-9: version constant, Envelope, encode/decode, parseMessage, error codes; TASK-11: MAX_PLAYERS_PER_SYSTEM = 16
 │           ├── protocol/
 │           │   └── schemas.ts    # TASK-9/23: zod payload schema per message type (combat_event damaged/destroyed) + EntityState/StateSnapshot shapes
 │           ├── ships.ts          # TASK-19/21: SHIP_CLASSES + shipStats/compareShips/totalWeaponCount/shipPrice, Livery type + per-class defaultLivery

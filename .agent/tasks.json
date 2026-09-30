@@ -165,7 +165,7 @@
     "title": "Galaxy router: in-process system shards, cap, dispatch",
     "category": "functional",
     "specFilePath": ".agent/tasks/TASK-11.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-12",

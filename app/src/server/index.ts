@@ -58,9 +58,7 @@ async function main(): Promise<void> {
       // WS 'input': route to the shard the connection is currently in;
       // the tick drains the queue.
       if (type === 'input' && conn.systemId && conn.playerId) {
-        router
-          .active(conn.systemId)
-          ?.shard.enqueueInput(conn.playerId, payload as InputPayload);
+        router.active(conn.systemId)?.shard.enqueueInput(conn.playerId, payload as InputPayload);
       }
     },
     // Leaves route through the gateway's leaveSystem → router.leave,

@@ -17,25 +17,25 @@
       "step": 1,
       "description": "Router core",
       "details": "Map<systemId, Shard>; getShard is idempotent and synchronous after load (load is async, use a pending-promise map to collapse concurrent spawns). reapEmpty on a 5 s interval; grace timer per shard; on reap: flushShips, sim.stop(), delete from map.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Join/leave wiring",
       "details": "WS 'join_system' handler: router.getShard → cap check → shard.addConnection(conn) (broadcasts presence, sends initial full snapshot) → on leave: shard.removeConnection, start grace. Player's 'current system' tracked in ConnState.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Health endpoint",
       "details": "GET /api/galaxy/health (auth) → {shards: [{systemId, name, players, uptimeMs}]}. Read-only, cheap.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Tests",
       "details": "Concurrent-spawn, reap (fake timers), cap, restart tests per acceptance; run full suite + typecheck.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-13", "TASK-24", "TASK-62"],

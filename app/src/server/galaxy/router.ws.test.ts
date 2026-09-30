@@ -20,6 +20,7 @@ import { createRouterGateway } from './gateway';
 import { WsTestClient } from '@server/ws-test-client';
 import { generateStars } from '@shared/galaxy/stars';
 import { generateSystem } from '@shared/galaxy/system';
+import { homeSystemIdForPlayer } from '@shared/galaxy/home';
 import { MAX_PLAYERS_PER_SYSTEM, PROTOCOL_VERSION } from '@shared/protocol';
 import type { StateSnapshot } from '@shared/protocol/schemas';
 
@@ -84,9 +85,7 @@ beforeAll(async () => {
     authenticate: createTokenAuthenticate(sessions),
     onGameMessage: (conn, type, payload) => {
       if (type === 'input' && conn.systemId && conn.playerId) {
-        router
-          .active(conn.systemId)
-          ?.shard.enqueueInput(conn.playerId, payload as never);
+        router.active(conn.systemId)?.shard.enqueueInput(conn.playerId, payload as never);
       }
     },
   });
@@ -107,7 +106,9 @@ afterAll(async () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-async function claim(callsign: string): Promise<{ token: string; playerId: string; shipId: string }> {
+async function claim(
+  callsign: string,
+): Promise<{ token: string; playerId: string; shipId: string }> {
   const res = await fetch(`${httpUrl}/api/callsigns`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -136,7 +137,7 @@ async function join(client: WsTestClient, token: string, systemId: string): Prom
 describe('galaxy router over live ws (TASK-11)', () => {
   it('10 clients joining 3 systems in parallel get distinct, correct shard state', async () => {
     const ids = [systemIds[0], systemIds[1], systemIds[2]];
-    const players = [];
+    const players: Array<{ token: string; playerId: string; shipId: string }> = [];
     for (let i = 0; i < 10; i++) {
       players.push(await claim(`Swarm-${i}`));
     }
@@ -152,40 +153,35 @@ describe('galaxy router over live ws (TASK-11)', () => {
       expect(router.active(id)!.loadMs).toBeLessThanOrEqual(SHARD_LOAD_BUDGET_MS);
     }
 
-    // No cross-system bleed: entity ids are globally unique ship ids, and a
-    // shard holds only ships of ITS system — a joined player's ship, or a
-    // ship row already persisted IN that system (a starter ship docked at a
-    // player's home when home == this system). Every entity a client sees
-    // must belong to one of those.
-    const shipIdsBySystem = new Map<string, Set<string>>();
-    for (const id of ids) {
-      const rows = await repo.listShipsInSystem(id);
-      shipIdsBySystem.set(id, new Set(rows.map((r) => r.id)));
-    }
-    for (let i = 0; i < 10; i++) {
-      shipIdsBySystem.get(ids[i % 3])!.add(players[i].shipId);
-    }
+    // No cross-system bleed: every entity in a snapshot is one of the 10
+    // starter ships (ids are globally unique, so a shared id would be the
+    // bleed), and it may only be in a sim it legitimately belongs to — the
+    // system its owner joined, or the owner's seed-derived home system
+    // (starter ships dock there, so a home shard loads them from the DB
+    // even while their owner sits in a different system).
+    const ownerOfShip = new Map(players.map((p, j) => [p.shipId, j]));
     for (let i = 0; i < 10; i++) {
       const own = ids[i % 3];
-      const ownIds = shipIdsBySystem.get(own)!;
       expect(snapshots[i].systemId).toBe(own);
-      expect(ownIds.has(players[i].shipId)).toBe(true); // own ship is in the world
+      expect(
+        snapshots[i].entities.some((e) => e.id === players[i].shipId),
+        `own ship missing from ${own}`,
+      ).toBe(true);
       for (const e of snapshots[i].entities) {
-        expect(ownIds.has(e.id), `client in ${own} sees foreign entity ${e.id}`).toBe(true);
+        const j = ownerOfShip.get(e.id);
+        expect(j, `client in ${own} sees foreign entity ${e.id}`).toBeDefined();
+        const home = homeSystemIdForPlayer(GALAXY_SEED, players[j!].playerId);
+        const allowed = new Set([ids[j! % 3], home]);
+        expect(
+          allowed.has(own),
+          `entity ${e.id} is in ${own} but belongs to ${ids[j! % 3]}/${home}`,
+        ).toBe(true);
       }
       // The players list carries only same-system callsigns.
       for (const entry of snapshots[i].players) {
         const j = players.findIndex((p) => p.playerId === entry.playerId);
         expect(j, `unknown player ${entry.playerId} in snapshot`).not.toBe(-1);
         expect(ids[j % 3], `cross-system player ${entry.callsign} in snapshot`).toBe(own);
-      }
-    }
-    // The three shards really are separate sims: disjoint entity id sets
-    // (ship ids are globally unique, so a shared id would be the bleed).
-    const sets = [...shipIdsBySystem.values()].map((set) => [...set].sort());
-    for (let a = 0; a < 3; a++) {
-      for (let b = a + 1; b < 3; b++) {
-        expect(sets[a].filter((id) => sets[b].includes(id))).toEqual([]);
       }
     }
   }, 30000);
