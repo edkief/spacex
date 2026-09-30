@@ -200,7 +200,7 @@
     "title": "Playwright e2e harness: two-client multiplayer presence",
     "category": "functional",
     "specFilePath": ".agent/tasks/TASK-70.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-71",

@@ -6,7 +6,9 @@ import { defineConfig, devices } from '@playwright/test';
 export default defineConfig({
   testDir: './tests',
   // Node (vitest) specs living next to the e2e specs — not Playwright tests.
-  testIgnore: ['**/validation-fuzz.spec.ts', '**/session-log-leak.spec.ts'],
+  // The TASK-70 self-contained harness (tests/e2e/) boots its own server via
+  // fixtures.ts and runs under playwright.e2e.config.ts only.
+  testIgnore: ['**/validation-fuzz.spec.ts', '**/session-log-leak.spec.ts', 'tests/e2e/**'],
   fullyParallel: true,
   globalTimeout: 30 * 60 * 1000,
   forbidOnly: !!process.env.CI,

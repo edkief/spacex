@@ -1,11 +1,12 @@
 {
   "scripts": {
     "dev": "concurrently -k \"vite --port 3000\" \"PORT=3001 tsx src/server/index.ts\"",
+    "dev:test": "node scripts/dev-test.mjs",
     "build": "vite build",
     "test": "vitest run",
     "snapshot:update": "tsx scripts/gen-galaxy-snapshots.ts",
     "snapshot:update:flight": "tsx scripts/gen-flight-fixtures.ts",
-    "test:e2e": "playwright test",
+    "test:e2e": "playwright test --config playwright.e2e.config.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . && prettier --check .",
     "start": "node dist"

@@ -7,7 +7,15 @@ import { ChatStore } from '@client/net/chat';
 import { PlayerList } from '@client/hud/player-list';
 import { ToastStack } from '@client/hud/toast-stack';
 import { ChatLog } from '@client/hud/chat-log';
+import { createStarfield } from '@client/render/starfield';
 import type { ChatMessage } from '@shared/protocol/schemas';
+
+/**
+ * TASK-70: the starfield seed. Matches the server's default GALAXY_SEED so
+ * every client boots on the same sky; per-system stars arrive with the
+ * streaming pipeline (TASK-26).
+ */
+const STARFIELD_SEED = 'DRIFT-SEED-0001';
 
 /** Fetches the REST health endpoint through the Vite same-origin proxy. */
 async function fetchHealth(): Promise<HealthPayload | null> {
@@ -233,6 +241,15 @@ function App() {
 
   React.useEffect(() => {
     void fetchHealth().then(setHealth);
+  }, []);
+
+  // TASK-70: the three.js starfield owns #game-canvas (mounted outside
+  // React on purpose). Placeholder until TASK-26 streams per-system views.
+  React.useEffect(() => {
+    const canvas = document.getElementById('game-canvas');
+    if (!(canvas instanceof HTMLCanvasElement)) return;
+    const handle = createStarfield(canvas, STARFIELD_SEED);
+    return () => handle.dispose();
   }, []);
 
   return (

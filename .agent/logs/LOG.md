@@ -3,12 +3,23 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-30
-**Tasks Completed:** 28
-**Current Task:** TASK-17 Complete
+**Tasks Completed:** 29
+**Current Task:** TASK-70 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-09-30 — TASK-70: Playwright e2e harness (two-client multiplayer, self-booting server)
+The e2e harness is now self-contained: `npm run test:e2e` boots the REAL dev server itself (vite app + API/WS on random free ports, sqlite DB in a fresh tmp dir per test file), drives the claim flow in a real headless Chromium, and verifies the core multiplayer behaviors — no pre-started `npm run dev` required.
+- `app/scripts/dev-test.mjs` (NEW) + `dev:test` npm script — boots vite + the tsx server side by side like `npm run dev`, but ports/DB come from env (`VITE_PORT`/`API_PORT`/`DB_PATH`); forwards SIGTERM/SIGINT to both children with an 8 s SIGKILL fallback. `vite.config.ts` gains env-overridable port + proxy target (defaults unchanged).
+- `app/tests/e2e/fixtures.ts` (NEW) — worker-scoped Playwright fixture: two free ports + `mkdtemp` sqlite, spawns `npm run dev:test` detached (process-group kill on teardown), polls `/api/health` through the vite proxy (40 s boot budget), yields `{baseURL, apiPort}`. `playwright.e2e.config.ts` (NEW): testDir `tests/e2e`, globalTimeout 60 s, 1 worker (whole suite shares one server), 20 s test timeout, `retain-on-failure` traces. `npm run test:e2e` → new config; the legacy `:3000`-targeting specs are excluded from it (`testIgnore tests/e2e/**` in the old config) and vice versa — the unit `npm run test` (vitest) never touched either.
+- `app/tests/e2e/pages/claim.ts` + `pages/game.ts` + `base-page.ts` + `helpers.ts` (NEW, per e2e-tester skill) — page objects for the claim screen (`getByLabel`/`getByRole`) and in-system UI (canvas, player list, Enter-toggled chat); helpers: unique timestamp callsigns, console-error collectors, and the GL `readPixels` luminance-variance sampler (best-of-four 32x32 regions — reads the drawing buffer, so DOM HUD never interferes).
+- `app/src/client/render/starfield.ts` (NEW) — the canvas finally has something to render: a deterministic three.js starfield (shared PRNG, `seedFromString`/`hash2`) — gradient sky-sphere + 2500 pixel-constant point sprites on a 150–200 u shell, slow drift, `preserveDrawingBuffer` so e2e can sample outside the rAF loop. Mounted in `main.tsx` on `#game-canvas`; placeholder until the TASK-26 streaming pipeline takes over. Unit test (5 cases): bit-identical same-seed generation, seed sensitivity, shell radius bounds, color spread.
+- Tests (3 total, ~42 s incl. one server boot, under the 90 s budget): core-flow.spec.ts — claim → session → join → canvas variance > 1 (headless WebGL renders, non-uniform) → player list shows "(you)"; multiplayer.spec.ts — two contexts see each other in the presence list (mirror view + screenshot), and a chat message reaches the peer in < 2 s (delivery measured after A's local send).
+- Gotchas hit: **default headless Chromium (SwiftShader) needed NO extra GL flags** — documented in the config comments (the `--use-gl=angle --use-angle=swiftshader` escape hatch is recorded there if a future environment goes black). First chat run measured 2062 ms because the timer started BEFORE the local typing — moved `t0` after the send. Playwright fixtures: worker-scoped extend requires the key in the 2nd generic slot (`extend<object, E2eFixtures>`) and the runtime mandates an object-destructuring first arg (`{}, use`). The 2 s budget includes expect's polling, so delivery is timed with a 50 ms `waitForFunction` + elapsed assert.
+- Verified: `tsc --noEmit` clean, `eslint` + `prettier --check` clean, `npm run test` → 57 files / 537 tests all pass (was 532; +5 starfield), `npm run test:e2e` → 3 passed (42 s), legacy `playwright --list` still shows exactly the 4 :3000 specs. No stray processes or tmp dirs after teardown.
+- Screenshots: `.agent/screenshots/TASK-70-1.png` (core flow: starfield + "(you)" row + 1 aboard), `TASK-70-2.png` (presence: both callsigns, "(you)" markers, join toast), `TASK-70-3.png` (chat: peer view of the log).
 
 ### 2026-09-30 — TASK-17: Reconnect and full state resync
 A dropped connection no longer resets the world: the ship keeps living in the shard (idle, coasting under the same 20 Hz physics) while the player is away; on reconnect the same token re-joins the same system and receives a full resync snapshot with the ship at its current (possibly moved-while-idle) position, no duplicate entities, and no full UI reset (chat log + player list preserved). The TASK-12 grace/reap rules are unchanged — a long absence re-joins the reloaded shard at the last flushed position.
