@@ -3,8 +3,8 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-30
-**Tasks Completed:** 31
-**Current Task:** TASK-8 implemented + verified in touched suites; pending one full-suite confirmation run (see handoff)
+**Tasks Completed:** 32
+**Current Task:** —
 
 ----------------------------------------------
 
@@ -27,7 +27,7 @@ Warping between systems is live end-to-end: chart Warp click → 2 s CSS warp-in
 - `app/src/client/ui/star-chart.tsx` — Warp button disabled for the whole transition (double-warp guard).
 - `app/src/client/net/presence.ts` + `toast-stack.tsx` — `notice` toast kind for warp failures; `app/src/client/drift-debug.ts` — `worldSwap` recording for the e2e.
 - Tests: `warp.ws.test.ts` (5 — A→B entity at gate + row + presence both sides, same-system reject, unknown target, full-system (16 conns) reject, mid-warp disconnect ≤1→exactly 1 entity); unit: `spawn.test.ts` (4), `systemForId` (3), `world-manager.test.ts` (5 — pure layout), `warp-controller.test.ts` (6 — phase sequence, double-start, rejection/timeout/abort), `session.test.ts` warpTo (4 — fake-WS arrival/rejection-rollback/close-mid-warp/pre-join); `schemas.test.ts` +warp_arrived fixture. E2E `tests/e2e/warp.spec.ts`: button disables (WARPING…), no black frame at t≈1 s (luminance variance), duration 3–6 s, worldSwap = target && buildMs < 300, star at canvas center (new `canvasCenterLuminanceMean` helper), `#sys-id` follows.
-- Verified: `tsc --noEmit` clean, eslint + prettier clean on touched files, all touched/new suites pass (shared + server/galaxy: 24 files / 282 tests; client warp/session/world: 106 tests; `warp.ws.test.ts` 5/5), `npm run test:e2e -- warp.spec.ts` green (14.3 s).
+- Verified (final): `tsc --noEmit` clean, eslint + prettier clean on touched files, full `npm run test` → 66 files / 596 tests all pass, full `npm run test:e2e` → 6/6 pass (exit 0). The warp spec was the 6th e2e file and pushed the single-worker suite (~80–90 s with per-file server boots) past the harness's 60 s `globalTimeout`, which made the runner kill the run and exit 1 intermittently — raised `globalTimeout` in `playwright.e2e.config.ts` to 5 min.
 - Screenshots: `.ralph/screenshots/TASK-8-1.png` (chart: target selected), `TASK-8-2.png` (mid-warp streak overlay over the live canvas), `TASK-8-3.png` (arrived: target system star at center, sys-id updated).
 
 ### 2026-09-30 — TASK-7: Star chart UI (SVG map, search, select + warp button, occupancy)

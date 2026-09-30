@@ -21,7 +21,8 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './tests/e2e',
-  globalTimeout: 60 * 1000,
+  // Single worker + per-file dev-server boots: 6 specs ≈ 80–90 s.
+  globalTimeout: 5 * 60 * 1000,
   timeout: 20_000,
   // One worker: the whole suite shares the single fixture server.
   fullyParallel: false,
