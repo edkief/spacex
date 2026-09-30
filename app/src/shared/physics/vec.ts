@@ -145,6 +145,41 @@ export function quatToMat3(q: Quat): number[] {
   ];
 }
 
+/** Smallest rotation (radians, 0..π) between two quaternions. */
+export function quatAngleBetween(a: Quat, b: Quat): number {
+  const dot = Math.abs(a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w);
+  return 2 * Math.acos(Math.min(1, Math.max(0, dot)));
+}
+
+/**
+ * Spherical linear interpolation between quaternions, t in [0, 1].
+ * Takes the short arc (flips b when the dot is negative). The sin ratio
+ * stays numerically stable for arbitrarily small arcs (both terms scale
+ * linearly with the angle), so the ONLY degenerate case is the identical
+ * (or flipped-antipodal) rotation where sin(θ) = 0: return a as-is.
+ * Deterministic (only +, -, *, /, acos, sin).
+ */
+export function quatSlerp(a: Quat, b: Quat, t: number): Quat {
+  const tt = t < 0 ? 0 : t > 1 ? 1 : t;
+  let dot = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+  const bb: Quat = dot < 0 ? { x: -b.x, y: -b.y, z: -b.z, w: -b.w } : b;
+  if (dot < 0) dot = -dot;
+  const theta0 = Math.acos(dot);
+  const s = Math.sin(theta0);
+  if (s < 1e-12) {
+    // Same rotation (the antipodal case was flipped above): no arc to walk.
+    return { x: a.x, y: a.y, z: a.z, w: a.w };
+  }
+  const so = Math.sin(theta0 * tt) / s;
+  const sa = Math.sin(theta0 * (1 - tt)) / s;
+  return quatNormalize({
+    x: a.x * sa + bb.x * so,
+    y: a.y * sa + bb.y * so,
+    z: a.z * sa + bb.z * so,
+    w: a.w * sa + bb.w * so,
+  });
+}
+
 /** Apply unit quaternion q to vector v (q rotates, q⁻¹ does not apply). */
 export function quatRotateVector(q: Quat, v: Vec3): Vec3 {
   const qv: Vec3 = { x: q.x, y: q.y, z: q.z };

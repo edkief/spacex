@@ -22,6 +22,14 @@ export interface ConnState {
   callsign: string;
   /** Last accepted input seq; inputs with seq <= lastSeq are stale (dropped). */
   lastSeq: number;
+  /**
+   * TASK-14: last input seq actually INTEGRATED in a tick (≤ lastSeq). The
+   * client predictor reconciles against this, not lastSeq — enqueued inputs
+   * are not yet applied.
+   */
+  appliedSeq: number;
+  /** Last seq already sent to the client via an 'ack' message. */
+  ackSentSeq: number;
   /** Latest accepted input awaiting the next tick (latest-wins). */
   input?: InputPayload;
   /**
@@ -54,6 +62,15 @@ export interface SimEntity {
   docked: boolean;
   /** Planet whose surface this ship flies above (atmosphere regime only). */
   planetId?: string;
+  /**
+   * TASK-14: the newest input frame, HELD and re-integrated every tick until
+   * a newer frame replaces it (latest-wins persistence). This mirrors the
+   * client predictor, which keeps integrating its last input between frames
+   * — consume-once semantics would make the authority drift from the
+   * prediction (a 10 Hz echo would integrate at ⅓ speed server-side).
+   * Cleared when the owner leaves, so an abandoned ship coasts, not thrusters.
+   */
+  heldInput?: InputPayload;
 }
 
 /** The shard the router (TASK-11) will instantiate per system. */

@@ -27,6 +27,10 @@ const finite = z.number().finite();
 export const vec3Schema = z.object({ x: finite, y: finite, z: finite }).strict();
 export type Vec3 = z.infer<typeof vec3Schema>;
 
+/** Unit quaternion {x, y, z, w} (Hamilton, scalar last — matches shared/physics/vec). */
+export const quatSchema = z.object({ x: finite, y: finite, z: finite, w: finite }).strict();
+export type Quat = z.infer<typeof quatSchema>;
+
 export const liverySchema = z.record(z.string(), z.string().regex(/^#[0-9a-fA-F]{6}$/));
 export type Livery = z.infer<typeof liverySchema>;
 
@@ -37,6 +41,12 @@ export const entityStateSchema = z
     kind: z.enum(ENTITY_KINDS),
     pos: vec3Schema,
     vel: vec3Schema,
+    /**
+     * Orientation (TASK-14): client reconciliation (angle diff) and remote
+     * slerp need it. Optional on the wire for back-compat with v1 producers
+     * (the shard in this repo always sends it); consumers default to identity.
+     */
+    rot: quatSchema.optional(),
     regime: z.enum(REGIMES),
     hull: finite.min(0).max(1),
     shields: finite.min(0).max(1),
@@ -145,6 +155,14 @@ export const messageSchemas = {
   exit_ship: z.object({ shipId: z.string().min(1) }).strict(),
   enter_ship: z.object({ shipId: z.string().min(1) }).strict(),
   repair: z.object({}).strict(),
+  /**
+   * TASK-14: the server tells a connection the last input seq it has APPLIED
+   * (integrated in a tick). Server→client only, sent to the owning
+   * connection at snapshot cadence so the 10 Hz shared snapshot buffer stays
+   * identical for every in-system peer (per-entity acks would break the
+   * encode-once design). Wire contract change documented for TASK-69.
+   */
+  ack: z.object({ seq: z.number().int().finite().nonnegative() }).strict(),
   error: z.object({ code: z.string().min(1), message: z.string().max(512) }).strict(),
   ping: z.object({}).strict(),
   pong: z.object({}).strict(),

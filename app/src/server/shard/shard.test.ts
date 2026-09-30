@@ -243,6 +243,8 @@ describe('SystemShard snapshots (TASK-13 step 3)', () => {
     expect(e.hull).toBe(0.5); // combat-ready state on the wire
     expect(e.shields).toBe(0.25);
     expect(e.targetId).toBeNull();
+    // TASK-14: orientation on the wire (reconciliation angle + remote slerp).
+    expect(e.rot).toEqual({ x: 0, y: 0, z: 0, w: 1 }); // at rest → identity
     // Every frame is the same serialized buffer (serialize once, share).
     expect(new Set(sends).size).toBe(1);
   });
@@ -278,6 +280,77 @@ describe('SystemShard snapshots (TASK-13 step 3)', () => {
     // No connections → no sends anywhere (nothing to assert on), and the
     // tick still ran (histogram filled) without a broadcast.
     expect(shard.histogram.sampleCount).toBe(10);
+    shard.stop();
+  });
+});
+
+describe('SystemShard input acks (TASK-14 step 2)', () => {
+  it('acks the APPLIED seq at snapshot cadence, only when it advanced', () => {
+    vi.useFakeTimers();
+    const shard = makeShard();
+    shard.addEntity(makeEntity('p1', { x: 0, y: 0, z: 0 }));
+    const { sends } = addFakeConn(shard, 'p1', 'Alpha');
+
+    shard.start();
+    vi.advanceTimersByTime(2 * TICK_DT_MS); // snapshot 1, no input → no ack
+    expect(sends).toHaveLength(1);
+    expect(JSON.parse(sends[0]).type).toBe('entity_update');
+
+    // seq 7 enqueued; applied on the next tick.
+    expect(shard.enqueueInput('p1', input(7, { thrust: 1 }))).toBe(true);
+    vi.advanceTimersByTime(2 * TICK_DT_MS); // snapshot 2 → ack 7
+    const ackSeqs = sends
+      .filter((s) => JSON.parse(s).type === 'ack')
+      .map((s) => (JSON.parse(s) as { payload: { seq: number } }).payload.seq);
+    expect(ackSeqs).toEqual([7]);
+
+    // No new input: no duplicate ack at the next snapshot.
+    vi.advanceTimersByTime(2 * TICK_DT_MS);
+    expect(sends.filter((s) => JSON.parse(s).type === 'ack')).toHaveLength(1);
+
+    // A newer applied input acks again (monotonic advance).
+    shard.enqueueInput('p1', input(9, { thrust: 1 }));
+    vi.advanceTimersByTime(2 * TICK_DT_MS);
+    const seqs = sends
+      .filter((s) => JSON.parse(s).type === 'ack')
+      .map((s) => (JSON.parse(s) as { payload: { seq: number } }).payload.seq);
+    expect(seqs).toEqual([7, 9]);
+    shard.stop();
+  });
+
+  it('stale (dropped) inputs never ack: appliedSeq only moves on applied seqs', () => {
+    vi.useFakeTimers();
+    const shard = makeShard();
+    shard.addEntity(makeEntity('p1', { x: 0, y: 0, z: 0 }));
+    const { sends } = addFakeConn(shard, 'p1', 'Alpha');
+    shard.start();
+
+    shard.enqueueInput('p1', input(5, { thrust: 1 }));
+    expect(shard.enqueueInput('p1', input(3, { thrust: 1 }))).toBe(false); // stale
+    vi.advanceTimersByTime(4 * TICK_DT_MS);
+    const seqs = sends
+      .filter((s) => JSON.parse(s).type === 'ack')
+      .map((s) => (JSON.parse(s) as { payload: { seq: number } }).payload.seq);
+    expect(seqs).toEqual([5]);
+    shard.stop();
+  });
+
+  it('acks go only to the owning connection (per-conn message, shared buffer intact)', () => {
+    vi.useFakeTimers();
+    const shard = makeShard();
+    shard.addEntity(makeEntity('p1', { x: 0, y: 0, z: 0 }));
+    shard.addEntity(makeEntity('p2', { x: 9, y: 0, z: 0 }));
+    const mine = addFakeConn(shard, 'p1', 'Alpha');
+    const other = addFakeConn(shard, 'p2', 'Beta');
+    shard.start();
+
+    shard.enqueueInput('p1', input(2, { thrust: 1 }));
+    vi.advanceTimersByTime(2 * TICK_DT_MS);
+    // Only p1's conn gets the ack; p2 sees the shared snapshot, no ack.
+    expect(mine.sends.map((s) => JSON.parse(s).type)).toEqual(['entity_update', 'ack']);
+    expect(other.sends.map((s) => JSON.parse(s).type)).toEqual(['entity_update']);
+    // And the shared snapshot buffer is still byte-identical across conns.
+    expect(mine.sends[0]).toBe(other.sends[0]);
     shard.stop();
   });
 });

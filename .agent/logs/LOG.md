@@ -2,13 +2,27 @@
 
 `Current Status`
 =================
-**Last Updated:** 2026-09-29
-**Tasks Completed:** 20
-**Current Task:** TASK-13 Complete
+**Last Updated:** 2026-09-30
+**Tasks Completed:** 21
+**Current Task:** TASK-14 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-09-30 — TASK-14: Client prediction + server reconciliation
+Client-side prediction of the local ship on the shared flight model, with server reconciliation that stays rubber-band-free at 150 ms simulated RTT (post-warmup corrections all blend, max < 5 u) and a 200 ms interpolation buffer for remote entities:
+- `app/src/client/net/prediction.ts` — `ClientShipPredictor`: `step(dt, now, {seq, input})` integrates the local ship on every render frame with the shared `integrateShip` verbatim (physics never reimplemented client-side); per-input seq queue capped at 10 s of history (oldest dropped → next reconcile force-snaps, no teleport). `reconcile(serverState, ackedSeq, now, {snapshotAgeMs, tickPhaseMs})` estimates the server's CURRENT state by replaying on the server's input-hold timeline: the gap between the snapshot time (`now - age`, snapped to the 20 Hz tick grid so a few ms of age-estimate error can't shift the windows) and the first unacked application is filled with the last acked (held) frame, each unacked input integrates from the tick the server applied it (an input still in flight gets no window); diff < 5 u / 0.2 rad → 50 % blend, else rewind. With `snapshotAgeMs` unknown (0) it falls back to replaying unacked inputs for their local currency duration.
+- `app/src/client/net/interpolation.ts` — `RemoteEntityBuffer` / `RemoteEntityTracker`: remote ships render at t − 200 ms, lerped (position) / slerped (rotation) between the two surrounding 10 Hz samples; underrun or starvation renders the newest sample as-is marked `stale` (no extrapolation, no teleporting); no sample for > 1 s → `dimmed` (client-side fade, no protocol change); jitter-reordered arrivals insert in timestamp order.
+- `app/src/shared/protocol/inputs.ts` — `inputToShipInput`: shared wire→flight-model mapping (turn→roll; action 'vtol'→full lift) so the server sim and client predictor map frames identically.
+- `app/src/shared/protocol/schemas.ts` — new `ack` message type (server→client `{seq}`: the last input seq actually APPLIED, sent at snapshot cadence and only when it advanced — a per-connection message on purpose, so the 10 Hz shared snapshot buffer stays byte-identical for every in-system peer); `EntityState.rot` (optional unit quaternion — back-compat with v1 producers, consumers default to identity).
+- `app/src/server/shard/shard.ts` + `types.ts` — per-connection `appliedSeq` (last input INTEGRATED in a tick; a latest-wins frame replaced before its tick is never applied, so acked seqs may skip); `heldInput` held and re-integrated every tick until a newer frame arrives (mirrors the client predictor, which keeps integrating its last input — consume-once semantics would make the authority drift from the prediction); ship coasts on zero input when the owner leaves; `entityToState` now emits `rot`.
+- `app/src/shared/physics/vec.ts` — `quatSlerp` (short arc, antipodal flip, stable for near-parallel quats, no drift under repeated steps) + `quatAngleBetween` (antipodal-tolerant) for reconciliation angle + remote slerp.
+- Tests: `prediction.test.ts` (11) — prediction/held-control/coast, blend applies exactly half the correction, rewind with time-weighted unacked replay, full-ack queue collapse, 10 s cap → forced snap; **acceptance latency sim (virtual clock: 150 ms RTT, 20 Hz server with shard-hold semantics, 10 Hz snapshots+acks, 60 fps render, constant thrust): max correction after the first 2 s < 5 u, every post-warmup correction a blend (no sustained rubber-banding), steady-state avg < 2 u; degrades gracefully at 300 ms RTT (max < 10 u, > 80 % blends)**. `interpolation.test.ts` (9) — **10 Hz ±20 ms jitter scripted 60 fps render capture: max per-frame delta < 3× nominal (no visible jumps), constant per-frame speed (no jitter pumping)**, underrun/starvation render newest stale, > 1 s dimmed, empty buffer, identity-rot back-compat, tracker per-entity buffers + leaver drop; `shard.test.ts` (+3) — ack at snapshot cadence only when appliedSeq advances, stale (dropped) seqs never acked, ack goes only to the owning conn with the shared snapshot buffer byte-identical across conns; `shard.ws.test.ts` (+1 section) — live ws: monotonic acks up to applied seq 10; `vec.test.ts` (+6 slerp/angleBetween), `schemas.test.ts` (+2 rot/ack).
+- Live smoke `app/smoke-task14.mjs` over the :3000 proxy (18 checks): `rot` on every snapshot (unit quat), ack contract (~10 Hz, strictly increasing, only actually-sent seqs, no duplicates, all 39 sent frames applied), and it drives the REAL `ClientShipPredictor` from the live snapshots+acks: max post-warmup correction 4.8 u, 20/20 blends, no snaps; ship advanced +Z on thrust; no protocol errors; browser page load clean over 5 s (0 console errors) + screenshot. Manual in-browser feel check is deferred to the client-renderer tasks — the app is still the placeholder HUD (no canvas renderer yet); the predictor's feel is covered by the virtual-clock acceptance sim.
+- Also fixed a latent e2e collection break: `tests/session-log-leak.spec.ts` (vitest node spec from TASK-66) was missing from playwright's `testIgnore`, so `npx playwright test` could not collect any tests — added the ignore (the config comment already documented the intent).
+- Verified: `tsc --noEmit`, `eslint --fix` + `prettier --write` (lint + `prettier --check` clean), full `npm run test` → 39 files / 416 tests all pass (+32 new), `npx playwright test` → 1 passed, live smoke SMOKE PASS.
+- Screenshot: `.agent/screenshots/TASK-14-1.png`
 
 ### 2026-09-29 — TASK-13: Server sim: 20 Hz tick with 10 Hz snapshots
 Authoritative per-system sim: fixed 20 Hz tick (drift-corrected setTimeout chain, 5-tick max catch-up with input-drop signalling), latest-input-wins queues with stale-seq protection, 10 Hz entity_update broadcast, tick-time histogram, and the 16-ship p95 < 30 ms benchmark:

@@ -144,7 +144,7 @@
     "title": "Client prediction + server reconciliation",
     "category": "functional",
     "specFilePath": ".agent/tasks/TASK-14.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-23",

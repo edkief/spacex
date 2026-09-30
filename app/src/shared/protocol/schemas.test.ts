@@ -79,6 +79,7 @@ const CASES: Record<string, { valid: unknown; invalid: unknown }> = {
     valid: { code: 'rate-limited', message: 'slow down' },
     invalid: { code: '', message: 'x' },
   },
+  ack: { valid: { seq: 42 }, invalid: { seq: 4.5 } },
   ping: { valid: {}, invalid: 'not-an-object' },
   pong: { valid: {}, invalid: [1, 2, 3] },
   presence: {
@@ -127,6 +128,26 @@ describe('message payload schemas', () => {
         target: 'b',
         weapon: 'torpedo',
         damage: Infinity,
+      }).success,
+    ).toBe(false);
+  });
+
+  it('EntityState carries an optional orientation (TASK-14 reconciliation/slerp)', () => {
+    // No rot: back-compat with v1 producers — must parse.
+    expect(messageSchemas.entity_update.safeParse({ entities: [entity] }).success).toBe(true);
+    // Valid unit quat parses and round-trips.
+    const withRot = { ...entity, rot: { x: 0, y: 0, z: 0.70710678, w: 0.70710678 } };
+    const parsed = messageSchemas.entity_update.safeParse({ entities: [withRot] });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect((parsed.data as { entities: { rot?: unknown }[] }).entities[0].rot).toEqual(
+        withRot.rot,
+      );
+    }
+    // Non-numeric / partial rot rejected.
+    expect(
+      messageSchemas.entity_update.safeParse({
+        entities: [{ ...entity, rot: { x: 0, y: 0, z: 1 } }],
       }).success,
     ).toBe(false);
   });

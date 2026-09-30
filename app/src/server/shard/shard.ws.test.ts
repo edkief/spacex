@@ -175,6 +175,19 @@ describe('shard sim over live ws (TASK-13)', () => {
     // The entity left the dock regime after the first input.
     expect(last.regime).toBe('sublight');
 
+    // TASK-14: the owning client is acked the last APPLIED seq. Acks are
+    // sent at snapshot cadence as appliedSeq advances; latest-wins means a
+    // frame replaced before its tick is never APPLIED, so acked seqs may
+    // skip — collect until the applied seq reaches 10.
+    const ackSeqs: number[] = [];
+    for (let i = 0; i < 30 && ackSeqs[ackSeqs.length - 1] !== 10; i++) {
+      const ack = await client.next((m) => m.type === 'ack', 'ack', 2500);
+      ackSeqs.push((ack.payload as { seq: number }).seq);
+    }
+    expect(ackSeqs[ackSeqs.length - 1]).toBe(10); // final ack: all inputs applied
+    expect(ackSeqs.every((s, i) => i === 0 || s > ackSeqs[i - 1])).toBe(true); // monotonic
+    expect(ackSeqs[0]).toBeGreaterThanOrEqual(1);
+
     // Stale seq from the wire is ignored: state keeps advancing from seq 10.
     const before = last.pos.z;
     sendInput(client, {

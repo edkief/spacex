@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   quat,
+  quatAngleBetween,
   quatFromAxisAngle,
+  quatSlerp,
   quatFromEuler,
   quatIdentity,
   quatLength,
@@ -151,5 +153,61 @@ describe('quaternions', () => {
     // quatNormalize (what the sim applies each tick) restores it
     expect(Math.abs(quatLength(q) - 1)).toBeLessThan(1e-9);
     expect(quatLength(quatNormalize(q))).toBeCloseTo(1, 12);
+  });
+});
+
+describe('quatSlerp / quatAngleBetween (TASK-14 interpolation + reconciliation)', () => {
+  const yaw = (a: number) => quatFromAxisAngle({ x: 0, y: 1, z: 0 }, a);
+
+  it('slerp endpoints and midpoint are exact on the arc', () => {
+    const a = yaw(0);
+    const b = yaw(1);
+    expect(quatSlerp(a, b, 0)).toEqual(a);
+    expect(quatSlerp(a, b, 1)).toEqual(b);
+    const mid = quatSlerp(a, b, 0.5);
+    expect(quatAngleBetween(mid, yaw(0.5))).toBeLessThan(1e-12); // exact arc midpoint
+  });
+
+  it('slerp takes the short arc (flips antipodal inputs)', () => {
+    const a = quat(0, 0, 0, 1);
+    const b = quat(0, -0.70710678, 0, -0.70710678); // antipodal to yaw(π/2)
+    const mid = quatSlerp(a, b, 0.5);
+    // Short arc: π/4 rotation, not 3π/4.
+    expect(quatAngleBetween(mid, yaw(Math.PI / 4))).toBeLessThan(1e-9);
+  });
+
+  it('slerp is exact for constant angular velocity (render-capture basis)', () => {
+    // A ship yawing at 0.5 rad/s between two 100 ms samples: slerp at f must
+    // sit exactly on the arc — no wobble for the interpolation test.
+    const a = yaw(0);
+    const b = yaw(0.05);
+    for (const f of [0.1, 0.37, 0.72, 0.99]) {
+      expect(quatAngleBetween(quatSlerp(a, b, f), yaw(0.05 * f))).toBeLessThan(1e-12);
+    }
+  });
+
+  it('slerp handles near-parallel quaternions without degeneracy', () => {
+    const a = yaw(0.1);
+    const b = yaw(0.10001);
+    const mid = quatSlerp(a, b, 0.5);
+    expect(quatLength(mid)).toBeCloseTo(1, 12);
+    expect(quatAngleBetween(mid, yaw(0.100005))).toBeLessThan(1e-6);
+  });
+
+  it('quatAngleBetween: identity 0, opposite π, antipodal 0', () => {
+    expect(quatAngleBetween(quatIdentity(), quatIdentity())).toBeCloseTo(0, 12);
+    expect(quatAngleBetween(quatIdentity(), yaw(Math.PI))).toBeCloseTo(Math.PI, 12);
+    expect(quatAngleBetween(yaw(0.3), yaw(0.8))).toBeCloseTo(0.5, 12);
+    const q = yaw(0.3);
+    expect(quatAngleBetween(q, { x: -q.x, y: -q.y, z: -q.z, w: -q.w })).toBeLessThan(1e-7); // antipodal quats are the same rotation (fp roundoff)
+  });
+
+  it('repeated slerp steps do not accumulate drift (interpolation is idempotent)', () => {
+    const a = yaw(0);
+    const b = yaw(0.9);
+    let q = a;
+    for (let i = 0; i < 20; i++) q = quatSlerp(q, b, 0.5);
+    expect(quatAngleBetween(q, b)).toBeLessThan(1e-6);
+    expect(quatLength(q)).toBeCloseTo(1, 12);
   });
 });

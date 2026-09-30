@@ -19,6 +19,9 @@ Excludes dotfiles, tests, and config.
 │   └── src/
 │       ├── client/
 │       │   ├── main.tsx      # React shell + #game-canvas placeholder
+│       │   ├── net/
+│       │   │   ├── prediction.ts   # TASK-14: ClientShipPredictor — per-frame integrateShip + server-timeline reconcile (blend/rewind/snap, 10 s queue cap)
+│       │   │   └── interpolation.ts # TASK-14: RemoteEntityBuffer/Tracker — 200 ms lerp/slerp, stale on underrun, dim after 1 s
 │       │   └── render/
 │       │       └── ship-mesh.ts # TASK-21: ShipMeshBuilder — 3 paint-zone materials + in-place applyLivery
 │       ├── server/

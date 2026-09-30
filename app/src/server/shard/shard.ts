@@ -3,13 +3,13 @@ import { performance } from 'node:perf_hooks';
 import { WebSocket } from 'ws';
 
 import { encodeMessage } from '@shared/protocol';
+import { inputToShipInput } from '@shared/protocol/inputs';
 import { messageSchemas, type EntityState, type InputPayload } from '@shared/protocol/schemas';
 import {
   integrateShip,
   restShipState,
   type FlightOptions,
   type PlanetAtmo,
-  type ShipInput,
 } from '@shared/physics/flight';
 import { shipStats } from '@shared/ships';
 import type { SystemGen } from '@shared/galaxy/types';
@@ -206,7 +206,15 @@ export class SystemShard implements Shard {
   registerConnection(playerId: string, callsign: string, send: ConnState['send']): string {
     const connId = `c${++this.connSeq}`;
     this.playerConns.set(playerId, connId);
-    this.connections.set(connId, { connId, playerId, callsign, lastSeq: 0, send });
+    this.connections.set(connId, {
+      connId,
+      playerId,
+      callsign,
+      lastSeq: 0,
+      appliedSeq: 0,
+      ackSentSeq: 0,
+      send,
+    });
     return connId;
   }
 
@@ -216,6 +224,11 @@ export class SystemShard implements Shard {
     if (!state) return;
     this.connections.delete(connId);
     this.playerConns.delete(state.playerId);
+    // The held input belongs to the connection: without a pilot the ship
+    // coasts on zero input instead of thrusting forever (TASK-14 hold
+    // semantics). A re-join re-adopts the entity with a clean slate.
+    const entity = this.playerEntities.get(state.playerId);
+    if (entity) entity.heldInput = undefined;
     this.events.emit('player-left', { playerId: state.playerId, connId });
   }
 
@@ -249,21 +262,26 @@ export class SystemShard implements Shard {
   private tick(tick: number): void {
     const t0 = performance.now();
 
-    // Drain input queues: one input per player (latest already won at
-    // enqueue). Ships always integrate (the sim never pauses mid-flight); a
-    // player with no new input coasts on zero input.
+    // Drain input queues: a new frame REPLACES the held frame (latest already
+    // won at enqueue) and is held on the entity, re-integrated every tick
+    // until a newer frame arrives — the client predictor keeps integrating
+    // its last input between frames, so the authority must too (TASK-14).
+    // Ships always integrate (the sim never pauses mid-flight); a player
+    // that never sent a frame coasts on zero input.
     for (const conn of this.connections.values()) {
       const entity = this.playerEntities.get(conn.playerId);
       if (!entity) continue;
       const input = conn.input;
       if (input) {
-        conn.input = undefined; // consumed exactly once
+        conn.input = undefined; // consumed: becomes the held frame
+        entity.heldInput = input; // held until a newer frame replaces it
+        conn.appliedSeq = input.seq; // TASK-14: reconcilable from this tick on
         if (entity.docked) entity.docked = false; // first input = take-off
       }
       const ctx = this.resolveRegimeCtx(entity);
       entity.ship = integrateShip(
         entity.ship,
-        inputToShipInput(input ?? ZERO_INPUT),
+        inputToShipInput(entity.heldInput ?? ZERO_INPUT),
         this.dt,
         entity.ship.regime,
         ctx.planet,
@@ -276,6 +294,8 @@ export class SystemShard implements Shard {
     if (tick % SNAPSHOT_EVERY_TICKS === 0 && this.entities.size > 0 && this.connections.size > 0) {
       this.broadcast();
     }
+    // 10 Hz acks: tell each connection the last input seq APPLIED (TASK-14).
+    if (tick % SNAPSHOT_EVERY_TICKS === 0) this.sendAcks();
 
     const ms = performance.now() - t0;
     this.histogram.record(ms);
@@ -304,6 +324,23 @@ export class SystemShard implements Shard {
       this.snapshotSizeWarned = false;
     }
     for (const conn of this.connections.values()) conn.send(buffer);
+  }
+
+  /**
+   * TASK-14: tell each connection the last input seq APPLIED (integrated in
+   * a tick), so the owning client can reconcile its prediction. Sent at
+   * snapshot cadence and only when it advanced. This is a per-connection
+   * message on purpose: the shared entity_update buffer must stay
+   * byte-identical for every in-system peer (the encode-once design), so
+   * the ack cannot ride in the snapshot payload.
+   */
+  private sendAcks(): void {
+    for (const conn of this.connections.values()) {
+      if (conn.appliedSeq > conn.ackSentSeq) {
+        conn.send(encodeMessage('ack', { seq: conn.appliedSeq }));
+        conn.ackSentSeq = conn.appliedSeq;
+      }
+    }
   }
 
   /**
@@ -402,20 +439,9 @@ export class SystemShard implements Shard {
   }
 }
 
-/**
- * Map a wire input frame onto the flight-model input channels.
- * turn → roll; action 'vtol' engages full VTOL lift (the protocol v1 input
- * frame has no dedicated up channel); fire/lock are reserved for TASK-43/44.
- */
-export function inputToShipInput(input: InputPayload): ShipInput {
-  return {
-    thrust: input.thrust,
-    yaw: input.yaw,
-    pitch: input.pitch,
-    roll: input.turn,
-    up: input.action === 'vtol' ? 1 : 0,
-  };
-}
+// `inputToShipInput` moved to @shared/protocol/inputs (TASK-14) — the client
+// predictor maps frames identically. Re-exported so existing imports work.
+export { inputToShipInput };
 
 /** Entity → wire EntityState (hull/shields normalized 0..1, regime mapped). */
 export function entityToState(e: SimEntity): EntityState {
@@ -426,6 +452,7 @@ export function entityToState(e: SimEntity): EntityState {
     kind: e.kind,
     pos: e.ship.pos,
     vel: e.ship.vel,
+    rot: e.ship.quat, // TASK-14: reconciliation + remote slerp
     regime,
     hull: e.hull,
     shields: e.shields,
