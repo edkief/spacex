@@ -191,8 +191,10 @@ describe('galaxy router over live ws (TASK-11)', () => {
     const quietSystem = systemIds[4];
 
     // Fill the target system to the cap.
+    const fullClaimants: Array<{ playerId: string; shipId: string }> = [];
     for (let i = 0; i < MAX_PLAYERS_PER_SYSTEM; i++) {
       const p = await claim(`Full-${i}`);
+      fullClaimants.push({ playerId: p.playerId, shipId: p.shipId });
       await join(mkClient(), p.token, fullSystem);
     }
     expect(router.active(fullSystem)!.shard.connections.size).toBe(MAX_PLAYERS_PER_SYSTEM);
@@ -215,7 +217,20 @@ describe('galaxy router over live ws (TASK-11)', () => {
     const upd = await c.next((m) => m.type === 'entity_update', 'still-in-system snapshot', 8000);
     const entities = (upd.payload as { entities: Array<{ id: string }> }).entities;
     expect(entities.some((e) => e.id === late.shipId)).toBe(true);
-    expect(entities).toHaveLength(1);
+    // Every entity in the quiet snapshot must be the late player's own ship,
+    // or a Full-* claimant's starter ship whose seed-derived home system is
+    // the quiet system (those dock there, so the shard loads them from the DB
+    // even while their owner sits in the full system).
+    const fullByShip = new Map(fullClaimants.map((p) => [p.shipId, p]));
+    for (const e of entities) {
+      if (e.id === late.shipId) continue;
+      const p = fullByShip.get(e.id);
+      expect(p, `unknown entity ${e.id} in quiet system`).toBeDefined();
+      expect(
+        homeSystemIdForPlayer(GALAXY_SEED, p!.playerId),
+        `entity ${e.id} in quiet system but owner's home is elsewhere`,
+      ).toBe(quietSystem);
+    }
     expect(router.active(quietSystem)!.shard.connections.size).toBe(1);
   }, 60000);
 

@@ -1,3 +1,5 @@
+/* eslint-disable no-control-regex -- stripping control characters is the whole point of the sanitizer
+ */
 /**
  * System text chat contract (TASK-16).
  *
@@ -23,8 +25,9 @@ export const CHAT_HISTORY_MAX = 100;
  */
 // NB: the ANSI CSI alternative comes FIRST — at an ESC byte the C0 class
 // would otherwise match alone and leave the "[31m" parameter garbage behind.
+
 const NON_TEXT =
-  /(\u001b\[[0-9;?]*[ -\/]*[@-~])|[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]/gu;
+  /(\u001b\[[0-9;?]*[ -/]*[@-~])|[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]/gu;
 
 /** Strip non-text characters and surrounding whitespace. Never throws. */
 export function sanitizeChatText(raw: string): string {

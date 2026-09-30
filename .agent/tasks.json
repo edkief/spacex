@@ -186,7 +186,7 @@
     "title": "System text chat with history and sanitization",
     "category": "functional",
     "specFilePath": ".agent/tasks/TASK-16.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-17",

@@ -18,12 +18,7 @@ import {
 } from '@shared/protocol';
 import type { MessageType } from '@shared/protocol';
 import type { AuthPayload, PresenceEntry, StateSnapshot } from '@shared/protocol/schemas';
-import {
-  CHAT_MAX_CHARS,
-  CHAT_WINDOW_MAX,
-  CHAT_WINDOW_MS,
-  sanitizeChatText,
-} from '@shared/chat';
+import { CHAT_MAX_CHARS, CHAT_WINDOW_MAX, CHAT_WINDOW_MS, sanitizeChatText } from '@shared/chat';
 import type { Repository } from '@server/db/repo';
 import {
   ChatLimiter,

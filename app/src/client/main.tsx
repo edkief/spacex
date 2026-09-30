@@ -231,10 +231,7 @@ function App() {
         )}
       </div>
       {systemId && (
-        <ChatLog
-          store={chatStore}
-          onSend={(text) => clientRef.current?.send('chat', { text })}
-        />
+        <ChatLog store={chatStore} onSend={(text) => clientRef.current?.send('chat', { text })} />
       )}
       <PlayerList store={store} />
       <ToastStack store={store} />

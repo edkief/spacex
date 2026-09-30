@@ -50,7 +50,15 @@ export function ChatLog({ store, onSend }: ChatLogProps) {
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'Enter') return;
-      if (e.target === inputRef.current) return;
+      // The input's own Enter sends + closes synchronously (React flushes
+      // discrete updates during dispatch), so by the time this window-level
+      // listener sees the SAME bubbled event the input is already unmounted
+      // and inputRef.current is null — match on the (possibly detached)
+      // target's id to avoid reopening it in the same keystroke.
+      const t = e.target as HTMLElement | null;
+      if (t === inputRef.current || (t instanceof HTMLInputElement && t.id === 'chat-input')) {
+        return;
+      }
       setOpen(true);
       e.preventDefault();
     };

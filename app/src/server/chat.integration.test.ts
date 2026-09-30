@@ -62,7 +62,11 @@ async function join(
   c.send({ v: PROTOCOL_VERSION, type: 'hello', payload: { v: PROTOCOL_VERSION } });
   c.send({ v: PROTOCOL_VERSION, type: 'auth', payload: { token } });
   c.send({ v: PROTOCOL_VERSION, type: 'join_system', payload: { systemId } });
-  const enter = await c.next((m) => m.type === 'enter_system', `enter_system for ${callsign}`, 8000);
+  const enter = await c.next(
+    (m) => m.type === 'enter_system',
+    `enter_system for ${callsign}`,
+    8000,
+  );
   return { client: c, snapshot: (enter.payload as { snapshot: StateSnapshot }).snapshot };
 }
 

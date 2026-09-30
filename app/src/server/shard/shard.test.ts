@@ -519,7 +519,10 @@ describe('SystemShard system chat (TASK-16)', () => {
   function chatFrames(sends: string[]): Array<{ from: string; text: string; ts: number }> {
     return sends
       .map((b) => decodeMessage(b))
-      .filter((d): d is { ok: true; envelope: { v: number; type: string; payload: unknown } } => d.ok && d.envelope.type === 'chat')
+      .filter(
+        (d): d is { ok: true; envelope: { v: number; type: string; payload: unknown } } =>
+          d.ok && d.envelope.type === 'chat',
+      )
       .map((d) => d.envelope.payload as { from: string; text: string; ts: number });
   }
 

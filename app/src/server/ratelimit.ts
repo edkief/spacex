@@ -135,9 +135,7 @@ export class ChatLimiter {
     if (this.sends.length >= this.windowMax) {
       return {
         ok: false,
-        reason: `chat rate limit: at most ${this.windowMax} messages per ${
-          this.windowMs / 1000
-        } s`,
+        reason: `chat rate limit: at most ${this.windowMax} messages per ${this.windowMs / 1000} s`,
       };
     }
     this.lastSendAt = t;

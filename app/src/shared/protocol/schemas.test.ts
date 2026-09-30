@@ -206,10 +206,7 @@ describe('message payload schemas', () => {
   });
 
   it('caps chat history at 100 messages in a snapshot', () => {
-    const msgs = Array.from(
-      { length: 101 },
-      (_, i) => ({ ...snapshot.chat[0], text: `m${i}` }),
-    );
+    const msgs = Array.from({ length: 101 }, (_, i) => ({ ...snapshot.chat[0], text: `m${i}` }));
     expect(messageSchemas.state_snapshot.safeParse({ ...snapshot, chat: msgs }).success).toBe(
       false,
     );

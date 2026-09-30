@@ -18,15 +18,17 @@ Excludes dotfiles, tests, and config.
 │   ├── smoke-task21.mjs      # TASK-21 live smoke: livery REST happy path + Playwright page load/screenshot
 │   └── src/
 │       ├── client/
-│       │   ├── main.tsx      # React shell: #game-canvas, callsign claim form + session boot (WS → join, ?sys= override), presence HUD, live occupancy
+│       │   ├── main.tsx      # React shell: #game-canvas, callsign claim form + session boot (WS → join, ?sys= override), presence HUD, live occupancy, chat log (TASK-16)
 │       │   ├── net/
 │       │   │   ├── prediction.ts   # TASK-14: ClientShipPredictor — per-frame integrateShip + server-timeline reconcile (blend/rewind/snap, 10 s queue cap)
 │       │   │   ├── interpolation.ts # TASK-14: RemoteEntityBuffer/Tracker — 200 ms lerp/slerp, stale on underrun, dim after 1 s
 │       │   │   ├── presence.ts     # TASK-15: PresenceStore — snapshot + join/leave events, self "(you)", lastSeen, occupancy, toast events (no emit on unchanged snapshots)
-│       │   │   └── session.ts      # TASK-15: ClientSession — browser WS client, hello→auth(token), joinSystem → enter_system snapshot
+│       │   │   ├── session.ts      # TASK-15: ClientSession — browser WS client, hello→auth(token), joinSystem → enter_system snapshot
+│       │   │   └── chat.ts         # TASK-16: ChatStore — 100-msg ring buffer, loadSnapshot (system-change clear + ts watermark), emit only on change
 │       │   ├── hud/
 │       │   │   ├── player-list.tsx # TASK-15: bottom-left monospace callsign list + status dots, presence-event re-renders only
-│       │   │   └── toast-stack.tsx # TASK-15: top-right join/leave toasts, 3 s fade, 3 visible + queue
+│       │   │   ├── toast-stack.tsx # TASK-15: top-right join/leave toasts, 3 s fade, 3 visible + queue
+│       │   │   └── chat-log.tsx    # TASK-16: top-left chat column — '[HH:MM] CALLSIGN: text', text-only (no innerHTML), Enter-toggled input, bottom-pinned scroll
 │       │   └── render/
 │       │       └── ship-mesh.ts # TASK-21: ShipMeshBuilder — 3 paint-zone materials + in-place applyLivery
 │       ├── server/
@@ -49,7 +51,7 @@ Excludes dotfiles, tests, and config.
 │       │       ├── players.ts      # TASK-41: GET /api/players/me (Bearer → own profile incl. credits)
 │       │       ├── session.ts      # TASK-10: GET /api/session (Bearer → profile, structured 401s)
 │       │       └── ships.ts        # TASK-20/21/23: GET /api/ships, POST /api/ships/buy (docked purchase), POST /api/ships/livery (3-slot hex paint), POST /api/ships/repair (docked, credit cost)
-│       │   ├── ws.ts         # TASK-9 WS lifecycle: handshake state machine, structured errors, presence, 15s/45s keepalive
+│       │   ├── ws.ts         # TASK-9 WS lifecycle: handshake state machine, structured errors, presence, 15s/45s keepalive; TASK-16 chat sanitize → rate-limit → onGameMessage
 │       │   ├── shard/
 │       │   │   ├── sim.ts  # TASK-13: SimLoop — 20 Hz fixed tick, drift-corrected setTimeout chain, 5-tick max catch-up + input-drop flag
 │       │   │   ├── histogram.ts  # TASK-13: TickHistogram — ring-buffer tick durations, p50/p95/p99
@@ -61,7 +63,7 @@ Excludes dotfiles, tests, and config.
 │       │   │   └── (tests) persist.test.ts (flush/load + p95 < 8 ms bench), crash-restart.test.ts (SIGKILL restart integration, real child server)
 │       │   ├── persist.ts               # TASK-63 save-point service: dock/damage-milestone/5s-interval/shutdown, crash-load
 │       │   ├── persist-crash-child.ts   # TASK-63 test helper: child process that saves state, then gets SIGKILL'd
-│       │   ├── ratelimit.ts             # TASK-65 per-conn token bucket (20/s, burst 40), chat limiter (2 s gap / 280 chars / 10 per 30 s), 3-in-10 s escalation
+│       │   ├── ratelimit.ts             # TASK-65 per-conn token bucket (20/s, burst 40), ChatLimiter (option rules; TASK-16 = 200 chars / 5 per 10 s), 3-in-10 s escalation
 │       │   └── db/
 │       │       ├── schema.ts          # dual-driver Drizzle schema (sqlite + pg), 6 tables + row types
 │       │       ├── client.ts          # createDb/getDb: DB_DRIVER → better-sqlite3 file (WAL) | pg Pool; migrate on boot
@@ -78,7 +80,8 @@ Excludes dotfiles, tests, and config.
 │           ├── random.ts     # Deterministic PRNG (xoshiro128**) + FNV-1a/splitmix hashing
 │           ├── protocol.ts       # TASK-9: version constant, Envelope, encode/decode, parseMessage, error codes; TASK-11: MAX_PLAYERS_PER_SYSTEM = 16
 │           ├── protocol/
-│           │   └── schemas.ts    # TASK-9/23: zod payload schema per message type (combat_event damaged/destroyed) + EntityState/StateSnapshot shapes
+│           ├── chat.ts       # TASK-16: chat contract — CHAT_MAX_CHARS/CHAT_WINDOW_*/CHAT_HISTORY_MAX + sanitizeChatText (strips C0/C1/DEL, ANSI CSI, bidi, zero-width)
+│           │   └── schemas.ts    # TASK-9/16/23: zod payload schema per message type (chat = union of {text} inbound / {from,text,ts} broadcast, combat_event damaged/destroyed) + EntityState/StateSnapshot shapes
 │           ├── ships.ts          # TASK-19/21: SHIP_CLASSES + shipStats/compareShips/totalWeaponCount/shipPrice, Livery type + per-class defaultLivery
 │           ├── physics/
 │           │   ├── vec.ts        # TASK-22: Vec3/Quat ops (add/scale/dot/cross/normalize/lerp, fromEuler/multiply/toMat3/rotateVector)

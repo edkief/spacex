@@ -3,12 +3,29 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-30
-**Tasks Completed:** 26
-**Current Task:** TASK-15 Complete
+**Tasks Completed:** 27
+**Current Task:** TASK-16 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-09-30 — TASK-16: System text chat with history and sanitization
+System-scoped text chat: every connection in a shard sees every message as `{from, text, ts}` (server-assigned ms epoch, strictly monotonic), sanitized server-side, rate-limited per connection, and rendered as inert React text. No channels, no private messages, no persistence (v1).
+- `app/src/shared/chat.ts` (NEW) — contract: `CHAT_MAX_CHARS=200` (after trim), `CHAT_WINDOW_MS=10_000` / `CHAT_WINDOW_MAX=5`, `CHAT_HISTORY_MAX=100`; `sanitizeChatText()` strips C0/DEL/C1 controls, ANSI CSI sequences (CSI alternative ordered FIRST so an ESC never matches alone and leaves `[31m` garbage), bidi overrides, zero-width/format chars, and trims.
+- `app/src/shared/protocol/schemas.ts` — `chatInboundSchema` (`{text}`, strict, 1..200 after trim) + `chatMessageSchema` (`{from, text, ts}` ms epoch, strict); `messageSchemas.chat` is the UNION of both (required so the client's `parseMessage` accepts the server's broadcast shape); enter_system snapshot `chat` array carries the new shape. Old `CHAT_CHANNELS` + 280-char/ISO-ts shape removed.
+- `app/src/server/ratelimit.ts` — `ChatLimiter` gains an options param `{minGapMs, maxChars, windowMs, windowMax}` (TASK-65 defaults preserved); `ws.ts` instantiates TASK-16 rules (`minGapMs: 0`, 200 chars, 5/10 s) as `conn.chatLimiter`.
+- `app/src/server/ws.ts` — chat flow: sanitize → empty-after-sanitize = `invalid-message` (counts toward the invalid-message drop) → limiter check → `rate-limited` (existing 3-in-10 s escalation) → `onGameMessage(conn, 'chat', {text})`.
+- `app/src/server/shard/shard.ts` — `handleChat(from, text)`: ts = `max(now, lastChatTs+1)` (strictly monotonic), 100-message ring buffer, encode-once broadcast to ALL shard connections including the sender; `chatHistory()`. `app/src/server/galaxy/router.ts` `enterSnapshot` now ships `shard.chatHistory()` (late joiners get the last 100).
+- `app/src/server/index.ts` — `onGameMessage` routes `chat` to `shard.handleChat(conn.callsign, text)`.
+- `app/src/client/net/chat.ts` (NEW) — `ChatStore`: 100-message ring buffer, `loadSnapshot()` clears on system change + drops stale frames via a ts watermark, emits only on change.
+- `app/src/client/hud/chat-log.tsx` (NEW) — `ChatLog`: top-left column (below the title card, above the player list), `[HH:MM] CALLSIGN: text`, text-only rendering (no innerHTML); Enter toggles the hidden input (Enter sends + closes, Esc closes); auto-scroll pins to the bottom only while the user is already there. BUG FIXED here after the first e2e run: React 18 flushes the keydown state update synchronously, so by the time the same Enter event bubbled to the window-level "open input" listener the input was already unmounted (`inputRef.current === null`) and it REOPENED the input in the same keystroke — the window handler now matches the (possibly detached) target by `id="chat-input"`.
+- `app/src/client/main.tsx` — feeds `ChatStore` from `chat` frames, `loadSnapshot(snapshot.chat)` after join, renders `<ChatLog>` in-system, sends `clientRef.current?.send('chat', {text})`.
+- Tests: `src/shared/chat.test.ts` (NEW) — sanitizer cases incl. ANSI CSI ordering, bidi, zero-width, trim-to-empty. `src/client/net/chat.test.ts` (NEW) — ring buffer, snapshot watermark, change-only emits. `src/server/chat.integration.test.ts` (NEW, real child server) — 3 clients: 6 interleaved messages all delivered in identical order with strictly increasing ts; 6th-in-10 s dropped with `rate-limited` to the sender only; per-connection isolation; control-char stripping; XSS payload arrives as inert text; empty/oversize/non-string/blank → `invalid-message`; late joiner's `enter_system` snapshot carries the accumulated history. 3 `handleChat` unit tests in `shard.test.ts`; TASK-16 window case in `ratelimit.test.ts`; rewritten chat case in `ratelimit-flood.test.ts` (no `channel` field, 5/10 s, 200 chars); updated chat fixtures in `schemas.test.ts` + `protocol.test.ts`.
+- `app/src/server/galaxy/router.ws.test.ts` — fixed a PRE-EXISTING flake in the 16-player cap test (unrelated to TASK-16): `homeSystemIdForPlayer` hashes the random UUID, so ~13% of runs a Full-* claimant's docked starter ship belongs to the "quiet" system and the quiet shard rehydrates it (snapshot had 2 entities, not 1). The assertion now allows exactly that: every quiet-snapshot entity is the late player's ship or a claimant's ship whose home system IS the quiet system (same "allowed" logic as the 10-client test; no other assertion weakened).
+- `app/tests/chat.spec.ts` (NEW, Playwright) — two browser contexts in one system: Enter-toggled input, both logs show `[HH:MM] CALLSIGN: hello drift`, the `<img src=x onerror=alert(1)>` payload renders as inert text with `#chat-log img` count 0, zero console errors in both contexts.
+- Verified: `tsc --noEmit` clean, `eslint --fix` + `prettier --write` clean, full `npm run test` → 54 files / 516 tests all pass, `npx playwright test tests/chat.spec.ts` → 1 passed.
+- Screenshots: `.agent/screenshots/TASK-16-1.png` (A: shared log, both messages incl. inert XSS text, player list below), `.agent/screenshots/TASK-16-2.png` (B: mirror view).
 
 ### 2026-09-30 — TASK-15: Presence: in-system player list and toasts
 Clients now see who else is in the system: a live player list (bottom-left, monospace, status dots, "(you)" marker), join/leave toasts (top-right, 3 s fade, max 3 visible with queueing), and a live "N aboard" occupancy readout. The star-chart badge itself is TASK-7's UI — the data (store.occupancy + the TASK-11 /api/galaxy/health shards) is in place for it.

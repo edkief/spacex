@@ -13,8 +13,6 @@ export type EntityKind = (typeof ENTITY_KINDS)[number];
 export const REGIMES = ['sublight', 'cruise', 'warp', 'docked'] as const;
 export type Regime = (typeof REGIMES)[number];
 
-
-
 /**
  * Combat event kinds (TASK-23 rewired the contract: the sim broadcasts
  * 'damaged' per hit and 'destroyed' on the killing hit — the old 'hit'/'kill'
@@ -88,10 +86,13 @@ export type ResourceNode = z.infer<typeof resourceNodeSchema>;
 export const chatInboundSchema = z
   .object({ text: z.string() })
   .strict()
-  .refine((p) => {
-    const trimmed = p.text.trim();
-    return trimmed.length >= 1 && trimmed.length <= CHAT_MAX_CHARS;
-  }, { message: `text must be 1..${CHAT_MAX_CHARS} characters after trim` });
+  .refine(
+    (p) => {
+      const trimmed = p.text.trim();
+      return trimmed.length >= 1 && trimmed.length <= CHAT_MAX_CHARS;
+    },
+    { message: `text must be 1..${CHAT_MAX_CHARS} characters after trim` },
+  );
 export type ChatInbound = z.infer<typeof chatInboundSchema>;
 
 export const chatMessageSchema = z
