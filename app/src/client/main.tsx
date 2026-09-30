@@ -1,11 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { HealthPayload } from '@shared/health';
-import {
-  ClientSession,
-  type ClaimedSession,
-  type ConnectionState,
-} from '@client/net/session';
+import { ClientSession, type ClaimedSession, type ConnectionState } from '@client/net/session';
 import { PresenceStore } from '@client/net/presence';
 import { ChatStore } from '@client/net/chat';
 import { PlayerList } from '@client/hud/player-list';
@@ -286,7 +282,12 @@ function App() {
  */
 function ConnectionLostOverlay({ onRetry }: { onRetry: () => void }) {
   return (
-    <div id="connection-lost-overlay" style={overlayStyles.backdrop} role="alertdialog" aria-label="Connection lost">
+    <div
+      id="connection-lost-overlay"
+      style={overlayStyles.backdrop}
+      role="alertdialog"
+      aria-label="Connection lost"
+    >
       <div style={overlayStyles.card}>
         <h2 style={overlayStyles.title}>CONNECTION LOST</h2>
         <p style={overlayStyles.text}>

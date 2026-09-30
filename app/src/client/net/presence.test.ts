@@ -97,6 +97,21 @@ describe('PresenceStore', () => {
     expect(store.otherPlayers.map((p) => p.callsign)).toEqual(['bob']);
   });
 
+  it('reconnected() fires a reconnected toast and leaves the list untouched (TASK-17)', () => {
+    const store = new PresenceStore();
+    store.setSelf(ME);
+    store.applySnapshot([ALICE, BOB]);
+    const toasts: string[] = [];
+    let changes = 0;
+    store.onToast((t) => toasts.push(`${t.kind}:${t.callsign}`));
+    store.subscribe(() => changes++);
+
+    store.reconnected();
+    expect(toasts).toEqual(['reconnected:drifter']);
+    expect(changes).toBe(0); // no presence change emit
+    expect(store.otherPlayers.map((p) => p.callsign)).toEqual(['alice', 'bob']);
+  });
+
   it('updates lastSeen on events (kept for a future latency display)', () => {
     const t = clock();
     const store = new PresenceStore(t.fn);

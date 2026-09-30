@@ -1,62 +1,55 @@
 # Handoff — TASK-17: Reconnect and full state resync
 
 ## Status
-Implementation (steps 1+2, server AND client) is written and in the working tree; unit tests for the shard changes are written. **Nothing has been run yet in this session** — no `tsc`, no `npm run test`, no lint, no Playwright. Step 3 (the WS integration test file) was NOT written. Task is ~70% done.
+Implementation AND all tests (server unit, WS integration, client unit, Playwright e2e) are written and passing; full `npm run test` is green (56 files / 532 tests). **Only bookkeeping remains** (tasks.json, LOG.md, STRUCTURE.md, final commit) — the task is ~95% done.
 
 ## Done
-All in the working tree (uncommitted → will be in the wip commit):
 
-**Server (step 1 — idle continuation + stale-conn guards):**
-- `app/src/server/shard/types.ts` — `ConnState.source?: unknown` (opaque WS Conn identity); `SimEntity.idle?: boolean`.
-- `app/src/server/shard/shard.ts`:
-  - **tick() rewritten**: iterates `this.playerEntities` (all player ships) instead of `this.connections` — owner-less ships now keep integrating (coast on zero input; held frame already cleared on leave). This is the behavior change that makes "ship keeps living in the shard" true.
-  - `registerConnection(playerId, callsign, send, source?)` — SUPERSEDES a zombie conn for the same player (evicts it from `this.connections`, debug log 'superseded stale connection'); stores `source`; un-idles an existing entity.
-  - `unregisterConnection(connId)` — only deletes `playerConns` entry + marks entity idle when it is still the CURRENT connId; otherwise debug log 'dropped stale connection on leave' (entity untouched). Still emits 'player-left' (no listeners exist — verified).
-  - `leavePlayer(playerId, source?)` — source mismatch → debug log 'ignored leave from stale conn', no-op.
-  - `enqueueInput(playerId, payload, source?)` — source mismatch → debug log 'dropped input from stale conn', returns false.
-  - `adoptEntity` — sets `entity.idle = !playerConns.has(playerId)` (re-adopt of an existing entity on reconnect = no duplicate entity, un-idle).
-- `app/src/server/galaxy/router.ts` — `RouterPlayer.source?: unknown`; `enter` passes it to `registerConnection`; `leave(systemId, playerId, source?)` → `shard.leavePlayer(playerId, source)`.
-- `app/src/server/galaxy/gateway.ts` — `leaveSystem` passes `player.source`.
-- `app/src/server/ws.ts` — `GatewayPlayer.source?: unknown`; join_system builds player with `source: conn`; socket close handler passes `source: conn` to `gateway.leaveSystem`.
-- `app/src/server/index.ts` — input routing now `shard.enqueueInput(conn.playerId, payload, conn)`.
+**Previous session (already committed in `ff96adb` `wip(TASK-17): ...`):**
+All of step 1 + step 2 — server idle continuation + stale-conn guards (shard.ts tick iterates playerEntities; registerConnection supersedes zombie conns; unregister/leave/enqueueInput source guards; adoptEntity un-idles), router/gateway/ws.ts `source: conn` plumbing, index.ts input routing with conn, and the client (session.ts rewrite: lazy dial, ConnectionState, 1 s backoff capped 5 s, 30 s 'lost' window, retryNow, onSnapshot(snapshot, reconnect); chat.ts mergeSnapshot; presence.ts reconnected toast; main.tsx ConnectionLostOverlay `#connection-lost-overlay` + `#reconnect-retry` + status-line suffixes), plus shard.test.ts reconnect describe.
 
-**Client (step 2 — auto-retry + resync):**
-- `app/src/client/net/session.ts` — **fully rewritten** (was 128 lines, now ~330; may need splitting per 200-300 line rule): `ClientSession` gained lazy `dial()` (socket created on connect(), not in constructor), `ConnectionState` ('connecting'|'connected'|'reconnecting'|'lost'|'closed') with `onState`, `onSnapshot(snapshot, reconnect)` fired on EVERY enter_system (initial join has `reconnect=false`), constants `RETRY_BASE_MS=1000 / RETRY_CAP_MS=5000 / RETRY_GIVE_UP_MS=30000` (exponential 1,2,4,5,5…; 'lost' after 30 s down but retries KEEP running in background; `retryNow()` dials immediately + re-arms patience). Auto-reconnect only after first successful join (initial-join failure stays the caller's error path). Rejoin-failure (error frame during autoJoin) closes the socket so the close path retries.
-- `app/src/client/net/chat.ts` — `ChatStore.mergeSnapshot(entries)`: appends only entries newer than the local tail (resync without reset), ring cap kept, no-op when nothing new.
-- `app/src/client/net/presence.ts` — `PresenceToast.kind` += 'reconnected'; `PresenceStore.reconnected()` fires that toast (list untouched).
-- `app/src/client/hud/toast-stack.tsx` — `toastText()` renders "reconnected" for the new kind.
-- `app/src/client/main.tsx` — `useGameSession` returns `{ systemId, connState }`; snapshot handling moved into `onSnapshot` (reconnect + same systemId → `applySnapshot` + `mergeSnapshot` + `store.reconnected()` = no UI reset; else full boot). New `ConnectionLostOverlay` (id `connection-lost-overlay`, button `reconnect-retry`, pointer-transparent backdrop per "must not block ESC menu", calls `clientRef.current?.retryNow()`); status line shows "· reconnecting…" / "· connection lost".
-
-**Tests written:**
-- `app/src/server/shard/shard.test.ts` — new describe "SystemShard reconnect and idle continuation (TASK-17)": idle-coast exact-vs-`integrateShip` reference, reconnect = same entity / no duplicate / un-idle, zombie conn (inputs dropped w/ debug log, late leave ignored, real close works).
+**This session (uncommitted, in working tree):**
+- `app/src/server/galaxy/reconnect.ws.test.ts` (NEW, ~300 lines) — live-ws integration, 3 tests, ALL PASSING:
+  - (a) mid-flight drop: thrust 5 ticks (~10 u/s), zero-input ack 6, close → peer gets presence leave, ship goes `idle === true` after 2 s and moved > 1 u, reconnect snapshot has exactly 1 entity for A / total count unchanged, continuity `dist(snapPos, pStop + vStop·Δt) < 1 u`, peer gets presence join, new conn acks.
+  - (b) zombie conn: c2 same-token join supersedes c1 (connections.size 1, 1 entity); c1's thrust seq 9 DROPPED (vel stays < 0.5 after 1.5 s); c1's late close leaves conn + non-idle entity intact; c2 close empties + idles.
+  - (c) reap-and-rejoin with fake clock: fly ~1 s, close, `fakeNow += REAP_GRACE_MS + 1000`, `router.reapEmpty()` → `reaped >= 1`, system gone, DB row `state === 'flying'`, rejoin → generation 2, snapshot pos within `|v|·1.5 + 1` of row, > 10 u from dock.
+  - beforeAll mirrors lifecycle.test.ts BUT with `now: () => fakeNow` on the router AND `onGameMessage` input routing (`shard.enqueueInput(conn.playerId, payload as InputPayload, conn)`) — same as index.ts. Systems = star indexes 0/1/2.
+- `app/src/client/net/session.test.ts` (NEW, 7 tests, PASSING) — scripted fake WebSocket (wsFactory) + `vi.useFakeTimers()`, injected `retry: { baseMs: 10, capMs: 40, giveUpMs: 300 }`. Cases: retry at base + resync `onSnapshot(_, true)`; backoff 10/20/40/cap + 'lost' via a fail-loop (state only flips to 'lost' on a retry STEP after the window); refused rejoin (error frame during autoJoin → session closes own socket → next backoff dial); deliberate close never retries; initial connect failure = caller error path, no retry; send() no-op while down; hello+auth+join_system on every dial.
+- `app/src/client/net/chat.test.ts` — +2 tests: mergeSnapshot appends only newer-than-tail; ring cap + no-op/no-emit when nothing new.
+- `app/src/client/net/presence.test.ts` — +1 test: `reconnected()` fires 'reconnected' toast, zero change emits, list untouched.
+- `app/tests/reconnect.spec.ts` (NEW, Playwright, PASSING ~39 s) — init-script WebSocket proxy: `__dropCurrent()` closes the game socket (URL filter `includes('/ws')` — MUST NOT touch vite HMR), `__wsBlock = true` makes game dials return a STUB that fails with onerror+onclose(1006) after 20 ms. Flow: claim+join → send chat 'staying put' → drop → status `<p>` (the "server ok — seed …" line, NOT #sys-id) shows "reconnecting" → 30 s → `#connection-lost-overlay` + `#reconnect-retry` visible (screenshot TASK-17-1.png) → unblock → auto-resync ≤ 5 s → toast 'reconnected', chat 'staying put' preserved, claim form hidden, overlay hidden (screenshot TASK-17-2.png), zero console errors. `test.setTimeout(120_000)`.
+- Screenshots: `.agent/screenshots/TASK-17-1.png` (overlay), `TASK-17-2.png` (recovered) — both exist.
+- `src/client/main.tsx` + `reconnect.ws.test.ts` were prettier-reformatted this session (whitespace only for main.tsx).
 
 ## Working tree
-- Modified (my work, listed above): 12 files under `app/src/`.
-- **NOT my changes — do not commit with the task work, leave alone:** `opencode.json`, `ralph.config.json`, `ralph/package-lock.json`, root `package.json` + `package-lock.json` (untracked) — harness/ralph-loop files.
-- Build state: `npx tsc --noEmit` in `app/` PASSES clean (ran at handoff time). No unit/integration tests have been run.
-- `tasks.json` still `passes: false` (correct — task not done).
+- **Uncommitted (all mine):** `app/src/server/galaxy/reconnect.ws.test.ts`, `app/src/client/net/session.test.ts`, `app/src/client/net/chat.test.ts`, `app/src/client/net/presence.test.ts`, `app/tests/reconnect.spec.ts`, `app/src/client/main.tsx` (prettier whitespace), `.agent/screenshots/TASK-17-1.png` + `TASK-17-2.png`.
+- **NOT mine — do not commit:** `opencode.json`, `ralph.config.json`, `ralph/package-lock.json`, root `package.json` + `package-lock.json` (untracked, harness/ralph-loop files).
+- `app/test-results/` is playwright scratch — gitignored, safe to `rm -rf`.
+- Build state: `npx tsc --noEmit` clean, `eslint --fix` clean, full `npm run test` → **56 files / 532 tests ALL PASS** (ran at handoff time). Playwright: `tests/reconnect.spec.ts` passes; the OTHER e2e specs (scaffold/presence/chat/session-log-leak/validation-fuzz) were NOT re-run this session (they passed under TASK-16).
+- Dev server was KILLED at handoff (was `npm run dev` in `app/`).
+- `tasks.json` still `passes: false` (correct — bookkeeping not done).
 
 ## Next steps
-1. `cd app && npx tsc --noEmit` — fix any type errors (first run never happened).
-2. Write **step 3: WS integration test** — planned file `app/src/server/galaxy/reconnect.ws.test.ts`, modeled on `lifecycle.test.ts` (same beforeAll: temp sqlite db, `createGalaxyRouter({ repo, galaxySeed, shipSwapBus, now: fakeNow })`, `createRouterGateway`, `attachWebSocket` WITH `onGameMessage` routing input like `index.ts`: `shard.enqueueInput(conn.playerId, payload as InputPayload, conn)`). Use 3 distinct systems from `generateStars(seed)` star indexes 0/1/2. Planned cases:
-   - (a) mid-flight drop: player A + peer B join; A sends thrust inputs seq 1..5 then zero-input seq 6; wait ack 6; A closes; assert B gets presence leave; wait `shard.connections.size === 0`; capture authoritative `entity.ship.pos/vel` (`pStop`/`vStop`); sleep 2 s; assert entity `idle === true` and moved >1 u; A reconnects (same token) → enter snapshot: exactly 1 entity for A, total count unchanged (no duplicates); **continuity: `dist(snapshotPos, pStop + vStop·Δt) < 1 u`** — keep A's speed small (few thrust inputs; scout accel 40 u/s², so ~9 u/s) so the tick-quantization error (≤ |v|·0.05 ≈ 0.5 u) stays under budget; assert B gets presence join; assert a new input on the new conn works (entity `idle === false`).
-   - (b) zombie conn: two LIVE conns, same token, same system (c1 then c2): c2's join supersedes c1 in the shard (`connections.size === 1`, exactly 1 entity); c2 sends zero-input seq 2 (wait ack 2); c1 (still open) sends thrust seq 9 → must be DROPPED (source guard) — assert ship velocity stays ~0 over ~1.5 s of snapshots (if the guard failed, seq 9 > lastSeq 2 would apply and accelerate); then `c1.close()` (late zombie close) → `connections.size` still 1, entity not idle; `c2.close()` → 0.
-   - (c) reap-and-rejoin with FAKE clock: dedicated system; A joins, flies ~1 s, closes; advance `fakeNow` by `REAP_GRACE_MS + 1000` and call `router.reapEmpty()` (do NOT start the reaper interval); assert system gone; rejoin → new shard (generation bumped), read the flushed DB row via `repo.getShipByOwner`, assert rejoin snapshot pos is within `|v|·1.5 + 1` u of the row position and far from the dock (no reset), 1 entity.
-   - Put case (c) LAST (it advances the shared fake clock; other systems get reaped by the same `reapEmpty()` call — assert `reaped >= 1`, not `=== 1`). Set per-test timeouts (~20-30 s; vitest default is 5 s).
-3. Client unit tests still to write (planned, not written): `app/src/client/net/session.test.ts` with a scripted fake WebSocket (factory returning objects with `onopen/onmessage/onclose/onerror/readyState/send/close`; server-side: answer `join_system` with queued `enter_system` snapshots, `failNext` counter for refused opens, `drop(code)` for server-side closes; use `vi.useFakeTimers()` — Date.now is faked so the 30 s 'lost' window is reachable in one `advanceTimersByTime`). Cases: auto-retry at 1 s re-joins same system (`onSnapshot(_, true)`), backoff 1/2/4/5 s with cap, 'lost' after giveUpMs, `retryNow()` immediate dial, deliberate `close()` never retries, initial-join failure never auto-retries, error-frame during autoJoin drops the socket and retries, `send()` is a no-op while down. Plus small additions to `chat.test.ts` (`mergeSnapshot`: appends only newer ts, ring cap, no-op no-emit) and `presence.test.ts` (`reconnected()` toast, no change emit).
-4. Run `npm run test` (watch: the tick-loop change makes owner-less ships integrate — check no existing test assumed frozen-after-leave; `shard.ws.test.ts`/`lifecycle.test.ts`/`crash-restart.test.ts` were reviewed and should be fine).
-5. `npx eslint --fix` + `prettier --write` on changed files; `npx tsc --noEmit`.
-6. Playwright smoke (UI changed: overlay + toast + status line): `npm run dev` in `app/` (background), page load via :3000, screenshot → `.agent/screenshots/TASK-17-1.png`. Optional deeper live check: with the page joined, kill only the tsx API server (port 3001) and restart it — the client auto-reconnects and shows the "reconnected" toast (backoff ≤ 5 s). Screenshot of the 'lost' overlay needs 30 s of downtime — optional.
-7. Bookkeeping: set `passes: true` in `.agent/tasks.json` for TASK-17, log to `.agent/logs/LOG.md` (newest on top), update `.agent/STRUCTURE.md` (session.ts description changes; no new dirs), conventional commit (e.g. `feat(net): reconnect + full state resync without world reset (TASK-17)`), kill the dev server, output `<promise>TASK-17:DONE</promise>`.
+1. Optional: `cd app && npm run dev` (background) + `npx playwright test` (full e2e suite) — expect all green; kill dev server after.
+2. Bookkeeping:
+   - `.agent/tasks.json` → TASK-17 `passes: true` (all step.pass → true too).
+   - `.agent/logs/LOG.md` → prepend a "### 2026-09-30 — TASK-17: Reconnect and full state resync" entry (style: mirror the TASK-16 entry above it; cover server idle-continuation + stale-conn guards, client session rewrite, all the tests listed above, screenshot paths, "Verified:" line with the 56/532 numbers).
+   - `.agent/STRUCTURE.md` → update: line ~26 session.ts (TASK-17: lazy dial, ConnectionState, auto-retry 1 s→5 s cap, 30 s 'lost' + retryNow, onSnapshot(snapshot, reconnect)); line ~25 presence.ts (+ reconnected toast); line ~27 chat.ts (+ mergeSnapshot resync); line ~45 galaxy (tests) → add `reconnect.ws.test.ts (live ws: mid-flight drop/idle coast/no-duplicate/continuity < 1 u, zombie-conn guards, fake-clock reap-and-rejoin)`.
+3. `rm .agent/handoff/TASK-17.md` IN THE SAME commit as the bookkeeping.
+4. Conventional commit (e.g. `feat(net): reconnect + full state resync without world reset (TASK-17)`), excluding the harness files listed above.
+5. Output `<promise>TASK-17:DONE</promise>` and stop.
 
 ## Dead ends
-- `enquequeInput` edit failed once with a 3-space indent mismatch in `shard.ts` (method is 2-space indented) — fixed.
-- `session.ts` rewrite contained one typo (`joinReject: ((err: Error) => void) => null`) — fixed; first `tsc` run then passed clean.
-- No tests were ever executed this session — do not trust that anything currently passes.
-- Design note: spec step 2 says backoff "up to 30 s" but the technical note says "capped at 5 s" — resolved as: per-attempt delay capped at 5 s (1,2,4,5,5…), 30 s = patience window before the 'Connection lost' overlay; retries continue in the background regardless.
+- **e2e: `ctx.setOffline(true)` does NOT sever an already-established WebSocket** in Chromium — session stayed 'connected', status line never changed.
+- **e2e: killing a blocked retry dial 50 ms after construction did not work** — the local join handshake completes in ~10 ms, so the session kept resyncing→killing→resyncing (3 queued 'reconnected' toasts) and `downSince`/`lostReported` reset on every resync, so 'lost' never fired. Fix: while blocked, the proxy returns a STUB socket (plain object with readyState/onopen/onmessage/onclose/onerror/send/close) that fires onerror+onclose(1006) after 20 ms — no real connection can form.
+- **e2e: closing ALL page sockets killed vite's HMR socket** (`ws://localhost:3000/?token=…` — note: game socket is `ws://localhost:3000/ws`) → vite's dev client reloaded the page and the test state was gone. Filter with `url.includes('/ws')`.
+- **e2e: 'reconnecting'/'connection lost' render in the STATUS `<p>`** ("server ok — seed … · reconnecting…"), NOT in `#sys-id` (that shows "sys <id> · N aboard").
+- **Integration (a): the shard never empties while peer B is in-system** — wait for `entity.idle === true` (after presence leave), not `shard.connections.size === 0`.
+- **claim() helper type was missing `playerId`** (TS2339) — POST /api/callsigns DOES return it (`callsign, token, playerId, homeSystemId, shipId`); just widen the cast.
+- Session test gotcha: the fake socket sends hello/auth/join only when its `onopen` handler fires — call the harness `open(i)` BEFORE inspecting `sent` frames.
 
 ## How to verify
-- `cd app && npx tsc --noEmit` (typecheck)
-- `cd app && npm run test` (vitest; expect new shard tests + the still-missing integration tests per Next steps)
-- `cd app && npm run lint`
-- Live: `cd app && npm run dev` → join a system at :3000, kill/restart the :3001 tsx process → "reconnected" toast + no UI reset; entity continuity and no-duplicate assertions are in the WS integration test (step 3 of the spec, not yet written).
+- `cd app && npx tsc --noEmit` (clean at handoff)
+- `cd app && npm run test` → 56 files / 532 tests (green at handoff; takes ~80 s)
+- `cd app && npm run dev` (background) then `npx playwright test tests/reconnect.spec.ts` (~40 s, green at handoff)
+- Bookkeeping check: `grep -n "passes" .agent/tasks.json | head` — TASK-17 should be flipped to true before the final commit.

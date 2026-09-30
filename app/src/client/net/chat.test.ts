@@ -53,6 +53,29 @@ describe('ChatStore', () => {
     expect(store.size).toBe(1);
   });
 
+  it('mergeSnapshot appends only entries newer than the local tail (reconnect resync)', () => {
+    const store = new ChatStore();
+    store.append(msg('a', 1));
+    store.append(msg('b', 2));
+    // While away the shard logged more; the resync snapshot carries the
+    // whole history — only the NEW tail is appended, nothing is reset.
+    store.mergeSnapshot([msg('a', 1), msg('b', 2), msg('c', 3), msg('d', 4)]);
+    expect(store.entries.map((m) => m.text)).toEqual(['msg 1', 'msg 2', 'msg 3', 'msg 4']);
+  });
+
+  it('mergeSnapshot respects the ring cap and no-ops when nothing is new', () => {
+    const store = new ChatStore();
+    for (let i = 1; i <= CHAT_HISTORY_MAX; i++) store.append(msg('a', i));
+    store.mergeSnapshot([msg('z', CHAT_HISTORY_MAX + 1), msg('z', CHAT_HISTORY_MAX + 2)]);
+    expect(store.size).toBe(CHAT_HISTORY_MAX);
+    expect(store.entries[0].text).toBe('msg 3');
+    let emits = 0;
+    store.subscribe(() => emits++);
+    store.mergeSnapshot(store.entries); // snapshot no newer than the tail
+    expect(emits).toBe(0);
+    expect(store.size).toBe(CHAT_HISTORY_MAX);
+  });
+
   it('unsubscribe stops emits', () => {
     const store = new ChatStore();
     let emits = 0;
