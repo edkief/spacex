@@ -24,6 +24,12 @@ export const INVALID_MESSAGE_DROP_LIMIT = 50;
 /** Inbound messages larger than this are rejected before JSON parsing (TASK-64). */
 export const MAX_MESSAGE_BYTES = 64 * 1024;
 
+/**
+ * Per-system occupancy cap (TASK-11): a shard holds at most this many
+ * connected players; join_system into a full shard fails with 'system-full'.
+ */
+export const MAX_PLAYERS_PER_SYSTEM = 16;
+
 /** Structured error codes; every server error is {code, message}. */
 export const PROTOCOL_ERRORS = {
   VERSION_MISMATCH: 'version-mismatch',

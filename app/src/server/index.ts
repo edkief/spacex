@@ -1,6 +1,6 @@
 import { loadEnv } from '@server/env';
 import { buildServer } from '@server/server';
-import { attachWebSocket, createRegistryGateway } from '@server/ws';
+import { attachWebSocket } from '@server/ws';
 import { getDb } from '@server/db/client';
 import { createRepo } from '@server/db/repo';
 import { pgTables, sqliteTables } from '@server/db/schema';
@@ -8,114 +8,79 @@ import { createSessionService, createTokenAuthenticate } from '@server/auth/sess
 import { createTokenCodec } from '@server/auth/token';
 import { registerApiRoutes } from '@server/routes';
 import { attachShipSwapBroadcast, createShipSwapBus } from '@server/shards';
-import { generateStars } from '@shared/galaxy/stars';
-import { generateSystem } from '@shared/galaxy/system';
-import { SystemShard, createShardPersist, startShardFlushTimer } from '@server/shard';
+import { createGalaxyRouter } from '@server/galaxy/router';
+import { createRouterGateway } from '@server/galaxy/gateway';
+import type { InputPayload } from '@shared/protocol/schemas';
 
 const env = loadEnv();
 const app = buildServer(env);
 
 /**
- * Process entry. TASK-13 runs one test-only shard (the seed's first star
- * system) until the router (TASK-11) creates/reaps shards per system.
- * TASK-24: the shard loads its persisted ships on boot (no spawn teleports),
- * flushes them every SHARD_FLUSH_INTERVAL_MS (30 s), and does a final flush
- * on SIGTERM/SIGINT before exiting.
+ * Process entry (TASK-11): the galaxy router hosts any number of system
+ * shards in-process — a shard spawns when a player joins its system
+ * (system data from GALAXY_SEED, ships rehydrated via TASK-24), is reaped
+ * 60 s after it empties (ships flushed first), and is capped at 16 players.
+ * SIGTERM/SIGINT stop every shard with a final flush before exiting.
  */
 async function main(): Promise<void> {
   const dbHandle = getDb();
   const repo = createRepo(dbHandle.db, dbHandle.driver === 'sqlite' ? sqliteTables : pgTables);
   const sessions = createSessionService({ repo, codec: createTokenCodec(env.SESSION_SECRET) });
-  const gateway = createRegistryGateway(repo);
   const shipSwapBus = createShipSwapBus();
 
-  // Test-only single shard: the first star's system of the seed. It is
-  // registered so dev clients can join it (the router does this per-system
-  // in TASK-11/12).
-  const firstStar = generateStars(env.GALAXY_SEED)[0];
-  const simSystem = generateSystem(env.GALAXY_SEED, firstStar.id);
-  await repo.upsertSystem(simSystem.systemId, simSystem.name, true);
-
-  // TASK-24: shard flush + restart-load persistence.
-  const shardPersist = createShardPersist({ repo, systemId: simSystem.systemId });
-
-  const shard = new SystemShard({
-    systemId: simSystem.systemId,
-    galaxySeed: env.GALAXY_SEED,
-    system: simSystem,
+  const router = createGalaxyRouter({
     repo,
+    galaxySeed: env.GALAXY_SEED,
     shipSwapBus,
-    persist: (entities) => {
-      // The stop() snapshot hook stays log-only; the authoritative final
-      // write happens in the shutdown handler below (it must be async).
-      app.log.debug({ count: entities.length }, 'shard persist (no-op)');
-    },
-  });
-
-  // Load persisted state BEFORE ticking: flying ships resume at their last
-  // saved position/velocity/rotation, docked ships at dock coords, and
-  // unexpired wrecks come back static (expired wreck rows are deleted here).
-  const load = await shardPersist.loadShips();
-  await shard.loadShips(load);
-  app.log.info(
-    {
-      systemId: simSystem.systemId,
-      ships: load.ships.length,
-      wrecks: load.wrecks.length,
-      deletedExpired: load.deletedExpired,
-    },
-    'shard state loaded',
-  );
-
-  shard.start();
-  app.log.info({ systemId: simSystem.systemId, name: simSystem.name }, 'shard started (20 Hz)');
-
-  // 30 s flush cadence (PRD §8): one small transaction per flush, unref'd so
-  // it never holds the process open; failures log and retry next tick.
-  const stopFlushing = startShardFlushTimer({
-    intervalMs: env.SHARD_FLUSH_INTERVAL_MS,
-    flush: () => shardPersist.flushShips(shard),
     log: {
       debug: (msg, meta) => app.log.debug(meta, msg),
       warn: (msg, meta) => app.log.warn(meta, msg),
       info: (msg, meta) => app.log.info(meta, msg),
     },
   });
+  const stopReaper = router.startReaper();
+  // 30 s (env) flush cadence (PRD §8): a SIGKILL loses at most one period.
+  const stopFlushing = router.startPeriodicFlush(env.SHARD_FLUSH_INTERVAL_MS);
 
-  registerApiRoutes(app, { repo, sessions, galaxySeed: env.GALAXY_SEED, shipSwapBus });
+  registerApiRoutes(app, {
+    repo,
+    sessions,
+    galaxySeed: env.GALAXY_SEED,
+    shipSwapBus,
+    galaxyRouter: router,
+  });
   const wsHandle = attachWebSocket(app, {
     path: env.WS_PATH,
-    gateway,
+    gateway: createRouterGateway(router),
     authenticate: createTokenAuthenticate(sessions),
     revokeToken: (token) => sessions.revoke(token),
     onGameMessage: (conn, type, payload) => {
-      // WS 'input' handler: enqueue for the shard; the tick drains it.
-      if (type === 'input' && conn.systemId === simSystem.systemId && conn.playerId) {
-        shard.enqueueInput(conn.playerId, payload as Parameters<SystemShard['enqueueInput']>[1]);
+      // WS 'input': route to the shard the connection is currently in;
+      // the tick drains the queue.
+      if (type === 'input' && conn.systemId && conn.playerId) {
+        router
+          .active(conn.systemId)
+          ?.shard.enqueueInput(conn.playerId, payload as InputPayload);
       }
     },
-    onJoinSystem: async (conn, systemId) => {
-      if (systemId === simSystem.systemId) await shard.join(conn);
-    },
-    onLeaveSystem: (conn, systemId) => {
-      if (systemId === simSystem.systemId) shard.leave(conn);
-    },
+    // Leaves route through the gateway's leaveSystem → router.leave,
+    // which starts the reap grace when a shard empties.
   });
   // TASK-20: dock purchases swap the ship entity in-place for any peer in-system.
   attachShipSwapBroadcast(shipSwapBus, wsHandle.connections, repo);
 
-  // TASK-24: graceful shutdown — stop ticking, run the FINAL flush (so a
-  // SIGTERM loses nothing), then close cleanly with exit code 0.
+  // Graceful shutdown: stop the reaper, stop + flush every active shard
+  // (so a SIGTERM loses nothing), then close cleanly with exit code 0.
   let shuttingDown = false;
   const shutdown = async (signal: string): Promise<void> => {
     if (shuttingDown) return;
     shuttingDown = true;
-    app.log.info({ signal }, 'graceful shutdown: flushing shard');
+    app.log.info({ signal }, 'graceful shutdown: flushing shards');
+    stopReaper();
     stopFlushing();
-    shard.stop();
     try {
-      const summary = await shardPersist.flushShips(shard);
-      app.log.info(summary, 'final shard flush');
+      await router.stopAll();
+      app.log.info('final shard flushes done');
     } catch (err) {
       app.log.error({ err }, 'final shard flush failed');
     }
@@ -130,6 +95,7 @@ async function main(): Promise<void> {
     app.log.error(err);
     process.exit(1);
   });
+  app.log.info({ port: env.PORT, wsPath: env.WS_PATH }, 'server listening');
 }
 
 void main();

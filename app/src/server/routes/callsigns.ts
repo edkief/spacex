@@ -9,6 +9,7 @@ import { CallsignTakenError } from '@server/db/errors';
 import type { Repository } from '@server/db/repo';
 import type { ShipSwapBus } from '@server/shards';
 import type { SessionService } from '@server/auth/session';
+import type { GalaxyRouter } from '@server/galaxy/router';
 
 export interface RouteDeps {
   repo: Repository;
@@ -16,6 +17,8 @@ export interface RouteDeps {
   galaxySeed: string;
   /** TASK-20: in-process ship-swap bus (shard notification after purchases). */
   shipSwapBus?: ShipSwapBus;
+  /** TASK-11: galaxy router (enables GET /api/galaxy/health). */
+  galaxyRouter?: GalaxyRouter;
 }
 
 const claimBody = z.object({ callsign: callsignSchema }).strict();

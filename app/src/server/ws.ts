@@ -46,15 +46,20 @@ export type EnterOutcome =
   | { ok: true; snapshot: StateSnapshot }
   | { ok: false; code: 'system-full' | 'system-not-found'; message: string };
 
+/**
+ * The joining player, as seen by the gateway. `send` delivers serialized
+ * protocol frames to this connection (the router registers it on the shard
+ * so the 10 Hz snapshots reach the new player, TASK-11).
+ */
+export interface GatewayPlayer {
+  playerId: string;
+  callsign: string;
+  send?: (buffer: string) => void;
+}
+
 export interface SystemGateway {
-  enterSystem(
-    systemId: string,
-    player: { playerId: string; callsign: string },
-  ): Promise<EnterOutcome>;
-  leaveSystem?(
-    systemId: string,
-    player: { playerId: string; callsign: string },
-  ): void | Promise<void>;
+  enterSystem(systemId: string, player: GatewayPlayer): Promise<EnterOutcome>;
+  leaveSystem?(systemId: string, player: GatewayPlayer): void | Promise<void>;
 }
 
 export type ConnStage = 'hello' | 'auth' | 'authed';
@@ -238,20 +243,33 @@ export function attachWebSocket(
             'auth required before join_system',
           );
         }
-        if (conn.systemId) {
+        const targetSystemId = (payload as { systemId: string }).systemId;
+        if (conn.systemId === targetSystemId) {
           return sendError(conn, PROTOCOL_ERRORS.INVALID_MESSAGE, 'already in a system');
         }
-        const outcome = await options.gateway.enterSystem(
-          (payload as { systemId: string }).systemId,
-          {
-            playerId: conn.playerId as string,
-            callsign: conn.callsign as string,
+        const player: GatewayPlayer = {
+          playerId: conn.playerId as string,
+          callsign: conn.callsign as string,
+          send: (buffer) => {
+            if (conn.socket.readyState === WebSocket.OPEN) conn.socket.send(buffer);
           },
-        );
+        };
+        // Join the NEW system first: a failure (system-full / not-found)
+        // leaves the player exactly where they were (TASK-11).
+        const outcome = await options.gateway.enterSystem(targetSystemId, player);
         if (!outcome.ok) {
           return sendError(conn, outcome.code, outcome.message);
         }
-        conn.systemId = (payload as { systemId: string }).systemId;
+        const previousSystemId = conn.systemId;
+        conn.systemId = targetSystemId;
+        if (previousSystemId) {
+          // The new join succeeded: leave the old system now.
+          for (const peer of peersIn(previousSystemId)) {
+            send(peer, 'presence', { event: 'leave', player: presenceEntry(conn) });
+          }
+          void options.onLeaveSystem?.(conn, previousSystemId);
+          void options.gateway.leaveSystem?.(previousSystemId, player);
+        }
         for (const peer of peersIn(conn.systemId)) {
           send(peer, 'presence', { event: 'join', player: presenceEntry(conn) });
         }

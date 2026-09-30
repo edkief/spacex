@@ -191,20 +191,32 @@ export class SystemShard implements Shard {
     return true;
   }
 
-  /** Join a connection: spawn (or re-adopt) the player's ship entity. */
-  async join(conn: Conn): Promise<SimEntity | undefined> {
-    if (conn.stage !== 'authed' || !conn.playerId || !conn.callsign) return undefined;
-    const ship = await this.repo.getShipByOwner(conn.playerId);
+  /**
+   * Spawn (or re-adopt) the player's ship entity WITHOUT registering a
+   * connection. The router (TASK-11) calls this after it has already
+   * reserved the connection slot, so the cap check + reservation stays
+   * atomic; tests can use it for headless joins.
+   */
+  async adoptEntity(playerId: string, callsign: string): Promise<SimEntity | undefined> {
+    const ship = await this.repo.getShipByOwner(playerId);
     if (!ship) return undefined;
 
-    let entity = this.playerEntities.get(conn.playerId);
+    let entity = this.playerEntities.get(playerId);
     if (!entity) {
       // TASK-24: the entity spawns with the ship's PERSISTED flight state
       // (pos/vel/quat/regime), not a fresh rest state — no teleports.
-      entity = this.entityFromShipRow(ship, conn.callsign);
+      entity = this.entityFromShipRow(ship, callsign);
       this.entities.set(entity.id, entity);
-      this.playerEntities.set(conn.playerId, entity);
+      this.playerEntities.set(playerId, entity);
     }
+    return entity;
+  }
+
+  /** Join a connection: adopt the player's ship entity, then register. */
+  async join(conn: Conn): Promise<SimEntity | undefined> {
+    if (conn.stage !== 'authed' || !conn.playerId || !conn.callsign) return undefined;
+    const entity = await this.adoptEntity(conn.playerId, conn.callsign);
+    if (!entity) return undefined;
 
     const connId = this.registerConnection(conn.playerId, conn.callsign, (buffer) => {
       if (conn.socket.readyState === WebSocket.OPEN) {
@@ -249,14 +261,18 @@ export class SystemShard implements Shard {
     this.events.emit('player-left', { playerId: state.playerId, connId });
   }
 
+  /**
+   * Leave by player id (the router's leave path, TASK-11): remove the
+   * player's connection; the entity stays in the world.
+   */
+  leavePlayer(playerId: string): void {
+    const connId = this.playerConns.get(playerId);
+    if (connId) this.unregisterConnection(connId);
+  }
+
   /** Leave: remove the connection; the entity stays in the world. */
   leave(conn: Conn): void {
-    for (const state of this.connections.values()) {
-      if (state.playerId === conn.playerId) {
-        this.unregisterConnection(state.connId);
-        break;
-      }
-    }
+    if (conn.playerId) this.leavePlayer(conn.playerId);
   }
 
   /**

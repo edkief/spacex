@@ -1,0 +1,14 @@
+import type { SystemGateway } from '@server/ws';
+import type { GalaxyRouter } from './router';
+
+/**
+ * WS gateway over the galaxy router (TASK-11): join_system spawns/reuses the
+ * system shard, enforces the 16-player cap, and hands the player the initial
+ * full snapshot; the WS layer then takes over (presence, leave on close).
+ */
+export function createRouterGateway(router: GalaxyRouter): SystemGateway {
+  return {
+    enterSystem: (systemId, player) => router.enter(systemId, player),
+    leaveSystem: (systemId, player) => router.leave(systemId, player.playerId),
+  };
+}
