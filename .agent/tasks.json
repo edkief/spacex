@@ -172,7 +172,7 @@
     "title": "System shard lifecycle: load, presence, save",
     "category": "functional",
     "specFilePath": ".agent/tasks/TASK-12.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-15",

@@ -26,14 +26,14 @@ Excludes dotfiles, tests, and config.
 │       │       └── ship-mesh.ts # TASK-21: ShipMeshBuilder — 3 paint-zone materials + in-place applyLivery
 │       ├── server/
 │       │   ├── env.ts        # zod-validated env (PROJECT_ROOT/.env.local)
-│       │   ├── index.ts      # process entry: Fastify + ws, REST routes + token auth, galaxy router (shards on demand + reaper + periodic flush + stopAll on signal), input routed per-conn system, listens on PORT
+│       │   ├── index.ts      # process entry: Fastify + ws, REST routes + token auth, galaxy router (shards on demand + reaper + periodic flush + stopAll on signal), 10 s shutdown watchdog (TASK-12), input routed per-conn system, listens on PORT
 │       ├── shards.ts     # TASK-20/21: in-process ship-swap + livery bus, shipToEntity, entity_update broadcast bridge
 │       │   ├── server.ts     # buildServer() for tests/inject()
 │       │   ├── auth/
 │       │   │   ├── token.ts       # TASK-10: HMAC-SHA256 token codec (base64url body + MAC, constant-time, 30 s exp skew)
 │       │   │   └── session.ts     # TASK-10: session service (sha256-stored tokens, 7 d TTL) + WS token authenticator
 │       │   ├── galaxy/
-│       │   │   ├── router.ts  # TASK-11: createGalaxyRouter — Map<systemId, Shard> on demand (pending-promise collapse + loadChain), 60 s reap grace (flush-before-stop), 16-player cap, stats/stopAll, periodic + chained flushes
+│       │   │   ├── router.ts  # TASK-11/12: createGalaxyRouter — Map<systemId, Shard> on demand (pending-promise collapse + loadChain), 60 s reap grace (flush-before-stop), 16-player cap, per-system shard generation counter (bumped per DB (re)load, proves reuse vs reload), stats/stopAll, periodic + chained flushes
 │       │   │   └── gateway.ts # TASK-11: createRouterGateway — SystemGateway over the router (enter → {snapshot}, leave → grace)
 │       │   │   └── (tests) router.test.ts (unit: collapse/reap/cap/restart, fake clock), router.ws.test.ts (live ws: 10 clients/3 systems, cap stays-put, health, not-found)
 │       │   └── routes/

@@ -271,6 +271,7 @@ export function attachWebSocket(
           void options.gateway.leaveSystem?.(previousSystemId, player);
         }
         for (const peer of peersIn(conn.systemId)) {
+          if (peer === conn) continue; // peersIn now includes the joiner
           send(peer, 'presence', { event: 'join', player: presenceEntry(conn) });
         }
         send(conn, 'enter_system', { snapshot: outcome.snapshot });

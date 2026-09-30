@@ -16,22 +16,26 @@
       "step": 1,
       "description": "Join/leave protocol",
       "details": "shard.addConnection: push to conns, send snapshot, broadcast presence_join. removeConnection: remove, broadcast presence_leave, start reap grace via router. Initial snapshot = current entity list (full, not diffed) — v1 keeps it simple.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Graceful shutdown",
       "details": "server/main.ts: process.on('SIGTERM'/'SIGINT') → router.shutdownAll(): for each shard flushShips (await), sim.stop(); close repo; exit 0. 10 s watchdog: if shutdown exceeds it, force exit 1 with an error log.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Leak + storm tests",
       "details": "Join/leave cycle test with handle counting; reconnect storm test asserting shard reuse via a generation counter on the shard object. Run full suite.",
-      "pass": false
+      "pass": true
     }
   ],
-  "dependencies": ["TASK-11", "TASK-24", "TASK-63"],
+  "dependencies": [
+    "TASK-11",
+    "TASK-24",
+    "TASK-63"
+  ],
   "estimatedComplexity": "medium",
   "technicalNotes": [
     "Abandoned ships stay dockable: a ship left in flight remains in the sim (idle, no inputs) — players can fly away and come back to it. Document this in TASK-69 FAQ.",

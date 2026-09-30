@@ -3,12 +3,23 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-30
-**Tasks Completed:** 24
-**Current Task:** TASK-11 Complete
+**Tasks Completed:** 25
+**Current Task:** TASK-12 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-09-30 — TASK-12: Shard lifecycle: load, presence, save
+Completed the shard lifecycle around the router: join/leave presence semantics, the 10 s graceful-shutdown watchdog, a shard generation counter, and the leak + reconnect-storm + SIGTERM integration tests. (Most of the plumbing already existed from TASK-11/13/24; this task verified it end-to-end and closed the gaps.)
+- `app/src/server/galaxy/router.ts` — `ActiveShard.generation`: per-system counter bumped once per (re)load from the DB (kept in a `generations` map that survives reaps). The router never reloads while connections exist, so a stable generation across leave/rejoin proves shard REUSE (no mid-flight DB reload) — the assertion hook the reconnect-storm test needs.
+- `app/src/server/index.ts` — graceful shutdown gains a 10 s watchdog: if `router.stopAll()` + WS/Fastify close exceed it, an error is logged and the process force-exits with code 1 (a wedged flush must not hold the process open); a clean shutdown clears the watchdog and exits 0.
+- `app/src/server/ws.ts` — BUG FIX: the join_system presence broadcast skipped no one, but `conn.systemId` is set BEFORE the peers loop, so the joiner received a presence 'join' about ITSELF (and peers of a fresh join saw only that). The loop now skips `conn` — only existing connections get the join event (spec: "all existing connections receive presence_join"), and no client ever sees its own event.
+- `app/src/server/ws.test.ts` — the presence test was passing ACCIDENTALLY: both clients auth as the same callsign ('drifter') via `devAuthenticate`, so `b` was actually consuming its own self-join event. Rewrote the assertion to the correct direction: A (existing peer) sees B's join; B sees A's leave.
+- `app/src/server/server-child.ts` (NEW) — extracted from `shard/crash-restart.test.ts` (reuse before duplicating): `bootServer({base, dbPath, galaxySeed, sessionSecret?, flushIntervalMs?})` (tsx loader flags so the spawned PID is the real node process), `waitReady`, `freePort`, `WsChildClient`. `crash-restart.test.ts` now imports from it.
+- Tests (NEW): `galaxy/lifecycle.test.ts` (2, live ws over real wiring) — join answers with the FULL initial snapshot in one round-trip (own ship + peer's ship + peer's callsign in the single `enter_system` frame), existing peer gets presence join with the callsign, disconnect → presence leave, and the leaver's ship STAYS in the shard (next 10 Hz `entity_update` still carries it; connections.size back to 1) + a live rejoin-within-grace reuse check (same instance, same generation). `galaxy/lifecycle-leak.test.ts` (2) — 100 join/leave cycles across 5 systems (1 s grace, fake clock) → exactly 0 active shards AND no new/extra active handles (`process._getActiveHandles` counted by constructor name vs a pre-cycle baseline — a leaked sim timer or DB handle would show); reconnect storm: 16 players (exactly the cap) join at once, all leave, 10 rejoin in <2 s → SAME shard instance with unchanged generation, then a spawn after `stopAll()` gets generation+1. `shard/shutdown.test.ts` (1, integration) — boots the REAL server, claim + WS join + ~1 s of thrust, SIGTERM → exit code 0 (not the watchdog's 1), exit well inside the 10 s window, DB row state 'flying' with persisted position within measured drift of the last seen snapshot position.
+- Verified: `tsc --noEmit` clean, `eslint --fix` + `prettier --write` clean, full `npm run test` → 49 files / 482 tests all pass (incl. crash-restart, now on the shared child helper, and the new shutdown integration).
+- No UI changes (server protocol/lifecycle) → no screenshots.
 
 ### 2026-09-30 — TASK-11: Galaxy router: in-process system shards, cap, dispatch
 Single app instance now hosts any number of system shards in-process: the router spawns a shard on demand when a player joins its system, reaps empty shards after a 60 s grace (ships flushed first), and enforces the 16-player per-system cap.

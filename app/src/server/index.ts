@@ -67,12 +67,23 @@ async function main(): Promise<void> {
   // TASK-20: dock purchases swap the ship entity in-place for any peer in-system.
   attachShipSwapBroadcast(shipSwapBus, wsHandle.connections, repo);
 
-  // Graceful shutdown: stop the reaper, stop + flush every active shard
-  // (so a SIGTERM loses nothing), then close cleanly with exit code 0.
+  // Graceful shutdown (TASK-12): stop the reaper, stop + flush every active
+  // shard (so a SIGTERM loses nothing), then close cleanly with exit code 0.
+  // A 10 s watchdog force-exits with code 1 if the flushes hang — a wedge
+  // must not hold the process (and its DB writes) open forever.
+  const SHUTDOWN_WATCHDOG_MS = 10_000;
   let shuttingDown = false;
   const shutdown = async (signal: string): Promise<void> => {
     if (shuttingDown) return;
     shuttingDown = true;
+    const watchdog = setTimeout(() => {
+      app.log.error(
+        { signal, watchdogMs: SHUTDOWN_WATCHDOG_MS },
+        'graceful shutdown exceeded the watchdog; forcing exit',
+      );
+      process.exit(1);
+    }, SHUTDOWN_WATCHDOG_MS);
+    watchdog.unref?.();
     app.log.info({ signal }, 'graceful shutdown: flushing shards');
     stopReaper();
     stopFlushing();
@@ -81,6 +92,8 @@ async function main(): Promise<void> {
       app.log.info('final shard flushes done');
     } catch (err) {
       app.log.error({ err }, 'final shard flush failed');
+    } finally {
+      clearTimeout(watchdog);
     }
     await wsHandle.close().catch(() => {});
     await app.close().catch(() => {});

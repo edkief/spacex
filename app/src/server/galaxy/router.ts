@@ -44,6 +44,13 @@ export interface ActiveShard {
   /** The TASK-24 flush/load service for this system's ships. */
   persist: ShardPersist;
   /**
+   * Shard generation (TASK-12): incremented once per (re)load from the DB.
+   * The router never reloads while connections exist (only a fresh spawn
+   * after reap/shutdown loads), so a stable generation across a
+   * leave/rejoin proves the shard was REUSED, not reloaded mid-flight.
+   */
+  generation: number;
+  /**
    * epoch ms since the shard last sat at zero connections (undefined while
    * occupied or before the first empty scan stamped it).
    */
@@ -141,6 +148,12 @@ export function createGalaxyRouter(deps: GalaxyRouterDeps): GalaxyRouter {
    * abort each other mid-write.
    */
   let flushChain: Promise<void> = Promise.resolve();
+  /**
+   * Per-system generation counters (TASK-12): bumped on every (re)load from
+   * the DB. Kept after reaps on purpose — the generation identifies "the
+   * Nth lifetime of this system's shard in this process".
+   */
+  const generations = new Map<string, number>();
 
   function queueFlush(loaded: ActiveShard): Promise<FlushSummary> {
     const p = flushChain.then(() => loaded.persist.flushShips(loaded.shard));
@@ -182,6 +195,9 @@ export function createGalaxyRouter(deps: GalaxyRouterDeps): GalaxyRouter {
       await shard.loadShips(loaded);
       shard.start();
       await repo.upsertSystem(systemId, name, true);
+      // A (re)load from the DB is a fresh shard generation (TASK-12).
+      const generation = (generations.get(systemId) ?? 0) + 1;
+      generations.set(systemId, generation);
       const active: ActiveShard = {
         shard,
         system,
@@ -190,6 +206,7 @@ export function createGalaxyRouter(deps: GalaxyRouterDeps): GalaxyRouter {
         loadMs: performance.now() - t0,
         persist,
         graceSince: undefined,
+        generation,
       };
       shards.set(systemId, active);
       if (active.loadMs > SHARD_LOAD_BUDGET_MS) {

@@ -311,9 +311,12 @@ describe('WS handshake and protocol (in-process)', () => {
     await handshake(a);
     await handshake(b);
     a.send({ v: 1, type: 'join_system', payload: { systemId: 'sys-canned' } });
-    b.send({ v: 1, type: 'join_system', payload: { systemId: 'sys-canned' } });
     await a.next((m) => m.type === 'enter_system', 'a enter_system');
-    const join = await b.next((m) => m.type === 'presence', 'b sees a join');
+    b.send({ v: 1, type: 'join_system', payload: { systemId: 'sys-canned' } });
+    await b.next((m) => m.type === 'enter_system', 'b enter_system');
+    // A, the existing peer, sees b's join (the joiner never receives their
+    // own presence event; a's earlier join happened while b was absent).
+    const join = await a.next((m) => m.type === 'presence', 'a sees b join');
     expect(join.payload).toMatchObject({ event: 'join', player: { callsign: 'drifter' } });
     a.close();
     const leave = await b.next((m) => m.type === 'presence', 'b sees a leave');
