@@ -12,6 +12,7 @@ import { WorldManager } from '@client/world/WorldManager';
 import { StarChart } from '@client/ui/star-chart';
 import { WarpOverlay } from '@client/ui/warp-overlay';
 import { WarpController, warpSubscribe } from '@client/state/warp';
+import { FrameMonitorOverlay } from '@client/ui/debug-overlay';
 import { systemForId } from '@shared/galaxy/system';
 import { installDriftDebug, reportServerSeed, reportWorldSwap } from '@client/drift-debug';
 import type { ChatMessage } from '@shared/protocol/schemas';
@@ -391,6 +392,8 @@ function App() {
         />
       )}
       <WarpOverlay />
+      {/* TASK-57: dev-only frame monitor (F3) — never shipped in prod. */}
+      {import.meta.env.DEV && <FrameMonitorOverlay />}
       {connState === 'lost' && session && (
         <ConnectionLostOverlay onRetry={() => clientRef.current?.retryNow()} />
       )}

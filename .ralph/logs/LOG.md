@@ -3,12 +3,24 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-30
-**Tasks Completed:** 32
+**Tasks Completed:** 33
 **Current Task:** —
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-09-30 — TASK-57: In-game frame monitor (debug + budget telemetry)
+Dev-mode frame monitor is live: `F3` toggles a top-right overlay (FPS over a 1 s window, frame time p50/p95/p99 over a 300-frame window, draw calls + triangles from `renderer.info`, active entity count) with a stats JSON export button. The overlay only mounts under `import.meta.env.DEV` — prod builds never ship it.
+- `app/src/client/perf/frameMonitor.ts` (NEW) — `FrameMonitor`: 300-frame circular buffer, nearest-rank percentiles (p95 of [1..100] = 95), 1 s FPS window over frame-end timestamps, `beginFrame()`/`endFrame(renderInfo?)` hooks (injectable timestamps for deterministic tests), `getFrameStats() → {fps, p50, p95, p99, drawCalls, triangles, entities}` (entity count from the client entity registry), and the shared perf-budget hook: `registerBudget(name, ms)` + `budgetCheck(name, measuredMs)` — per-name rolling max, at most one warning per name per 10 s (also warns, rate-limited, when a name has no budget registered). App-wide `frameMonitor` singleton.
+- `app/src/client/perf/logger.ts` (NEW) — tiny perf logger with an injectable sink (`setPerfLogSink`) so tests spy on warning emission.
+- `app/src/client/world/entity-registry.ts` (NEW) — rendered-entity registry (ship/character/wreck kinds): `registerEntity`/`unregisterEntity`/`entityCounts`/`renderedEntityCount` + test-only reset.
+- `app/src/client/ui/debug-overlay.tsx` (NEW) — pure presentational `DebugOverlay` (testable via renderToStaticMarkup) + `FrameMonitorOverlay` host: F3 keybind (ignored while typing in inputs, like M), 2 Hz poll (`OVERLAY_POLL_MS = 500`) that only runs while visible, `downloadStats()` JSON export. Mounted in `main.tsx` under `import.meta.env.DEV`.
+- `app/src/client/world/WorldManager.ts` + `app/src/client/render/starfield.ts` — both render loops now feed the monitor: `beginFrame()` at the top, `endFrame({drawCalls, triangles})` right after `renderer.render()` (three.js resets `renderer.info.render` per frame — captured before the next frame, per the technical note).
+- Tests: `frame-monitor.test.ts` (13 — window math on known sequences, 300-frame cap, 1 s FPS window, renderer-info capture, entity count in stats; budget under/over/cooldown boundary/per-name independence/missing-budget/reset; **overhead: monitor API measured at ~7 µs per frame (60k-frame run, test asserts < 100 µs and logs the number) — far below the 1 ms criterion**; the live-GL toggle A/B is a documented skip: vitest runs in a plain node env with no DOM/WebGL, headless GL only exists in the Playwright harness per TASK-70 findings, so the live toggle is covered by the e2e instead) and `debug-overlay.test.tsx` (4 — values from a mocked monitor, export button wiring, 2 Hz cadence, export payload).
+- E2E `tests/e2e/frame-monitor.spec.ts` (TASK-70 harness, live SwiftShader scene): hidden by default → F3 shows the overlay with live stats (`DRAWS n · TRIS n`, `ENTITIES n`, p50/p95/p99 ms line, export button) → F3 hides it → no console errors. Passes (5.1 s).
+- Verified: `tsc --noEmit` clean, eslint + prettier clean on touched files, full `npm run test` → 68 files / 613 passed + 1 documented skip, `playwright test frame-monitor` → 1/1 pass.
+- Screenshots: `.ralph/screenshots/TASK-57-1.png` (overlay open: FPS, FRAME p50/p95/p99 0.00 ms, DRAWS 3 · TRIS 32,836, ENTITIES 0, EXPORT STATS), `TASK-57-2.png` (same, 2 Hz refresh tick). FPS shows 0 by design here — headless SwiftShader renders < 1 frame/s, which is the true measurement, not a monitor bug.
 
 ### 2026-09-30 — TASK-8: Inter-system warp with in-world transition
 Warping between systems is live end-to-end: chart Warp click → 2 s CSS warp-in (streak overlay + camera shake) → WS `warp` → server moves the ship (source entity fully removed, target shard adopts at the spawn gate: 100 u +X of the star, facing it) → `warp_arrived` snapshot → client swaps the world (WorldManager builds-then-replaces, < 300 ms budget) → 2 s warp-out → normal flight. No loading screen: the canvas renders the whole time.

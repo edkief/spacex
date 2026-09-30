@@ -228,7 +228,7 @@
     "title": "Client frame monitor overlay with stats export",
     "category": "performance",
     "specFilePath": ".ralph/tasks/TASK-57.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-25",

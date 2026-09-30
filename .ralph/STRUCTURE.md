@@ -29,9 +29,14 @@ Excludes dotfiles, tests, and config.
 │       │   │   └── chat.ts         # TASK-16/17: ChatStore — 100-msg ring buffer, loadSnapshot (system-change clear + ts watermark), emit only on change; TASK-17: mergeSnapshot (append only newer-than-tail, no full clear on resync)
 │       │   ├── state/
 │       │   │   └── warp.ts       # TASK-7/8: warp event bus + phase store (idle/warping-in/awaiting/warp-out) + WarpController — idle→warping-in(2s)→awaiting(net)→warp-out(2s)→idle, failure→idle+onFailed('System full' toast), injectable delay
+│       │   ├── perf/
+│       │   │   ├── frameMonitor.ts # TASK-57: frame monitor — 300-frame circular buffer (p50/p95/p99 nearest-rank), 1 s FPS window, renderer.info capture, getFrameStats() {fps, percentiles, drawCalls, triangles, entities}; budget hook (registerBudget/budgetCheck, per-name rolling max, 1 warn per name per 10 s) — shared by TASK-30/58/59/61
+│       │   │   └── logger.ts     # TASK-57: perf logger with injectable sink (setPerfLogSink for test spies)
 │       │   ├── world/
-│       │   │   └── WorldManager.ts # TASK-8: in-system three.js world on #game-canvas (star at origin, near-field planets, spawn-gate ring); swapWorld builds-then-replaces (budget < 300 ms, measured); pure buildSystemLayout (three-free)
+│       │   │   ├── WorldManager.ts # TASK-8: in-system three.js world on #game-canvas (star at origin, near-field planets, spawn-gate ring); swapWorld builds-then-replaces (budget < 300 ms, measured); pure buildSystemLayout (three-free); TASK-57: render loop feeds frameMonitor (beginFrame → render → endFrame with renderer.info)
+│       │   │   └── entity-registry.ts # TASK-57: client entity registry — rendered entities (ship/character/wreck) register/unregister; renderedEntityCount() feeds the frame monitor
 │       │   ├── ui/
+│       │   │   ├── debug-overlay.tsx # TASK-57: dev-only frame monitor overlay — F3 toggle, 2 Hz poll of frameMonitor.getFrameStats(), top-right monospace panel (FPS, p50/p95/p99, draw calls/tris, entities) + stats JSON export; mounted only under import.meta.env.DEV
 │       │   │   ├── star-chart.tsx  # TASK-7: star chart panel — overview fetch, 5 s occupancy poll, search, select + Warp button (dispatches warp-started), Esc closes
 │       │   │   └── chart-map.tsx   # TASK-7: pure SVG map (800x500) — spectral-class nodes, ls + warp-time edge labels, occupancy badges, focus rings, 'Warping…'
 │       │   ├── hud/

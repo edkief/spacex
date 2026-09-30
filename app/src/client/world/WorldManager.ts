@@ -4,6 +4,7 @@ import { hash2, seedFromString } from '@shared/random';
 import { SPAWN_GATE_POS } from '@shared/galaxy/spawn';
 import type { PlanetClass, SpectralClass, SystemGen } from '@shared/galaxy/types';
 import { createBackground } from '@client/render/starfield';
+import { frameMonitor } from '@client/perf/frameMonitor';
 
 /**
  * The in-system world (TASK-8). Owns the three.js scene on the game canvas
@@ -183,11 +184,18 @@ export class WorldManager {
 
     const frame = (): void => {
       if (this.disposed) return;
+      frameMonitor.beginFrame();
       this.resize();
       // Same slow drift as the boot starfield — the sky stays alive through
       // the warp (never a static / black frame).
       this.background.stars.rotation.y = this.clock.getElapsedTime() * 0.005;
       this.renderer.render(this.scene, this.camera);
+      // renderer.info.render resets per frame — capture it right after the
+      // render, before the next frame (TASK-57 frame monitor).
+      frameMonitor.endFrame({
+        drawCalls: this.renderer.info.render.calls,
+        triangles: this.renderer.info.render.triangles,
+      });
       this.raf = requestAnimationFrame(frame);
     };
     this.raf = requestAnimationFrame(frame);

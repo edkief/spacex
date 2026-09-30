@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { hash2, Rng, seedFromString } from '@shared/random';
+import { frameMonitor } from '@client/perf/frameMonitor';
 
 /**
  * TASK-70: minimal deterministic starfield renderer.
@@ -175,9 +176,16 @@ export function createStarfield(
   };
   const frame = (): void => {
     if (disposed) return;
+    frameMonitor.beginFrame();
     resize();
     stars.rotation.y = clock.getElapsedTime() * 0.005; // slow drift (~0.3°/s)
     renderer.render(scene, camera);
+    // renderer.info.render resets per frame — capture it right after the
+    // render, before the next frame (TASK-57 frame monitor).
+    frameMonitor.endFrame({
+      drawCalls: renderer.info.render.calls,
+      triangles: renderer.info.render.triangles,
+    });
     raf = requestAnimationFrame(frame);
   };
   raf = requestAnimationFrame(frame);
