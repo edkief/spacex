@@ -3,7 +3,7 @@
   "pinTask": true,
   "timeouts": {
     "iterationMs": 2700000,
-    "inactivityMs": 300000
+    "inactivityMs": 600000
   },
   "retries": {
     "providerRetriesPerIteration": 3,
@@ -20,5 +20,9 @@
   "log": {
     "format": "text",
     "level": "info"
+  },
+  "git": {
+    "push": "iteration",
+    "remote": "origin"
   }
 }

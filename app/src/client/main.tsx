@@ -8,6 +8,7 @@ import { PlayerList } from '@client/hud/player-list';
 import { ToastStack } from '@client/hud/toast-stack';
 import { ChatLog } from '@client/hud/chat-log';
 import { createStarfield } from '@client/render/starfield';
+import { installDriftDebug, reportServerSeed } from '@client/drift-debug';
 import type { ChatMessage } from '@shared/protocol/schemas';
 
 /**
@@ -240,7 +241,11 @@ function App() {
   });
 
   React.useEffect(() => {
-    void fetchHealth().then(setHealth);
+    void fetchHealth().then((h) => {
+      setHealth(h);
+      // TASK-71: feed the dev-only __DRIFT__ hook the server-provided seed.
+      if (h) reportServerSeed(h.galaxySeed);
+    });
   }, []);
 
   // TASK-70: the three.js starfield owns #game-canvas (mounted outside
@@ -404,6 +409,9 @@ const claimStyles: Record<string, React.CSSProperties> = {
   },
   error: { margin: 0, color: '#f87171', fontSize: '0.8rem' },
 };
+
+// TASK-71: dev-only determinism debug hook (no-op in production builds).
+installDriftDebug();
 
 const root = document.getElementById('root');
 if (!root) throw new Error('missing #root element');

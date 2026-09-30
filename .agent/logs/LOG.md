@@ -3,12 +3,21 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-30
-**Tasks Completed:** 29
-**Current Task:** TASK-70 Complete
+**Tasks Completed:** 30
+**Current Task:** TASK-71 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-09-30 — TASK-71: Determinism test suite + two-client e2e comparison
+Determinism coverage widened from golden snapshots to a property sweep + a live two-client comparison (SC-2):
+- `app/src/shared/galaxy/properties.test.ts` (NEW, 2 tests) — property-style determinism with a FIXED meta-seed (`Rng(seedFromString('TASK-71-PROPERTIES-META'))`) so every run samples the identical inputs and failures are reproducible. (a) 10 random seeds × 10 stars: `generateStars` + `generateSystem` deep-equal across two independent invocations; (b) 200 random (planet, chunk) pairs from a pool of 10 seeds × 10 stars × all planets: identical nodeId sets and node positions (plus full-chunk deep equality incl. heightmap) across two invocations. A lockstep `firstDivergence()` walker reports the exact field path of the first difference (e.g. `$.planets[2].dockCount`) instead of a giant diff blob.
+- `app/src/client/drift-debug.ts` (NEW) — dev-only `window.__DRIFT__` hook, installed only when `import.meta.env.DEV` (production builds never ship it). Carries the SERVER-provided seed from `/api/health` (`ready`/`seed`) and derives `starChart(count)` / `planetList(starId)` in-page via the real shared generators — so the e2e exercises the client's actual derivation path. `main.tsx` calls `installDriftDebug()` at module load and `reportServerSeed(h.galaxySeed)` when health answers.
+- `app/tests/e2e/determinism.spec.ts` (NEW) — two independent browser contexts (TASK-70 fixtures, real server, no sign-in) load the app; `waitForFunction(__DRIFT__.ready)` then pulls chart(8) + `planetList(star[0].id)` from each page; asserts both clients' seeds equal the server's `galaxySeed` from `/api/health`, deep-equal + insertion-order-identical `JSON.stringify` of both datasets, and non-empty sanity. Timing-independent by construction (compared data is a pure function of the seed — no wall-clock fields), so it cannot flake on load order/latency.
+- Stability: e2e suite run 3 consecutive times → 4/4 passed each run (54.8 s / 47.7 s / 46.4 s). `tsc --noEmit` clean, `eslint` + `prettier` clean, full `npm run test` → 58 files / 539 tests all pass (+2 properties).
+- Gotchas hit: `CHART_SIZE` referenced inside `page.evaluate` is NOT in page scope (ReferenceError) — pass it as the evaluate argument. `declare global { var __DRIFT__?: T }` is invalid TS (no `?` on var) — use `interface Window { __DRIFT__?: T }`.
+- Screenshots: `.agent/screenshots/TASK-71-1.png` (client A on the claim screen, starfield rendered, status line shows "server ok — seed DRIFT-SEED-0001" — proof the /api/health seed reached the client).
 
 ### 2026-09-30 — TASK-70: Playwright e2e harness (two-client multiplayer, self-booting server)
 The e2e harness is now self-contained: `npm run test:e2e` boots the REAL dev server itself (vite app + API/WS on random free ports, sqlite DB in a fresh tmp dir per test file), drives the claim flow in a real headless Chromium, and verifies the core multiplayer behaviors — no pre-started `npm run dev` required.

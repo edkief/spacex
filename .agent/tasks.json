@@ -207,7 +207,7 @@
     "title": "Determinism test suite + two-client e2e comparison",
     "category": "functional",
     "specFilePath": ".agent/tasks/TASK-71.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-7",
