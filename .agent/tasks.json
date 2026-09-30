@@ -179,7 +179,7 @@
     "title": "Player presence: list, join/leave, occupancy",
     "category": "functional",
     "specFilePath": ".agent/tasks/TASK-15.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-16",

@@ -18,10 +18,15 @@ Excludes dotfiles, tests, and config.
 │   ├── smoke-task21.mjs      # TASK-21 live smoke: livery REST happy path + Playwright page load/screenshot
 │   └── src/
 │       ├── client/
-│       │   ├── main.tsx      # React shell + #game-canvas placeholder
+│       │   ├── main.tsx      # React shell: #game-canvas, callsign claim form + session boot (WS → join, ?sys= override), presence HUD, live occupancy
 │       │   ├── net/
 │       │   │   ├── prediction.ts   # TASK-14: ClientShipPredictor — per-frame integrateShip + server-timeline reconcile (blend/rewind/snap, 10 s queue cap)
-│       │   │   └── interpolation.ts # TASK-14: RemoteEntityBuffer/Tracker — 200 ms lerp/slerp, stale on underrun, dim after 1 s
+│       │   │   ├── interpolation.ts # TASK-14: RemoteEntityBuffer/Tracker — 200 ms lerp/slerp, stale on underrun, dim after 1 s
+│       │   │   ├── presence.ts     # TASK-15: PresenceStore — snapshot + join/leave events, self "(you)", lastSeen, occupancy, toast events (no emit on unchanged snapshots)
+│       │   │   └── session.ts      # TASK-15: ClientSession — browser WS client, hello→auth(token), joinSystem → enter_system snapshot
+│       │   ├── hud/
+│       │   │   ├── player-list.tsx # TASK-15: bottom-left monospace callsign list + status dots, presence-event re-renders only
+│       │   │   └── toast-stack.tsx # TASK-15: top-right join/leave toasts, 3 s fade, 3 visible + queue
 │       │   └── render/
 │       │       └── ship-mesh.ts # TASK-21: ShipMeshBuilder — 3 paint-zone materials + in-place applyLivery
 │       ├── server/

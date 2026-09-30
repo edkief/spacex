@@ -3,12 +3,23 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-30
-**Tasks Completed:** 25
-**Current Task:** TASK-12 Complete
+**Tasks Completed:** 26
+**Current Task:** TASK-15 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-09-30 — TASK-15: Presence: in-system player list and toasts
+Clients now see who else is in the system: a live player list (bottom-left, monospace, status dots, "(you)" marker), join/leave toasts (top-right, 3 s fade, max 3 visible with queueing), and a live "N aboard" occupancy readout. The star-chart badge itself is TASK-7's UI — the data (store.occupancy + the TASK-11 /api/galaxy/health shards) is in place for it.
+- `app/src/client/net/presence.ts` (NEW) — `PresenceStore`: Map<playerId, {callsign, shipId?, onFoot?, lastSeen}> built from the enter_system snapshot (`applySnapshot`, self excluded, no re-emit when the set is unchanged — the HUD never re-renders on the 10 Hz cadence) and presence join/leave events (`presenceJoin`/`presenceLeave`, lastSeen refreshed per the TASK-15 note for a future latency display); `leaveAll()` on system change; separate `setSelf` (never listed, rendered "(you)" by the HUD); `subscribe` + `onToast` (toasts fire on events only, never on snapshots); `occupancy` getter.
+- `app/src/client/net/session.ts` (NEW) — `ClientSession`: minimal browser WS client (native WebSocket, injectable factory), hello → auth(token) on open, `joinSystem()` resolves with the enter_system snapshot (error frames reject it, socket close fails a pending join); reconnection/resync deliberately out of scope (TASK-17).
+- `app/src/client/hud/player-list.tsx` (NEW) — compact monospace list, green/amber dot (in-ship/on-foot — flag arrives with TASK-36), self first with "(you)"; re-renders only on presence events.
+- `app/src/client/hud/toast-stack.tsx` (NEW) — "CALLSIGN joined/left", CSS 3 s fade-in/hold/fade-out, 3 visible max with the rest queued and promoted on dismiss, aria-live.
+- `app/src/client/main.tsx` — callsign claim form (POST /api/callsigns, localStorage session, 409 → inline error), session boot: WS → join (`?sys=` URL override for e2e/dev) → PresenceStore fed from snapshot + presence events; `#sys-id` status line shows system id + live occupancy (App subscribes to the store — presence events only).
+- Tests: `presence.test.ts` (11, NEW) — snapshot self-exclusion, no re-emit on unchanged 10 Hz snapshots, join/leave/leaveAll semantics, toasts (incl. unknown leaver), lastSeen refresh, unsubscribe, optional onFoot passthrough. `presence.integration.test.ts` (1, NEW, live child server via `server-child.ts`) — the acceptance test with the REAL client store over the wire: 3 clients in SYS_A each see exactly the other 2; C disconnects → A and B drop C in <1 s (measured per-store); B joins SYS_B → dropped from A in <1 s and lists empty on both sides. `tests/presence.spec.ts` (1, NEW, Playwright) — two browser contexts claim + join one system, both lists show both callsigns, joiner sees the toast, zero console errors, screenshots.
+- Verified: `tsc --noEmit`, `eslint --fix` + `prettier --write` (lint + `prettier --check` clean), full `npm run test` → 51 files / 494 tests all pass, `npx playwright test` → 2 passed (scaffold + presence).
+- Screenshots: `.agent/screenshots/TASK-15-1.png` (A: both callsigns, "(you)" marker, fading "dr2… joined" toast, "2 aboard"), `.agent/screenshots/TASK-15-2.png` (B's mirror view).
 
 ### 2026-09-30 — TASK-12: Shard lifecycle: load, presence, save
 Completed the shard lifecycle around the router: join/leave presence semantics, the 10 s graceful-shutdown watchdog, a shard generation counter, and the leak + reconnect-storm + SIGTERM integration tests. (Most of the plumbing already existed from TASK-11/13/24; this task verified it end-to-end and closed the gaps.)
