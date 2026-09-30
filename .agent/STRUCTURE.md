@@ -18,13 +18,13 @@ Excludes dotfiles, tests, and config.
 │   ├── smoke-task21.mjs      # TASK-21 live smoke: livery REST happy path + Playwright page load/screenshot
 │   └── src/
 │       ├── client/
-│       │   ├── main.tsx      # React shell: #game-canvas, callsign claim form + session boot (WS → join, ?sys= override), presence HUD, live occupancy, chat log (TASK-16)
+│       │   ├── main.tsx      # React shell: #game-canvas, callsign claim form + session boot (WS → join, ?sys= override), presence HUD, live occupancy, chat log (TASK-16); TASK-17: ConnectionLostOverlay (#connection-lost-overlay + #reconnect-retry) on 'lost' + "reconnecting…/connection lost" status-line suffixes, resync keeps chat/list UI when the system is unchanged
 │       │   ├── net/
 │       │   │   ├── prediction.ts   # TASK-14: ClientShipPredictor — per-frame integrateShip + server-timeline reconcile (blend/rewind/snap, 10 s queue cap)
 │       │   │   ├── interpolation.ts # TASK-14: RemoteEntityBuffer/Tracker — 200 ms lerp/slerp, stale on underrun, dim after 1 s
-│       │   │   ├── presence.ts     # TASK-15: PresenceStore — snapshot + join/leave events, self "(you)", lastSeen, occupancy, toast events (no emit on unchanged snapshots)
-│       │   │   ├── session.ts      # TASK-15: ClientSession — browser WS client, hello→auth(token), joinSystem → enter_system snapshot
-│       │   │   └── chat.ts         # TASK-16: ChatStore — 100-msg ring buffer, loadSnapshot (system-change clear + ts watermark), emit only on change
+│       │   │   ├── presence.ts     # TASK-15: PresenceStore — snapshot + join/leave events, self "(you)", lastSeen, occupancy, toast events (no emit on unchanged snapshots); TASK-17: 'reconnected' toast
+│       │   │   ├── session.ts      # TASK-15/17: ClientSession — browser WS client, hello→auth(token), joinSystem → enter_system snapshot; TASK-17: lazy dial, ConnectionState (connecting/connected/reconnecting/lost), auto-retry 1 s backoff capped 5 s, 30 s 'lost' window + retryNow(), onSnapshot(snapshot, reconnect) full resync (prediction/buffers/presence rebuilt, chat merged)
+│       │   │   └── chat.ts         # TASK-16/17: ChatStore — 100-msg ring buffer, loadSnapshot (system-change clear + ts watermark), emit only on change; TASK-17: mergeSnapshot (append only newer-than-tail, no full clear on resync)
 │       │   ├── hud/
 │       │   │   ├── player-list.tsx # TASK-15: bottom-left monospace callsign list + status dots, presence-event re-renders only
 │       │   │   ├── toast-stack.tsx # TASK-15: top-right join/leave toasts, 3 s fade, 3 visible + queue
@@ -42,7 +42,7 @@ Excludes dotfiles, tests, and config.
 │       │   ├── galaxy/
 │       │   │   ├── router.ts  # TASK-11/12: createGalaxyRouter — Map<systemId, Shard> on demand (pending-promise collapse + loadChain), 60 s reap grace (flush-before-stop), 16-player cap, per-system shard generation counter (bumped per DB (re)load, proves reuse vs reload), stats/stopAll, periodic + chained flushes
 │       │   │   └── gateway.ts # TASK-11: createRouterGateway — SystemGateway over the router (enter → {snapshot}, leave → grace)
-│       │   │   └── (tests) router.test.ts (unit: collapse/reap/cap/restart, fake clock), router.ws.test.ts (live ws: 10 clients/3 systems, cap stays-put, health, not-found)
+│       │   │   └── (tests) router.test.ts (unit: collapse/reap/cap/restart, fake clock), router.ws.test.ts (live ws: 10 clients/3 systems, cap stays-put, health, not-found), reconnect.ws.test.ts (live ws TASK-17: mid-flight drop → idle coast + continuity < 1 u + no duplicate entity, zombie-conn input/leave guards, fake-clock reap-and-rejoin at flushed position)
 │       │   └── routes/
 │       │       ├── index.ts        # registerApiRoutes(repo, sessions, galaxySeed, shipSwapBus)
 │       │       ├── auth.ts         # TASK-41: shared Bearer extraction + requireAuth (structured 401 reasons)
@@ -51,12 +51,12 @@ Excludes dotfiles, tests, and config.
 │       │       ├── players.ts      # TASK-41: GET /api/players/me (Bearer → own profile incl. credits)
 │       │       ├── session.ts      # TASK-10: GET /api/session (Bearer → profile, structured 401s)
 │       │       └── ships.ts        # TASK-20/21/23: GET /api/ships, POST /api/ships/buy (docked purchase), POST /api/ships/livery (3-slot hex paint), POST /api/ships/repair (docked, credit cost)
-│       │   ├── ws.ts         # TASK-9 WS lifecycle: handshake state machine, structured errors, presence, 15s/45s keepalive; TASK-16 chat sanitize → rate-limit → onGameMessage
+│       │   ├── ws.ts         # TASK-9 WS lifecycle: handshake state machine, structured errors, presence, 15s/45s keepalive; TASK-16 chat sanitize → rate-limit → onGameMessage; TASK-17: onGameMessage carries `source: conn` so the shard can attribute inputs and drop stale-conn frames
 │       │   ├── shard/
 │       │   │   ├── sim.ts  # TASK-13: SimLoop — 20 Hz fixed tick, drift-corrected setTimeout chain, 5-tick max catch-up + input-drop flag
 │       │   │   ├── histogram.ts  # TASK-13: TickHistogram — ring-buffer tick durations, p50/p95/p99
 │       │   │   ├── terrain.ts  # TASK-13: TerrainContext — 3x3 chunk neighborhood cache, bilinear O(1) heightAt, world-coord pads
-│       │   │   ├── shard.ts  # TASK-13/23/24: SystemShard — input queues (latest-wins, stale seq), integrateShip per tick (destroyed skipped), applyHit + static 600 s wrecks, 10 Hz shared-buffer snapshots; loadShips() restart rehydration (saved flight state / dock coords / unexpired wrecks)
+│       │   │   ├── shard.ts  # TASK-13/23/24: SystemShard — input queues (latest-wins, stale seq), integrateShip per tick (destroyed skipped), applyHit + static 600 s wrecks, 10 Hz shared-buffer snapshots; loadShips() restart rehydration (saved flight state / dock coords / unexpired wrecks); TASK-17: idle continuation (tick iterates playerEntities, input-less ships keep coasting, `idle` flag) + stale-conn guards (register supersedes zombie conns, unregister/leave/enqueueInput source-checked, adoptEntity un-idles)
 │       │   │   ├── types.ts  # TASK-13/23/24: Shard/ConnState/SimEntity contracts (kind 'wreck', destroyed/ttl, destroyedAtMs)
 │       │   │   ├── persist.ts  # TASK-24: shard flush/load service — one-tx multi-row upsert to ships + load with expired-wreck cleanup, flush timer
 │       │   │   ├── index.ts  # TASK-13: barrel exports

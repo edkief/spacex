@@ -193,7 +193,7 @@
     "title": "Reconnect and full state resync",
     "category": "functional",
     "specFilePath": ".agent/tasks/TASK-17.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-70",
