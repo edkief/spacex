@@ -14,6 +14,21 @@ export interface ClientInbound {
 }
 
 /**
+ * TASK-8: the server rejected the warp (e.g. code 'system-full'). The
+ * player stays in the source system; the client rolls the world/lastSystemId
+ * back and shows a toast.
+ */
+export class WarpRejectedError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'WarpRejectedError';
+  }
+}
+
+/**
  * TASK-17: connection lifecycle as seen by the UI.
  * - 'connecting'    initial connect in flight
  * - 'connected'     joined (initial or after a reconnect resync)
@@ -101,6 +116,12 @@ export class ClientSession {
   private joinPromise: Promise<StateSnapshot> | null = null;
   private joinResolve: ((snapshot: StateSnapshot) => void) | null = null;
   private joinReject: ((err: Error) => void) | null = null;
+  /** TASK-8: in-flight warp (requestWarp round trip). */
+  private warpPromise: Promise<StateSnapshot> | null = null;
+  private warpResolve: ((snapshot: StateSnapshot) => void) | null = null;
+  private warpReject: ((err: Error) => void) | null = null;
+  /** Source system of the in-flight warp (rollback target on rejection). */
+  private warpFrom: string | null = null;
 
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private retryAttempt = 0;
@@ -150,6 +171,30 @@ export class ClientSession {
       this.ws.send(encodeMessage('join_system', { systemId }));
     });
     return this.joinPromise;
+  }
+
+  /**
+   * TASK-8: request an inter-system warp. Optimistically commits
+   * lastSystemId to the target so a drop mid-transition reconnects into
+   * the DESTINATION (the ship row moves with the warp server-side); a
+   * server rejection (error frame) rolls it back to the source system.
+   * Resolves with the warp_arrived snapshot; rejects on server rejection
+   * (WarpRejectedError) or socket close.
+   */
+  warpTo(toSystemId: string): Promise<StateSnapshot> {
+    if (this.warpPromise) return this.warpPromise;
+    const from = this.lastSystemId;
+    if (!from || !this.ws || !this.isOpen) {
+      return Promise.reject(new Error('warpTo: no active system (call connect + join first)'));
+    }
+    this.warpFrom = from;
+    this.lastSystemId = toSystemId;
+    this.warpPromise = new Promise<StateSnapshot>((resolve, reject) => {
+      this.warpResolve = resolve;
+      this.warpReject = reject;
+      this.ws?.send(encodeMessage('warp', { destinationSystemId: toSystemId }));
+    });
+    return this.warpPromise;
   }
 
   /** Send a validated outbound frame (no-op while the socket is not open). */
@@ -241,6 +286,18 @@ export class ClientSession {
       this.joinPromise = null;
       reject(new Error(`connection closed (code ${code})`));
     }
+    // A close mid-warp fails the pending warp. The optimistic commit stands
+    // (lastSystemId already targets the destination): the server either
+    // completed the move (rejoin the destination) or lost the frame (the
+    // ship row still homes the re-adopt — no state the retry can't heal).
+    if (this.warpReject) {
+      const reject = this.warpReject;
+      this.warpReject = null;
+      this.warpResolve = null;
+      this.warpPromise = null;
+      this.warpFrom = null;
+      reject(new Error(`connection closed (code ${code})`));
+    }
     // Auto-reconnect only after the first successful join: an initial join
     // failure is the caller's error path (claim form), not a drop.
     if (!this.lastSystemId) {
@@ -319,6 +376,35 @@ export class ClientSession {
         resolve(snapshot);
       }
       this.options.onSnapshot?.(snapshot, isReconnect);
+    } else if (parsed.type === 'warp_arrived' && this.warpResolve) {
+      // TASK-8: the server completed the move. The snapshot takes the
+      // full-boot path (system changed); the controller finishes the
+      // warp-out transition.
+      const { systemId, snapshot } = parsed.payload as {
+        systemId: string;
+        snapshot: StateSnapshot;
+      };
+      this.lastSystemId = systemId;
+      const resolve = this.warpResolve;
+      this.warpResolve = null;
+      this.warpReject = null;
+      this.warpPromise = null;
+      this.warpFrom = null;
+      this.resetRetryState();
+      this.setState('connected');
+      resolve(snapshot);
+      this.options.onSnapshot?.(snapshot, false);
+    } else if (parsed.type === 'error' && this.warpReject) {
+      // TASK-8: server rejected the warp (system-full / not-found): the
+      // player never left — roll the reconnect target back to the source.
+      const { code, message } = parsed.payload as { code: string; message: string };
+      this.lastSystemId = this.warpFrom;
+      const reject = this.warpReject;
+      this.warpReject = null;
+      this.warpResolve = null;
+      this.warpPromise = null;
+      this.warpFrom = null;
+      reject(new WarpRejectedError(code, message));
     } else if (parsed.type === 'error' && (this.joinReject || this.autoJoin)) {
       const reject = this.joinReject;
       this.joinReject = null;

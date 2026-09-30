@@ -66,6 +66,16 @@ export interface GatewayPlayer {
 export interface SystemGateway {
   enterSystem(systemId: string, player: GatewayPlayer): Promise<EnterOutcome>;
   leaveSystem?(systemId: string, player: GatewayPlayer): void | Promise<void>;
+  /**
+   * TASK-8: inter-system warp. Moves the ship from `fromSystemId` to
+   * `targetSystemId` (target validated + capped, ship repositioned at the
+   * target's spawn gate). Failure leaves the player in the source system.
+   */
+  warpSystem?(
+    fromSystemId: string,
+    targetSystemId: string,
+    player: GatewayPlayer,
+  ): Promise<EnterOutcome>;
 }
 
 export type ConnStage = 'hello' | 'auth' | 'authed';
@@ -102,7 +112,6 @@ export interface Conn {
 /** Types that only make sense while joined to a system. */
 const SYSTEM_SCOPED: ReadonlySet<string> = new Set([
   'input',
-  'warp',
   'interact',
   'mine',
   'sell',
@@ -287,6 +296,69 @@ export function attachWebSocket(
         }
         send(conn, 'enter_system', { snapshot: outcome.snapshot });
         void options.onJoinSystem?.(conn, conn.systemId);
+        return;
+      }
+      case 'warp': {
+        // TASK-8: inter-system warp. The server does the whole move
+        // (source leave + target join + spawn-gate reposition); the client
+        // just plays the 2 s transitions around this round trip. A rejected
+        // warp (system-full / not-found) leaves the player exactly where
+        // they were.
+        if (conn.stage !== 'authed') {
+          return sendError(conn, PROTOCOL_ERRORS.UNAUTHENTICATED, 'auth required before warp');
+        }
+        if (!conn.systemId || !conn.playerId || !conn.callsign) {
+          return sendError(
+            conn,
+            PROTOCOL_ERRORS.UNAUTHENTICATED,
+            'join a system before sending warp',
+          );
+        }
+        const targetSystemId = (payload as { destinationSystemId: string }).destinationSystemId;
+        if (targetSystemId === conn.systemId) {
+          return sendError(conn, PROTOCOL_ERRORS.INVALID_MESSAGE, 'already in the target system');
+        }
+        if (!options.gateway.warpSystem) {
+          return sendError(conn, PROTOCOL_ERRORS.INVALID_MESSAGE, 'warp not supported');
+        }
+        const player: GatewayPlayer = {
+          playerId: conn.playerId,
+          callsign: conn.callsign,
+          send: (buffer) => {
+            if (conn.socket.readyState === WebSocket.OPEN) conn.socket.send(buffer);
+          },
+          source: conn, // stale-conn guard in the target shard
+        };
+        const fromSystemId = conn.systemId;
+        const outcome = await options.gateway.warpSystem(
+          fromSystemId,
+          targetSystemId,
+          player,
+        );
+        if (!outcome.ok) {
+          // The player never left: plain error, conn.systemId untouched.
+          return sendError(conn, outcome.code, outcome.message);
+        }
+        if (conn.socket.readyState !== WebSocket.OPEN) {
+          // The player disconnected MID-WARP: release the target slot so the
+          // shard can still reap. The ship row already belongs to the target
+          // system, so a later rejoin rehydrates it there — no ghost on
+          // either side.
+          void options.gateway.leaveSystem?.(targetSystemId, player);
+          return;
+        }
+        conn.systemId = targetSystemId;
+        // Presence: leave to the source peers, join to the target peers.
+        for (const peer of peersIn(fromSystemId)) {
+          if (peer === conn) continue;
+          send(peer, 'presence', { event: 'leave', player: presenceEntry(conn) });
+        }
+        for (const peer of peersIn(targetSystemId)) {
+          if (peer === conn) continue;
+          send(peer, 'presence', { event: 'join', player: presenceEntry(conn) });
+        }
+        send(conn, 'warp_arrived', { systemId: targetSystemId, snapshot: outcome.snapshot });
+        void options.onJoinSystem?.(conn, targetSystemId);
         return;
       }
       case 'logout': {

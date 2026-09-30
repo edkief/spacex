@@ -15,6 +15,14 @@ import { generateStars } from '@shared/galaxy/stars';
 import { generateSystem } from '@shared/galaxy/system';
 import type { Star, SystemGen } from '@shared/galaxy/types';
 
+/** One recorded world swap (TASK-8 warp transition build). */
+export interface WorldSwapInfo {
+  systemId: string;
+  /** ms the swap's build took (the < 300 ms budget is asserted in e2e). */
+  buildMs: number;
+  at: number;
+}
+
 /** Shape of the debug surface the e2e tests read. */
 export interface DriftDebug {
   /** True once the server seed from /api/health has arrived. */
@@ -25,6 +33,8 @@ export interface DriftDebug {
   starChart(count?: number): Star[];
   /** Deterministic system (planet list) for a star id, from the server seed. */
   planetList(starId: string): SystemGen;
+  /** The most recent world swap (null before the first), TASK-8. */
+  worldSwap: WorldSwapInfo | null;
 }
 
 declare global {
@@ -51,6 +61,7 @@ export function installDriftDebug(): void {
       if (!hook.seed) throw new Error('__DRIFT__: server seed not ready');
       return generateSystem(hook.seed, starId);
     },
+    worldSwap: null,
   };
   window.__DRIFT__ = hook;
 }
@@ -61,4 +72,11 @@ export function reportServerSeed(seed: string): void {
   if (!hook) return;
   hook.seed = seed;
   hook.ready = true;
+}
+
+/** Record a world swap (called by main.tsx after each swapWorld, TASK-8). */
+export function reportWorldSwap(systemId: string, buildMs: number): void {
+  const hook = window.__DRIFT__;
+  if (!hook) return;
+  hook.worldSwap = { systemId, buildMs, at: Date.now() };
 }

@@ -19,9 +19,12 @@ export interface PresenceToast {
   /**
    * 'reconnected' (TASK-17) is a local connection event, not a presence
    * change — it never touches the player list, only the toast stack.
+   * 'notice' (TASK-8) is a free-form local toast (warp failures).
    */
-  kind: 'join' | 'leave' | 'reconnected';
+  kind: 'join' | 'leave' | 'reconnected' | 'notice';
   callsign: string;
+  /** 'notice' toasts render this text verbatim (e.g. 'System full'). */
+  text?: string;
   at: number;
 }
 
@@ -107,6 +110,14 @@ export class PresenceStore {
    */
   reconnected(): void {
     this.emitToast({ kind: 'reconnected', callsign: this.self?.callsign ?? '', at: this.now() });
+  }
+
+  /**
+   * TASK-8: a free-form local toast (e.g. the 'System full' warp rejection).
+   * Purely additive — the player list and occupancy are untouched.
+   */
+  notify(text: string): void {
+    this.emitToast({ kind: 'notice', callsign: '', text, at: this.now() });
   }
 
   /** The player switched systems: everyone is gone until the next snapshot. */

@@ -61,6 +61,58 @@ export function generateStarfield(seed: string, count = DEFAULT_STAR_COUNT): Sta
   return { count, positions, colors };
 }
 
+/**
+ * The shared deep-space background (sky sphere + point-sprite stars),
+ * built once per seed. Used both by the boot starfield (createStarfield)
+ * and by the per-system WorldManager (TASK-8), so every view — claim
+ * screen, system view, warp transitions — sits on the same deterministic
+ * sky.
+ */
+export interface BackgroundHandle {
+  /** Inverted gradient sphere (add to a scene). */
+  sky: THREE.Mesh;
+  /** Pixel-constant star sprites on a 150–200 u shell (add to a scene). */
+  stars: THREE.Points;
+  dispose(): void;
+}
+
+export function createBackground(seed: string, count = DEFAULT_STAR_COUNT): BackgroundHandle {
+  const skyGeometry = buildSkyGeometry(420);
+  const skyMaterial = new THREE.MeshBasicMaterial({
+    vertexColors: true,
+    side: THREE.BackSide,
+    depthWrite: false,
+  });
+  const sky = new THREE.Mesh(skyGeometry, skyMaterial);
+
+  const data = generateStarfield(seed, count);
+  const starGeometry = new THREE.BufferGeometry();
+  starGeometry.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
+  starGeometry.setAttribute('color', new THREE.BufferAttribute(data.colors, 3));
+  const starMaterial = new THREE.PointsMaterial({
+    size: 1.8,
+    // Pixel-constant sprites: with sizeAttenuation on, stars 150–200 u away
+    // would collapse to sub-pixel at this viewport.
+    sizeAttenuation: false,
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.95,
+    depthWrite: false,
+  });
+  const stars = new THREE.Points(starGeometry, starMaterial);
+
+  return {
+    sky,
+    stars,
+    dispose(): void {
+      skyGeometry.dispose();
+      skyMaterial.dispose();
+      starGeometry.dispose();
+      starMaterial.dispose();
+    },
+  };
+}
+
 /** Inverted-sphere geometry with a vertical vertex-color gradient (dark → blue). */
 function buildSkyGeometry(radius: number): THREE.BufferGeometry {
   const geometry = new THREE.SphereGeometry(radius, 48, 24);
@@ -104,30 +156,10 @@ export function createStarfield(
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 1000);
 
-  const skyGeometry = buildSkyGeometry(420);
-  const skyMaterial = new THREE.MeshBasicMaterial({
-    vertexColors: true,
-    side: THREE.BackSide,
-    depthWrite: false,
-  });
-  scene.add(new THREE.Mesh(skyGeometry, skyMaterial));
-
-  const data = generateStarfield(seed, count);
-  const starGeometry = new THREE.BufferGeometry();
-  starGeometry.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
-  starGeometry.setAttribute('color', new THREE.BufferAttribute(data.colors, 3));
-  const starMaterial = new THREE.PointsMaterial({
-    size: 1.8,
-    // Pixel-constant sprites: with sizeAttenuation on, stars 150–200 u away
-    // would collapse to sub-pixel at this viewport.
-    sizeAttenuation: false,
-    vertexColors: true,
-    transparent: true,
-    opacity: 0.95,
-    depthWrite: false,
-  });
-  const stars = new THREE.Points(starGeometry, starMaterial);
-  scene.add(stars);
+  const background = createBackground(seed, count);
+  scene.add(background.sky);
+  scene.add(background.stars);
+  const stars = background.stars;
 
   const clock = new THREE.Clock();
   let disposed = false;
@@ -154,10 +186,7 @@ export function createStarfield(
     dispose(): void {
       disposed = true;
       cancelAnimationFrame(raf);
-      starGeometry.dispose();
-      starMaterial.dispose();
-      skyGeometry.dispose();
-      skyMaterial.dispose();
+      background.dispose();
       renderer.dispose();
     },
   };

@@ -8,6 +8,8 @@ interface ToastItem extends PresenceToast {
 function toastText(item: ToastItem): string {
   // TASK-17: local connection event (not a player presence change).
   if (item.kind === 'reconnected') return 'reconnected';
+  // TASK-8: free-form local notice (warp failures, e.g. 'System full').
+  if (item.kind === 'notice') return item.text ?? 'notice';
   return `${item.callsign} ${item.kind === 'join' ? 'joined' : 'left'}`;
 }
 

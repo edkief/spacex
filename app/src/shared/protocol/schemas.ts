@@ -171,6 +171,15 @@ export const messageSchemas = {
     })
     .strict(),
   warp: z.object({ destinationSystemId: z.string().min(1).max(64) }).strict(),
+  /**
+   * TASK-8: server → client, sent when the warp is server-side complete.
+   * The client swaps its world to the target system (star/planets/spawn
+   * gate) and plays the warp-out. Same snapshot shape as enter_system; the
+   * separate type tells the client this is a TRANSITION, not a (re)join.
+   */
+  warp_arrived: z
+    .object({ systemId: z.string().min(1).max(64), snapshot: stateSnapshotSchema })
+    .strict(),
   interact: z.object({ targetId: z.string().min(1), action: z.string().min(1).max(32) }).strict(),
   mine: z.object({ nodeId: z.string().min(1) }).strict(),
   sell: z

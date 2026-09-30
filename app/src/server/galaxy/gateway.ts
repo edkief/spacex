@@ -12,5 +12,9 @@ export function createRouterGateway(router: GalaxyRouter): SystemGateway {
     // TASK-17: the connection identity rides along so a late close of a
     // superseded (zombie) socket cannot evict the reconnected player's conn.
     leaveSystem: (systemId, player) => router.leave(systemId, player.playerId, player.source),
+    // TASK-8: inter-system warp — the router moves the ship row + entity
+    // from the source shard to the target's spawn gate.
+    warpSystem: (fromSystemId, targetSystemId, player) =>
+      router.warp(fromSystemId, targetSystemId, player),
   };
 }

@@ -312,6 +312,24 @@ export class SystemShard implements Shard {
   }
 
   /**
+   * TASK-8: full removal — the player's connection AND their ship entity
+   * leave the shard. Warp departure: the ship now belongs to the target
+   * system (its row's position.systemId moves with it), so no idle ghost
+   * may remain in the source shard. A plain disconnect never uses this
+   * (leavePlayer keeps the entity simulating, TASK-17).
+   */
+  removePlayer(playerId: string): void {
+    const connId = this.playerConns.get(playerId);
+    if (connId) this.unregisterConnection(connId);
+    const entity = this.playerEntities.get(playerId);
+    if (entity) {
+      this.entities.delete(entity.id);
+      this.playerEntities.delete(playerId);
+    }
+    this.log.debug('player fully removed (warp departure)', { playerId });
+  }
+
+  /**
    * Leave by player id (the router's leave path, TASK-11): remove the
    * player's connection; the entity stays in the world (idle, TASK-17).
    * When `source` is given, a leave from a SUPERSEDED connection (a zombie

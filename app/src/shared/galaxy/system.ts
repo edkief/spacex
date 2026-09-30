@@ -19,7 +19,7 @@ import {
   RESOURCE_TYPES,
   SHIP_CLASS_IDS,
 } from './config.js';
-import { makeStarName, pickSpectralClass } from './stars.js';
+import { generateStars, makeStarName, pickSpectralClass } from './stars.js';
 import type { Planet, PlanetClass, ShipClassId, SystemGen } from './types.js';
 
 /** 16-hex-char id from a sub-seed (stable key, same format as star ids). */
@@ -148,4 +148,28 @@ export function generateSystem(seed: string, starId: string): SystemGen {
     star: { class: starClass, name: starName },
     planets,
   };
+}
+
+/** Memoized per (seed, systemId): a warp arrival derives the world once. */
+const systemByIdCache = new Map<string, SystemGen | undefined>();
+
+/**
+ * Look up the generated system for a system id (the client world swap,
+ * TASK-8, receives systemId — not a starId — from the server). Scans the
+ * seeded stars with the same (seed, starId) sub-seed scheme as
+ * generateSystem; unknown ids return undefined. Memoized: re-warping into
+ * the same system is one map hit.
+ */
+export function systemForId(seed: string, systemId: string): SystemGen | undefined {
+  const key = `${seed}|${systemId}`;
+  if (systemByIdCache.has(key)) return systemByIdCache.get(key);
+  for (const star of generateStars(seed)) {
+    const system = generateSystem(seed, star.id);
+    if (system.systemId === systemId) {
+      systemByIdCache.set(key, system);
+      return system;
+    }
+  }
+  systemByIdCache.set(key, undefined);
+  return undefined;
 }

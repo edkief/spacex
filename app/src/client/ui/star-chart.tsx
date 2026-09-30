@@ -179,9 +179,11 @@ export function StarChart({ token, currentSystemId, onClose }: StarChartProps): 
         <button
           id="warp-button"
           type="button"
-          disabled={!selected || !neighbor}
+          // TASK-8: double-warp guard — disabled for the whole transition
+          // (warp-started until warp-complete/warp-failed clear it).
+          disabled={!selected || !neighbor || warpingId !== null}
           onClick={warp}
-          style={{ ...styles.warpButton, opacity: selected && neighbor ? 1 : 0.4 }}
+          style={{ ...styles.warpButton, opacity: selected && neighbor && !warpingId ? 1 : 0.4 }}
         >
           {warpingId ? 'WARPING…' : neighbor ? `WARP — ${neighbor.warpTimeLabel}` : 'WARP'}
         </button>

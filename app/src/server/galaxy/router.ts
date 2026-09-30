@@ -1,6 +1,8 @@
 import { generateStars } from '@shared/galaxy/stars';
 import { generateSystem } from '@shared/galaxy/system';
 import type { SystemGen } from '@shared/galaxy/types';
+import { spawnGatePose } from '@shared/galaxy/spawn';
+import { shipStats } from '@shared/ships';
 import { MAX_PLAYERS_PER_SYSTEM } from '@shared/protocol';
 import type { StateSnapshot } from '@shared/protocol/schemas';
 import type { Repository } from '@server/db/repo';
@@ -98,6 +100,21 @@ export interface GalaxyRouter {
    * same player is ignored (TASK-17).
    */
   leave(systemId: string, playerId: string, source?: unknown): void;
+  /**
+   * TASK-8 inter-system warp: move the player's ship from `fromSystemId`
+   * to `targetSystemId`. Validates the target (seed lookup) and the cap;
+   * on success the ship is removed ENTIRELY from the source shard (no idle
+   * ghost), repositioned at the target's spawn gate (100 u +X of the star,
+   * facing it), the ship row's systemId moves with it (TASK-24 flush/load
+   * stays consistent), and the enter-snapshot of the target is returned.
+   * On failure (system-full / not-found / no ship) the player is left
+   * exactly where they were.
+   */
+  warp(
+    fromSystemId: string,
+    targetSystemId: string,
+    player: RouterPlayer,
+  ): Promise<RouterEnterResult>;
   /**
    * Reap pass: stamps the grace on empty shards and stops (ships flushed
    * first) those whose grace elapsed. Returns the number of shards reaped.
@@ -295,6 +312,106 @@ export function createGalaxyRouter(deps: GalaxyRouterDeps): GalaxyRouter {
     }
   }
 
+  /**
+   * TASK-8 warp A → B. Order matters:
+   * 1. the target is validated (seed lookup) and its cap checked BEFORE
+   *    anything in the source changes — a rejected warp never moves the
+   *    player;
+   * 2. the target slot is reserved back-to-back with the cap check (no
+   *    await between them, same atomicity as enter());
+   * 3. the ship row is written to the target first (position.systemId =
+   *    target + gate pose), so the TASK-24 flush/load boundary already sees
+   *    the ship as "in B" even mid-teleport;
+   * 4. only then is the ship removed from the source shard (connection AND
+   *    entity — no idle ghost) and the source reap grace stamped.
+   */
+  async function warp(
+    fromSystemId: string,
+    targetSystemId: string,
+    player: RouterPlayer,
+  ): Promise<RouterEnterResult> {
+    if (fromSystemId === targetSystemId) {
+      return {
+        ok: false,
+        code: 'system-not-found',
+        message: `already in system ${targetSystemId}`,
+      };
+    }
+    const target = await getShard(targetSystemId);
+    if (!target) {
+      return {
+        ok: false,
+        code: 'system-not-found',
+        message: `system ${targetSystemId} not found`,
+      };
+    }
+    // Cap check + slot reservation with no await between them: a 17th
+    // concurrent warp-in is rejected, never overshot.
+    if (target.shard.connections.size >= MAX_PLAYERS_PER_SYSTEM) {
+      return {
+        ok: false,
+        code: 'system-full',
+        message: `system ${targetSystemId} is full (${MAX_PLAYERS_PER_SYSTEM} players)`,
+      };
+    }
+    target.shard.registerConnection(
+      player.playerId,
+      player.callsign,
+      player.send ?? (() => {}),
+      player.source,
+    );
+    const row = await repo.getShipByOwner(player.playerId);
+    if (!row) {
+      // No ship row (should be impossible: claim grants a starter ship).
+      // Release the reserved slot; the player stays in the source system.
+      target.shard.leavePlayer(player.playerId);
+      return {
+        ok: false,
+        code: 'system-not-found',
+        message: `no ship for player ${player.playerId}`,
+      };
+    }
+    const gate = spawnGatePose();
+    // Warp is a teleport by design: adopt (or re-adopt a rehydrated) entity
+    // at the target, then reposition it at the gate.
+    const entity = await target.shard.adoptEntity(player.playerId, player.callsign);
+    if (entity) {
+      entity.ship.pos = { ...gate.pos };
+      entity.ship.vel = { x: 0, y: 0, z: 0 };
+      entity.ship.quat = { ...gate.quat };
+      entity.ship.regime = 'space';
+      entity.ship.onPad = undefined;
+      entity.docked = false;
+      entity.idle = false;
+      entity.heldInput = undefined;
+    }
+    // The row follows the ship: target system, gate pose, flying.
+    const cls = shipStats(row.classId);
+    await repo.saveShipState(row.id, {
+      hull: entity ? entity.hull * cls.hull : row.hull,
+      shields: entity ? entity.shields * cls.shieldCapacity : row.shields,
+      position: { systemId: targetSystemId, ...gate.pos },
+      velocity: { x: 0, y: 0, z: 0 },
+      state: 'flying',
+      rotation: gate.quat,
+      regime: 'space',
+      onPad: null,
+    });
+    // Only now does the source let go: connection AND entity leave the shard
+    // (no idle ghost), then the grace stamp runs via leave() (leavePlayer is
+    // a no-op at that point — the connection is already gone).
+    const source = shards.get(fromSystemId);
+    if (source) source.shard.removePlayer(player.playerId);
+    leave(fromSystemId, player.playerId);
+    target.graceSince = undefined; // occupied again: any pending grace is void
+    log?.info('warp complete', {
+      from: fromSystemId,
+      to: targetSystemId,
+      player: player.playerId,
+    });
+    return { ok: true, snapshot: enterSnapshot(target, player.playerId) };
+  }
+
   async function reapEmpty(): Promise<number> {
     const nowMs = now();
     let reaped = 0;
@@ -380,6 +497,7 @@ export function createGalaxyRouter(deps: GalaxyRouterDeps): GalaxyRouter {
     active,
     enter,
     leave,
+    warp,
     reapEmpty,
     startReaper,
     startPeriodicFlush,

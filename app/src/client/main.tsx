@@ -8,8 +8,12 @@ import { PlayerList } from '@client/hud/player-list';
 import { ToastStack } from '@client/hud/toast-stack';
 import { ChatLog } from '@client/hud/chat-log';
 import { createStarfield } from '@client/render/starfield';
+import { WorldManager } from '@client/world/WorldManager';
 import { StarChart } from '@client/ui/star-chart';
-import { installDriftDebug, reportServerSeed } from '@client/drift-debug';
+import { WarpOverlay } from '@client/ui/warp-overlay';
+import { WarpController, warpSubscribe } from '@client/state/warp';
+import { systemForId } from '@shared/galaxy/system';
+import { installDriftDebug, reportServerSeed, reportWorldSwap } from '@client/drift-debug';
 import type { ChatMessage } from '@shared/protocol/schemas';
 
 /**
@@ -226,6 +230,9 @@ function ClaimForm({
  */
 function App() {
   const [health, setHealth] = React.useState<HealthPayload | null>(null);
+  // TASK-8: the seed systems are derived from. Starts on the default (which
+  // matches the server default) and follows /api/health once it answers.
+  const [serverSeed, setServerSeed] = React.useState(STARFIELD_SEED);
   const [session, setSession] = React.useState<ClaimedSession | null>(readSession);
   const [error, setError] = React.useState<string | null>(null);
   const [store] = React.useState(() => new PresenceStore());
@@ -257,22 +264,84 @@ function App() {
     if (!systemId) setChartOpen(false); // no system → nothing to chart
   }, [systemId]);
 
+  // TASK-8: the warp controller. The chart dispatches 'warp-started' on the
+  // shared bus; the controller runs the state machine (warp-in → awaiting →
+  // warp-out), sends the WS 'warp' frame, and toasts on failure. The world
+  // swap itself rides the warp_arrived snapshot (useGameSession → swapWorld).
+  React.useEffect(() => {
+    if (!session) return;
+    const controller = new WarpController({
+      requestWarp: (toSystemId) =>
+        clientRef.current
+          ? clientRef.current.warpTo(toSystemId)
+          : Promise.reject(new Error('warp: no active session')),
+      onArrived: () => {},
+      onFailed: (reason) => store.notify(reason),
+    });
+    const off = warpSubscribe((e) => {
+      if (e.type === 'warp-started') controller.start(e.fromSystemId, e.toSystemId, e.etaSeconds);
+    });
+    return () => {
+      off();
+      controller.abort();
+    };
+  }, [session, store]);
+
   React.useEffect(() => {
     void fetchHealth().then((h) => {
       setHealth(h);
       // TASK-71: feed the dev-only __DRIFT__ hook the server-provided seed.
-      if (h) reportServerSeed(h.galaxySeed);
+      if (h) {
+        reportServerSeed(h.galaxySeed);
+        setServerSeed(h.galaxySeed);
+      }
     });
   }, []);
 
   // TASK-70: the three.js starfield owns #game-canvas (mounted outside
-  // React on purpose). Placeholder until TASK-26 streams per-system views.
+  // React on purpose) until the player has a system, when the WorldManager
+  // (TASK-8) takes over the same canvas for the in-system view.
+  const worldRef = React.useRef<WorldManager | null>(null);
+  const worldSeedRef = React.useRef<string | null>(null);
+  const starfieldRef = React.useRef<ReturnType<typeof createStarfield> | null>(null);
+  React.useEffect(() => {
+    if (!systemId) return;
+    const canvas = document.getElementById('game-canvas');
+    if (!(canvas instanceof HTMLCanvasElement)) return;
+    if (!worldRef.current || worldSeedRef.current !== serverSeed) {
+      // First in-system view (or a seed correction): hand the canvas over.
+      starfieldRef.current?.dispose();
+      starfieldRef.current = null;
+      worldRef.current?.dispose();
+      worldRef.current = new WorldManager(canvas, serverSeed);
+      worldSeedRef.current = serverSeed;
+    }
+    // The world is the pure function (seed, systemId) — boot join and warp
+    // arrival (warp_arrived snapshot) take the same swapWorld path.
+    const system = systemForId(serverSeed, systemId);
+    if (system) {
+      const ms = worldRef.current.swapWorld(system);
+      reportWorldSwap(systemId, ms);
+    }
+  }, [systemId, serverSeed]);
   React.useEffect(() => {
     const canvas = document.getElementById('game-canvas');
     if (!(canvas instanceof HTMLCanvasElement)) return;
     const handle = createStarfield(canvas, STARFIELD_SEED);
-    return () => handle.dispose();
+    starfieldRef.current = handle;
+    return () => {
+      starfieldRef.current = null;
+      handle.dispose();
+    };
   }, []);
+  React.useEffect(
+    () => () => {
+      worldRef.current?.dispose();
+      worldRef.current = null;
+      worldSeedRef.current = null;
+    },
+    [],
+  );
 
   return (
     <div style={styles.shell}>
@@ -321,6 +390,7 @@ function App() {
           onClose={() => setChartOpen(false)}
         />
       )}
+      <WarpOverlay />
       {connState === 'lost' && session && (
         <ConnectionLostOverlay onRetry={() => clientRef.current?.retryNow()} />
       )}
