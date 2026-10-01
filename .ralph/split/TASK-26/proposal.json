@@ -1,0 +1,16 @@
+{
+  "task": "TASK-26",
+  "splittable": true,
+  "reason": "The two failed attempts were not failing for environmental reasons — they spent the iteration writing the pipeline and its tests, and that work is now in the tree: all modules are committed (342f5ad, surface refactor verified bit-identical to TASK-5) and the uncommitted tree holds the heading-priority scheduling fix plus all three test files. What remains is small, bounded, and already diagnosed: (1) two dangling MAX_SLICE_BUDGET_MS references in the flight benchmark, one suspected test hang (unbounded wait loops) in chunk-scene.test.ts, a full green run, and a commit; (2) the one acceptance criterion not yet literally met — the draw-distance budget measured via renderer.info in a 13-chunk benchmark scene — as a dev-only hook + one Playwright spec on the already-proven headless-WebGL harness. TASK-26.1 is finish-and-commit work with a known issue list; TASK-26.2 is one small feature (benchmark scene + e2e assert) with no unknowns. Each fits one 45-minute iteration and ends with a green commit.",
+  "tasks": [
+    {
+      "id": "TASK-26.1",
+      "title": "Streaming pipeline: green the three world test files and commit"
+    },
+    {
+      "id": "TASK-26.2",
+      "title": "Draw-distance budget: renderer.info measurement in a 13-chunk benchmark scene (e2e)"
+    }
+  ],
+  "appliedAt": "2026-10-01T04:24:09.157Z"
+}

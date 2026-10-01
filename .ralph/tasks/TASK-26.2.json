@@ -1,0 +1,42 @@
+{
+  "id": "TASK-26.2",
+  "title": "Draw-distance budget: renderer.info measurement in a 13-chunk benchmark scene (e2e)",
+  "category": "functional",
+  "description": "The one TASK-26 acceptance criterion not yet literally met: AC4 asks the total surface triangles to be \"measured via renderer.info in a benchmark scene: 13 chunks at default LOD\" and asserted in a test. Everything else (pipeline, LRU, LOD, flight benchmark, unit tests) is committed and green by TASK-26.1. This task renders the 13-chunk default-LOD set through a real WebGL renderer in the headless e2e harness, reads renderer.info.render.triangles, asserts it is under the 400k budget, and records the number in the test output.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Dev-only benchmark-scene hook",
+      "details": "Follow the existing __DRIFT__ pattern (src/client/drift-debug.ts: dev-only, gated on import.meta.env.DEV, installed from src/client/main.tsx with the server-provided seed): add a hook (e.g. window.__STREAM__ in a new src/client/stream-debug.ts, or extend drift-debug.ts) exposing surfaceBenchmark(): it builds a ChunkStreamer for the dev-seed fixture planet (seed/starId/planetIndex from src/shared/galaxy/__fixtures__/surface-dev-seed-chunk00.json — planet 0, Torolm), warms it at the resting position (160,160), speed 0 until the full 13-chunk active set (activeSet at speed 0) is ready (frame-capped loop, fail fast), creates a ChunkScene (reporting to a fresh FrameMonitor, NOT the app-wide singleton) and syncs once, then renders one frame with a THREE.WebGLRenderer on a detached canvas. Return { totalTris: renderer.info.render.triangles, perRing: SceneTriangleStats, readyChunks } and dispose the renderer afterwards (avoid leaking a WebGL context — headless Chromium caps contexts per page).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "e2e benchmark spec",
+      "details": "New tests/e2e/streaming-budget.spec.ts using the self-booting fixture (tests/e2e/fixtures.ts, worker-scoped, boots the real app+server like core-flow.spec.ts): load the app page (headless WebGL is already proven working — core-flow.spec.ts pixel-samples the game canvas), page.evaluate the hook, assert totalTris < SURFACE_TRIANGLE_BUDGET (400,000), and console.log the measured number + per-ring breakdown so it is recorded in the test output (AC6's 'recorded' clause is already met by the triangle-based memory estimate in chunks.test.ts — keep that, do not add performance.memory dependence). Also assert readyChunks === 13 and perRing.near === 9 * 8192 (the 13-chunk default-LOD scene: 9 near + 4 mid). Use collectErrors/assertClean from tests/e2e/helpers.ts like the other specs.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Verify and commit",
+      "details": "From app/: npx playwright test --config playwright.e2e.config.ts streaming-budget (new spec green, run twice — headless rendering can be flaky on first GPU init), then npm run test (unit suite still green), npm run typecheck, npm run lint. One conventional commit: test(TASK-26): renderer.info draw-distance budget benchmark (13-chunk scene, 400k surface-tris).",
+      "pass": false
+    }
+  ],
+  "acceptanceCriteria": [
+    "An e2e test renders the 13-chunk default-LOD benchmark scene (9 near + 4 mid chunks, resting player) through a real THREE.WebGLRenderer and asserts renderer.info.render.triangles < 400,000",
+    "The measured triangle count and per-ring breakdown are logged to the e2e test output (recorded)",
+    "The benchmark-scene hook is dev-only (import.meta.env.DEV gate) and never ships in a production build; the renderer is disposed so no WebGL context leaks",
+    "npm run test green, the new e2e spec green (twice in a row), npm run typecheck clean, npm run lint clean",
+    "A commit exists (git log) and the working tree is clean"
+  ],
+  "notes": [
+    "DEPENDS ON TASK-26.1: it must be committed and green first (pipeline modules, heading-priority scheduling, all unit tests). Build only on top of that commit.",
+    "WHY E2E: three.js WebGLRenderer needs a real GL context; the vitest environment (happy-dom/node) cannot provide one. The Playwright harness already runs headless WebGL successfully (core-flow.spec.ts asserts non-uniform canvas pixels), so a benchmark scene rendered in the same harness is the established path.",
+    "DO NOT integrate ChunkScene into the live game loop (WorldManager): no TASK-26 acceptance criterion requires in-game mounting — the ACs are pipeline + benchmarks + tests. In-game surface travel lands with the regime/landing tasks (TASK-27/28/29). Keeping this task to the benchmark hook + e2e spec is what makes it fit one iteration.",
+    "The 400k gauge is already registered and rate-limited via frameMonitor (registerGauge/gaugeCheck in app/src/client/perf/frameMonitor.ts, extended in TASK-26.1's commit); the scene layer reports per-ring triangles via reportCategories. The benchmark hook may reuse the scene's own SceneTriangleStats instead of re-walking meshes.",
+    "The dev-seed fixture planet: src/shared/galaxy/__fixtures__/surface-dev-seed-chunk00.json (seed + starId + planetIndex -> generateSystem(...).planets[planetIndex] = planet 0, Torolm, ice, landable). The __DRIFT__ hook already feeds the client the server-provided seed from /api/health — reuse that seed source so the benchmark uses the same derivation path as the rest of the e2e suite.",
+    "Numbers to expect (from chunk-geometry.ts): near 8192 tris, mid 2048, far 2 per chunk; the 13-chunk resting set = 9*8192 + 4*2048 = 81,920 surface tris (plus whatever far impostors the horizon window mounted — renderer.info reports the whole frame, so assert < 400k on the TOTAL, and assert the per-ring near/mid numbers on the scene stats, which exclude unmounted impostors).",
+    "BUDGET DISCIPLINE (45 min iteration): e2e boot takes ~40 s per test file (worker-scoped, boots the dev harness once per file). Put all assertions in ONE spec file so the harness boots once. Do not run the full e2e suite (tests/e2e has 7+ files) unless the new spec passes — the acceptance gate for this task is the new spec + the unit suite."
+  ]
+}

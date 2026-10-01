@@ -249,11 +249,22 @@
     "splitDepth": 1
   },
   {
-    "id": "TASK-26",
-    "title": "Streaming pipeline: sectors, terrain chunks, LOD, impostors",
+    "id": "TASK-26.1",
+    "title": "Streaming pipeline: green the three world test files and commit",
     "category": "functional",
-    "specFilePath": ".ralph/tasks/TASK-26.json",
-    "passes": false
+    "specFilePath": ".ralph/tasks/TASK-26.1.json",
+    "passes": false,
+    "splitFrom": "TASK-26",
+    "splitDepth": 1
+  },
+  {
+    "id": "TASK-26.2",
+    "title": "Draw-distance budget: renderer.info measurement in a 13-chunk benchmark scene (e2e)",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-26.2.json",
+    "passes": false,
+    "splitFrom": "TASK-26",
+    "splitDepth": 1
   },
   {
     "id": "TASK-27",

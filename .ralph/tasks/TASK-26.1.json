@@ -1,0 +1,49 @@
+{
+  "id": "TASK-26.1",
+  "title": "Streaming pipeline: green the three world test files and commit",
+  "category": "functional",
+  "description": "Close out TASK-26's working tree. Two failed attempts already wrote the whole pipeline and all the tests; what is left is bounded finishing: fix the two dangling references in the scripted-flight benchmark, diagnose and fix the one suspected test hang, get the full suite + typecheck + lint green, and commit everything. No new features in this task.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Fix the flight benchmark",
+      "details": "app/src/client/world/streaming-benchmark.test.ts references MAX_SLICE_BUDGET_MS twice (in the console.log around line 132 and in expect(maxSliceMs).toBeLessThan(MAX_SLICE_BUDGET_MS) around line 144) but never defines it — the file fails before it can run. Define the constant: the per-slice contract is 8 ms of main-thread work (AC2); a measured slice = one in-flight unit (~1 ms) + at most the 4 ms between-unit budget. Measured on this box by the previous attempt: typical max slice ~3.5 ms, but GC jitter spiked it to 9.9 ms, and there was a rare 1-frame 3x3 miss before the heading-priority fix landed. Make the timing assert stable across repeated runs: the previous agent was adding slice percentiles — finish that (e.g. assert p99 of per-frame slice ms < MAX_SLICE_BUDGET_MS, log max + p99 + avg in the test output; a single GC outlier in the max must not fail the run). Keep the existing asserts: 3x3 near-neighborhood ready on EVERY flight frame (the no-pop-in contract, stronger than the 100 m edge margin), LRU peak <= 400, total tris < 400k every frame, max full-chunk work < 100 ms.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Find and fix the test hang",
+      "details": "Running the three new world test files together previously hung (300 s timeout). The agent isolated chunks.test.ts (passes) and was isolating app/src/client/world/chunk-scene.test.ts when the iteration ended — the hang is not confirmed to be there. Run each file alone with a hard cap (npx vitest run src/client/world/<file> --testTimeout=60000) and find the offender. Prime suspect for a hang: unbounded wait loops — warmToNearBlock() in chunk-scene.test.ts, while (!streamer.isReady(chunkKey(2, 0))) streamer.update(...) in the LOD-swap test, and the pre-warm while (!restActive.every(...)) in the benchmark have no frame cap, so a build that never reaches done hangs vitest. Cap every wait loop (e.g. 4000 frames) with a clear failure message naming the stuck chunk, then fix the ROOT cause (a ChunkBuild/ImpostorBuild stuck before stage 'done', or a chunk never scheduled by ChunkStreamer.update).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Full verification",
+      "details": "From app/: npm run test (76 unit/integration files — whole suite green), npm run typecheck (tsc --noEmit clean), npm run lint. Run the full suite at most ~2 times: iterate on individual files first (each takes seconds), save the full run for the end of the iteration.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Commit",
+      "details": "One conventional commit covering the whole working tree (pipeline modules are already in 342f5ad; uncommitted: the heading-priority fix in app/src/client/world/chunks.ts, the makeGeometry call fix in chunk-geometry.ts, the amplitudeM Pick<Planet> signature fix in src/shared/galaxy/surface.ts, the three new test files, and the frame-monitor.test.ts + debug-overlay.test.tsx extensions). Message like: test(TASK-26): streaming pipeline tests green — flight benchmark, scene, streamer (reference that the pipeline modules landed in 342f5ad). Leave the tree clean.",
+      "pass": false
+    }
+  ],
+  "acceptanceCriteria": [
+    "npx vitest run src/client/world/chunks.test.ts src/client/world/chunk-scene.test.ts src/client/world/streaming-benchmark.test.ts is fully green, and each file is also green when run alone",
+    "The flight benchmark is stable: two consecutive full runs both pass; its test output records slice max + p99, the triangle budget per frame, the LRU peak, and the 400-chunk memory estimate",
+    "All unbounded wait loops in the three test files carry a frame cap that fails fast with a named chunk instead of hanging",
+    "npm run test green, npm run typecheck clean, npm run lint clean",
+    "A commit exists (git log) and the working tree is clean"
+  ],
+  "notes": [
+    "STATE PICKED UP FROM THE FAILED ATTEMPTS (read .ralph/handoff/TASK-26.md for the agent's last messages):",
+    "- Committed in 342f5ad (wip TASK-26): app/src/shared/galaxy/surface.ts (extracted heightfieldChannels + generateChunkPlacement; VERIFIED bit-identical to TASK-5: surface.test.ts + snapshots.test.ts + shard.test.ts passed), app/src/client/world/chunk-geometry.ts (ChunkBuild resumable staged build: height -> placement -> near-positions -> near-index -> mid -> far -> done, one bounded unit per advanceUnit; ImpostorBuild = 1 unit; RING_TRIANGLES near 8192 / mid 2048 / far 2; near grid 65x65 shares border columns with the next chunk — no cracks), app/src/client/world/chunks.ts (chunkKey math, LOD rings 512/2048/8000 m, activeSet 13 at rest / 49 at speed >= 100, ChunkStreamer: 4 ms/frame budget, nearest-first queue, far-impostor window Chebyshev 6, drop-far-first under backlog with rate-limited perfWarn, LRU cap 400 that never evicts an active chunk, mountable(), reset()), app/src/client/world/chunk-scene.ts (three.js group, one mesh per mounted chunk, LOD swap = pre-built geometry pointer change, biome materials, per-ring triangle report + 400k gauge), app/src/client/perf/frameMonitor.ts (registerGauge/gaugeCheck/reportCategories extension), app/src/client/ui/debug-overlay.tsx (SURFACE line).",
+    "- UNCOMMITTED in the working tree (keep, do not revert): chunks.ts heading-aware priority (buildPriority: effective distance = dist - progress-along-heading; chunks ahead along the direction of travel build before equal-distance chunks behind — this is the fix for the no-pop-in AC at max flight speed; at rest it degrades to exactly nearest-first), chunk-geometry.ts 2-line makeGeometry fix, surface.ts 1-line amplitudeM signature fix, the three new test files, frame-monitor.test.ts (+ gauge/category tests), debug-overlay.test.tsx (+ SURFACE line tests).",
+    "- KNOWN ISSUES (the whole remaining scope): (1) streaming-benchmark.test.ts has two dangling MAX_SLICE_BUDGET_MS references — undefined identifier, file cannot run; (2) a combined run of the three world test files hung once (300 s); chunks.test.ts passes alone; the scene test was being isolated when time ran out; (3) GC jitter pushed one slice from 3.5 ms to 9.9 ms — do not assert on the raw max without a percentile or documented bound.",
+    "- DEAD ENDS / DO NOT RETRY: re-deriving the benchmark from scratch (it is 95% written and was measured green at 2.6 s wall before the dangling refs); changing the 320 m chunk size or the LOD ring radii (they are tuned: 13-chunk resting set = 9 near + 4 mid = 81,920 tris < 400k; 400 chunks x ~189 KB ~= 72 MB < 100 MB); removing the heading-priority fix to simplify (it is load-bearing for the pop-in AC).",
+    "- TEST FIXTURE: src/shared/galaxy/__fixtures__/surface-dev-seed-chunk00.json — seed + starId + planetIndex for planet 0 (Torolm, ice, landable); (160, 160) is the exact center of chunk (0,0). Tests drive the streamer with the REAL clock and the default 4 ms budget — warm-up is real frame-sliced work (~1 s), which is intended.",
+    "- CONVENTIONS: perf warnings go through setPerfLogSink from @client/perf/logger — every test that installs a sink MUST setPerfLogSink(null) in afterEach (already done in the drafted tests; keep it). FrameMonitor is instantiated per test — never touch the app-wide frameMonitor singleton from unit tests.",
+    "- BUDGET DISCIPLINE (45 min iteration): run individual test files first (seconds each), only then the full suite, at most twice; typecheck + lint once at the end. The suite has 76 files and has been green before, so a failure means one of the three world files regressed — isolate before re-running everything."
+  ]
+}
