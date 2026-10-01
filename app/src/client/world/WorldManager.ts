@@ -2,9 +2,19 @@ import * as THREE from 'three';
 
 import { hash2, seedFromString } from '@shared/random';
 import { SPAWN_GATE_POS } from '@shared/galaxy/spawn';
+import { planetAnchor } from '@shared/galaxy/planets';
 import type { PlanetClass, SpectralClass, SystemGen } from '@shared/galaxy/types';
+import { ATMOSPHERE_BOUNDARY_M } from '@shared/physics/atmosphere';
+import type { Vec3 } from '@shared/physics/vec';
+import type { Regime } from '@shared/regime';
 import { createBackground } from '@client/render/starfield';
+import {
+  createAtmosphereDome,
+  ATMOSPHERE_HAZE_COLORS,
+  type AtmosphereDome,
+} from '@client/render/atmosphere-dome';
 import { frameMonitor } from '@client/perf/frameMonitor';
+import { atmosphereViewFor } from './atmosphere-view';
 
 /**
  * The in-system world (TASK-8). Owns the three.js scene on the game canvas
@@ -144,6 +154,22 @@ function disposeGroup(group: THREE.Group): void {
 }
 
 /**
+ * Parse a #rrggbb hex into RAW 0..1 sRGB floats on a Color (no working-space
+ * conversion): the dome's ShaderMaterial writes gl_FragColor with no output
+ * transform, so a `new THREE.Color(hex)` (which converts sRGB → linear)
+ * would render too dark and break the e2e pixel math (TASK-28 note).
+ */
+function setFromHex01(color: THREE.Color, hex: string): THREE.Color {
+  const n = parseInt(hex.slice(1), 16);
+  return color.setRGB(
+    ((n >> 16) & 0xff) / 255,
+    ((n >> 8) & 0xff) / 255,
+    (n & 0xff) / 255,
+    THREE.NoColorSpace,
+  );
+}
+
+/**
  * Owns the renderer + scene on the game canvas for the in-system view.
  * `swapWorld` performs the atomic warp transition and returns the measured
  * build time in ms (asserted against WORLD_BUILD_BUDGET_MS by the e2e).
@@ -158,6 +184,13 @@ export class WorldManager {
   private readonly scene = new THREE.Scene();
   private readonly camera: THREE.PerspectiveCamera;
   private readonly background: ReturnType<typeof createBackground>;
+  /** The system currently rendered as an OBJECT (null before the first
+   * swapWorld): atmosphereViewFor needs the planet list, not just the id. */
+  private system: SystemGen | null = null;
+  /** The shared atmosphere dome (one dome serves every planet — repositioned). */
+  private readonly dome: AtmosphereDome;
+  /** Scratch color for dome tints (never escapes the manager). */
+  private readonly tempColor = new THREE.Color();
   private worldGroup: THREE.Group | null = null;
   private readonly clock = new THREE.Clock();
   private disposed = false;
@@ -179,8 +212,18 @@ export class WorldManager {
     this.camera.lookAt(0, 0, 0);
 
     this.background = createBackground(seed);
+    // TASK-28.1: the skybox fades OUT under the atmosphere dome. The sky
+    // starts fully opaque; its opacity (like the dome's haze) is driven by
+    // the ONE shared haze number in setAtmosphereView, so the two never
+    // desync. The stars material is already transparent @ 0.95 — its BASE
+    // opacity stays untouched (setAtmosphereView scales it from there).
+    (this.background.sky.material as THREE.MeshBasicMaterial).transparent = true;
+    // Every atmospheric planet shares ATMOSPHERE_BOUNDARY_M, so ONE dome
+    // serves all — repositioned per planet (at most one is active at a time).
+    this.dome = createAtmosphereDome(ATMOSPHERE_BOUNDARY_M);
     this.scene.add(this.background.sky);
     this.scene.add(this.background.stars);
+    this.scene.add(this.dome.mesh); // renderOrder 1: composites over the sky
 
     const frame = (): void => {
       if (this.disposed) return;
@@ -216,8 +259,39 @@ export class WorldManager {
     this.worldGroup = next;
     this.scene.add(next);
     this.currentSystemId = system.systemId;
+    this.system = system;
     this.lastSwapMs = performance.now() - t0;
     return this.lastSwapMs;
+  }
+
+  /**
+   * Drive the atmosphere crossfade (TASK-28.1) from ONE shared haze number:
+   * the dome's haze IN and the skybox's fade OUT are both `view.haze`, so
+   * they can never desync (the spec's no-desync contract). The dome is
+   * repositioned over the owning planet's surface anchor and tinted by its
+   * class; in space (no planet) it hides (zero cost) and the skybox is full.
+   *
+   * @param pos     the ship's live world position (u).
+   * @param current the LIVE regime to resolve from (hysteresis anchor) — the
+   *                caller passes the tracker's regime so the exit band
+   *                [enter, exit) agrees with the sim's decision.
+   */
+  setAtmosphereView(pos: Vec3, current: Regime = 'space'): void {
+    const view = atmosphereViewFor(pos, this.system, current);
+    if (view.planet) {
+      const anchor = planetAnchor(this.system!.planets.indexOf(view.planet));
+      this.dome.mesh.position.set(anchor.x, 0, anchor.z);
+      this.dome.set(
+        view.haze,
+        setFromHex01(this.tempColor, ATMOSPHERE_HAZE_COLORS[view.planet.class]),
+      );
+    } else {
+      this.dome.set(0, this.tempColor);
+    }
+    // The no-desync contract: dome haze IN = 1 - skybox fade OUT, one number.
+    const fade = 1 - view.haze;
+    (this.background.sky.material as THREE.MeshBasicMaterial).opacity = fade;
+    (this.background.stars.material as THREE.PointsMaterial).opacity = 0.95 * fade;
   }
 
   private resize(): void {
@@ -238,6 +312,7 @@ export class WorldManager {
       disposeGroup(this.worldGroup);
       this.worldGroup = null;
     }
+    this.dome.dispose();
     this.background.dispose();
     this.renderer.dispose();
   }

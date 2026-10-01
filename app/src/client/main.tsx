@@ -19,6 +19,8 @@ import { installStreamDebug } from '@client/stream-debug';
 import { installCameraDebug } from '@client/camera/camera-debug';
 import { RegimeWiring } from '@client/state/regime-wiring';
 import type { ChatMessage, EntityState } from '@shared/protocol/schemas';
+import type { Regime } from '@shared/regime';
+import type { Vec3 } from '@shared/physics/vec';
 
 /**
  * TASK-70: the starfield seed. Matches the server's default GALAXY_SEED so
@@ -90,6 +92,11 @@ function useGameSession(
   clientRef: React.RefObject<ClientSession | null>,
   seedRef: React.RefObject<string>,
   onError: (msg: string) => void,
+  // TASK-28.1: bridge the LIVE self position + tracker regime to the
+  // atmosphere view (dome + skybox crossfade). Optional callback so the
+  // hook stays usable without a WorldManager; the caller passes a closure
+  // that reads worldRef.current lazily (only when a WS message fires).
+  onAtmosphereView?: (pos: Vec3, regime: Regime) => void,
 ) {
   const systemParam = React.useMemo(
     () => new URLSearchParams(window.location.search).get('sys'),
@@ -125,6 +132,10 @@ function useGameSession(
             (e) => e.callsign === session.callsign,
           );
           if (self) regimeWiring.onSelfUpdate(self, Date.now());
+          // TASK-28.1: the live tracker regime drives the atmosphere view —
+          // passing it (not a local guess) keeps the exit hysteresis band
+          // consistent with the sim's regime decision.
+          if (self) onAtmosphereView?.(self.pos, regimeWiring.regime);
           return;
         }
         if (msg.type !== 'presence') return;
@@ -279,6 +290,13 @@ function App() {
       setError(msg);
       setSession(null); // token may be stale → back to the claim form
       localStorage.removeItem(SESSION_KEY);
+    },
+    // TASK-28.1: live atmosphere view. A CLOSURE that reads worldRef.current
+    // only when invoked (on WS entity_updates, post-mount) — worldRef is
+    // declared below (line ~349), so passing the ref object directly as a
+    // hook argument would hit the temporal-dead-zone during render.
+    (pos, regime) => {
+      worldRef.current?.setAtmosphereView(pos, regime);
     },
   );
 
