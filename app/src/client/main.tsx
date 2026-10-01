@@ -20,6 +20,7 @@ import { systemForId } from '@shared/galaxy/system';
 import { installDriftDebug, reportServerSeed, reportWorldSwap } from '@client/drift-debug';
 import { installStreamDebug } from '@client/stream-debug';
 import { installCameraDebug } from '@client/camera/camera-debug';
+import { installAtmosphereDebug } from '@client/atmosphere-debug';
 import { RegimeWiring } from '@client/state/regime-wiring';
 import type { ChatMessage, EntityState } from '@shared/protocol/schemas';
 import type { Regime } from '@shared/regime';
@@ -599,6 +600,8 @@ installDriftDebug();
 installStreamDebug();
 // TASK-27: dev-only camera handoff probe hook (no-op in production builds).
 installCameraDebug();
+// TASK-28.3: dev-only atmosphere dome pixel-probe hook (no-op in prod).
+installAtmosphereDebug();
 
 const root = document.getElementById('root');
 if (!root) throw new Error('missing #root element');

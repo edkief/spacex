@@ -296,7 +296,7 @@
     "title": "Atmosphere dome e2e pixel probe (density scaling in rendered pixels) + TASK-28 close-out",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-28.3.json",
-    "passes": false,
+    "passes": true,
     "splitFrom": "TASK-28",
     "splitDepth": 1
   },
