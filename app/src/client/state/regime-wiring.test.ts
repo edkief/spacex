@@ -123,4 +123,27 @@ describe('RegimeWiring (session → tracker + remapper)', () => {
     expect(wiring.remapper.regime).toBe('atmosphere');
     expect(warns.length).toBe(1);
   });
+
+  it('atmosphereBoundaryAt: 0 in space, ≈0.5 mid-band after an atmosphere authority update, 0 above the enter radius', () => {
+    const wiring = new RegimeWiring();
+    wiring.setSystem(SEED, ATMO_SYSTEM.systemId);
+
+    // In space (no authority, far from any anchor): always 0.
+    wiring.onSelfUpdate(selfEntity(FAR_AWAY), 0);
+    expect(wiring.atmosphereBoundaryAt(FAR_AWAY)).toBe(0);
+    expect(wiring.atmosphereBoundaryAt(IN_ATMOSPHERE)).toBe(0);
+
+    // Mid-band: alt 500 above the anchor (enter radius 1000 → factor 0.5).
+    const mid = vec(ATMO_PLANET.x, 500, ATMO_PLANET.z);
+    wiring.onSelfUpdate(selfEntity(mid, 'atmosphere'), 1000);
+    expect(wiring.regime).toBe('atmosphere');
+    expect(wiring.atmosphereBoundaryAt(mid)).toBeCloseTo(0.5, 6);
+
+    // Above the enter radius (alt 1200 > 1000): boundary 0 even while
+    // still atmosphere-tracked (the local prediction says space, but the
+    // factor is 0 either way).
+    const above = vec(ATMO_PLANET.x, 1200, ATMO_PLANET.z);
+    wiring.onSelfUpdate(selfEntity(above, 'atmosphere'), 1100);
+    expect(wiring.atmosphereBoundaryAt(above)).toBe(0);
+  });
 });

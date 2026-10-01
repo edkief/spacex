@@ -11,7 +11,10 @@ import { createStarfield } from '@client/render/starfield';
 import { WorldManager } from '@client/world/WorldManager';
 import { StarChart } from '@client/ui/star-chart';
 import { WarpOverlay } from '@client/ui/warp-overlay';
+import { ReentryTint } from '@client/ui/reentry-tint';
 import { WarpController, warpSubscribe } from '@client/state/warp';
+import { setReentryTint } from '@client/state/reentry';
+import { reentryTintFactor } from '@shared/physics/atmosphere';
 import { FrameMonitorOverlay } from '@client/ui/debug-overlay';
 import { systemForId } from '@shared/galaxy/system';
 import { installDriftDebug, reportServerSeed, reportWorldSwap } from '@client/drift-debug';
@@ -136,6 +139,13 @@ function useGameSession(
           // passing it (not a local guess) keeps the exit hysteresis band
           // consistent with the sim's regime decision.
           if (self) onAtmosphereView?.(self.pos, regimeWiring.regime);
+          // TASK-28.2: cosmetic re-entry tint (COSMETIC ONLY — never feeds
+          // physics): fast descent (-vel.y) inside the boundary band lights
+          // the orange rim; ascending or space keeps it at 0.
+          if (self) {
+            const boundary = regimeWiring.atmosphereBoundaryAt(self.pos);
+            setReentryTint(boundary > 0 ? reentryTintFactor(-self.vel.y, boundary) : 0);
+          }
           return;
         }
         if (msg.type !== 'presence') return;
@@ -168,6 +178,8 @@ function useGameSession(
         // TASK-25.2: every system snapshot (boot, warp arrival, reconnect)
         // resets server authority and reloads the regime planets.
         regimeWiring.setSystem(seedRef.current, snapshot.systemId);
+        // TASK-28.2: a warp must never carry a stale re-entry tint.
+        setReentryTint(0);
       },
     });
     clientRef.current = client;
@@ -443,6 +455,7 @@ function App() {
         />
       )}
       <WarpOverlay />
+      <ReentryTint />
       {/* TASK-57: dev-only frame monitor (F3) — never shipped in prod. */}
       {import.meta.env.DEV && <FrameMonitorOverlay />}
       {connState === 'lost' && session && (

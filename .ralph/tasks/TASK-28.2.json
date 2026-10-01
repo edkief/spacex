@@ -8,25 +8,25 @@
       "step": 1,
       "description": "Re-entry tint state module — NEW src/client/state/reentry.ts (~30 lines)",
       "details": "Follow the subscribe/emit idiom in src/client/state/warp.ts. Module state: `setReentryTint(v: number): void` clamps to [0, REENTRY_TINT_MAX] (import REENTRY_TINT_MAX from '@shared/physics/atmosphere') and emits to subscribers ONLY when the value actually changes; `reentryTint(): number` returns the current value; `reentryTintSubscribe(fn: (v: number) => void): () => void` adds the listener and, like warpPhaseSubscribe, calls fn(currentValue) immediately so late subscribers catch up, and returns an unsubscribe; plus a `__resetReentryTint(): void` test helper (clears subscribers + resets to 0, mirroring __resetWarpPhase). Call `__resetReentryTint()` in the test file's beforeEach. Verify with `cd app && npx vitest run src/client/state/reentry.test.ts`.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Re-entry tint overlay — NEW src/client/ui/reentry-tint.tsx (~50 lines)",
       "details": "Pattern: src/client/ui/warp-overlay.tsx (a fixed full-screen overlay above the canvas). A `useReentryTint()` hook holds `React.useState(reentryTint)` and `useEffect(() => reentryTintSubscribe(setTint), [])`. `<ReentryTint>` returns null when tint ≤ 0; otherwise `<div id=\"reentry-tint\" aria-hidden=\"true\" style={{ ...base, opacity: tint }}>` with `base = { position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 80, overflow: 'hidden' }` and an orange rim `background: 'radial-gradient(ellipse at center, rgba(255,120,30,0) 55%, rgba(255,120,30,0.9) 100%)'` (put the gradient in the inline style or a `<style>` block — either is fine, but the rendered `opacity` attribute is what the test asserts). Unit test `src/client/ui/reentry-tint.test.tsx` using the renderToStaticMarkup pattern from src/client/ui/debug-overlay.test.tsx: set state via setReentryTint then render and assert `id=\"reentry-tint\"` is present with the inline `opacity` value; then `__resetReentryTint()` and assert the component renders null. Verify with `cd app && npx vitest run src/client/ui/reentry-tint.test.tsx`.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "regime-wiring helper: atmosphereBoundaryAt (src/client/state/regime-wiring.ts, +~15 lines)",
       "details": "Keep a `private systemPlanets: Planet[] = []` mirror, set inside `setSystem` from `systemForId(seed, systemId)?.planets ?? []` (the RegimePlanet objects from systemRegimePlanets carry only id/x/z/atmosphereRadius/landable — NO class/density — so the full Planet[] is needed for the boundary math and density). Add `atmosphereBoundaryAt(pos: Vec3): number { if (this.tracker.regime === 'space' || !this.tracker.planetId) return 0; const planet = this.systemPlanets.find((p) => p.id === this.tracker.planetId); return planet ? boundaryFactor(pos.y, planet) : 0; }`. Imports: boundaryFactor from '@shared/physics/atmosphere'; type Planet from '@shared/galaxy/types'; type Vec3 from '@shared/physics/vec'. (RegimeTracker already exposes `get regime()` and `get planetId()`.) Extend src/client/state/regime-wiring.test.ts (fixture-system pattern): 0 in space; ≈0.5 at alt 500 after an 'atmosphere' authority update (setSystem + onSelfUpdate with flightRegime 'atmosphere' at a position ~500 u above the anchor); 0 at alt 1200 (above the 1000 enter radius). Verify with `cd app && npx vitest run src/client/state/regime-wiring.test.ts`.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Wire the live session (src/client/main.tsx) + mount overlay + full verify + commit",
       "details": "In the useGameSession self entity_update handler (line ~127), right AFTER the existing `if (self) regimeWiring.onSelfUpdate(self, Date.now());` and after TASK-28.1's `if (self) onAtmosphereView?.(...);` line, add: `if (self) { const boundary = regimeWiring.atmosphereBoundaryAt(self.pos); setReentryTint(boundary > 0 ? reentryTintFactor(-self.vel.y, boundary) : 0); }` (ascending → -vel.y < 0 → factor 0). Imports: setReentryTint from '@client/state/reentry'; reentryTintFactor from '@shared/physics/atmosphere'. In the onSnapshot handler (line ~138 — boot, warp arrival, reconnect) add `setReentryTint(0);` so a warp never carries a stale tint. In App (line ~427, next to `<WarpOverlay />`) mount `<ReentryTint />` (import from '@client/ui/reentry-tint'). Verify: `cd app && npx vitest run src/client/state/reentry.test.ts src/client/ui/reentry-tint.test.tsx src/client/state/regime-wiring.test.ts` then full `cd app && npx vitest run`, `cd app && npm run typecheck`, `cd app && npm run lint`. Kill any background dev server, then commit (e.g. `feat(TASK-28.2): re-entry tint — cosmetic orange rim ramp on fast descent inside the boundary`) and STOP.",
-      "pass": false
+      "pass": true
     }
   ],
   "acceptanceCriteria": [

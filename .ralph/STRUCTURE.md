@@ -31,7 +31,8 @@ Excludes dotfiles, tests, and config.
 │       │   ├── state/
 │       │   │   ├── warp.ts       # TASK-7/8: warp event bus + phase store (idle/warping-in/awaiting/warp-out) + WarpController — idle→warping-in(2s)→awaiting(net)→warp-out(2s)→idle, failure→idle+onFailed('System full' toast), injectable delay
 │       │   │   ├── regime.ts     # TASK-25: client regime tracker — local regimeFor prediction + server authority (self entity_update flightRegime), 500 ms divergence snap + debug warn (space/atmosphere only — surface is server-authoritative: client has no terrain yet), injectable clock/warn, onRegimeChange
-│       │   │   └── regime-wiring.ts # TASK-25.2: live session wiring — one tracker + one ControlsRemapper; setSystem(seed, systemId) (reset + systemRegimePlanets), onSelfUpdate(entity, nowMs) (flightRegime authority + last-known-state prediction); consumed by useGameSession (main.tsx)
+│       │   │   ├── regime-wiring.ts # TASK-25.2: live session wiring — one tracker + one ControlsRemapper; setSystem(seed, systemId) (reset + systemRegimePlanets + full Planet[] mirror), onSelfUpdate(entity, nowMs) (flightRegime authority + last-known-state prediction), atmosphereBoundaryAt(pos) (0 in space, shared boundaryFactor at the tracked planet — COSMETIC, TASK-28.2); consumed by useGameSession (main.tsx)
+│       │   │   └── reentry.ts      # TASK-28.2: re-entry tint store — setReentryTint clamps to [0, REENTRY_TINT_MAX] + emit-on-change, reentryTintSubscribe (immediate catch-up), __resetReentryTint; driven by main.tsx self entity_update (reentryTintFactor), never feeds physics
 │       │   ├── input/
 │       │   │   └── controls.ts   # TASK-25: ControlsRemapper — one ControlScheme per regime (space flight, atmosphere + VTOL key, surface walk/look/interact stub for TASK-31), instant setRegime swap + debug log, pure readInput/readCharacterInput
 │       │   ├── perf/
@@ -46,7 +47,8 @@ Excludes dotfiles, tests, and config.
 │       │   ├── ui/
 │       │   │   ├── debug-overlay.tsx # TASK-57: dev-only frame monitor overlay — F3 toggle, 2 Hz poll of frameMonitor.getFrameStats(), top-right monospace panel (FPS, p50/p95/p99, draw calls/tris, entities) + stats JSON export; mounted only under import.meta.env.DEV
 │       │   │   ├── star-chart.tsx  # TASK-7: star chart panel — overview fetch, 5 s occupancy poll, search, select + Warp button (dispatches warp-started), Esc closes
-│       │   │   └── chart-map.tsx   # TASK-7: pure SVG map (800x500) — spectral-class nodes, ls + warp-time edge labels, occupancy badges, focus rings, 'Warping…'
+│       │   │   ├── chart-map.tsx   # TASK-7: pure SVG map (800x500) — spectral-class nodes, ls + warp-time edge labels, occupancy badges, focus rings, 'Warping…'
+│       │   │   └── reentry-tint.tsx # TASK-28.2: cosmetic orange rim overlay — fixed full-screen radial-gradient (z 80, pointer-events none, aria-hidden), opacity = live tint, null at tint ≤ 0
 │       │   ├── hud/
 │       │   │   ├── player-list.tsx # TASK-15: bottom-left monospace callsign list + status dots, presence-event re-renders only
 │       │   │   ├── toast-stack.tsx # TASK-15: top-right join/leave toasts, 3 s fade, 3 visible + queue

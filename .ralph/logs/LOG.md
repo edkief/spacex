@@ -3,12 +3,21 @@
 `Current Status`
 =================
 **Last Updated:** 2026-10-01
-**Tasks Completed:** 39
+**Tasks Completed:** 40
 **Current Task:** —
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-10-01 — TASK-28.2: Re-entry tint — cosmetic orange rim ramp overlay (CSS)
+The re-entry tint is live end to end: one cosmetic number (driven by the committed shared `reentryTintFactor`) lights an orange rim when descending >200 u/s inside the boundary band. Physics untouched.
+- `app/src/client/state/reentry.ts` (NEW) — module-level tint store following the warp.ts subscribe/emit idiom: `setReentryTint` clamps to [0, REENTRY_TINT_MAX] and emits ONLY on change; `reentryTint()`; `reentryTintSubscribe` (immediate catch-up call, returns unsubscribe); `__resetReentryTint` test helper.
+- `app/src/client/ui/reentry-tint.tsx` (NEW) — `<ReentryTint />`: `useReentryTint()` hook (useState + subscribe), fixed full-screen overlay (z 80, pointer-events none, aria-hidden), `opacity` = live tint, orange rim `radial-gradient(ellipse at center, transparent 55% → rgba(255,120,30,0.9) 100%)`, returns null at tint ≤ 0 (zero cost in space).
+- `app/src/client/state/regime-wiring.ts` — `setSystem` now also keeps a full `Planet[]` mirror (RegimePlanet strips class/density), and `atmosphereBoundaryAt(pos)`: 0 in space / no planet, else the SHARED `boundaryFactor(pos.y, {atmosphereRadius: planetAtmosphereRadius(planet)})` — the tint sits on exactly the same line as the drag ramp.
+- `app/src/client/main.tsx` — self entity_update handler: right after the 28.1 `onAtmosphereView` line, `setReentryTint(boundary > 0 ? reentryTintFactor(-self.vel.y, boundary) : 0)` (ascending → 0); `setReentryTint(0)` on every system snapshot (boot, warp arrival, reconnect — a warp never carries a stale tint); `<ReentryTint />` mounted next to `<WarpOverlay />`.
+- Tests: `reentry.test.ts` (8 — shared-math assertions: 0 in space / <200 u/s / ascending, ramp 0→0.4 over 300 u/s × boundary; store: clamp, emit-only-on-change, late catch-up, unsubscribe, reset), `reentry-tint.test.tsx` (3 — renderToStaticMarkup: id + inline opacity + aria-hidden + pointer-events + z-index + gradient; different opacity; null at 0/negative), `regime-wiring.test.ts` (+1 — 0 in space, 0.5 at alt 500 after an 'atmosphere' authority update, 0 at alt 1200 above the 1000 enter radius).
+Verified: 3 target files green; full `npx vitest run` → 84 files, 756 passed / 1 skipped; `npm run typecheck` clean; `npm run lint` (eslint + prettier) clean. E2E: `atmosphere-view` spec (exercises the exact 10 Hz self path with the new handler, clean console) 1 passed; throwaway boot smoke asserted `#reentry-tint` stays null in space with a clean console (spec deleted after run). Screenshot: `.ralph/screenshots/TASK-28.2-1.png` (in-space: overlay correctly absent).
 
 ### 2026-10-01 — TASK-28.1: Atmosphere view — dome + skybox crossfade wiring (one-number, no-desync blend)
 The live atmosphere transition is wired end to end: one shared haze number drives the dome IN and the skybox OUT, so they can never desync.
