@@ -1,0 +1,16 @@
+{
+  "task": "TASK-25",
+  "splittable": true,
+  "reason": "Both attempts burned the full 45-minute budget because the task bundled a ~1,300-line implementation with test stabilization; that work is now committed (2436597 / 4af7d22 / 7d51fac) and only the acceptance criterion 'npm run test green' is unmet. TASK-25.1 fixes the 2 stale atmosphere fixtures in src/server/shard/shard.test.ts (the handoff gives exact spawn coordinates) and lands the full green suite plus a commit, locking in the milestone. TASK-25.2 wires the already-tested RegimeTracker/ControlsRemapper into the live client session (making criteria 3–4 real, without building the flight-input/rendering layers that belong to TASK-26/27/28/31) and does the TASK-25 bookkeeping + final feat commit. Each task is a single concern that fits comfortably in one iteration, and 25.1 lands before 25.2 adds any client changes.",
+  "tasks": [
+    {
+      "id": "TASK-25.1",
+      "title": "Regime manager: fix the 2 stale atmosphere fixtures — full suite green"
+    },
+    {
+      "id": "TASK-25.2",
+      "title": "Regime manager: wire the client tracker/remapper into the session + close out TASK-25"
+    }
+  ],
+  "appliedAt": "2026-10-01T01:38:34.069Z"
+}

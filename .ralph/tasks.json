@@ -231,11 +231,22 @@
     "passes": true
   },
   {
-    "id": "TASK-25",
-    "title": "Regime manager: space/orbit/atmosphere/surface state machine",
+    "id": "TASK-25.1",
+    "title": "Regime manager: fix the 2 stale atmosphere fixtures — full suite green",
     "category": "functional",
-    "specFilePath": ".ralph/tasks/TASK-25.json",
-    "passes": false
+    "specFilePath": ".ralph/tasks/TASK-25.1.json",
+    "passes": false,
+    "splitFrom": "TASK-25",
+    "splitDepth": 1
+  },
+  {
+    "id": "TASK-25.2",
+    "title": "Regime manager: wire the client tracker/remapper into the session + close out TASK-25",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-25.2.json",
+    "passes": false,
+    "splitFrom": "TASK-25",
+    "splitDepth": 1
   },
   {
     "id": "TASK-26",
