@@ -83,13 +83,14 @@ Excludes dotfiles, tests, and config.
 │       │       ├── galaxy.ts       # TASK-11: GET /api/galaxy/health (auth) → {shards: [{systemId, name, players, uptimeMs}]}; TASK-7: GET /api/galaxy/overview (auth, ?home=) → 3-system seeded chart, in-process forever cache
 │       │       ├── players.ts      # TASK-41: GET /api/players/me (Bearer → own profile incl. credits)
 │       │       ├── session.ts      # TASK-10: GET /api/session (Bearer → profile, structured 401s)
-│       │       └── ships.ts        # TASK-20/21/23: GET /api/ships, POST /api/ships/buy (docked purchase), POST /api/ships/livery (3-slot hex paint), POST /api/ships/repair (docked, credit cost)
+│       │       ├── ships.ts        # TASK-20/21/23: GET /api/ships, POST /api/ships/buy (docked purchase), POST /api/ships/livery (3-slot hex paint), POST /api/ships/repair (docked, credit cost)
+│       │       └── dev.ts          # TASK-29: dev-only (non-production) e2e hooks — GET /api/dev/pad-target (deterministic first landable-atmosphere pad), POST /api/dev/teleport {x,y,z} (shard.teleportForTesting, clears held input)
 │       │   ├── ws.ts         # TASK-9 WS lifecycle: handshake state machine, structured errors, presence, 15s/45s keepalive; TASK-16 chat sanitize → rate-limit → onGameMessage; TASK-17: onGameMessage carries `source: conn` so the shard can attribute inputs and drop stale-conn frames
 │       │   ├── shard/
 │       │   │   ├── sim.ts  # TASK-13: SimLoop — 20 Hz fixed tick, drift-corrected setTimeout chain, 5-tick max catch-up + input-drop flag
 │       │   │   ├── histogram.ts  # TASK-13: TickHistogram — ring-buffer tick durations, p50/p95/p99
 │       │   │   ├── terrain.ts  # TASK-13: TerrainContext — 3x3 chunk neighborhood cache, bilinear O(1) heightAt, world-coord pads
-│       │   │   ├── shard.ts  # TASK-13/23/24: SystemShard — input queues (latest-wins, stale seq), integrateShip per tick (destroyed skipped), applyHit + static 600 s wrecks, 10 Hz shared-buffer snapshots; loadShips() restart rehydration (saved flight state / dock coords / unexpired wrecks); TASK-17: idle continuation (tick iterates playerEntities, input-less ships keep coasting, `idle` flag) + stale-conn guards (register supersedes zombie conns, unregister/leave/enqueueInput source-checked, adoptEntity un-idles)
+│       │   │   ├── shard.ts  # TASK-13/23/24: SystemShard — input queues (latest-wins, stale seq), integrateShip per tick (destroyed skipped), applyHit + static 600 s wrecks, 10 Hz shared-buffer snapshots; loadShips() restart rehydration (saved flight state / dock coords / unexpired wrecks); TASK-17: idle continuation (tick iterates playerEntities, input-less ships keep coasting, `idle` flag) + stale-conn guards (register supersedes zombie conns, unregister/leave/enqueueInput source-checked, adoptEntity un-idles); TASK-29: pad state machine (per-tick resolvePadTarget + hysteresis keep, dock/undock events, VTOL approach assist, flat-disc padSurfaceHeight, teleportForTesting clears held input)
 │       │   │   ├── types.ts  # TASK-13/23/24: Shard/ConnState/SimEntity contracts (kind 'wreck', destroyed/ttl, destroyedAtMs)
 │       │   │   ├── persist.ts  # TASK-24: shard flush/load service — one-tx multi-row upsert to ships + load with expired-wreck cleanup, flush timer
 │       │   │   ├── index.ts  # TASK-13: barrel exports
@@ -121,6 +122,8 @@ Excludes dotfiles, tests, and config.
 │           │   ├── atmosphere.ts # TASK-22: 1 km drag boundary ramp atmosphereFactor (shared with TASK-28)
 │           │   ├── flight.ts     # TASK-22: integrateShip — deterministic space/atmosphere/VTOL physics + ground collision (substepped)
 │           │   └── damage.ts     # TASK-23: applyDamage (pure, shield-first, destroyed at hull zero, double-destroy guard) + repairCost
+│           └── world/
+│               └── pads.ts       # TASK-29: shared pad math — padsForSystem(seed, system) (one pad per landable planet, cached per (seed, systemId)), resolvePadTarget (20 m acquire / 25 m hysteresis, ties by padId), satisfiesDock (≤20 m + surface + |vel.y|<2 + |alt−padY|≤1), VTOL assist gate + applyVtolAssist (×0.5 x/z), padSurfaceHeight (flat disc → raised-cosine blend → terrain)
 │           ├── regime.ts        # TASK-25: shared flight-regime state machine — regimeFor(pos, planets, current, speed) with atmosphere enter/exit + surface altitude hysteresis; server (authority) and client (prediction) use it verbatim
 │           └── galaxy/
 │               ├── types.ts  # Star, SystemSummary, Planet, SurfaceChunk, Biome interfaces

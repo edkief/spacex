@@ -21,9 +21,13 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './tests/e2e',
-  // Single worker + per-file dev-server boots: 6 specs ≈ 80–90 s.
+  // Single worker + per-file dev-server boots: 13 specs ≈ 2–3 min in this
+  // environment (SwiftShader software GL + a fresh vite/tsx per spec).
   globalTimeout: 5 * 60 * 1000,
-  timeout: 20_000,
+  // 30 s per test: the two-context specs run two full claim → join → WebGL
+  // boots back-to-back and stretch beyond the original 20 s budget as the
+  // suite's load accumulates (each spec passes well under this in isolation).
+  timeout: 30_000,
   // One worker: the whole suite shares the single fixture server.
   fullyParallel: false,
   workers: 1,

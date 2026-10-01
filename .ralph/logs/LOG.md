@@ -3,8 +3,16 @@
 `Current Status`
 =================
 **Last Updated:** 2026-10-01
-**Tasks Completed:** 43
+**Tasks Completed:** 44
 **Current Task:** —
+
+### 2026-10-01 — TASK-29.4: E2E land a ship at the station pad (docked state in DOM + screenshot) + TASK-29 close-out
+The final TASK-29 acceptance criterion is met end to end: a Playwright e2e lands a ship at the station (settlement) pad via the committed dev teleport-assist, the docked state is asserted SERVER-authoritatively (raw-WS entity_update with regime 'docked' + padId) AND client-side in the DOM (`#docked-indicator` visible), and a screenshot of the docked state is saved.
+- `app/tests/e2e/landing.spec.ts` (NEW) — Step 1 entirely server-side in the Node context with raw REST + WS (the claim/join/warp pattern from warp.ws.test.ts, minimal RawWsClient mirroring WsTestClient — the runner does not resolve tsconfig aliases): (a) POST /api/callsigns; (b) GET /api/dev/pad-target; (c) join the home system, and if the pad's system differs, send the `warp` message and await `warp_arrived` FIRST (the teleport acts on ship.position.systemId — the ship row + entity must live in the pad's system); (d) POST /api/dev/teleport to 5 m above the pad center inside the 20 m dock disc — the committed flat-pad + surface-regime logic settles it (ground clamp zeroes vel.y) and the sim docks it; (e) poll the ship's entity_update for regime 'docked' + the exact padId (server-authoritative proof), then close the raw client (the ship idles at the pad, state kept). Step 2 (browser): seed `localStorage['drift.session.v1']` with the SAME claimed token, load `/?sys=<pad system>`, assert `#docked-indicator` visible (the DOM half of the AC), assert `canvasLuminanceVariance > 1` (not a black screen), screenshot to `.ralph/screenshots/TASK-29.4-1.png` (DOCKED indicator bottom-center, pad system in view, cyan pad ring rendered), console clean. In this run the warp branch was actually exercised (`warped=true` — home hash ≠ pad system for the claimed player).
+- **Pre-existing flake fixed (unrelated to the landing change):** `multiplayer.spec.ts` started failing EVERY full-suite run in this environment (both tests hit the 20 s test cap — the two-context specs run two full claim → join → WebGL boots back-to-back and stretch ~30% as suite load accumulates; each passes in isolation, as the TASK-29.3 log already noted for one flake). Verified it fails identically with my new spec excluded (12-test run: same failure). Minimal fix: `playwright.e2e.config.ts` per-test timeout 20 s → 30 s (documented in the config; globalTimeout 5 min unchanged — suite now ~2.7 min).
+- TASK-29 close-out: all 4 sub-tasks (29.1–29.4) pass; all 3 step flags set in this spec; STRUCTURE.md gained the previously unlisted `shared/world/pads.ts` (shared pad math) + `server/routes/dev.ts` (dev-only e2e hooks) and the shard.ts pad-state-machine note (the 29.1–29.3 client/server files were already listed).
+- Verified: `npm run test` green (89 files, 794 passed / 1 skipped); `npm run test:e2e` green (13/13, ~2.7 min) after the timeout fix — run twice after the landing spec landed, then once without it for the flake bisection; `tsc --noEmit` clean; eslint + prettier clean on touched files.
+- Screenshot: `.ralph/screenshots/TASK-29.4-1.png` (docked state: DOCKED indicator, landed callsign bottom-left, pad ring in view)
 
 ### 2026-10-01 — TASK-29.3: Client: pad ring markers + DOCKED indicator
 Client half of docking visuals (server dock logic + wire padId already shipped in 3d14686 / TASK-29.1–29.2):

@@ -8,19 +8,19 @@
       "step": 1,
       "description": "Server-side landing setup (raw client, deterministic)",
       "details": "In the new spec (app/tests/e2e/landing.spec.ts, TASK-70 harness via tests/e2e/fixtures.ts → `e2eServer` {baseURL, apiPort}), do the landing with a raw REST + WS client in the Node context (reuse the claim/join/warp pattern from src/server/galaxy/warp.ws.test.ts, which is proven): (a) POST /api/callsigns → {token, playerId, homeSystemId}; (b) GET /api/dev/pad-target (Bearer token) → {systemId, planetId, padId, pad:{x,y,z}}; (c) if pad.systemId !== homeSystemId, warp the ship to pad.systemId over WS (send the `warp` message, await the arrival) so the ship's row + entity live in the pad's system — /api/dev/teleport acts on ship.position.systemId, so this MUST happen before the teleport; (d) POST /api/dev/teleport (Bearer) to a point INSIDE the pad's 20 m dock disc, a few metres above the pad height, with a small downward velocity — the committed flat-pad + surface-regime logic settles the ship to 'docked' almost immediately (no long real-physics approach needed); (e) poll the ship's entity_update until regime 'docked' + padId are present (server-authoritative proof).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Browser: assert docked in DOM + screenshot",
       "details": "Open a Playwright page, seed the session so the client re-authenticates with the SAME player: set localStorage['drift.session.v1'] (the {token, ...} JSON the claim flow stores — see src/client/main.tsx SESSION_KEY) to the claimed token, then load `/?sys=<pad.systemId>` so the client joins the pad's system. Wait for #docked-indicator (from TASK-29.3) to be visible — this is the client-rendered docked state the AC requires. Screenshot to .ralph/screenshots/TASK-29-*.png (precedent: core-flow.spec.ts writes there) and assert the canvas is rendering non-uniform (canvasPixelVariance > 1, helpers.ts) so the shot is not a black screen. Use collectErrors + assertClean (helpers.ts). If a raw-WS warp is flaky in this harness, fall back to driving the warp through the real client UI (M star-chart → select → Warp) — the landing setup itself (teleport into the disc) stays server-side either way.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Full suites + close-out + commit",
       "details": "Run `npm run test` (unit, ~85 s) AND `npm run test:e2e` (full e2e, ~90 s, single worker) — both green. Update .ralph/STRUCTURE.md (new/changed files: shared/world/pads.ts, server/shard/shard.ts pad state, server/routes/dev.ts, client pad rings + #docked-indicator, the new test files) and append a TASK-29 completion note to .ralph/logs/LOG.md. Commit (Conventional Commit, references TASK-29).",
-      "pass": false
+      "pass": true
     }
   ],
   "acceptanceCriteria": [
