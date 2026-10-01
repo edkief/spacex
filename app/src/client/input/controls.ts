@@ -26,7 +26,7 @@ export interface ControlScheme {
   label: string;
   /** Thrust demand axis (flight regimes; W/S style pairs). */
   thrust: [Key, Key] | null; // [up, down]
-  /** Yaw axis [left, right]. */
+  /** Yaw axis [right, left] (pair[0] = positive demand; +yaw turns right). */
   yaw: [Key, Key] | null;
   /** Pitch axis [down, up] (nose down / nose up). */
   pitch: [Key, Key] | null;
@@ -45,7 +45,7 @@ export const CONTROL_SCHEMES: Record<Regime, ControlScheme> = {
     regime: 'space',
     label: 'FLIGHT (SPACE)',
     thrust: ['w', 's'],
-    yaw: ['a', 'd'],
+    yaw: ['d', 'a'],
     pitch: ['r', 'f'],
     roll: ['q', 'e'],
     vtol: null,
@@ -56,7 +56,7 @@ export const CONTROL_SCHEMES: Record<Regime, ControlScheme> = {
     regime: 'atmosphere',
     label: 'FLIGHT (ATMOSPHERE)',
     thrust: ['w', 's'],
-    yaw: ['a', 'd'],
+    yaw: ['d', 'a'],
     pitch: ['r', 'f'],
     roll: ['q', 'e'],
     vtol: ' ',

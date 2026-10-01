@@ -272,7 +272,12 @@ export class SystemShard implements Shard {
    * so a reconnect can never leave two live connections (two slots, two
    * integrations) for one ship. The entity itself stays untouched.
    */
-  registerConnection(playerId: string, callsign: string, send: ConnState['send'], source?: unknown): string {
+  registerConnection(
+    playerId: string,
+    callsign: string,
+    send: ConnState['send'],
+    source?: unknown,
+  ): string {
     const staleId = this.playerConns.get(playerId);
     if (staleId && this.connections.has(staleId)) {
       this.connections.delete(staleId);

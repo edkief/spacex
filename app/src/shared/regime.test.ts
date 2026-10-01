@@ -46,19 +46,26 @@ describe('regimeFor: atmosphere boundary', () => {
   });
 
   it('leaves only at the exit radius (enter * 1.05)', () => {
-    // Inside the hysteresis band [R, EXIT): holds the atmosphere.
-    expect(regimeFor({ x: R + 1, y: 0, z: 0 }, [A], 'atmosphere').regime).toBe('atmosphere');
-    expect(regimeFor({ x: EXIT - 0.5, y: 0, z: 0 }, [A], 'atmosphere').regime).toBe('atmosphere');
-    // Exactly at the exit radius: out.
+    // A FAST flyby (above the surface speed limit) holds the atmosphere
+    // inside the hysteresis band [R, EXIT) — a slow low ship would resolve
+    // to the surface sub-state instead (covered below).
+    expect(
+      regimeFor({ x: R + 1, y: 0, z: 0 }, [A], 'atmosphere', SURFACE_SPEED_LIMIT_M_S + 5).regime,
+    ).toBe('atmosphere');
+    expect(
+      regimeFor({ x: EXIT - 0.5, y: 0, z: 0 }, [A], 'atmosphere', SURFACE_SPEED_LIMIT_M_S + 5)
+        .regime,
+    ).toBe('atmosphere');
+    // Exactly at the exit radius: out (checked before any surface logic).
     expect(regimeFor({ x: EXIT, y: 0, z: 0 }, [A], 'atmosphere').regime).toBe('space');
   });
 
   it('uses 3D distance (altitude counts toward the boundary)', () => {
     // y = 600, x = 800 → d = 1000 exactly → space from space.
     expect(regimeFor({ x: 800, y: 600, z: 0 }, [A], 'space').regime).toBe('space');
-    // y = 500, x = 866 → d ≈ 1000.18 > R → space.
-    expect(regimeFor({ x: 866, y: 500, z: 0 }, [A], 'space').regime).toBe('space');
-    // y = 500, x = 865 → d ≈ 999.6 → atmosphere.
+    // y = 500, x = 867 → d ≈ 1000.84 > R → space.
+    expect(regimeFor({ x: 867, y: 500, z: 0 }, [A], 'space').regime).toBe('space');
+    // y = 500, x = 865 → d ≈ 999.11 < R → atmosphere.
     expect(regimeFor({ x: 865, y: 500, z: 0 }, [A], 'space').regime).toBe('atmosphere');
   });
 
@@ -68,7 +75,10 @@ describe('regimeFor: atmosphere boundary', () => {
     for (let i = 0; i < 200; i++) {
       const jitter = (i % 2 === 0 ? 1 : -1) * (1 + (i % 3)); // ±1..3 u noise
       const x = (R + EXIT) / 2 + jitter; // band midpoint
-      const fromAtmo = regimeFor({ x, y: 0, z: 0 }, [A], 'atmosphere').regime;
+      // Fast flyby: the band assertion is about the ATMOSPHERE boundary, so
+      // the ship is above the surface speed limit (else it resolves to the
+      // surface sub-state at ground level).
+      const fromAtmo = regimeFor({ x, y: 0, z: 0 }, [A], 'atmosphere', 10).regime;
       expect(fromAtmo).toBe('atmosphere');
     }
     for (let i = 0; i < 200; i++) {
@@ -80,15 +90,23 @@ describe('regimeFor: atmosphere boundary', () => {
   });
 
   it('airless planets (atmosphereRadius 0) never yield atmosphere or surface', () => {
-    const airless: RegimePlanet = { id: 'airless', x: 1000, z: 0, atmosphereRadius: 0, landable: true };
+    const airless: RegimePlanet = {
+      id: 'airless',
+      x: 1000,
+      z: 0,
+      atmosphereRadius: 0,
+      landable: true,
+    };
     // Directly on the anchor, at rest, on the surface: still space.
     expect(regimeFor({ x: 1000, y: 0, z: 0 }, [airless], 'space').regime).toBe('space');
     expect(regimeFor({ x: 1000, y: 0, z: 0 }, [airless], 'atmosphere').regime).toBe('space');
   });
 
   it('nearest planet wins; ties break deterministically on id', () => {
-    const p1: RegimePlanet = { id: 'pb', x: 2000, z: 0, atmosphereRadius: R, landable: true };
-    const p2: RegimePlanet = { id: 'pa', x: 0, z: 0, atmosphereRadius: R, landable: true };
+    // Radius 1500 so the tie point (1000 from each) is strictly INSIDE the
+    // enter radius — at exactly R the entry check (strict <) stays space.
+    const p1: RegimePlanet = { id: 'pb', x: 2000, z: 0, atmosphereRadius: 1500, landable: true };
+    const p2: RegimePlanet = { id: 'pa', x: 0, z: 0, atmosphereRadius: 1500, landable: true };
     // 500 from p2, 1500 from p1 → p2 owns.
     expect(regimeFor({ x: 500, y: 0, z: 0 }, [p1, p2], 'space')).toEqual({
       regime: 'atmosphere',
@@ -143,7 +161,7 @@ describe('regimeFor: surface transitions', () => {
     expect(regimeFor({ x: 0, y: 1, z: 0 }, [flat], 'surface', 9).regime).toBe('atmosphere');
     // Surface hysteresis holds under ±1 u noise across the enter altitude.
     for (let i = 0; i < 100; i++) {
-      const jitter = (i % 2 === 0 ? 1 : -1);
+      const jitter = i % 2 === 0 ? 1 : -1;
       const y = (SURFACE_ENTER_ALT_M + SURFACE_HYSTERESIS_M) / 2 + jitter;
       expect(regimeFor({ x: 0, y, z: 0 }, [flat], 'surface', 0).regime).toBe('surface');
     }

@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import { type Regime, type RegimePlanet } from '@shared/regime';
-import { REGIME_DIVERGENCE_MS, RegimeTracker } from './regime';
+import { RegimeTracker } from './regime';
 
 /** One atmospheric planet at the origin (1 km radius, flat, landable). */
-const PLANETS: RegimePlanet[] = [
-  { id: 'p1', x: 0, z: 0, atmosphereRadius: 1000, landable: true },
-];
+const PLANETS: RegimePlanet[] = [{ id: 'p1', x: 0, z: 0, atmosphereRadius: 1000, landable: true }];
 /** Inside the atmosphere, 50 u above the surface (never surface-eligible). */
 const INSIDE = { x: 900, y: 50, z: 0 }; // d ≈ 901 < 1000
 const OUTSIDE = { x: 2000, y: 0, z: 0 }; // d = 2000 ≥ 1050
@@ -26,11 +24,11 @@ describe('RegimeTracker (local prediction vs server authority)', () => {
     const seen: Array<Regime | undefined> = [];
     const tracker = new RegimeTracker({ onRegimeChange: (r) => seen.push(r) });
     tracker.setPlanets(PLANETS);
-    tracker.updateLocal(OUTSIDE, 0, 0);
+    tracker.updateLocal(OUTSIDE, 0, 0); // confirms the initial 'space' — not a change: no fire
     tracker.updateLocal(OUTSIDE, 0, 50); // unchanged: no fire
-    tracker.updateLocal(INSIDE, 0, 100);
+    tracker.updateLocal(INSIDE, 0, 100); // → atmosphere: one fire
     tracker.updateLocal(INSIDE, 0, 150);
-    expect(seen).toEqual(['space', 'atmosphere']);
+    expect(seen).toEqual(['atmosphere']);
   });
 
   it('divergence test: under 500 ms the LOCAL prediction stays active (no snap, no warn)', () => {

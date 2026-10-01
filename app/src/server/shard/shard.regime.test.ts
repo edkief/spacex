@@ -35,7 +35,6 @@ const SYSTEM: SystemGen = {
 };
 /** First planet anchor (planetAnchor(0) in shared/galaxy/planets). */
 const ANCHOR_X = 10_000;
-const ATMO_R = 1000; // planetAtmosphereRadius (1 km)
 /** The exact expected regime sequence (no duplicates, one per crossing). */
 const EXPECTED: string[] = ['space', 'atmosphere', 'surface', 'atmosphere', 'space'];
 
@@ -59,11 +58,24 @@ function makeShard(): SystemShard {
  * Run the scripted flight. Returns the observed regime sequence (initial
  * regime + one entry per 'regime-change' event).
  *
- * Script: approach in space on a flat -X run at y = 300 (d < 1000 enters the
- * atmosphere); retro-burn + VTOL to bleed speed to ≤ 4.5 u/s (surface
- * eligibility); cut VTOL and settle onto the terrain (alt < 2 u → surface);
- * then a scripted climb (orientation set to face +Y, thrust 1) through the
- * surface hysteresis band (→ atmosphere) and out of the atmosphere (→ space).
+ * Script (driven through the REAL SimLoop via enqueueInput + sim.step):
+ * - cruise: full thrust in space on a flat -X run at y = 300 toward the
+ *   planet (inertial model);
+ * - retro: full retro until the ship is SLOW (≤ 4 u/s, still inbound). The
+ *   TASK-22 atmosphere regime has no main thruster — only drag, gravity and
+ *   hover VTOL — so the ship must ENTER the atmosphere surface-eligible;
+ * - coast: dead-sticks into the atmosphere at ~4 u/s, then falls (no VTOL
+ *   input) onto the terrain. The ground clamp zeroes the vertical velocity,
+ *   so the ship ends low + slow → the shared machine resolves 'surface';
+ * - settle: two on-surface ticks, then a scripted vertical kick (vel.y = 4000):
+ *   the v1 atmosphere model cannot climb under its own power (VTOL exactly
+ *   cancels gravity, and drag caps any ballistic climb at ~400 u for this
+ *   density), so the ascent is an external impulse applied as scripted state
+ *   — but the regime transitions it triggers are still resolved by the real
+ *   state machine in the real tick;
+ * - ascent: coasts up through the surface band (→ atmosphere) and past the
+ *   1.05 exit radius (→ space) no matter where the terrain put the ship,
+ *   drag decaying the kick along the way.
  */
 function runScriptedFlight(noise: boolean): string[] {
   const shard = makeShard();
@@ -76,7 +88,7 @@ function runScriptedFlight(noise: boolean): string[] {
     ship: {
       pos: { x: ANCHOR_X + 3000, y: 300, z: 0 },
       vel: { x: 0, y: 0, z: 0 },
-      quat: quatFromEuler(0, -Math.PI / 2, 0), // facing -X, toward the planet
+      quat: quatFromEuler(-Math.PI / 2, 0, 0), // yaw -90°: facing -X, toward the planet
       regime: 'space',
     },
     hull: 1,
@@ -90,8 +102,8 @@ function runScriptedFlight(noise: boolean): string[] {
   const sequence: string[] = [entity.ship.regime];
   shard.events.on('regime-change', (e: { to: string }) => sequence.push(e.to));
 
-  type Phase = 'approach' | 'brake' | 'settle' | 'ascent' | 'done';
-  let phase: Phase = 'approach';
+  type Phase = 'cruise' | 'retro' | 'coast' | 'settle' | 'ascent' | 'done';
+  let phase: Phase = 'cruise';
   let settleTicks = 0;
   let seq = 0;
   const frame = (partial: Partial<InputPayload>): InputPayload => ({
@@ -114,34 +126,45 @@ function runScriptedFlight(noise: boolean): string[] {
       entity.ship.pos.z += i % 3 === 2 ? 1 : -1;
     }
     const payload =
-      phase === 'approach' || phase === 'ascent'
+      phase === 'cruise'
         ? frame({ thrust: 1 })
-        : phase === 'brake'
-          ? frame({ thrust: -1, action: 'vtol' })
-          : frame({});
+        : phase === 'retro'
+          ? frame({ thrust: -1 })
+          : frame({}); // coast / settle / ascent: no input
     shard.enqueueInput('p1', payload);
     // One tick per call: t starts at 25 so each step() owes exactly 1 tick.
     shard.sim.step(25 + (i + 1) * 50);
 
     switch (phase) {
-      case 'approach':
-        if (entity.ship.regime === 'atmosphere') phase = 'brake';
+      case 'cruise':
+        // Well clear of the exit radius (d ≈ 1480 at this point): start the
+        // retro so the ship is slow before it gets anywhere near the planet.
+        if (entity.ship.pos.x <= ANCHOR_X + 1450) phase = 'retro';
         break;
-      case 'brake':
-        // Slow enough to be surface-eligible, then cut VTOL and settle.
-        if (vecLength(entity.ship.vel) <= 4.5) {
+      case 'retro':
+        // Surface-eligible speed, still inbound (holding the retro past rest
+        // would accelerate the ship back out of the system).
+        if (vecLength(entity.ship.vel) <= 4) phase = 'coast';
+        break;
+      case 'coast':
+        // d < 1000 enters the atmosphere; with no VTOL input the ship then
+        // falls onto the terrain. The ground clamp zeroes the vertical
+        // velocity, so the ship ends low + slow → 'surface' on the next tick.
+        if (entity.ship.regime === 'surface') {
           phase = 'settle';
           settleTicks = 0;
         }
         break;
       case 'settle':
-        if (entity.ship.regime === 'surface') {
-          settleTicks += 1;
-          if (settleTicks >= 2) {
-            // Scripted orientation for the climb (no position change).
-            entity.ship.quat = quatFromEuler(0, -Math.PI / 2, 0);
-            phase = 'ascent';
-          }
+        if (entity.ship.regime === 'surface') settleTicks += 1;
+        else settleTicks = 0;
+        if (settleTicks >= 2) {
+          // Scripted climb impulse (see the function doc): vertical, pure +Y.
+          // 4000 u/s clears the ~400 u max-ballistic-climb ceiling of this
+          // atmosphere at every possible landing spot (worst case: flat
+          // terrain at the entry boundary → ~325 u to the exit radius).
+          entity.ship.vel = { x: 0, y: 4000, z: 0 };
+          phase = 'ascent';
         }
         break;
       case 'ascent':

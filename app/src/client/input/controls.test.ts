@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  CONTROL_SCHEMES,
-  ControlsRemapper,
-  type ControlsLogger,
-} from './controls';
+import { CONTROL_SCHEMES, ControlsRemapper, type ControlsLogger } from './controls';
 
 const keys = (...list: string[]): Set<string> => new Set(list);
 
@@ -35,9 +31,12 @@ describe('CONTROL_SCHEMES (one key map per regime)', () => {
     const s = CONTROL_SCHEMES.surface;
     expect(s.thrust).toBeNull();
     expect(s.vtol).toBeNull();
-    expect(s.move).toEqual(
-      expect.objectContaining({ forward: expect.any(String), interact: undefined }),
-    );
+    expect(s.move).toEqual({
+      forward: expect.any(String),
+      back: expect.any(String),
+      left: expect.any(String),
+      right: expect.any(String),
+    });
     expect(s.interact).not.toBeNull();
   });
 });

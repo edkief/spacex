@@ -55,7 +55,11 @@ describe('systemRegimePlanets (regime view of a system)', () => {
       landable: true,
     });
     expect(planets[1].atmosphereRadius).toBe(ATMOSPHERE_BOUNDARY_M);
-    expect(planets[2]).toMatchObject({ id: 'p3', atmosphereRadius: ATMOSPHERE_BOUNDARY_M, landable: false });
+    expect(planets[2]).toMatchObject({
+      id: 'p3',
+      atmosphereRadius: ATMOSPHERE_BOUNDARY_M,
+      landable: false,
+    });
   });
 
   it('is deterministic across invocations', () => {
