@@ -18,6 +18,7 @@ starfield (headless WebGL, verified by GL readPixels luminance variance over
 32x32 regions); the player list shows the callsign with "(you)".
 
 **Key verification points:**
+
 - `#sys-id` shows the system + occupancy
 - canvas pixel variance > 1 (not a black/flat screen)
 - zero console/page errors

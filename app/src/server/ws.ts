@@ -330,11 +330,7 @@ export function attachWebSocket(
           source: conn, // stale-conn guard in the target shard
         };
         const fromSystemId = conn.systemId;
-        const outcome = await options.gateway.warpSystem(
-          fromSystemId,
-          targetSystemId,
-          player,
-        );
+        const outcome = await options.gateway.warpSystem(fromSystemId, targetSystemId, player);
         if (!outcome.ok) {
           // The player never left: plain error, conn.systemId untouched.
           return sendError(conn, outcome.code, outcome.message);

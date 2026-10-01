@@ -91,7 +91,7 @@ describe('WarpController (TASK-8 step 3)', () => {
   it('happy path: warping-in → awaiting → warp-out → idle, one request, one arrival', async () => {
     const phases = trackPhases();
     const { controller, requests, arrivals, failures, events } = makeController({
-      requestWarp: async () => ({} as StateSnapshot),
+      requestWarp: async () => ({}) as StateSnapshot,
       delay: phaseOnly,
     });
 
@@ -114,7 +114,7 @@ describe('WarpController (TASK-8 step 3)', () => {
   it('cannot be started twice: a second start while in flight returns false', async () => {
     const gate = gatedDelay();
     const { controller, arrivals } = makeController({
-      requestWarp: async () => ({} as StateSnapshot),
+      requestWarp: async () => ({}) as StateSnapshot,
       delay: gate.delay,
     });
 
@@ -194,7 +194,7 @@ describe('WarpController (TASK-8 step 3)', () => {
   it('abort() abandons an in-flight warp without arriving', async () => {
     const gate = gatedDelay();
     const { controller, arrivals, events } = makeController({
-      requestWarp: async () => ({} as StateSnapshot),
+      requestWarp: async () => ({}) as StateSnapshot,
       delay: gate.delay,
     });
 

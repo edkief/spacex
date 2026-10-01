@@ -3,12 +3,21 @@
 `Current Status`
 =================
 **Last Updated:** 2026-09-30
-**Tasks Completed:** 33
+**Tasks Completed:** 34
 **Current Task:** —
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-10-01 — TASK-25.1: Regime manager — fix the 2 stale atmosphere fixtures, full suite green
+The last unmet TASK-25 acceptance criterion ('npm run test green') is now met. The two failing fixtures in `app/src/server/shard/shard.test.ts` spawned ships ~10 km from the planet anchor (10000, 0), so the new per-tick `resolveRegime` correctly flipped them to 'space' (no gravity) on tick 1. Fixed the fixtures, not the regime machine:
+- 'integrates atmosphere ships against chunk-cached terrain (O(1) heightAt)' — spawn + height probe moved from (40, 40) to (10040, 40): the ship now spawns ~57 u from the anchor, inside the 1000 u atmosphere boundary, and the straight-down fall keeps shrinking d. Both original assertions (fell; pos.y >= ground - 1e-6, no tunneling) unchanged.
+- 'VTOL lift (action: vtol) settles a ship on the pad' — replaced `terrain.update(0, 0)` (chunk (0,0) is ~10 km from the anchor) with a deterministic ring walk around `planetAnchor(0)` in 320 m (CHUNK_SIZE × CELL_SIZE_M) steps, picking the pad CLOSEST to the anchor from `terrain.pads()`. Spawn at (chosen.x, ground+10, chosen.z). All original assertions kept (settled < 0.5 m, |vel.y| < 1, onPad, snapshot regime 'docked').
+- `npm run lint` was blocked by 4 PRE-EXISTING prettier warnings on files untouched by this task (`src/client/state/warp-controller.test.ts`, `src/server/ws.ts`, `tests/e2e/e2e.md`, `tsconfig.json`) — formatting-only `prettier --write` fixes, no behavior change.
+- No changes to `src/shared/regime.ts`, its hysteresis constants, the server `resolveRegime`, or the 5 green TASK-25 test files.
+- Verified: `npx vitest run src/server/shard/shard.test.ts` → 21/21 pass; full `npm run test` → 652 passed / 1 skipped / 0 failed (73 files); `npm run typecheck` clean; `npm run lint` (eslint + prettier --check) clean.
+- No screenshots (headless test fix, no UI change).
 
 ### 2026-09-30 — TASK-57: In-game frame monitor (debug + budget telemetry)
 Dev-mode frame monitor is live: `F3` toggles a top-right overlay (FPS over a 1 s window, frame time p50/p95/p99 over a 300-frame window, draw calls + triangles from `renderer.info`, active entity count) with a stats JSON export button. The overlay only mounts under `import.meta.env.DEV` — prod builds never ship it.

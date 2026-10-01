@@ -8,19 +8,19 @@
       "step": 1,
       "description": "Fix fixture 'integrates atmosphere ships against chunk-cached terrain (O(1) heightAt)' (app/src/server/shard/shard.test.ts, line ~361)",
       "details": "planetAnchor(0) is (10000, 0) (src/shared/galaxy/planets.ts); enter radius = ATMOSPHERE_BOUNDARY_M = 1000 u, exit = 1050 u (REGIME_EXIT_FACTOR 1.05). The ship currently spawns at (40, startY, 40) → d ≈ 10000 u → regime flips to 'space' on tick 1 → no gravity → the 'fell' assertion fails. Move the spawn to (10040, startY, 40) — d ≈ 155–160 u at spawn, inside the atmosphere, and the straight-down fall keeps shrinking d. Probe the height with new TerrainContext(SEED, planet) at (10040, 40) instead of (40, 40) (the final ground probe already uses the ship's actual final x/z — keep it). Keep the entity's initial regime 'atmosphere' + planetId (makeEntity already sets it), the pure-gravity input script (thrust 0), and both assertions (pos.y < startY; pos.y >= ground - 1e-6, no tunneling). Verify with: cd app && npx vitest run src/server/shard/shard.test.ts",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Fix fixture 'VTOL lift (action: vtol) settles a ship on the pad' (same file, line ~397)",
       "details": "The pad currently comes from chunk (0,0) (terrain.update(0, 0)) — ~10 km from the anchor → same space-resolution failure (ship drifts at constant vel.y = -5, onPad never set). Chunks are CHUNK_SIZE × CELL_SIZE_M = 64 × 5 = 320 m (src/shared/galaxy/surface.ts); the anchor (10000, 0) sits in chunk (31, 0). Replace the setup: terrain.update(10000, 0) (or a nearby point) so the cached 3×3 neighborhood covers the anchor, then pick the pad from terrain.pads() that is CLOSEST to (10000, 0). Pads are seeded at a 25% per-chunk roll on landable planets (forced only in chunk (0,0)), so if the cached neighborhood has no pad, deterministically walk nearby 320 m steps in a fixed order (bump terrain.update point) until terrain.pads() is non-empty. Spawn at (pad.x, ground + 10, pad.z) — inside the atmosphere. Keep the existing two-phase input script (40 ticks no lift, then 100 ticks action:'vtol') and ALL assertions, including the docked snapshot regime (entityToState reports 'docked' once the ship settles on the pad — it will, once the ship is in the atmosphere). Verify with the same targeted command.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Full verification + commit",
       "details": "cd app && npm run test → ALL green (≈652 tests, 0 failures — this is the 'npm run test green' acceptance criterion of TASK-25). cd app && npm run typecheck → clean. cd app && npm run lint → clean (eslint + prettier --check). Then commit (Conventional Commit, e.g. 'test(TASK-25): spawn atmosphere fixtures inside the planet atmosphere (d < 1000 u of anchor); full suite green') and stop — one task per iteration.",
-      "pass": false
+      "pass": true
     }
   ],
   "acceptanceCriteria": [
