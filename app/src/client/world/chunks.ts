@@ -55,9 +55,9 @@ export function chunkKey(chunkX: number, chunkZ: number): string {
 
 /** Inverse of chunkKey (throws on a malformed key). */
 export function parseChunkKey(key: string): { chunkX: number; chunkZ: number } {
-  const i = key.indexOf(',');
-  const chunkX = Number(key.slice(0, i));
-  const chunkZ = Number(key.slice(i + 1));
+  const m = /^(-?\d+),(-?\d+)$/.exec(key);
+  const chunkX = m ? Number(m[1]) : NaN;
+  const chunkZ = m ? Number(m[2]) : NaN;
   if (!Number.isSafeInteger(chunkX) || !Number.isSafeInteger(chunkZ)) {
     throw new Error(`invalid chunk key: ${key}`);
   }
@@ -118,7 +118,9 @@ export function activeSet(playerX: number, playerZ: number, speed: number): Acti
   const pcx = chunkOfMeters(playerX);
   const pcz = chunkOfMeters(playerZ);
   const fast = speed >= FAST_TRAVEL_SPEED;
-  const radius = fast ? 3 : 1;
+  // At rest the span is 5x5 but only the 3x3 block + the four c===2
+  // cardinals are kept (the filter below) — 13 chunks.
+  const radius = fast ? 3 : 2;
   const out: ActiveChunk[] = [];
   for (let dx = -radius; dx <= radius; dx++) {
     for (let dz = -radius; dz <= radius; dz++) {
@@ -128,7 +130,12 @@ export function activeSet(playerX: number, playerZ: number, speed: number): Acti
       }
       const { dx: ox, dz: oz } = chunkCenterOffset(pcx + dx, pcz + dz, playerX, playerZ);
       const distance = Math.hypot(ox, oz);
-      out.push({ chunkX: pcx + dx, chunkZ: pcz + dz, ring: lodRingForDistance(distance), distance });
+      out.push({
+        chunkX: pcx + dx,
+        chunkZ: pcz + dz,
+        ring: lodRingForDistance(distance),
+        distance,
+      });
     }
   }
   out.sort((a, b) => a.distance - b.distance);
@@ -200,6 +207,9 @@ export class ChunkStreamer {
   private frame = 0;
   private maxChunkWorkMs = 0;
   private lastFarDropLog = -Infinity;
+  /** Previous player position — derives the heading for priority (null until the 2nd update). */
+  private lastPx: number | null = null;
+  private lastPz: number | null = null;
 
   constructor(seed: string, planet: Planet, options: StreamerOptions = {}) {
     this.seed = seed;
@@ -279,9 +289,16 @@ export class ChunkStreamer {
 
     // Schedule: active full builds first (nearest-first), then the far
     // impostor window — dropped (and logged, rate-limited) under backlog.
+    // An impostor-cached chunk that enters the active set gets a FULL build
+    // scheduled alongside its cache entry (the horizon quad was cached while
+    // far; the player is approaching and the quad must upgrade to terrain
+    // long before the chunk edge — the scene keeps the quad mounted until
+    // the replacement entry lands, so there is no blank frame).
     for (const a of active) {
       const key = chunkKey(a.chunkX, a.chunkZ);
-      if (this.cached.has(key) || this.builds.has(key)) continue;
+      if (this.builds.has(key)) continue;
+      const existing = this.cached.get(key);
+      if (existing && existing.built.chunk !== null) continue; // full: done
       this.builds.set(key, {
         build: new ChunkBuild(this.seed, this.planet, a.chunkX, a.chunkZ),
         workMs: 0,
@@ -325,11 +342,26 @@ export class ChunkStreamer {
       }
     }
 
-    // Process the nearest-first queue within the frame budget. The player
-    // does not move inside update(), so the order is stable — sort once.
-    const queue = [...this.builds.entries()].sort(
-      (a, b) => this.buildDistance(a, playerX, playerZ) - this.buildDistance(b, playerX, playerZ),
-    );
+    // Process the priority queue within the frame budget. Priority is
+    // nearest-first CORRECTED FOR HEADING: progress made toward a chunk
+    // while it waits is subtracted from its distance, so at max flight
+    // speed the forward column is built before the player reaches its
+    // edge (acceptance: no pop-in within 100 m of a chunk edge), while
+    // radial chunks behind are deferred. At rest (no heading) this is
+    // exactly nearest-first. The player does not move inside update(),
+    // so the order is stable — sort once.
+    let dir: { dx: number; dz: number } | null = null;
+    if (this.lastPx !== null && this.lastPz !== null) {
+      const mx = playerX - this.lastPx;
+      const mz = playerZ - this.lastPz;
+      const len = Math.hypot(mx, mz);
+      if (len > 0) dir = { dx: mx / len, dz: mz / len };
+    }
+    const queue = [...this.builds.entries()].sort((a, b) => {
+      const [ea, da] = this.buildPriority(a, playerX, playerZ, dir);
+      const [eb, db] = this.buildPriority(b, playerX, playerZ, dir);
+      return ea - eb || da - db; // effective distance, ties by raw distance
+    });
     const t0 = this.clock();
     let i = 0;
     while (i < queue.length) {
@@ -338,15 +370,24 @@ export class ChunkStreamer {
       if (pending.build.done) {
         const built = pending.build.built;
         const { chunkX, chunkZ } = parseChunkKey(key);
+        // Impostor→full upgrade: replace the cached quad and free its
+        // geometry (the scene swaps its mesh pointer on the next sync).
+        const replaced = this.cached.get(key);
+        if (replaced) {
+          replaced.built.geometries.near?.dispose();
+          replaced.built.geometries.mid?.dispose();
+          replaced.built.geometries.far.dispose();
+        }
         this.cached.set(key, { key, chunkX, chunkZ, built, lastAccessFrame: this.frame });
         this.builds.delete(key);
         this.maxChunkWorkMs = Math.max(this.maxChunkWorkMs, pending.workMs);
         completed += 1;
         this.onChunkReady?.(key);
         i += 1; // next build
-      } else {
-        break; // this build needs another slice; the budget is spent
       }
+      // A not-done build just needs another unit — keep working on it until
+      // the budget is actually spent (one unit per frame would starve the
+      // queue: a 15-unit chunk would take 15 frames instead of ~4).
       if (this.clock() - t0 >= this.budgetMs) break;
     }
 
@@ -375,6 +416,8 @@ export class ChunkStreamer {
       else if (m.ring === 'far' && g.far) triangles.far += RING_TRIANGLES.far;
     }
 
+    this.lastPx = playerX;
+    this.lastPz = playerZ;
     return {
       processedMs: this.clock() - t0,
       scheduled,
@@ -402,6 +445,8 @@ export class ChunkStreamer {
     this.cached.clear();
     this.frame = 0;
     this.maxChunkWorkMs = 0;
+    this.lastPx = null;
+    this.lastPz = null;
   }
 
   private countFarInWindow(playerX: number, playerZ: number, activeKeys: Set<string>): number {
@@ -418,9 +463,22 @@ export class ChunkStreamer {
     return n;
   }
 
-  private buildDistance(entry: [string, { build: Build; workMs: number; isFar: boolean }], px: number, pz: number): number {
+  /**
+   * [effective distance, raw distance] of one pending build. The effective
+   * distance subtracts the progress the player's heading makes toward the
+   * chunk center (a chunk straight ahead sorts at ~0, a chunk behind at
+   * 2x its distance); see the update() comment for why.
+   */
+  private buildPriority(
+    entry: [string, { build: Build; workMs: number; isFar: boolean }],
+    px: number,
+    pz: number,
+    dir: { dx: number; dz: number } | null,
+  ): [number, number] {
     const { chunkX, chunkZ } = parseChunkKey(entry[0]);
     const { dx, dz } = chunkCenterOffset(chunkX, chunkZ, px, pz);
-    return Math.hypot(dx, dz);
+    const dist = Math.hypot(dx, dz);
+    const eff = dir ? dist - (dx * dir.dx + dz * dir.dz) : dist;
+    return [eff, dist];
   }
 }

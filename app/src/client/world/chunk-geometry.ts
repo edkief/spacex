@@ -75,13 +75,7 @@ export interface BuiltChunk {
 }
 
 export type BuildStage =
-  | 'height'
-  | 'placement'
-  | 'near-positions'
-  | 'near-index'
-  | 'mid'
-  | 'far'
-  | 'done';
+  'height' | 'placement' | 'near-positions' | 'near-index' | 'mid' | 'far' | 'done';
 
 /**
  * Frame-sliced, resumable build of one streaming chunk. Each `advanceUnit`
@@ -156,7 +150,9 @@ export class ChunkBuild {
     const oz = this.chunkZ * CHUNK_SIZE;
     for (let z = this.heightRow; z < end; z++) {
       for (let x = 0; x < NEAR_GRID; x++) {
-        this.grid[z * NEAR_GRID + x] = Math.round(this.field.height.fbm01(ox + x, oz + z) * this.field.amp);
+        this.grid[z * NEAR_GRID + x] = Math.round(
+          this.field.height.fbm01(ox + x, oz + z) * this.field.amp,
+        );
       }
     }
     this.heightRow = end;
@@ -202,9 +198,11 @@ export class ChunkBuild {
       for (let x = 0; x < NEAR_GRID; x++) {
         const xL = x > 0 ? x - 1 : x;
         const xR = x < NEAR_GRID - 1 ? x + 1 : x;
-        const dx = (this.grid[z * NEAR_GRID + xR] - this.grid[z * NEAR_GRID + xL]) /
+        const dx =
+          (this.grid[z * NEAR_GRID + xR] - this.grid[z * NEAR_GRID + xL]) /
           ((xR - xL) * CELL_SIZE_M || 1);
-        const dz = (this.grid[zDn * NEAR_GRID + x] - this.grid[zUp * NEAR_GRID + x]) /
+        const dz =
+          (this.grid[zDn * NEAR_GRID + x] - this.grid[zUp * NEAR_GRID + x]) /
           ((zDn - zUp) * CELL_SIZE_M || 1);
         const len = Math.hypot(dx, 1, dz);
         const i = (z * NEAR_GRID + x) * 3;
@@ -245,7 +243,7 @@ export class ChunkBuild {
         nrm[dst + 2] = this.nearNrm[src + 2];
       }
     }
-    this.midGeometry = ChunkBuild.makeGeometry(pos, nrm, idx);
+    this.midGeometry = makeGeometry(pos, nrm, idx);
     this.stage = 'far';
   }
 
@@ -257,7 +255,20 @@ export class ChunkBuild {
    */
   private advanceFar(): void {
     const h = this.grid[32 * NEAR_GRID + 32];
-    const pos = new Float32Array([0, h, 0, CHUNK_METERS, h, 0, CHUNK_METERS, h, CHUNK_METERS, 0, h, CHUNK_METERS]);
+    const pos = new Float32Array([
+      0,
+      h,
+      0,
+      CHUNK_METERS,
+      h,
+      0,
+      CHUNK_METERS,
+      h,
+      CHUNK_METERS,
+      0,
+      h,
+      CHUNK_METERS,
+    ]);
     const nrm = new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0]);
     const idx = new Uint16Array([0, 2, 1, 0, 3, 2]);
     this.farGeometry = makeGeometry(pos, nrm, idx);
@@ -305,7 +316,11 @@ function buildQuads(rows: number, triCount3: number): Uint16Array {
 }
 
 /** A position+normal+index BufferGeometry (Uint16 indices — grids stay < 65536 verts). */
-function makeGeometry(pos: Float32Array, nrm: Float32Array, idx: Uint16Array): THREE.BufferGeometry {
+function makeGeometry(
+  pos: Float32Array,
+  nrm: Float32Array,
+  idx: Uint16Array,
+): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
@@ -346,16 +361,24 @@ export class ImpostorBuild {
       ) * amp,
     );
     const pos = new Float32Array([
-      0, h, 0,
-      CHUNK_METERS, h, 0,
-      CHUNK_METERS, h, CHUNK_METERS,
-      0, h, CHUNK_METERS,
+      0,
+      h,
+      0,
+      CHUNK_METERS,
+      h,
+      0,
+      CHUNK_METERS,
+      h,
+      CHUNK_METERS,
+      0,
+      h,
+      CHUNK_METERS,
     ]);
     const nrm = new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0]);
     const idx = new Uint16Array([0, 2, 1, 0, 3, 2]);
     this.impostor = {
       chunk: null,
-      geometries: { near: null, mid: null, far: ChunkBuild.makeGeometry(pos, nrm, idx) },
+      geometries: { near: null, mid: null, far: makeGeometry(pos, nrm, idx) },
       geometryBytes: RING_BYTES.far,
       rings: ['far'],
     };

@@ -170,6 +170,84 @@ describe('frameMonitor budgetCheck (TASK-57)', () => {
   });
 });
 
+describe('frameMonitor gauges + categories (TASK-26)', () => {
+  let monitor: FrameMonitor;
+  let warned: Array<{ message: string; meta?: Record<string, unknown> }>;
+  let now: number;
+
+  beforeEach(() => {
+    monitor = new FrameMonitor();
+    warned = [];
+    now = 2_000_000;
+    setPerfLogSink((message, meta) => warned.push({ message, meta }));
+  });
+
+  afterEach(() => setPerfLogSink(null)); // restore the default console sink
+
+  it('stays silent under the gauge limit and tracks the rolling max', () => {
+    monitor.registerGauge('surface-tris', 400_000);
+    monitor.gaugeCheck('surface-tris', 90_138, now);
+    monitor.gaugeCheck('surface-tris', 399_999, now + 500);
+    expect(warned).toEqual([]);
+    expect(monitor.getGaugeStats('surface-tris')).toEqual({
+      limit: 400_000,
+      maxValue: 399_999,
+      warnings: 0,
+    });
+  });
+
+  it('warns when the gauge limit is exceeded', () => {
+    monitor.registerGauge('surface-tris', 400_000);
+    monitor.gaugeCheck('surface-tris', 412_000, now);
+    expect(warned).toHaveLength(1);
+    expect(warned[0].message).toContain('"surface-tris"');
+    expect(warned[0].message).toContain('412000');
+    expect(warned[0].message).toContain('400000');
+    expect(monitor.getGaugeStats('surface-tris').warnings).toBe(1);
+  });
+
+  it('rate-limits gauge warnings to one per 10 s (same mechanism as budgets)', () => {
+    monitor.registerGauge('surface-tris', 1_000);
+    monitor.gaugeCheck('surface-tris', 2_000, now);
+    monitor.gaugeCheck('surface-tris', 3_000, now + BUDGET_WARN_COOLDOWN_MS - 1);
+    expect(warned).toHaveLength(1);
+    monitor.gaugeCheck('surface-tris', 3_000, now + BUDGET_WARN_COOLDOWN_MS);
+    expect(warned).toHaveLength(2);
+  });
+
+  it('warns (rate-limited) when no limit is registered for the gauge', () => {
+    monitor.gaugeCheck('unregistered-gauge', 42, now);
+    expect(warned).toHaveLength(1);
+    expect(warned[0].message).toContain('no limit is registered');
+    monitor.gaugeCheck('unregistered-gauge', 43, now + 1);
+    expect(warned).toHaveLength(1);
+  });
+
+  it('reportCategories replaces the per-frame category tally in the stats snapshot', () => {
+    monitor.reportCategories({ 'surface-near': 81_920, 'surface-mid': 8_192, 'surface-far': 26 });
+    expect(monitor.getFrameStats().categoryTriangles).toEqual({
+      'surface-near': 81_920,
+      'surface-mid': 8_192,
+      'surface-far': 26,
+    });
+    monitor.reportCategories({ 'surface-near': 0 }); // replaced, not merged
+    expect(monitor.getFrameStats().categoryTriangles).toEqual({ 'surface-near': 0 });
+  });
+
+  it('reset clears gauges, warnings, and categories', () => {
+    monitor.registerGauge('surface-tris', 100);
+    monitor.gaugeCheck('surface-tris', 200, now);
+    monitor.reportCategories({ 'surface-far': 4 });
+    monitor.reset();
+    expect(monitor.getGaugeStats('surface-tris')).toEqual({
+      limit: null,
+      maxValue: 0,
+      warnings: 0,
+    });
+    expect(monitor.getFrameStats().categoryTriangles).toEqual({});
+  });
+});
+
 describe('frameMonitor overhead (TASK-57)', () => {
   it('monitor API cost per frame is a negligible fraction of a 1 ms frame budget', () => {
     const monitor = new FrameMonitor();

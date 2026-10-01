@@ -3,12 +3,23 @@
 `Current Status`
 =================
 **Last Updated:** 2026-10-01
-**Tasks Completed:** 35
+**Tasks Completed:** 36
 **Current Task:** —
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-10-01 — TASK-26.1: Streaming pipeline — three world test files green
+All TASK-26 working tree landed and committed. The drafted tests exposed FOUR real pipeline bugs (not just the two known from the failed attempts):
+1. `chunks.ts` queue loop: `else { break }` spent only ONE work unit per frame even when the 4 ms budget was unspent (slices measured 0.2–0.9 ms) — the queue crawled at 1 unit/frame, so the forward column starved the near-diagonals ahead → 59 pop-in frames. Fix: keep working the in-flight build until the budget is actually spent (~4 units/frame; a 15-unit chunk takes ~4 frames, not ~15).
+2. `chunks.ts` `activeSet` at rest used radius 1 → 9 chunks instead of the contracted 13 (3x3 + 4 cardinals two away); the c===2 filter could never fire. Fixed radius to 2.
+3. `chunks.ts` `parseChunkKey` accepted malformed keys (`Number('') === 0` — '', ',5', '1,' did not throw). Now a strict `/^(-?\d+),(-?\d+)$/` gate.
+4. THE BIG ONE — impostor→full upgrade: chunks cached as far-ring impostors (horizon band, 2–8 km) were NEVER rebuilt when the player approached and they entered the active set (`cached.has` skipped scheduling). `isReady` said true, but `geometries.near/mid` were null → steady-state flight rendered 0 near/mid tris (all flat quads). Fix: the active-schedule loop now schedules a full ChunkBuild alongside the cached impostor; on completion the cache entry is replaced and the old quad geometry disposed (scene swaps its mesh pointer on the next sync — no blank frame, swap happens ~960 m out, far beyond the 100 m edge contract).
+Benchmark (step 1): defined `MAX_SLICE_BUDGET_MS = 8` (AC2 per-slice contract) and finished the percentile work — per-frame slice ms collected, assert p99 < 8 (a single GC spike in the max — measured 7.6–8.3 ms vs p99 5.4 ms — must not fail the run); logs record max + p99 + avg, per-frame triangle max, LRU peak (400/400, 72.1 MB est). Steady state now reads near 73,728 + mid 81,920 + far 452 (all 49 active full) — two consecutive runs both pass (2.6–2.7 s wall).
+Hang caps (step 2): every unbounded wait loop now fails fast with the stuck chunk named — `buildToDone` (100 units + stage), `warmToNearBlock` + LOD-swap wait (4000 frames + pending), benchmark pre-warm (4000 frames + missing keys). No hang observed; the combined 3-file run completes in ~4.6 s (the old 300 s hang came from the one-unit-per-frame crawl + uncapped waits).
+Test-side fixes: `chunkCenterOffset(-1,2,500,500)` expectation was a draft typo (center (-160,800) − player (500,500) = (-660,300)); the resting-cardinal key list wasn't in true JS string-sort order; the gauge test asserted `warned[0]` (the backlog drop warning now fires during warm-up with the 13-chunk set) instead of the surface-tris warning specifically; removed two dead benchmark helpers (`EDGE_MARGIN_M`, `distToChunkBox` — superseded by the stronger 3x3 check).
+Verified: 3 world files green alone AND combined; `npm run test` → 77 files, 691 passed / 1 skipped; `npm run typecheck` clean; `npx eslint .` clean; prettier applied. STRUCTURE.md gained the 3 pipeline modules.
 
 ### 2026-10-01 — TASK-25.2: Regime manager client wiring + TASK-25 closeout
 TASK-25 is now COMPLETE. The running client tracks its own regime: one `RegimeTracker` + one `ControlsRemapper` instantiated from the game session (tracker local prediction + server authority; remap + debug log on every regime change).

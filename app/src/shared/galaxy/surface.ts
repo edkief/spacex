@@ -70,7 +70,7 @@ export function chunkSeed(seed: string, planetId: string, chunkX: number, chunkZ
 }
 
 /** Terrain amplitude in meters, scaled by planet radius (gentler on small worlds). */
-export function amplitudeM(planet: Planet): number {
+export function amplitudeM(planet: Pick<Planet, 'radiusKm'>): number {
   return 250 + (planet.radiusKm / 8000) * 350;
 }
 

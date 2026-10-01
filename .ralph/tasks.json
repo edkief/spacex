@@ -253,7 +253,7 @@
     "title": "Streaming pipeline: green the three world test files and commit",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-26.1.json",
-    "passes": false,
+    "passes": true,
     "splitFrom": "TASK-26",
     "splitDepth": 1
   },

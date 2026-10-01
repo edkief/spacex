@@ -38,7 +38,10 @@ Excludes dotfiles, tests, and config.
 │       │   │   └── logger.ts     # TASK-57: perf logger with injectable sink (setPerfLogSink for test spies)
 │       │   ├── world/
 │       │   │   ├── WorldManager.ts # TASK-8: in-system three.js world on #game-canvas (star at origin, near-field planets, spawn-gate ring); swapWorld builds-then-replaces (budget < 300 ms, measured); pure buildSystemLayout (three-free); TASK-57: render loop feeds frameMonitor (beginFrame → render → endFrame with renderer.info)
-│       │   │   └── entity-registry.ts # TASK-57: client entity registry — rendered entities (ship/character/wreck) register/unregister; renderedEntityCount() feeds the frame monitor
+│       │   │   ├── entity-registry.ts # TASK-57: client entity registry — rendered entities (ship/character/wreck) register/unregister; renderedEntityCount() feeds the frame monitor
+│       │   │   └── chunks.ts # TASK-26: streaming pipeline — chunk grid (320 m), LOD rings 512/2048/8000 m, activeSet (13 rest / 49 @speed≥100), ChunkStreamer: 4 ms/frame budget, heading-corrected nearest-first queue, far-impostor window (Chebyshev 6, drop-far-first under backlog), 400-chunk LRU (never evicts active), impostor→full upgrade on approach
+│       │   │   └── chunk-geometry.ts # TASK-26: resumable staged ChunkBuild (height→placement→near/mid/far mips, one bounded unit per advanceUnit, 65x65 near grid shares borders) + 1-unit ImpostorBuild; RING_TRIANGLES/RING_BYTES
+│       │   │   └── chunk-scene.ts # TASK-26: three.js group, one mesh per mounted chunk, LOD swap = pre-built geometry pointer change, biome materials, per-ring tris to frameMonitor + 400k surface gauge
 │       │   ├── ui/
 │       │   │   ├── debug-overlay.tsx # TASK-57: dev-only frame monitor overlay — F3 toggle, 2 Hz poll of frameMonitor.getFrameStats(), top-right monospace panel (FPS, p50/p95/p99, draw calls/tris, entities) + stats JSON export; mounted only under import.meta.env.DEV
 │       │   │   ├── star-chart.tsx  # TASK-7: star chart panel — overview fetch, 5 s occupancy poll, search, select + Warp button (dispatches warp-started), Esc closes
