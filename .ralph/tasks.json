@@ -274,11 +274,31 @@
     "passes": true
   },
   {
-    "id": "TASK-28",
-    "title": "Atmosphere entry/exit with continuous physics",
+    "id": "TASK-28.1",
+    "title": "Atmosphere view: dome + skybox crossfade wiring (the no-pop visual transition)",
     "category": "functional",
-    "specFilePath": ".ralph/tasks/TASK-28.json",
-    "passes": false
+    "specFilePath": ".ralph/tasks/TASK-28.1.json",
+    "passes": false,
+    "splitFrom": "TASK-28",
+    "splitDepth": 1
+  },
+  {
+    "id": "TASK-28.2",
+    "title": "Re-entry tint: cosmetic orange rim ramp overlay (CSS)",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-28.2.json",
+    "passes": false,
+    "splitFrom": "TASK-28",
+    "splitDepth": 1
+  },
+  {
+    "id": "TASK-28.3",
+    "title": "Atmosphere dome e2e pixel probe (density scaling in rendered pixels) + TASK-28 close-out",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-28.3.json",
+    "passes": false,
+    "splitFrom": "TASK-28",
+    "splitDepth": 1
   },
   {
     "id": "TASK-29",

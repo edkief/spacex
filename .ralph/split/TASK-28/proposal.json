@@ -1,0 +1,20 @@
+{
+  "task": "TASK-28",
+  "splittable": true,
+  "reason": "Both attempts ran out of TIME, not into an environment problem (the unit suite is ~85 s and headless-WebGL Playwright is already proven green by TASK-26.2 and TASK-27) — this is a sizing problem. ~55% is already committed GREEN (commit 44202f3: the shared boundary math, per-planet density, the inverted drag ramp, all shared/sim tests, the fixed TASK-25 flight test, and the atmosphere-dome module). What remains is fully designed and mechanical, and splits cleanly into three commits that each fit one 45-minute iteration: (1) wire the dome + skybox crossfade into the live view with one shared haze number (the no-pop visual transition, unit-testable); (2) the cosmetic re-entry tint overlay (small, self-contained); (3) the e2e dome pixel probe that proves per-planet density scaling in the rendered pixels, plus the TASK-28 close-out. 28.1 and 28.2 are guaranteed milestone commits that land before the single riskiest piece (the e2e pixel probe), so even a 28.3 overrun still leaves real committed progress.",
+  "tasks": [
+    {
+      "id": "TASK-28.1",
+      "title": "Atmosphere view: dome + skybox crossfade wiring (the no-pop visual transition)"
+    },
+    {
+      "id": "TASK-28.2",
+      "title": "Re-entry tint: cosmetic orange rim ramp overlay (CSS)"
+    },
+    {
+      "id": "TASK-28.3",
+      "title": "Atmosphere dome e2e pixel probe (density scaling in rendered pixels) + TASK-28 close-out"
+    }
+  ],
+  "appliedAt": "2026-10-01T08:41:57.247Z"
+}
