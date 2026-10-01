@@ -32,7 +32,7 @@ export type Livery = { hull: string; accent: string; trim: string };
  * Flight regimes (TASK-24): the sim's kinematic regime a ship was in when
  * last persisted (mirrors shared/physics `Regime`).
  */
-export const SHIP_REGIMES = ['space', 'atmosphere'] as const;
+export const SHIP_REGIMES = ['space', 'atmosphere', 'surface'] as const;
 export type ShipRegime = (typeof SHIP_REGIMES)[number];
 
 export interface PlayerRow {

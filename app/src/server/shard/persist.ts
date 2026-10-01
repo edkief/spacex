@@ -192,5 +192,5 @@ export function startShardFlushTimer(opts: {
 
 /** Regime guard for rows read back from a foreign/corrupt DB. */
 export function validRegime(value: unknown): value is Regime {
-  return value === 'space' || value === 'atmosphere';
+  return value === 'space' || value === 'atmosphere' || value === 'surface';
 }

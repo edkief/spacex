@@ -15,13 +15,15 @@ import {
 import { CHAT_HISTORY_MAX } from '@shared/chat';
 import { applyDamage, type ApplyDamageResult, type DamageSource } from '@shared/physics/damage';
 import { integrateShip, type FlightOptions, type PlanetAtmo } from '@shared/physics/flight';
-import { quatIdentity, type Quat } from '@shared/physics/vec';
+import { quatIdentity, vecLength, type Quat } from '@shared/physics/vec';
 import { shipStats, HEX_COLOR } from '@shared/ships';
 import type { SystemGen } from '@shared/galaxy/types';
 import { homeDockPosition } from '@shared/galaxy/dock';
+import { systemRegimePlanets } from '@shared/galaxy/planets';
+import { regimeFor, type RegimePlanet } from '@shared/regime';
 import type { Repository } from '@server/db/repo';
 import type { ShipRow } from '@server/db/schema';
-import type { ShipsLoad } from './persist';
+import { validRegime, type ShipsLoad } from './persist';
 import type { Conn } from '@server/ws';
 import type { ShipSwapBus } from '@server/shards';
 import { SimLoop } from './sim';
@@ -117,6 +119,13 @@ export class SystemShard implements Shard {
   private readonly chatLog: ChatMessage[] = [];
   private lastChatTs = 0;
   private readonly terrain = new Map<string, TerrainContext>();
+  /**
+   * TASK-25: the regime manager's view of this system's planets, with a
+   * LAZY terrain heightAt (the TerrainContext for a planet is only touched
+   * when the regime check actually samples its surface — space ships never
+   * generate chunks).
+   */
+  private readonly regimePlanets: RegimePlanet[];
   private readonly playerConns = new Map<string, string>();
   private readonly playerEntities = new Map<string, SimEntity>();
   private connSeq = 0;
@@ -133,6 +142,14 @@ export class SystemShard implements Shard {
     this.dt = (options.dtMs ?? TICK_DT_MS) / 1000;
     this.wreckTtlTicks = Math.max(1, Math.round(WRECK_TTL_MS / (options.dtMs ?? TICK_DT_MS)));
     this.persist = options.persist ?? (() => {});
+    this.regimePlanets = systemRegimePlanets(options.system).map((planet) => ({
+      ...planet,
+      heightAt: (x, z) => {
+        const ctx = this.getTerrain(planet.id);
+        ctx.update(x, z);
+        return ctx.heightAt(x, z);
+      },
+    }));
 
     this.sim = new SimLoop({
       dtMs: options.dtMs ?? TICK_DT_MS,
@@ -545,6 +562,10 @@ export class SystemShard implements Shard {
         conn.appliedSeq = input.seq; // TASK-14: reconcilable from this tick on
         if (entity.docked) entity.docked = false; // first input = take-off
       }
+      // TASK-25: resolve the regime FIRST (the shared state machine is the
+      // authority — hysteresis included); a change is an event, and the new
+      // regime drives the physics context for THIS tick.
+      this.resolveRegime(entity);
       const ctx = this.resolveRegimeCtx(entity);
       entity.ship = integrateShip(
         entity.ship,
@@ -611,6 +632,39 @@ export class SystemShard implements Shard {
   }
 
   /**
+   * TASK-25: resolve (and, on change, commit) an entity's regime with the
+   * shared state machine BEFORE integration. The resolved regime is
+   * authoritative: it is stored on the entity, emitted as a 'regime-change'
+   * event, and rides the wire in every entity_update (`flightRegime`).
+   * Hysteresis lives in regimeFor — a boundary-idling ship cannot flap.
+   */
+  private resolveRegime(entity: SimEntity): void {
+    const result = regimeFor(
+      entity.ship.pos,
+      this.regimePlanets,
+      entity.ship.regime,
+      vecLength(entity.ship.vel),
+    );
+    if (result.regime === entity.ship.regime && result.planetId === entity.planetId) return;
+    const from = entity.ship.regime;
+    entity.ship.regime = result.regime;
+    entity.planetId = result.planetId;
+    this.log.debug('regime change', {
+      entity: entity.id,
+      from,
+      to: result.regime,
+      planetId: result.planetId ?? null,
+    });
+    this.events.emit('regime-change', {
+      id: entity.id,
+      playerId: entity.playerId,
+      from,
+      to: result.regime,
+      planetId: result.planetId,
+    });
+  }
+
+  /**
    * Resolve the flight-model context for an entity: its regime decides the
    * planet context (atmosphere density, O(1) chunk-cached terrain, pads).
    * Space entities get no planet context at all.
@@ -663,8 +717,9 @@ export class SystemShard implements Shard {
       ? { x: dock.x, y: dock.y, z: dock.z }
       : { x: ship.position.x, y: ship.position.y, z: ship.position.z };
     const quat = isQuat(ship.rotation) ? { ...ship.rotation } : quatIdentity();
-    const regime: SimEntity['ship']['regime'] =
-      ship.regime === 'atmosphere' ? 'atmosphere' : 'space';
+    // TASK-25: 'surface' is a first-class persisted regime; anything else
+    // (foreign/corrupt rows) falls back to space.
+    const regime: SimEntity['ship']['regime'] = validRegime(ship.regime) ? ship.regime : 'space';
     const livery: Record<string, string> = {};
     for (const [key, value] of Object.entries(ship.livery ?? {})) {
       if (typeof value === 'string' && HEX_COLOR.test(value)) livery[key] = value;
@@ -726,7 +781,7 @@ export class SystemShard implements Shard {
           pos: { x: row.position.x, y: row.position.y, z: row.position.z },
           vel: { x: 0, y: 0, z: 0 },
           quat: isQuat(row.rotation) ? { ...row.rotation } : quatIdentity(),
-          regime: row.regime === 'atmosphere' ? 'atmosphere' : 'space',
+          regime: validRegime(row.regime) ? row.regime : 'space',
         },
         hull: 0,
         shields: 0,
@@ -797,6 +852,8 @@ export function entityToState(e: SimEntity): EntityState {
     vel: e.ship.vel,
     rot: e.ship.quat, // TASK-14: reconciliation + remote slerp
     regime,
+    // TASK-25: the regime manager's flight regime (authoritative).
+    flightRegime: e.ship.regime,
     hull: e.hull,
     shields: e.shields,
     targetId: e.targetId,

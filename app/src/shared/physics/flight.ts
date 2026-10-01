@@ -11,7 +11,7 @@
  * side effects, no allocation of shared mutable state.
  *
  * Units: 1 u ≈ 1 m, velocities in u/s, angles in radians.
- * Regimes:
+ * Regimes (TASK-25: the shared Regime union gained 'surface'):
  * - 'space': thrust along the ship's forward axis, no drag, rotation at
  *   turnRate, soft speed cap (excess above maxVelocity decays 5%/step).
  * - 'atmosphere': quadratic drag (k·|v|·v, opposing velocity), gravity,
@@ -19,6 +19,10 @@
  *   fast ships never tunnel: substep whenever |vel|·dt > 2 u). Drag ramps
  *   0→k across the 1 km boundary band (see ./atmosphere, shared with
  *   TASK-28).
+ * - 'surface': landed. Integrates with the same atmosphere physics (drag,
+ *   gravity, VTOL, ground clamp), so a landed ship rests on the terrain and
+ *   can VTOL-lift off; the regime manager (../regime) flips it back to
+ *   'atmosphere' once it climbs out of the surface hysteresis band.
  *
  * Planet-agnostic by design: atmosphere density arrives as a plain
  * `PlanetAtmo` (the server derives it from the generated Planet), and
@@ -46,8 +50,8 @@ import {
   type Vec3,
 } from './vec';
 
-/** Flight regimes the model knows. */
-export type Regime = 'space' | 'atmosphere';
+/** Flight regimes the model knows (TASK-25: space/atmosphere/surface). */
+export type Regime = import('../regime').Regime;
 
 /** Thrown when integrateShip receives a regime it cannot integrate. */
 export class UnknownRegimeError extends Error {
@@ -184,7 +188,7 @@ export function integrateShip(
   shipClass?: ShipClass | ShipClassId,
   options?: FlightOptions,
 ): ShipState {
-  if (regime !== 'space' && regime !== 'atmosphere') {
+  if (regime !== 'space' && regime !== 'atmosphere' && regime !== 'surface') {
     throw new UnknownRegimeError(String(regime));
   }
   if (!(dt > 0) || !Number.isFinite(dt)) {
@@ -284,7 +288,9 @@ function integrateStep(
   // Ground collision (atmosphere regime only): clamp to terrain, kill
   // downward velocity. Substepping above keeps travel ≤ 2 u per step, so
   // the clamp can never skip over the surface (no tunneling).
-  if (regime === 'atmosphere') {
+  if (regime !== 'space') {
+    // 'atmosphere' and 'surface' both clamp to terrain (a landed ship rests
+    // on it; VTOL lift in the 'surface' regime is what gets it back up).
     const groundY = heightAt(pos.x, pos.z);
     if (pos.y <= groundY) {
       pos.y = groundY;
@@ -301,7 +307,7 @@ function findPad(
   pads: LandingPadRef[],
   heightAt: (x: number, z: number) => number,
 ): string | undefined {
-  if (s.regime !== 'atmosphere') return undefined;
+  if (s.regime !== 'atmosphere' && s.regime !== 'surface') return undefined;
   const groundY = heightAt(s.pos.x, s.pos.z);
   const onGround = s.pos.y <= groundY + 1e-3;
   if (!onGround) return undefined;

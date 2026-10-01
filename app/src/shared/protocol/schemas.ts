@@ -14,6 +14,14 @@ export const REGIMES = ['sublight', 'cruise', 'warp', 'docked'] as const;
 export type Regime = (typeof REGIMES)[number];
 
 /**
+ * TASK-25: flight regimes on the wire (the regime manager's state, shared
+ * space/atmosphere/surface union). Distinct from `regime` above (wire travel
+ * state); the server sends it authoritative in every entity_update.
+ */
+export const FLIGHT_REGIMES = ['space', 'atmosphere', 'surface'] as const;
+export type FlightRegime = (typeof FLIGHT_REGIMES)[number];
+
+/**
  * Combat event kinds (TASK-23 rewired the contract: the sim broadcasts
  * 'damaged' per hit and 'destroyed' on the killing hit — the old 'hit'/'kill'
  * placeholders were never produced. Wire contract change noted for TASK-69).
@@ -51,6 +59,12 @@ export const entityStateSchema = z
      */
     rot: quatSchema.optional(),
     regime: z.enum(REGIMES),
+    /**
+     * TASK-25: the regime manager's flight regime (authoritative; the
+     * client's local regimeFor is prediction only and snaps to this after
+     * 500 ms of divergence). Optional for back-compat with v1 producers.
+     */
+    flightRegime: z.enum(FLIGHT_REGIMES).optional(),
     hull: finite.min(0).max(1),
     shields: finite.min(0).max(1),
     targetId: z.string().min(1).nullable(),
