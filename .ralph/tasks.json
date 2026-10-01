@@ -278,7 +278,7 @@
     "title": "Atmosphere view: dome + skybox crossfade wiring (the no-pop visual transition)",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-28.1.json",
-    "passes": false,
+    "passes": true,
     "splitFrom": "TASK-28",
     "splitDepth": 1
   },

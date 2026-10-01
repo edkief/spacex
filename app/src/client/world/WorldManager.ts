@@ -223,7 +223,7 @@ export class WorldManager {
     this.dome = createAtmosphereDome(ATMOSPHERE_BOUNDARY_M);
     this.scene.add(this.background.sky);
     this.scene.add(this.background.stars);
-    this.scene.add(this.dome.mesh); // renderOrder 1: composites over the sky
+    this.scene.add(this.dome.mesh); // renderOrder 2: composites over sky + stars
 
     const frame = (): void => {
       if (this.disposed) return;

@@ -85,6 +85,12 @@ export function createBackground(seed: string, count = DEFAULT_STAR_COUNT): Back
     depthWrite: false,
   });
   const sky = new THREE.Mesh(skyGeometry, skyMaterial);
+  // Draw layering (the skybox crossfade, TASK-28.1): the sky is the farthest
+  // shell (r=420), the stars sit closer (r=150–200) and must composite OVER
+  // it. When the sky is made transparent (WorldManager) both land in the
+  // transparent pass at the same origin depth, so an explicit renderOrder
+  // keeps the stars in front regardless of three's z/id tie-break.
+  sky.renderOrder = 0;
 
   const data = generateStarfield(seed, count);
   const starGeometry = new THREE.BufferGeometry();
@@ -101,6 +107,10 @@ export function createBackground(seed: string, count = DEFAULT_STAR_COUNT): Back
     depthWrite: false,
   });
   const stars = new THREE.Points(starGeometry, starMaterial);
+  // One layer in front of the sky (see sky.renderOrder above) so the star
+  // points composite over the skybox — independent of the bounding-sphere z
+  // tie-break in three's transparent sort.
+  stars.renderOrder = 1;
 
   return {
     sky,

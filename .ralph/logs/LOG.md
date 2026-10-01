@@ -3,12 +3,22 @@
 `Current Status`
 =================
 **Last Updated:** 2026-10-01
-**Tasks Completed:** 38
+**Tasks Completed:** 39
 **Current Task:** —
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-10-01 — TASK-28.1: Atmosphere view — dome + skybox crossfade wiring (one-number, no-desync blend)
+The live atmosphere transition is wired end to end: one shared haze number drives the dome IN and the skybox OUT, so they can never desync.
+- `app/src/client/world/atmosphere-view.ts` (NEW) — pure `atmosphereViewFor(pos, system, current='space')`: null system / space regime → `{ planet: null, altitude: pos.y, boundary: 0, haze: 0 }`; else resolves the owning planet via `regimeFor` (live `current` keeps the [1000,1050) exit hysteresis band consistent with the sim) and computes `boundary = boundaryFactor(alt, planet)`, `haze = hazeFactor(alt, {radius, density})` from the SAME shared functions as the sim.
+- `app/src/client/world/atmosphere-view.test.ts` (NEW, 4 tests) — mid-band boundary ≈ 0.5 with haze = 0.5·densityScale from the same shared fns; far/null-system → 0/0/null; exit band [1000,1050) respects `current`; airless planet → null/0/0.
+- `app/src/client/world/WorldManager.ts` — owns the shared dome (`createAtmosphereDome(ATMOSPHERE_BOUNDARY_M)`, repositioned to the owning planet's anchor; hidden at zero cost in space), stores the system object, and `setAtmosphereView(pos, current)` drives dome haze + `sky.opacity = 1 - haze` + `stars.opacity = 0.95·(1-haze)` from ONE number. Tint via raw sRGB floats (`setFromHex01`, `THREE.NoColorSpace` — the shader writes gl_FragColor with no output transform).
+- `app/src/client/main.tsx` — `useGameSession` gained optional `onAtmosphereView?: (pos, regime) => void`; the self entity_update handler calls it right after `onSelfUpdate` with the LIVE tracker regime. App bridges via a CLOSURE `(pos, regime) => worldRef.current?.setAtmosphereView(pos, regime)` (TDZ-safe: worldRef read only on WS messages, post-mount).
+- **Star draw-order regression (found by e2e, fixed with explicit renderOrder):** making the skybox `transparent = true` (required for the opacity crossfade) moved it from the opaque pass into the transparent pass alongside the star Points. Three's `reversePainterSortStable` compares projected bounding-sphere-center z, which for two origin-centered shells (sky r=420 exact center; star shell's farthest-point centroid slightly offset) is a fragile near-tie that drew the full-opacity sky OVER the star points — flat starless skybox. Fix: explicit layering `sky.renderOrder = 0 < stars.renderOrder = 1 < dome.renderOrder = 2` (starfield.ts, atmosphere-dome.ts), which short-circuits the z tie-break and is physically correct (sky farthest → stars → dome closest).
+- `app/tests/e2e/atmosphere-view.spec.ts` (NEW) — live-wiring smoke: claim + join, canvas must render non-uniformly (pixel-variance > 1) while 10 Hz self snapshots drive the new path, clean console, screenshot.
+Verified: `npx vitest run` → 82 files, 744 passed / 1 skipped; `npm run typecheck` clean; `npm run lint` clean; e2e spec 1 passed (6.8 s). Screenshot: `.ralph/screenshots/TASK-28.1-1.png` (full starfield restored).
 
 ### 2026-10-01 — TASK-27: Continuous camera handoff across all regimes (CameraRig)
 One `THREE.PerspectiveCamera` (FOV 75, constant) now serves every regime — no second camera, no swap risk. Cockpit → on-foot (and back) is a 600 ms eased animation along a precomputed 5-sample path that never enters terrain.

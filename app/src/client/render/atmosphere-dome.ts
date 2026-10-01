@@ -102,9 +102,11 @@ export function createAtmosphereDome(radiusU: number): AtmosphereDome {
 
   const mesh = new THREE.Mesh(geometry, material);
   mesh.visible = false; // space by default — the dome never renders for free
-  // The skybox sphere also depth-writes nothing; keep the dome after the
-  // sky in the transparent pass so its alpha composites OVER the sky.
-  mesh.renderOrder = 1;
+  // Draw-layer ordering in the transparent pass (all depthWrite false):
+  // sky 0 < stars 1 (starfield.ts) < dome 2 — the haze composites OVER both
+  // skybox layers. renderOrder short-circuits three's bounding-sphere z
+  // tie-break, which is fragile for two origin-centered shell objects.
+  mesh.renderOrder = 2;
 
   let haze = 0;
   return {
