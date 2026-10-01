@@ -13,9 +13,10 @@ import { StarChart } from '@client/ui/star-chart';
 import { WarpOverlay } from '@client/ui/warp-overlay';
 import { ReentryTint } from '@client/ui/reentry-tint';
 import { DockedIndicator } from '@client/ui/docked-indicator';
+import { LeaveShipPrompt } from '@client/ui/leave-ship-prompt';
 import { WarpController, warpSubscribe } from '@client/state/warp';
 import { setReentryTint } from '@client/state/reentry';
-import { isDocked, setDockedIndicator } from '@client/state/docked';
+import { dockedIndicator, isDocked, setDockedIndicator } from '@client/state/docked';
 import { reentryTintFactor } from '@shared/physics/atmosphere';
 import { FrameMonitorOverlay } from '@client/ui/debug-overlay';
 import { systemForId } from '@shared/galaxy/system';
@@ -103,6 +104,11 @@ function useGameSession(
   // hook stays usable without a WorldManager; the caller passes a closure
   // that reads worldRef.current lazily (only when a WS message fires).
   onAtmosphereView?: (pos: Vec3, regime: Regime) => void,
+  // TASK-31: the resolved SELF entity (character FIRST — once disembarked
+  // both the frozen ship and the character carry the player's callsign) +
+  // the player's ship entity id (the exit_ship payload). Null when the
+  // snapshot batch carries no own entity.
+  onSelfEntity?: (self: EntityState | null, shipId: string | null) => void,
 ) {
   const systemParam = React.useMemo(
     () => new URLSearchParams(window.location.search).get('sys'),
@@ -132,11 +138,23 @@ function useGameSession(
           return;
         }
         if (msg.type === 'entity_update') {
+          // TASK-31: the SELF entity is the CHARACTER first — after
+          // disembark the frozen docked ship STILL carries the callsign,
+          // and the character is the player's active entity (its
+          // flightRegime 'surface' drives the controls remap).
+          const entities = (msg.payload as { entities: EntityState[] }).entities;
+          const charSelf = entities.find(
+            (e) => e.kind === 'character' && e.callsign === session.callsign,
+          );
+          const self =
+            charSelf ??
+            entities.find((e) => e.kind !== 'character' && e.callsign === session.callsign);
+          const shipSelf = entities.find(
+            (e) => e.kind === 'ship' && e.callsign === session.callsign,
+          );
+          onSelfEntity?.(self ?? null, shipSelf?.id ?? null);
           // TASK-25.2: route our OWN 10 Hz snapshot into the regime tracker
           // (server flightRegime authority + last-known-state prediction).
-          const self = (msg.payload as { entities: EntityState[] }).entities.find(
-            (e) => e.callsign === session.callsign,
-          );
           if (self) regimeWiring.onSelfUpdate(self, Date.now());
           // TASK-28.1: the live tracker regime drives the atmosphere view —
           // passing it (not a local guess) keeps the exit hysteresis band
@@ -188,6 +206,22 @@ function useGameSession(
         setReentryTint(0);
         // TASK-29.3: a warp must never carry a stale docked state either.
         setDockedIndicator(false);
+        // TASK-31: a system snapshot is the ground truth for the player's
+        // ACTIVE entity — on foot (character present, e.g. reconnect after a
+        // disembark) the capsule stays; otherwise clear any stale on-foot
+        // state (warp arrival, boot).
+        const charSelf = snapshot.entities.find(
+          (e) => e.kind === 'character' && e.callsign === session.callsign,
+        );
+        onSelfEntity?.(
+          charSelf ??
+            snapshot.entities.find(
+              (e) => e.kind !== 'character' && e.callsign === session.callsign,
+            ) ??
+            null,
+          snapshot.entities.find((e) => e.kind === 'ship' && e.callsign === session.callsign)?.id ??
+            null,
+        );
       },
     });
     clientRef.current = client;
@@ -296,6 +330,10 @@ function App() {
   const [store] = React.useState(() => new PresenceStore());
   const [chatStore] = React.useState(() => new ChatStore());
   const clientRef = React.useRef<ClientSession | null>(null);
+  // TASK-31: the player's ship entity id (latest self entity_update) — the
+  // payload of the 'exit_ship' disembark request. Null while on foot or
+  // before the first self update.
+  const selfShipIdRef = React.useRef<string | null>(null);
   // Re-render on presence events only (join/leave), never on snapshots, so
   // the "N aboard" occupancy below stays live.
   const [, bumpPresence] = React.useReducer((n: number) => n + 1, 0);
@@ -322,6 +360,16 @@ function App() {
       world.setShipPos(pos);
       world.setAtmosphereView(pos, regime);
     },
+    // TASK-31: the self-entity bridge — on foot: the capsule follows the
+    // character (first call spawns it + runs the camera handoff); back in
+    // the ship: clear any stale on-foot state.
+    (self, shipId) => {
+      selfShipIdRef.current = shipId;
+      const world = worldRef.current;
+      if (!world) return;
+      if (self && self.kind === 'character' && self.onFoot) world.setCharacterPos(self.pos);
+      else world.clearCharacter();
+    },
   );
 
   // TASK-7: the star chart (M key or the Systems button); typing in an
@@ -339,6 +387,30 @@ function App() {
   React.useEffect(() => {
     if (!systemId) setChartOpen(false); // no system → nothing to chart
   }, [systemId]);
+
+  // TASK-31: E — LEAVE SHIP. Fires ONLY while the docked prompt is up
+  // (state/docked store true ⇒ the player's own entity is a docked ship)
+  // and the star chart is closed; typing (chat) never triggers it. The
+  // request is a plain 'exit_ship' frame — the server denies with
+  // {code:'not-docked'} in the race where the ship leaves the pad.
+  const chartOpenRef = React.useRef(chartOpen);
+  React.useEffect(() => {
+    chartOpenRef.current = chartOpen;
+  }, [chartOpen]);
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'e' && e.key !== 'E') return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+      if (chartOpenRef.current) return;
+      if (!dockedIndicator()) return;
+      const shipId = selfShipIdRef.current;
+      if (!shipId) return;
+      clientRef.current?.send('exit_ship', { shipId });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // TASK-8: the warp controller. The chart dispatches 'warp-started' on the
   // shared bus; the controller runs the state machine (warp-in → awaiting →
@@ -469,6 +541,7 @@ function App() {
       <WarpOverlay />
       <ReentryTint />
       <DockedIndicator />
+      <LeaveShipPrompt />
       {/* TASK-57: dev-only frame monitor (F3) — never shipped in prod. */}
       {import.meta.env.DEV && <FrameMonitorOverlay />}
       {connState === 'lost' && session && (

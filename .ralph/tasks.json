@@ -341,7 +341,7 @@
     "title": "Egress: exit ship to third-person character",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-31.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-32",

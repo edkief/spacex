@@ -17,25 +17,25 @@
       "step": 1,
       "description": "Server disembark",
       "details": "shard.handleDisembark: ship must be docked (state check) → create character entity {playerId, pos = ship.pos + sideOffset(ship.quat), regime 'surface'} → player's activeEntity switches; broadcast entity_update (character kind). Character idle = stands still (no walk yet — TASK-32).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Client disembark",
       "details": "Prompt UI: when docked, 'E — Leave ship' bottom-center (fades when far). On press: send message; on entity_update: spawn the character mesh (placeholder capsule until TASK-32's model), CameraRig.handoff (TASK-27), controls → surface scheme.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Character entity in snapshots",
       "details": "Extend EntityState with kind 'character' {playerId, callsign, pos, quat, onFoot} — the protocol already allows kind; add character fields; snapshots now include characters (they are few — no bandwidth concern).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Tests + e2e",
       "details": "Integration: position assertion, denial, multi-client agreement; e2e scripted flight → dock → disembark → on-foot screenshot. Run full suite + e2e.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-29", "TASK-27"],

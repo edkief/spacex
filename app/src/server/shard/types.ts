@@ -50,8 +50,13 @@ export interface ConnState {
 export interface SimEntity {
   /** Wire-stable entity id (the ship id clients hold; survives ship swaps). */
   id: string;
-  /** 'wreck': static wreck of a destroyed ship (TASK-23), removed after its ttl. */
-  kind: 'ship' | 'ai-ship' | 'wreck';
+  /**
+   * 'wreck': static wreck of a destroyed ship (TASK-23), removed after its
+   * ttl. 'character': the on-foot player entity (TASK-31) — static in v1
+   * (walking is TASK-32), lives in `entities` (NOT playerEntities: it never
+   * owns a ship-input lane).
+   */
+  kind: 'ship' | 'ai-ship' | 'wreck' | 'character';
   /** Owner (null for AI ships and wrecks). One entity per player. */
   playerId: string | null;
   callsign?: string;
@@ -106,6 +111,14 @@ export interface SimEntity {
    * player's connection is re-registered (idle back to false).
    */
   idle?: boolean;
+  /**
+   * TASK-31: the owner disembarked — their character entity (id
+   * `char:<playerId>`) is the player's active entity. The ship is FROZEN
+   * where it docked: the tick skips it entirely (no drift, no re-dock
+   * churn) and its inputs are dropped (not locally controllable). Cleared
+   * by re-entry (TASK-35).
+   */
+  disembarked?: boolean;
 }
 
 /** The shard the router (TASK-11) will instantiate per system. */

@@ -5,6 +5,8 @@ import type { EntityState } from '@shared/protocol/schemas';
 import { shipStats, type Livery, type ShipClass } from '@shared/ships';
 import type { Repository, ShipPosition } from '@server/db/repo';
 import type { Conn } from '@server/ws';
+import type { InputPayload } from '@shared/protocol/schemas';
+import type { SystemShard } from './shard';
 
 /**
  * In-process ship-swap channel (TASK-20). Shards are single-process (PRD §7),
@@ -178,4 +180,31 @@ export function attachShipSwapBroadcast(
     offSwap();
     offLivery();
   };
+}
+
+/**
+ * TASK-31: route one VALIDATED gameplay frame to the shard the connection
+ * is in (single writer: the shard mutates, the WS layer never does). Used by
+ * the production entry (index.ts) and by the live-ws tests verbatim, so the
+ * dispatch surface has one definition.
+ *
+ * - 'input'      → the per-tick input queue (stale-seq / stale-conn guarded);
+ * - 'chat'       → ts + ring buffer + whole-shard broadcast;
+ * - 'exit_ship'  → disembark (TASK-31): pad-docked check, character spawn,
+ *                  'not-docked' denial on the requesting connection.
+ */
+export function routeGameMessage(
+  shard: SystemShard,
+  conn: Conn,
+  type: string,
+  payload: unknown,
+): void {
+  if (!conn.playerId) return;
+  if (type === 'input') {
+    shard.enqueueInput(conn.playerId, payload as InputPayload, conn);
+  } else if (type === 'chat' && conn.callsign) {
+    shard.handleChat(conn.callsign, (payload as { text: string }).text);
+  } else if (type === 'exit_ship') {
+    shard.handleExitShip(conn.playerId, (payload as { shipId: string }).shipId, conn);
+  }
 }

@@ -15,6 +15,7 @@ import {
   type AtmosphereDome,
 } from '@client/render/atmosphere-dome';
 import { frameMonitor } from '@client/perf/frameMonitor';
+import { CameraRig } from '@client/camera/CameraRig';
 import { atmosphereViewFor } from './atmosphere-view';
 
 /**
@@ -277,6 +278,19 @@ export class WorldManager {
    * entity_update): drives pad-ring visibility, nothing else. */
   private selfPos: Vec3 | null = null;
   private readonly clock = new THREE.Clock();
+  /**
+   * TASK-31: the on-foot camera. The rig owns the SAME PerspectiveCamera but
+   * only DRIVES it while active (after the first disembarkTo) — until then
+   * the manager's spectator camera stays exactly as before.
+   */
+  private readonly cameraRig: CameraRig;
+  /** True from the first setCharacterPos until clearCharacter (rig runs). */
+  private rigActive = false;
+  /** Placeholder character mesh (capsule until TASK-32's model; null = on ship). */
+  private characterMesh: THREE.Mesh | null = null;
+  /** The pad plane height feeding the handoff nudge (flat disc under the feet). */
+  private rigPadHeight = 0;
+  private lastFrameMs = performance.now();
   private disposed = false;
   private raf = 0;
 
@@ -296,6 +310,17 @@ export class WorldManager {
     this.camera.position.set(150, 40, 150);
     this.camera.lookAt(0, 0, 0);
 
+    // TASK-31: the continuous camera (TASK-27 rig) wraps the same camera.
+    // Inert until the first disembark: handoff('onfoot') animates FROM the
+    // current (spectator or cockpit) pose, so whatever the camera shows at
+    // disembark time is the handoff's start — no cut.
+    this.cameraRig = new CameraRig({
+      camera: this.camera,
+      // The character stands on the pad disc: a flat plane at the pad height
+      // (no client terrain sampling needed for the nudge).
+      heightAt: () => this.rigPadHeight,
+    });
+
     this.background = createBackground(seed);
     // TASK-28.1: the skybox fades OUT under the atmosphere dome. The sky
     // starts fully opaque; its opacity (like the dome's haze) is driven by
@@ -313,6 +338,13 @@ export class WorldManager {
     const frame = (): void => {
       if (this.disposed) return;
       frameMonitor.beginFrame();
+      // TASK-31: drive the on-foot camera rig (only while the player is
+      // disembarked — before that the spectator camera is untouched).
+      const nowMs = performance.now();
+      if (this.rigActive) {
+        this.cameraRig.update(Math.min(0.1, (nowMs - this.lastFrameMs) / 1000));
+      }
+      this.lastFrameMs = nowMs;
       this.resize();
       // Same slow drift as the boot starfield — the sky stays alive through
       // the warp (never a static / black frame).
@@ -363,6 +395,71 @@ export class WorldManager {
   /** The client-side pad list of the current system (empty before the first swap). */
   getPads(): PadInfo[] {
     return this.pads;
+  }
+
+  /**
+   * TASK-31: the player is on foot — their character entity (from the self
+   * entity_update path) first appears. Spawns the placeholder capsule at the
+   * character's position and hands the shared camera off to the on-foot mode
+   * (the 600 ms TASK-27 handoff animation, terrain-nudged against the pad
+   * plane). Later calls (10 Hz) only move the capsule — the rig keeps
+   * following. Cheap to call every self update.
+   */
+  setCharacterPos(pos: Vec3): void {
+    // Feed the rig FIRST so the handoff (below) precomputes its path to the
+    // character's ACTUAL position, not the rig's stale origin.
+    this.cameraRig.setCharacterPosition(pos);
+    if (!this.characterMesh) {
+      this.characterMesh = buildCharacterMesh();
+      this.scene.add(this.characterMesh);
+      // The pad the character stands on = the closest seeded pad (at most a
+      // handful per system); its flat height feeds the handoff nudge.
+      let bestIdx: number | null = null;
+      let bestD = Infinity;
+      for (let i = 0; i < this.pads.length; i++) {
+        const pad = this.pads[i];
+        const d = Math.hypot(pad.pos.x - pos.x, pad.pos.z - pos.z);
+        if (d < bestD) {
+          bestD = d;
+          bestIdx = i;
+        }
+      }
+      const pad = bestIdx !== null ? this.pads[bestIdx] : undefined;
+      this.rigPadHeight = pad ? pad.pos.y : pos.y;
+      this.rigActive = true;
+      this.cameraRig.handoff('onfoot');
+    }
+    // The rig's steady-state on-foot pose tracks THIS position (4 m back,
+    // 1.6 m up) — feed it every update so the camera follows the character,
+    // not the rig's stale origin.
+    this.cameraRig.setCharacterPosition(pos);
+    this.characterMesh.position.set(pos.x, pos.y + 1.05, pos.z); // capsule center
+  }
+
+  /**
+   * TASK-31: the player is back in a ship (warp / re-entry in TASK-35 /
+   * snapshot reset). Removes the capsule and hands the camera back to its
+   * pre-disembark pose (the manager's spectator vantage) so a system swap
+   * never inherits an on-foot camera.
+   */
+  clearCharacter(): void {
+    if (this.characterMesh) {
+      this.scene.remove(this.characterMesh);
+      this.characterMesh.geometry.dispose();
+      (this.characterMesh.material as THREE.Material).dispose();
+      this.characterMesh = null;
+    }
+    if (this.rigActive) {
+      this.rigActive = false;
+      this.cameraRig.mode = 'cockpit'; // re-arm: the next handoff re-animates
+      this.camera.position.set(150, 40, 150);
+      this.camera.lookAt(0, 0, 0);
+    }
+  }
+
+  /** True while the player is disembarked (character capsule rendered). */
+  get isOnFoot(): boolean {
+    return this.characterMesh !== null;
   }
 
   /**
@@ -422,10 +519,27 @@ export class WorldManager {
       disposeGroup(this.worldGroup);
       this.worldGroup = null;
     }
+    if (this.characterMesh) {
+      this.scene.remove(this.characterMesh);
+      this.characterMesh.geometry.dispose();
+      (this.characterMesh.material as THREE.Material).dispose();
+      this.characterMesh = null;
+    }
     this.pads = [];
     this.padRings = [];
     this.dome.dispose();
     this.background.dispose();
     this.renderer.dispose();
   }
+}
+
+/**
+ * TASK-31: the placeholder character mesh — a simple lit-free capsule
+ * (2.1 m tall, centered on its midpoint) standing at the character's feet.
+ * Replaced by the real character model in TASK-32.
+ */
+function buildCharacterMesh(): THREE.Mesh {
+  const geometry = new THREE.CapsuleGeometry(0.45, 1.2, 4, 8);
+  const material = new THREE.MeshBasicMaterial({ color: '#7dd3fc' });
+  return new THREE.Mesh(geometry, material);
 }

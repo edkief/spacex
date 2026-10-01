@@ -76,6 +76,17 @@ export const entityStateSchema = z
     classId: z.string().min(1),
     callsign: z.string().min(1).max(24).optional(),
     livery: liverySchema.optional(),
+    /**
+     * TASK-31: set for kind 'character' — the on-foot player entity spawned
+     * on disembark. Identifies its owner (the sim keeps one character per
+     * disembarked player). Ships omit it.
+     */
+    playerId: z.string().min(1).optional(),
+    /**
+     * TASK-31: true for kind 'character' (an on-foot player). The client
+     * routes its control target + camera off this flag.
+     */
+    onFoot: z.boolean().optional(),
   })
   .strict();
 export type EntityState = z.infer<typeof entityStateSchema>;

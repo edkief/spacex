@@ -26,6 +26,7 @@ import {
   vtolAssistActive,
   type PadInfo,
 } from '@shared/world/pads';
+import { characterSpawnPos } from '@shared/physics/character';
 import { shipStats, HEX_COLOR } from '@shared/ships';
 import type { SystemGen } from '@shared/galaxy/types';
 import { homeDockPosition } from '@shared/galaxy/dock';
@@ -230,6 +231,13 @@ export class SystemShard implements Shard {
       this.log.debug('dropped input: ship destroyed', { playerId, seq: payload.seq });
       return false;
     }
+    // TASK-31: a disembarked player controls their CHARACTER, not the ship —
+    // frames aimed at the frozen docked ship are dropped (re-entry is
+    // TASK-35, which clears this state).
+    if (entity?.disembarked) {
+      this.log.debug('dropped input: player on foot', { playerId, seq: payload.seq });
+      return false;
+    }
     if (this.sim.inputDrops) {
       this.log.debug('dropped input: sim overloaded', { playerId, seq: payload.seq });
       return false;
@@ -269,6 +277,10 @@ export class SystemShard implements Shard {
     // already exists, still at its idle position) un-idles it. A headless
     // adopt (no connection) stays idle.
     entity.idle = !this.playerConns.has(playerId);
+    // TASK-31: a disconnect while disembarked leaves the character in the
+    // sim (TASK-24 pattern — it simply persists). A re-join re-adopts into
+    // the SAME on-foot state: the ship stays frozen where it docked.
+    if (this.entities.has(`char:${playerId}`)) entity.disembarked = true;
     return entity;
   }
 
@@ -583,6 +595,10 @@ export class SystemShard implements Shard {
     // stop integrating and ignore inputs entirely.
     for (const entity of this.playerEntities.values()) {
       if (entity.destroyed) continue;
+      // TASK-31: the owner is on foot — the ship stays FROZEN where it docked
+      // (no integration, no pad re-check: it keeps its docked state) until
+      // the player re-enters it (TASK-35).
+      if (entity.disembarked) continue;
       const connId = entity.playerId ? this.playerConns.get(entity.playerId) : undefined;
       const conn = connId ? this.connections.get(connId) : undefined;
       const input = conn?.input;
@@ -778,6 +794,84 @@ export class SystemShard implements Shard {
   }
 
   /**
+   * TASK-31: disembark — the player (authenticated + joined, guaranteed by
+   * the WS layer) exits their PAD-DOCKED ship: the sim spawns a static
+   * character entity (id `char:<playerId>`) 2.5 m to the ship's side on the
+   * pad plane (shared characterSpawnPos math), the ship stays docked and
+   * frozen (tick skips it, its inputs are dropped), and the character rides
+   * the next 10 Hz entity_update to every peer (one shared buffer — all
+   * clients see the same spawn). A denial answers the requesting connection
+   * with a structured error ('not-docked' per the TASK-31 contract).
+   *
+   * The character lives in `entities` but NOT `playerEntities`: it owns no
+   * ship-input lane (walking input arrives in TASK-32), and a disconnect
+   * while on foot leaves it in the sim exactly like a ship (TASK-24).
+   */
+  handleExitShip(playerId: string, shipId: string, source?: unknown): ExitShipOutcome {
+    const entity = this.entities.get(shipId);
+    if (!entity || entity.kind !== 'ship' || entity.playerId !== playerId) {
+      this.sendErrorToPlayer(playerId, 'unknown-ship', 'not your ship', source);
+      return 'unknown-ship';
+    }
+    if (entity.disembarked) {
+      this.log.debug('exit ignored: already on foot', { playerId, shipId });
+      return 'already-on-foot';
+    }
+    if (!entity.padId) {
+      this.sendErrorToPlayer(playerId, 'not-docked', 'ship is not docked on a landing pad', source);
+      return 'not-docked';
+    }
+    const pad = [...this.planetPads.values()].find((p) => p.padId === entity.padId);
+    const pos = characterSpawnPos(
+      entity.ship.pos,
+      entity.ship.quat,
+      pad ? pad.pos.y : entity.ship.pos.y,
+    );
+    this.entities.set(`char:${playerId}`, {
+      id: `char:${playerId}`,
+      kind: 'character',
+      playerId,
+      callsign: entity.callsign,
+      classId: entity.classId,
+      // v1: the character is static (no walk yet — TASK-32); surface regime,
+      // zero velocity, identity orientation.
+      ship: { pos, vel: { x: 0, y: 0, z: 0 }, quat: quatIdentity(), regime: 'surface' },
+      hull: entity.hull,
+      shields: entity.shields,
+      targetId: null,
+      docked: false,
+    });
+    entity.disembarked = true;
+    this.log.info('player disembarked', {
+      playerId,
+      ship: shipId,
+      character: `char:${playerId}`,
+      pos,
+    });
+    this.events.emit('disembarked', {
+      playerId,
+      shipId,
+      characterId: `char:${playerId}`,
+      pos,
+    });
+    return 'ok';
+  }
+
+  /** Structured error to one player's CURRENT connection (stale-conn guarded). */
+  private sendErrorToPlayer(
+    playerId: string,
+    code: string,
+    message: string,
+    source?: unknown,
+  ): void {
+    const connId = this.playerConns.get(playerId);
+    const conn = connId ? this.connections.get(connId) : undefined;
+    if (!conn) return;
+    if (source !== undefined && conn.source !== source) return;
+    conn.send(encodeMessage('error', { code, message }));
+  }
+
+  /**
    * Resolve the flight-model context for an entity: its regime decides the
    * planet context (atmosphere density, O(1) chunk-cached terrain, pads).
    * Space entities get no planet context at all.
@@ -969,6 +1063,9 @@ export class SystemShard implements Shard {
 // predictor maps frames identically. Re-exported so existing imports work.
 export { inputToShipInput };
 
+/** The outcome of a disembark request (TASK-31). */
+export type ExitShipOutcome = 'ok' | 'not-docked' | 'unknown-ship' | 'already-on-foot';
+
 /** Entity → wire EntityState (hull/shields normalized 0..1, regime mapped). */
 export function entityToState(e: SimEntity): EntityState {
   // Wire regimes v1: docked (at a dock or settled on a pad) vs sublight flight.
@@ -991,5 +1088,11 @@ export function entityToState(e: SimEntity): EntityState {
   if (e.livery) state.livery = e.livery;
   // TASK-29: the docked landing pad id (entity_update.state = 'docked' {padId}).
   if (e.padId) state.padId = e.padId;
+  // TASK-31: character entities carry their owner + the on-foot flag so
+  // clients route the control target / camera off the same shape.
+  if (e.kind === 'character') {
+    state.playerId = e.playerId ?? undefined;
+    state.onFoot = true;
+  }
   return state;
 }

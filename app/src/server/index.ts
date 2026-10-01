@@ -7,10 +7,9 @@ import { pgTables, sqliteTables } from '@server/db/schema';
 import { createSessionService, createTokenAuthenticate } from '@server/auth/session';
 import { createTokenCodec } from '@server/auth/token';
 import { registerApiRoutes } from '@server/routes';
-import { attachShipSwapBroadcast, createShipSwapBus } from '@server/shards';
+import { attachShipSwapBroadcast, createShipSwapBus, routeGameMessage } from '@server/shards';
 import { createGalaxyRouter } from '@server/galaxy/router';
 import { createRouterGateway } from '@server/galaxy/gateway';
-import type { InputPayload } from '@shared/protocol/schemas';
 
 const env = loadEnv();
 const app = buildServer(env);
@@ -55,21 +54,13 @@ async function main(): Promise<void> {
     authenticate: createTokenAuthenticate(sessions),
     revokeToken: (token) => sessions.revoke(token),
     onGameMessage: (conn, type, payload) => {
-      // Gameplay frames route to the shard the connection is currently in.
+      // Gameplay frames route to the shard the connection is currently in
+      // (single dispatch surface — see routeGameMessage in @server/shards:
+      // input queueing, chat, and the TASK-31 'exit_ship' disembark).
       if (!conn.systemId || !conn.playerId) return;
       const shard = router.active(conn.systemId)?.shard;
       if (!shard) return;
-      // 'input': the tick drains the queue. The Conn identity lets the
-      // shard drop frames from a superseded (zombie) socket (TASK-17).
-      if (type === 'input') {
-        shard.enqueueInput(conn.playerId, payload as InputPayload, conn);
-        return;
-      }
-      // 'chat' (TASK-16): validated + rate-limited upstream; the shard
-      // assigns ts and broadcasts to the whole system.
-      if (type === 'chat' && conn.callsign) {
-        shard.handleChat(conn.callsign, (payload as { text: string }).text);
-      }
+      routeGameMessage(shard, conn, type, payload);
     },
     // Leaves route through the gateway's leaveSystem → router.leave,
     // which starts the reap grace when a shard empties.
