@@ -7,6 +7,7 @@ import type { PlanetClass, SpectralClass, SystemGen } from '@shared/galaxy/types
 import { ATMOSPHERE_BOUNDARY_M } from '@shared/physics/atmosphere';
 import type { Vec3 } from '@shared/physics/vec';
 import type { Regime } from '@shared/regime';
+import { padsForSystem, type PadInfo } from '@shared/world/pads';
 import { createBackground } from '@client/render/starfield';
 import {
   createAtmosphereDome,
@@ -42,6 +43,10 @@ export const WORLD_PLANET_RADIUS = 4;
 export const WORLD_FIRST_ORBIT = 30;
 /** Orbit spacing between rendered planets. */
 export const WORLD_ORBIT_STEP = 18;
+/** Pad rings are visible only while the player is within this (m, TASK-29.3). */
+export const PAD_RING_VISIBLE_RANGE_M = 500;
+/** A ring floats this far above the pad surface (m) so it cannot z-fight it. */
+export const PAD_RING_SURFACE_OFFSET_M = 0.25;
 
 /** Standard spectral-class palette (hot O → cool M). */
 export const STAR_COLORS: Record<SpectralClass, string> = {
@@ -107,6 +112,75 @@ export function buildSystemLayout(system: SystemGen): {
     planets,
     gate: { ...SPAWN_GATE_POS },
   };
+}
+
+/** One pad ring marker placement (pure data, mirrors the shared PadInfo). */
+export interface PadRingPlacement {
+  padId: string;
+  x: number;
+  y: number;
+  z: number;
+  radius: number;
+}
+
+/**
+ * Pure: the pad ring placements of a system — one ring per pad from the
+ * SHARED deterministic pad list (the same list the server's dock logic uses,
+ * cached per (seed, systemId) inside the shared module).
+ */
+export function padRingsFor(
+  seed: string,
+  system: Pick<SystemGen, 'systemId' | 'planets'>,
+): PadRingPlacement[] {
+  return padsForSystem(seed, system).map((p) => ({
+    padId: p.padId,
+    x: p.pos.x,
+    y: p.pos.y,
+    z: p.pos.z,
+    radius: p.radius,
+  }));
+}
+
+/**
+ * Pure: is a pad ring at `padPos` visible to the player at `pos` — within
+ * PAD_RING_VISIBLE_RANGE_M (3-D distance, metres = world units). No known
+ * player position (before the first entity_update) → hidden.
+ */
+export function padRingVisible(pos: Vec3 | null, padPos: Vec3): boolean {
+  if (!pos) return false;
+  return (
+    Math.hypot(pos.x - padPos.x, pos.y - padPos.y, pos.z - padPos.z) <= PAD_RING_VISIBLE_RANGE_M
+  );
+}
+
+/**
+ * The glowing pad rings of one system: one additive flat ring per pad, laid
+ * on the pad normal (+Y), each initially hidden (the frame loop reveals a
+ * ring only while the player is within PAD_RING_VISIBLE_RANGE_M). They live
+ * in the per-system world group, so a world swap removes them automatically.
+ */
+function buildPadRings(
+  seed: string,
+  system: Pick<SystemGen, 'systemId' | 'planets'>,
+): THREE.Mesh[] {
+  const rings: THREE.Mesh[] = [];
+  for (const pad of padRingsFor(seed, system)) {
+    const geometry = new THREE.RingGeometry(pad.radius * 0.55, pad.radius, 48);
+    const material = new THREE.MeshBasicMaterial({
+      color: '#67e8f9',
+      transparent: true,
+      opacity: 0.85,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(pad.x, pad.y + PAD_RING_SURFACE_OFFSET_M, pad.z);
+    mesh.rotation.x = -Math.PI / 2; // flat on the pad normal (+Y up)
+    mesh.visible = false;
+    rings.push(mesh);
+  }
+  return rings;
 }
 
 /** Build the three.js group for one system (all geometry low-detail). */
@@ -183,6 +257,8 @@ export class WorldManager {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
   private readonly camera: THREE.PerspectiveCamera;
+  /** The galaxy seed this manager's world (and pad list) derives from. */
+  private readonly seed: string;
   private readonly background: ReturnType<typeof createBackground>;
   /** The system currently rendered as an OBJECT (null before the first
    * swapWorld): atmosphereViewFor needs the planet list, not just the id. */
@@ -192,11 +268,20 @@ export class WorldManager {
   /** Scratch color for dome tints (never escapes the manager). */
   private readonly tempColor = new THREE.Color();
   private worldGroup: THREE.Group | null = null;
+  /** The client-side pad list of the current system (empty before the first
+   * swapWorld): the shared deterministic list, same data the server docks by. */
+  private pads: PadInfo[] = [];
+  /** The glowing pad rings of the current system (per-frame culling list). */
+  private padRings: THREE.Mesh[] = [];
+  /** The player ship's last-known world position (null before the first
+   * entity_update): drives pad-ring visibility, nothing else. */
+  private selfPos: Vec3 | null = null;
   private readonly clock = new THREE.Clock();
   private disposed = false;
   private raf = 0;
 
   constructor(canvas: HTMLCanvasElement, seed: string) {
+    this.seed = seed;
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: false,
@@ -232,6 +317,11 @@ export class WorldManager {
       // Same slow drift as the boot starfield — the sky stays alive through
       // the warp (never a static / black frame).
       this.background.stars.rotation.y = this.clock.getElapsedTime() * 0.005;
+      // TASK-29.3: pad-ring culling (a handful of pads at most — per-frame
+      // distance checks against the last-known player position are trivial).
+      for (const ring of this.padRings) {
+        ring.visible = padRingVisible(this.selfPos, ring.position);
+      }
       this.renderer.render(this.scene, this.camera);
       // renderer.info.render resets per frame — capture it right after the
       // render, before the next frame (TASK-57 frame monitor).
@@ -252,6 +342,12 @@ export class WorldManager {
   swapWorld(system: SystemGen): number {
     const t0 = performance.now();
     const next = buildWorldGroup(system);
+    // TASK-29.3: the pad list is system-derived world state (the shared
+    // deterministic list, cached per system) and the rings live in the
+    // per-system group, so both are rebuilt here and die with the old group.
+    this.pads = padsForSystem(this.seed, system);
+    this.padRings = buildPadRings(this.seed, system);
+    for (const ring of this.padRings) next.add(ring);
     if (this.worldGroup) {
       this.scene.remove(this.worldGroup);
       disposeGroup(this.worldGroup);
@@ -262,6 +358,20 @@ export class WorldManager {
     this.system = system;
     this.lastSwapMs = performance.now() - t0;
     return this.lastSwapMs;
+  }
+
+  /** The client-side pad list of the current system (empty before the first swap). */
+  getPads(): PadInfo[] {
+    return this.pads;
+  }
+
+  /**
+   * Record the player ship's last-known world position (called from the
+   * session's self entity_update path). Used ONLY for pad-ring visibility —
+   * no physics reads it.
+   */
+  setShipPos(pos: Vec3): void {
+    this.selfPos = pos;
   }
 
   /**
@@ -312,6 +422,8 @@ export class WorldManager {
       disposeGroup(this.worldGroup);
       this.worldGroup = null;
     }
+    this.pads = [];
+    this.padRings = [];
     this.dome.dispose();
     this.background.dispose();
     this.renderer.dispose();

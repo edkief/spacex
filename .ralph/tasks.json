@@ -323,7 +323,7 @@
     "title": "Client: pad ring markers + DOCKED indicator",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-29.3.json",
-    "passes": false,
+    "passes": true,
     "splitFrom": "TASK-29",
     "splitDepth": 1
   },

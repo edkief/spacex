@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildSystemLayout,
+  PAD_RING_VISIBLE_RANGE_M,
+  padRingVisible,
+  padRingsFor,
   PLANET_COLORS,
   STAR_COLORS,
   WORLD_BUILD_BUDGET_MS,
@@ -13,6 +16,9 @@ import {
 import { generateStars } from '@shared/galaxy/stars';
 import { generateSystem } from '@shared/galaxy/system';
 import { SPAWN_GATE_POS } from '@shared/galaxy/spawn';
+import { padsForSystem, PAD_RADIUS_M } from '@shared/world/pads';
+import type { Planet, SystemGen } from '@shared/galaxy/types';
+import type { Vec3 } from '@shared/physics/vec';
 
 /**
  * TASK-8 world-swap layout: the pure, deterministic near-field (star,
@@ -60,5 +66,64 @@ describe('buildSystemLayout (TASK-8)', () => {
   it('puts the spawn gate exactly at the shared SPAWN_GATE_POS (100 u +X)', () => {
     expect(buildSystemLayout(sys0).gate).toEqual({ ...SPAWN_GATE_POS });
     expect(WORLD_BUILD_BUDGET_MS).toBe(300);
+  });
+});
+
+/**
+ * TASK-29.3: pad ring markers. padRingsFor is the pure half of swapWorld's
+ * pad-list presence (same deterministic list as the server, cached inside
+ * the shared module); padRingVisible is the per-frame culling predicate.
+ */
+function fakeSystem(landable: boolean[]): Pick<SystemGen, 'systemId' | 'planets'> {
+  const mk = (i: number): Planet => ({
+    id: `p${i}`,
+    name: `P${i}`,
+    class: 'terran',
+    radiusKm: 3000,
+    hasAtmosphere: true,
+    landable: landable[i],
+    dockCount: 1,
+    resourceTypes: ['iron'],
+    aiRoster: { count: 1, classes: ['scout'] },
+  });
+  return { systemId: 'pad-ring-sys', planets: [mk(0), mk(1), mk(2)] };
+}
+
+describe('pad ring markers (TASK-29.3)', () => {
+  it('padRingsFor derives one ring per pad from the SHARED pad list', () => {
+    const sys = fakeSystem([true, false, true]);
+    const pads = padsForSystem(SEED, sys);
+    expect(pads.length).toBe(2); // one pad per LANDABLE planet
+    const rings = padRingsFor(SEED, sys);
+    expect(rings.length).toBe(2);
+    rings.forEach((r, i) => {
+      expect(r.padId).toBe(pads[i].padId);
+      expect(r.x).toBe(pads[i].pos.x);
+      expect(r.y).toBe(pads[i].pos.y);
+      expect(r.z).toBe(pads[i].pos.z);
+      expect(r.radius).toBe(pads[i].radius);
+      expect(r.radius).toBe(PAD_RADIUS_M);
+    });
+  });
+
+  it('is deterministic: the same (seed, system) always yields the same rings', () => {
+    const sys = fakeSystem([true, false, true]);
+    expect(padRingsFor(SEED, sys)).toEqual(padRingsFor(SEED, sys));
+  });
+
+  it('padRingVisible is a pure 500 m range check (3-D, inclusive)', () => {
+    const pad: Vec3 = { x: 100, y: 5, z: -200 };
+    expect(PAD_RING_VISIBLE_RANGE_M).toBe(500);
+    expect(padRingVisible(null, pad)).toBe(false); // no position yet
+    expect(padRingVisible({ ...pad }, pad)).toBe(true);
+    expect(padRingVisible({ x: pad.x + PAD_RING_VISIBLE_RANGE_M, y: pad.y, z: pad.z }, pad)).toBe(
+      true,
+    ); // exactly 500 m: visible
+    expect(
+      padRingVisible({ x: pad.x + PAD_RING_VISIBLE_RANGE_M + 1, y: pad.y, z: pad.z }, pad),
+    ).toBe(false); // 501 m: hidden
+    // Y distance counts too (a pad 400 m below at 300 m horizontal is ~500 m out)
+    expect(padRingVisible({ x: pad.x + 300, y: pad.y - 400, z: pad.z }, pad)).toBe(true);
+    expect(padRingVisible({ x: pad.x + 300, y: pad.y - 401, z: pad.z }, pad)).toBe(false);
   });
 });

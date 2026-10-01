@@ -2,31 +2,31 @@
   "id": "TASK-29.3",
   "title": "Client: pad ring markers + DOCKED indicator",
   "category": "functional",
-  "description": "The client half of TASK-29 step 3: glowing pad-ring markers rendered at pad positions (within 500 m of the player, from the client-side pad list) and a single DOM node (#docked-indicator) that shows while the player's ship is server-docked. The VTOL key already exists (TASK-25 controls) and the assist is server-side physics — the client sends the key and renders the markers; no client physics. Builds on TASK-29.2 (suite green).",
+  "description": "The client half of TASK-29 step 3: glowing pad-ring markers rendered at pad positions (within 500 m of the player, from the client-side pad list) and a single DOM node (#docked-indicator) that shows while the player's ship is server-docked. The VTOL key already exists (TASK-25 controls) and the assist is server-side physics \u2014 the client sends the key and renders the markers; no client physics. Builds on TASK-29.2 (suite green).",
   "steps": [
     {
       "step": 1,
       "description": "Client pad list",
-      "details": "app/src/client/world/WorldManager.ts: the constructor already receives the galaxy seed, and the current system is known on world build/swap. Derive padsForSystem(seed, system) there (shared module — same deterministic list as the server, cached per system) and expose it (e.g. getPads()). The pad list is system-derived data, so it is part of the client's world state, not a network fetch.",
-      "pass": false
+      "details": "app/src/client/world/WorldManager.ts: the constructor already receives the galaxy seed, and the current system is known on world build/swap. Derive padsForSystem(seed, system) there (shared module \u2014 same deterministic list as the server, cached per system) and expose it (e.g. getPads()). The pad list is system-derived data, so it is part of the client's world state, not a network fetch.",
+      "pass": true
     },
     {
       "step": 2,
       "description": "Pad ring markers",
-      "details": "A simple glowing ring mesh at each pad position (THREE.RingGeometry or thin torus, emissive/additive material, laid flat on the pad normal — one draw call per pad; a system has at most a handful of pads). Visible only while the pad is within 500 m of the player ship (distance check per frame or per snapshot — at this scale per frame is fine); hidden automatically on world swap (rings live in the per-system scene group). Purely cosmetic — no perf budget work needed.",
-      "pass": false
+      "details": "A simple glowing ring mesh at each pad position (THREE.RingGeometry or thin torus, emissive/additive material, laid flat on the pad normal \u2014 one draw call per pad; a system has at most a handful of pads). Visible only while the pad is within 500 m of the player ship (distance check per frame or per snapshot \u2014 at this scale per frame is fine); hidden automatically on world swap (rings live in the per-system scene group). Purely cosmetic \u2014 no perf budget work needed.",
+      "pass": true
     },
     {
       "step": 3,
       "description": "DOCKED indicator",
-      "details": "A single DOM node #docked-indicator (HUD STUB — the full ship HUD is TASK-51; keep it one node, e.g. small monospace 'DOCKED' text). Drive it in useGameSession (src/client/main.tsx) from the self entity_update, exactly like the re-entry tint at the same spot: visible when the wire state has regime 'docked' AND padId set (entityStateSchema already carries padId — committed in 3d14686); hidden otherwise. No per-frame work, no physics.",
-      "pass": false
+      "details": "A single DOM node #docked-indicator (HUD STUB \u2014 the full ship HUD is TASK-51; keep it one node, e.g. small monospace 'DOCKED' text). Drive it in useGameSession (src/client/main.tsx) from the self entity_update, exactly like the re-entry tint at the same spot: visible when the wire state has regime 'docked' AND padId set (entityStateSchema already carries padId \u2014 committed in 3d14686); hidden otherwise. No per-frame work, no physics.",
+      "pass": true
     },
     {
       "step": 4,
       "description": "Tests + commit",
-      "details": "Small unit tests where the logic is pure (e.g. WorldManager pad-list presence on swapWorld — follow src/client/world/world-manager.test.ts; the indicator's show/hide predicate if separated as a pure function). `npx tsc --noEmit` + `npm run test` green, commit (Conventional Commit, references TASK-29.3).",
-      "pass": false
+      "details": "Small unit tests where the logic is pure (e.g. WorldManager pad-list presence on swapWorld \u2014 follow src/client/world/world-manager.test.ts; the indicator's show/hide predicate if separated as a pure function). `npx tsc --noEmit` + `npm run test` green, commit (Conventional Commit, references TASK-29.3).",
+      "pass": true
     }
   ],
   "acceptanceCriteria": [
@@ -37,9 +37,9 @@
   ],
   "notes": [
     "Builds on TASK-29.2: the whole unit suite is green at start; the server already sends regime 'docked' + padId in every entity_update (committed in 3d14686).",
-    "The VTOL key already exists — the atmosphere ControlScheme in src/client/input/controls.ts (vtol: ' ', readInput maps it to up: 1 while held). The assist itself runs in the shard tick (applyVtolAssist) — do NOT add client-side damping physics.",
-    "Debug-hook precedent, if a small dev hook is useful for TASK-29.4 (e.g. reading the pad list from the page): dev-only window hooks gated on import.meta.env.DEV — src/client/drift-debug.ts (__DRIFT__), atmosphere-debug.ts (__ATMO__), stream-debug.ts (__STREAM__). Follow the same pattern; production builds must not ship it.",
-    "WorldManager integration points: constructor (canvas, seed) → background/scene setup; swapWorld builds-then-replaces the system scene (TASK-8) — pad rings belong to the per-system scene so they reset with it; world-manager.test.ts is the existing test pattern for the manager.",
-    "The e2e (TASK-29.4) asserts #docked-indicator in the DOM and screenshots the docked state — the pad ring should appear in that screenshot but is NOT pixel-asserted (headless pixel assertions on it are out of scope)."
+    "The VTOL key already exists \u2014 the atmosphere ControlScheme in src/client/input/controls.ts (vtol: ' ', readInput maps it to up: 1 while held). The assist itself runs in the shard tick (applyVtolAssist) \u2014 do NOT add client-side damping physics.",
+    "Debug-hook precedent, if a small dev hook is useful for TASK-29.4 (e.g. reading the pad list from the page): dev-only window hooks gated on import.meta.env.DEV \u2014 src/client/drift-debug.ts (__DRIFT__), atmosphere-debug.ts (__ATMO__), stream-debug.ts (__STREAM__). Follow the same pattern; production builds must not ship it.",
+    "WorldManager integration points: constructor (canvas, seed) \u2192 background/scene setup; swapWorld builds-then-replaces the system scene (TASK-8) \u2014 pad rings belong to the per-system scene so they reset with it; world-manager.test.ts is the existing test pattern for the manager.",
+    "The e2e (TASK-29.4) asserts #docked-indicator in the DOM and screenshots the docked state \u2014 the pad ring should appear in that screenshot but is NOT pixel-asserted (headless pixel assertions on it are out of scope)."
   ]
 }

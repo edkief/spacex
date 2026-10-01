@@ -12,8 +12,10 @@ import { WorldManager } from '@client/world/WorldManager';
 import { StarChart } from '@client/ui/star-chart';
 import { WarpOverlay } from '@client/ui/warp-overlay';
 import { ReentryTint } from '@client/ui/reentry-tint';
+import { DockedIndicator } from '@client/ui/docked-indicator';
 import { WarpController, warpSubscribe } from '@client/state/warp';
 import { setReentryTint } from '@client/state/reentry';
+import { isDocked, setDockedIndicator } from '@client/state/docked';
 import { reentryTintFactor } from '@shared/physics/atmosphere';
 import { FrameMonitorOverlay } from '@client/ui/debug-overlay';
 import { systemForId } from '@shared/galaxy/system';
@@ -147,6 +149,9 @@ function useGameSession(
             const boundary = regimeWiring.atmosphereBoundaryAt(self.pos);
             setReentryTint(boundary > 0 ? reentryTintFactor(-self.vel.y, boundary) : 0);
           }
+          // TASK-29.3: DOCKED indicator — visible exactly while the wire
+          // regime is 'docked' with a padId set (HUD stub; full HUD TASK-51).
+          if (self) setDockedIndicator(isDocked(self.regime, self.padId));
           return;
         }
         if (msg.type !== 'presence') return;
@@ -181,6 +186,8 @@ function useGameSession(
         regimeWiring.setSystem(seedRef.current, snapshot.systemId);
         // TASK-28.2: a warp must never carry a stale re-entry tint.
         setReentryTint(0);
+        // TASK-29.3: a warp must never carry a stale docked state either.
+        setDockedIndicator(false);
       },
     });
     clientRef.current = client;
@@ -309,7 +316,11 @@ function App() {
     // declared below (line ~349), so passing the ref object directly as a
     // hook argument would hit the temporal-dead-zone during render.
     (pos, regime) => {
-      worldRef.current?.setAtmosphereView(pos, regime);
+      const world = worldRef.current;
+      if (!world) return;
+      // TASK-29.3: the same live position feeds the pad-ring culling.
+      world.setShipPos(pos);
+      world.setAtmosphereView(pos, regime);
     },
   );
 
@@ -457,6 +468,7 @@ function App() {
       )}
       <WarpOverlay />
       <ReentryTint />
+      <DockedIndicator />
       {/* TASK-57: dev-only frame monitor (F3) — never shipped in prod. */}
       {import.meta.env.DEV && <FrameMonitorOverlay />}
       {connState === 'lost' && session && (

@@ -3,8 +3,17 @@
 `Current Status`
 =================
 **Last Updated:** 2026-10-01
-**Tasks Completed:** 42
+**Tasks Completed:** 43
 **Current Task:** —
+
+### 2026-10-01 — TASK-29.3: Client: pad ring markers + DOCKED indicator
+Client half of docking visuals (server dock logic + wire padId already shipped in 3d14686 / TASK-29.1–29.2):
+- **Client pad list** (`src/client/world/WorldManager.ts`): `swapWorld` now derives the pad list via the SHARED `padsForSystem(seed, system)` (same deterministic list as the server, cached per (seed, systemId) inside the shared module) and exposes it via `getPads()`; rebuilt per swap, cleared on dispose.
+- **Pad ring markers**: one additive glowing ring (RingGeometry, cyan, depthWrite off, laid flat on the pad normal) per pad at the pad center (+0.25 m surface offset), added to the per-system world group so a world swap removes/disposes them automatically. Pure helpers `padRingsFor` / `padRingVisible` (3-D distance ≤ 500 m, inclusive; `PAD_RING_VISIBLE_RANGE_M`); the render loop culls per frame against `setShipPos` (last-known player position from the self entity_update path). Purely cosmetic — no client physics.
+- **DOCKED indicator**: single `#docked-indicator` DOM node (`src/client/ui/docked-indicator.tsx`, small monospace 'DOCKED', z 85, role=status; full HUD is TASK-51). Driven in `useGameSession` from the self entity_update by the pure `isDocked(regime, padId)` predicate (`src/client/state/docked.ts` — emit-on-change store, reentry.ts idiom): visible exactly while regime 'docked' AND padId set; reset on every system snapshot (no stale state across warps).
+- **Tests**: unit — world-manager.test.ts (padRingsFor mirrors the shared pad list 1:1 + determinism; padRingVisible 500 m boundary + null-pos cases), state/docked.test.ts (predicate clause-by-clause + store emit semantics), ui/docked-indicator.test.tsx (node presence/text when docked, null otherwise). E2E — `tests/e2e/docked-indicator.spec.ts`: REST claim → join the seeded pad system (via /api/dev/pad-target) → dev-teleport onto the pad → ship settles (ground clamp zeroes vel.y) → server docks it → `#docked-indicator` visible; console clean.
+- Verified: `tsc --noEmit` green; full `npm run test` 89 files / 794 passed + 1 skipped; `npm run test:e2e` full suite green (multiplayer.spec flaked once under shared-server load in the full run, passes in isolation — unrelated to this change).
+- Screenshot: `.ralph/screenshots/TASK-29.3-1.png` (docked state: DOCKED indicator bottom-center, pad system in view)
 
 ----------------------------------------------
 
