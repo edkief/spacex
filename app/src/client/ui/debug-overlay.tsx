@@ -36,6 +36,9 @@ export function DebugOverlay({ stats, onExport }: DebugOverlayProps) {
         DRAWS <span style={styles.value}>{stats.drawCalls}</span> · TRIS{' '}
         <span style={styles.value}>{stats.triangles}</span>
       </div>
+      {surfaceTrisLine(stats.categoryTriangles) ? (
+        <div style={styles.row}>{surfaceTrisLine(stats.categoryTriangles)}</div>
+      ) : null}
       <div style={styles.row}>
         ENTITIES <span style={styles.value}>{stats.entities}</span>
       </div>
@@ -46,6 +49,21 @@ export function DebugOverlay({ stats, onExport }: DebugOverlayProps) {
       )}
     </div>
   );
+}
+
+/**
+ * The surface-triangles line (TASK-26 per-LOD-ring counters), or null when
+ * no surface category has been reported yet (space-only frames).
+ */
+export function surfaceTrisLine(categories: Record<string, number>): string | null {
+  const near = categories['surface-near'];
+  const mid = categories['surface-mid'];
+  const far = categories['surface-far'];
+  if (near === undefined && mid === undefined && far === undefined) return null;
+  const n = near ?? 0;
+  const m = mid ?? 0;
+  const f = far ?? 0;
+  return `SURFACE tris ${n + m + f} (near ${n} · mid ${m} · far ${f})`;
 }
 
 /** Poll cadence: 2 Hz — the spec's "no per-frame re-render" bound. */

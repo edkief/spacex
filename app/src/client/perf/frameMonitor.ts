@@ -35,6 +35,12 @@ export interface FrameStats {
   triangles: number;
   /** Entities currently rendered (client entity registry). */
   entities: number;
+  /**
+   * Triangle counts by category, set per frame by the reporters
+   * (TASK-26: 'surface-near' / 'surface-mid' / 'surface-far' from the
+   * chunk scene). Empty until a category reporter runs.
+   */
+  categoryTriangles: Record<string, number>;
 }
 
 export interface BudgetStats {
@@ -42,6 +48,16 @@ export interface BudgetStats {
   budgetMs: number | null;
   /** Slowest measured phase (ms) since the last reset, per name. */
   maxMs: number;
+  /** Warnings emitted for this name since the last reset. */
+  warnings: number;
+}
+
+/** Telemetry for one gauge (unit-agnostic threshold, e.g. triangle counts). */
+export interface GaugeStats {
+  /** Registered limit (null when the name has none yet). */
+  limit: number | null;
+  /** Largest measured value since the last reset, per name. */
+  maxValue: number;
   /** Warnings emitted for this name since the last reset. */
   warnings: number;
 }
@@ -98,6 +114,13 @@ export class FrameMonitor {
   private readonly budgetMax = new Map<string, number>();
   private readonly budgetLastWarnAt = new Map<string, number>();
   private readonly budgetWarnings = new Map<string, number>();
+  /** Unit-agnostic gauges (TASK-26: triangle-count limits, not ms). */
+  private readonly gauges = new Map<string, number>();
+  private readonly gaugeMax = new Map<string, number>();
+  private readonly gaugeLastWarnAt = new Map<string, number>();
+  private readonly gaugeWarnings = new Map<string, number>();
+  /** Per-category triangle counts for the current frame (replaced per frame). */
+  private categoryTriangles: Record<string, number> = {};
 
   /** Top of a frame: start the frame-time clock. */
   beginFrame(nowMs = performance.now()): void {
@@ -135,7 +158,16 @@ export class FrameMonitor {
       drawCalls: this.lastRender.drawCalls,
       triangles: this.lastRender.triangles,
       entities: renderedEntityCount(),
+      categoryTriangles: { ...this.categoryTriangles },
     };
+  }
+
+  /**
+   * Replace the per-frame per-category triangle counts (e.g. the chunk
+   * scene's near/mid/far tally). Called once per frame by each reporter.
+   */
+  reportCategories(categories: Record<string, number>): void {
+    this.categoryTriangles = { ...categories };
   }
 
   /** Register the budget (ms) a named phase must stay under. */
@@ -176,6 +208,44 @@ export class FrameMonitor {
     };
   }
 
+  /** Register the limit a named gauge (unit-agnostic) must stay under. */
+  registerGauge(name: string, limit: number): void {
+    this.gauges.set(name, limit);
+  }
+
+  /**
+   * Check a measured value against its registered gauge limit. Same
+   * rolling-max + rate-limited warning mechanism as budgetCheck, but the
+   * unit is whatever the reporter measures (TASK-26: triangle counts).
+   */
+  gaugeCheck(name: string, value: number, nowMs = performance.now()): void {
+    const prevMax = this.gaugeMax.get(name) ?? 0;
+    this.gaugeMax.set(name, Math.max(prevMax, value));
+
+    const limit = this.gauges.get(name);
+    const message =
+      limit === undefined
+        ? `perf gauge missing: "${name}" at ${Math.round(value)} but no limit is registered`
+        : `perf gauge exceeded: "${name}" at ${Math.round(value)} (limit ${limit})`;
+    if (limit === undefined || value > limit) {
+      const last = this.gaugeLastWarnAt.get(name);
+      if (last === undefined || nowMs - last >= BUDGET_WARN_COOLDOWN_MS) {
+        this.gaugeLastWarnAt.set(name, nowMs);
+        this.gaugeWarnings.set(name, (this.gaugeWarnings.get(name) ?? 0) + 1);
+        perfWarn(message, { name, value, limit: limit ?? null });
+      }
+    }
+  }
+
+  /** Telemetry for one gauge (tests + future stats export). */
+  getGaugeStats(name: string): GaugeStats {
+    return {
+      limit: this.gauges.get(name) ?? null,
+      maxValue: this.gaugeMax.get(name) ?? 0,
+      warnings: this.gaugeWarnings.get(name) ?? 0,
+    };
+  }
+
   /** Drop all telemetry (new session / tests). */
   reset(): void {
     this.frames.reset();
@@ -186,6 +256,11 @@ export class FrameMonitor {
     this.budgetMax.clear();
     this.budgetLastWarnAt.clear();
     this.budgetWarnings.clear();
+    this.gauges.clear();
+    this.gaugeMax.clear();
+    this.gaugeLastWarnAt.clear();
+    this.gaugeWarnings.clear();
+    this.categoryTriangles = {};
   }
 }
 

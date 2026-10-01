@@ -75,6 +75,21 @@ export function amplitudeM(planet: Planet): number {
 }
 
 /**
+ * The planet-wide noise channels + amplitude, seeded ONLY from
+ * (seed, planetId) — every chunk and every consumer (server TerrainContext,
+ * client streaming pipeline TASK-26) must sample this exact field so
+ * boundary cells match across chunk borders by construction.
+ */
+export function heightfieldChannels(seed: string, planet: Pick<Planet, 'id' | 'radiusKm'>) {
+  const planetField = hash2(seedFromString(seed), seedFromString(planet.id));
+  return {
+    height: makeNoiseChannel(planetField),
+    moisture: makeNoiseChannel(hash2(planetField, seedFromString('moisture'))),
+    amp: amplitudeM(planet),
+  };
+}
+
+/**
  * Pick the chunk biome from the center cell's normalized height (h in 0..1)
  * and moisture (m in 0..1). Ice-class worlds can be frozen; wetlands are
  * driven by the moisture channel.
@@ -140,40 +155,23 @@ function findPadPosition(
 }
 
 /**
- * Deterministically generate one surface chunk of a planet.
- *
- * - Heightmap: 64x64 integer meters from 5-octave fBm in world cell space.
- * - Biome: from the center cell's height + a second (moisture) noise channel.
- * - Pads: always 1 on chunk (0,0) of a landable planet; else 25% seeded roll.
- * - Nodes: 1-4, types restricted to planet.resourceTypes, rejection-sampled to
- *   stay >= 20 m from pads; solid types are re-rolled to liquid types on
- *   wetland chunks when the planet hosts liquid resources.
- * Non-landable planets get terrain + biome but no nodes or pads.
+ * The placement pass of generateSurfaceChunk (biome + pads + nodes) as a
+ * standalone step over a finished heightmap. The client's frame-sliced
+ * generator (TASK-26) runs exactly this after generating the heightmap in
+ * row slices; the code is bit-identical to the original inline version, so
+ * staged and one-shot generation produce the same SurfaceChunk.
  */
-export function generateSurfaceChunk(
+export function generateChunkPlacement(
   seed: string,
   planet: Planet,
   chunkX: number,
   chunkZ: number,
-): SurfaceChunk {
-  // The terrain field is planet-wide (seeded only from seed + planetId) so
-  // every chunk shares the same lattice; the per-chunk sub-seed below drives
-  // only placement draws (pads, nodes), which may differ per chunk.
-  const planetField = hash2(seedFromString(seed), seedFromString(planet.id));
-  const height = makeNoiseChannel(planetField);
-  const moisture = makeNoiseChannel(hash2(planetField, seedFromString('moisture')));
+  heightmap: number[],
+): { biome: Biome; landingPads: LandingPad[]; resourceNodes: ResourceNode[] } {
+  // The per-chunk sub-seed drives only placement draws (pads, nodes), which
+  // may differ per chunk; the terrain field itself is planet-wide.
   const sub = chunkSeed(seed, planet.id, chunkX, chunkZ);
-  const amp = amplitudeM(planet);
-
-  // Heightmap in world cell space: worldCoord = chunk * CHUNK_SIZE + cell.
-  const heightmap: number[] = new Array(CHUNK_SIZE * CHUNK_SIZE);
-  for (let z = 0; z < CHUNK_SIZE; z++) {
-    for (let x = 0; x < CHUNK_SIZE; x++) {
-      heightmap[z * CHUNK_SIZE + x] = Math.round(
-        height.fbm01(chunkX * CHUNK_SIZE + x, chunkZ * CHUNK_SIZE + z) * amp,
-      );
-    }
-  }
+  const { moisture, amp } = heightfieldChannels(seed, planet);
   const heightAt = (cellX: number, cellZ: number) => heightmap[cellZ * CHUNK_SIZE + cellX];
 
   const centerH = heightAt(CHUNK_SIZE >> 1, CHUNK_SIZE >> 1);
@@ -231,5 +229,43 @@ export function generateSurfaceChunk(
     }
   }
 
+  return { biome, landingPads, resourceNodes };
+}
+
+/**
+ * Deterministically generate one surface chunk of a planet.
+ *
+ * - Heightmap: 64x64 integer meters from 5-octave fBm in world cell space.
+ * - Biome: from the center cell's height + a second (moisture) noise channel.
+ * - Pads: always 1 on chunk (0,0) of a landable planet; else 25% seeded roll.
+ * - Nodes: 1-4, types restricted to planet.resourceTypes, rejection-sampled to
+ *   stay >= 20 m from pads; solid types are re-rolled to liquid types on
+ *   wetland chunks when the planet hosts liquid resources.
+ * Non-landable planets get terrain + biome but no nodes or pads.
+ */
+export function generateSurfaceChunk(
+  seed: string,
+  planet: Planet,
+  chunkX: number,
+  chunkZ: number,
+): SurfaceChunk {
+  const { height, amp } = heightfieldChannels(seed, planet);
+
+  // Heightmap in world cell space: worldCoord = chunk * CHUNK_SIZE + cell.
+  const heightmap: number[] = new Array(CHUNK_SIZE * CHUNK_SIZE);
+  for (let z = 0; z < CHUNK_SIZE; z++) {
+    for (let x = 0; x < CHUNK_SIZE; x++) {
+      heightmap[z * CHUNK_SIZE + x] = Math.round(
+        height.fbm01(chunkX * CHUNK_SIZE + x, chunkZ * CHUNK_SIZE + z) * amp,
+      );
+    }
+  }
+  const { biome, landingPads, resourceNodes } = generateChunkPlacement(
+    seed,
+    planet,
+    chunkX,
+    chunkZ,
+    heightmap,
+  );
   return { chunkX, chunkZ, heightmap, biome, resourceNodes, landingPads };
 }
