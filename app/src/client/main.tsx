@@ -16,6 +16,7 @@ import { FrameMonitorOverlay } from '@client/ui/debug-overlay';
 import { systemForId } from '@shared/galaxy/system';
 import { installDriftDebug, reportServerSeed, reportWorldSwap } from '@client/drift-debug';
 import { installStreamDebug } from '@client/stream-debug';
+import { installCameraDebug } from '@client/camera/camera-debug';
 import { RegimeWiring } from '@client/state/regime-wiring';
 import type { ChatMessage, EntityState } from '@shared/protocol/schemas';
 
@@ -565,6 +566,8 @@ const claimStyles: Record<string, React.CSSProperties> = {
 installDriftDebug();
 // TASK-26.2: dev-only draw-distance budget benchmark hook (no-op in prod).
 installStreamDebug();
+// TASK-27: dev-only camera handoff probe hook (no-op in production builds).
+installCameraDebug();
 
 const root = document.getElementById('root');
 if (!root) throw new Error('missing #root element');

@@ -271,7 +271,7 @@
     "title": "Continuous camera handoff across all regimes",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-27.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-28",

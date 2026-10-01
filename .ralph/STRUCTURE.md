@@ -51,6 +51,10 @@ Excludes dotfiles, tests, and config.
 │       │   │   ├── player-list.tsx # TASK-15: bottom-left monospace callsign list + status dots, presence-event re-renders only
 │       │   │   ├── toast-stack.tsx # TASK-15: top-right join/leave toasts, 3 s fade, 3 visible + queue
 │       │   │   └── chat-log.tsx    # TASK-16: top-left chat column — '[HH:MM] CALLSIGN: text', text-only (no innerHTML), Enter-toggled input, bottom-pinned scroll
+│       │   ├── camera/
+│       │   │   ├── CameraRig.ts     # TASK-27: the ONE PerspectiveCamera (FOV 75) for all regimes — cockpit (ship-local (0,0.5,1.2) offset, k=8/s exponential follow ≈100 ms) + on-foot (4 m behind, 1.6 m up, yaw/pitch ±80° clamp); handoff() = 600 ms ease-in-out along a 5-sample terrain-nudged path, input-locked mid-anim, cancellable only by a second handoff; injectable clock/heightAt/lifecycle
+│       │   │   ├── pose-math.ts     # TASK-27: pure DOM-free handoff math on @shared/physics/vec — cockpitPose/onFootPose, lerpPose, slerpVec (short-arc), easeInOutCubic, clampPitch, nudgeOutOfTerrain + computeHandoffPath (5 samples, never enters geometry), samplePath
+│       │   │   └── camera-debug.ts  # TASK-27: dev-only window.__CAMERA__ hook (import.meta.env.DEV gate) — handoffProbe() scripts the rig standalone (fake ship/char + analytic mesa + 10 ms clock), reports the full contract, renders the final on-foot view into #__camera-probe-canvas
 │       │   └── render/
 │       │       ├── ship-mesh.ts # TASK-21: ShipMeshBuilder — 3 paint-zone materials + in-place applyLivery
 │       │       └── starfield.ts # TASK-70: deterministic three.js starfield on #game-canvas (PRNG sky sphere + point sprites, preserveDrawingBuffer for e2e pixel sampling) — placeholder until TASK-26

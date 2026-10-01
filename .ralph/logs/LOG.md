@@ -3,12 +3,21 @@
 `Current Status`
 =================
 **Last Updated:** 2026-10-01
-**Tasks Completed:** 37
+**Tasks Completed:** 38
 **Current Task:** —
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-10-01 — TASK-27: Continuous camera handoff across all regimes (CameraRig)
+One `THREE.PerspectiveCamera` (FOV 75, constant) now serves every regime — no second camera, no swap risk. Cockpit → on-foot (and back) is a 600 ms eased animation along a precomputed 5-sample path that never enters terrain.
+- `app/src/client/camera/pose-math.ts` (NEW) — pure, DOM-free handoff math on the shared `@shared/physics/vec` ops: `cockpitPose` (ship-local offset (0, 0.5, 1.2) rotated by ship quat, look = ship forward), `onFootPose` (head point = feet + 1.6 m as look target; camera 4 m behind along yaw/pitch), `lerpPose`, `slerpVec` (short-arc look slerp), `easeInOutCubic`, `clampPitchRad/Deg` (±80°), `nudgeOutOfTerrain` + `computeHandoffPath` (5 samples, position lerp + look slerp, each sample lifted to `heightAt + 1.5 m` when the straight path dips into geometry — x/z stay on the lerp line), `samplePath`. All deterministic (no Math.random).
+- `app/src/client/camera/CameraRig.ts` (NEW) — owns the single camera. Steady state exponentially chases the active mode's target pose (position lerp + quaternion slerp, k = 8/s → the ~100 ms follow feel). `handoff(to)` precomputes the safe path from the CURRENT smoothed pose, locks user input for exactly 600 ms (look deltas dropped, gameplay input still accepted upstream), and lands on the final (nudged) path sample. Cancellable ONLY by a second handoff (which restarts from the first one's current pose — continuous); input can never cancel it. Injectable clock/heightAt/lifecycle hooks; FOV never touched.
+- `app/src/client/camera/camera-debug.ts` (NEW) — dev-only `window.__CAMERA__` hook (same `import.meta.env.DEV` gate as `__DRIFT__`/`__STREAM__`). `handoffProbe()` scripts the rig standalone (fake ship 10 u up, character 20 u ahead, analytic mesa the straight path must clear, fixed 10 ms clock), reports the full contract (start/end counts, lock window, 5-sample nudged path, pitch clamp, FOV), and renders the final on-foot view into `#__camera-probe-canvas` (preserved buffer) for the screenshot. No real disembark flow needed until TASK-31/35.
+- `app/src/client/main.tsx` — installs `installCameraDebug()` next to the other hooks (2 lines; no-op in prod).
+- Tests: `pose-math.test.ts` (18 — pose construction, lerp endpoints/clamp, slerp short-arc/antipodal, ease anchors/symmetry, pitch clamp ±80°, nudge lift/no-touch-xz, 5-sample path with exact endpoints + exactly-the-dipping-samples-lifted against the mesa, flat-ground pure lerp, samplePath) and `camera-rig.test.ts` (12 — **exactly one animation** per mode switch (one start + one end, no more on later frames), **input lock** (deltas rejected mid-anim, accepted after, ignored in cockpit, zero yaw drift during lock), exactly 600 ms (locked at 590, unlocked at 600), camera sits on path sample 3 of 5 at t = 300 ms, lands on the on-foot pose, reverse handoff, second-handoff-cancels (input can't), pitch clamp, k = 8/s follow lag + convergence + yaw orbit, no-op handoff to same mode). `tests/e2e/camera-handoff.spec.ts` (NEW) — Playwright smoke via the hook: asserts the whole contract in-page and screenshots the rendered on-foot view. Live dev-server smoke (separate script) also green with zero console errors.
+- Verified: `npx vitest run src/client/camera/` → 30 passed; full `npm run test` → 79 files, 721 passed / 1 skipped / 0 failed; `npm run typecheck` clean; `npm run lint` (eslint + prettier) clean; `npx playwright test --config playwright.e2e.config.ts camera-handoff` → 1 passed (13.9 s) — reported `starts=1 ends=1 lockWindow=600ms nudges=2 terrainClear=true pitchClamped=80.0° fov=75 rendered=true`. Screenshots: `.ralph/screenshots/TASK-27-1.png` (e2e probe view), `TASK-27-2.png` (live dev-server probe view).
 
 ### 2026-10-01 — TASK-26.2: Draw-distance budget — renderer.info measurement in the 13-chunk e2e benchmark scene
 The last literal AC of TASK-26 (AC4: total surface triangles "measured via renderer.info in a benchmark scene: 13 chunks at default LOD") is now met.
