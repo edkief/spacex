@@ -9,6 +9,11 @@
  * the server regime with a debug warning — divergence past the tolerance
  * means a bug (the local planet data must be identical), not latency.
  *
+ * Surface is an exception: the client has no terrain yet (flat ground), so
+ * any local↔server disagreement INVOLVING 'surface' is expected, not a bug —
+ * the active regime follows the server immediately with no clock/snap/warn.
+ * The 500 ms divergence rule remains for space/atmosphere only.
+ *
  * No wall clock by default: `now` is injectable, so the 500 ms rule is
  * unit-testable with fake timestamps (the divergence test).
  */
@@ -83,6 +88,15 @@ export class RegimeTracker {
     if (this.local === this.serverRegime) {
       this.divergingSince = null; // back in agreement
       this.setActive(this.local, this.localPlanetId);
+    } else if (this.local === 'surface' || this.serverRegime === 'surface') {
+      // Surface is server-authoritative: the client has no terrain yet
+      // (systemRegimePlanets leaves heightAt unset → flat ground), so any
+      // disagreement INVOLVING 'surface' is expected around landings on real
+      // relief. Follow the server immediately — no divergence clock, no snap,
+      // no warning. (Space/atmosphere data is identical same-seed, so a
+      // disagreement there stays a bug: the 500 ms rule below still applies.)
+      this.divergingSince = null;
+      this.setActive(this.serverRegime, this.serverPlanetId);
     } else {
       this.divergingSince ??= nowMs;
       if (nowMs - this.divergingSince >= REGIME_DIVERGENCE_MS) {

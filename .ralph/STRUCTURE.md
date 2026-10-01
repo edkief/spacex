@@ -28,7 +28,11 @@ Excludes dotfiles, tests, and config.
 │       │   │   ├── session.ts      # TASK-15/17: ClientSession — browser WS client, hello→auth(token), joinSystem → enter_system snapshot; TASK-17: lazy dial, ConnectionState (connecting/connected/reconnecting/lost), auto-retry 1 s backoff capped 5 s, 30 s 'lost' window + retryNow(), onSnapshot(snapshot, reconnect) full resync (prediction/buffers/presence rebuilt, chat merged)
 │       │   │   └── chat.ts         # TASK-16/17: ChatStore — 100-msg ring buffer, loadSnapshot (system-change clear + ts watermark), emit only on change; TASK-17: mergeSnapshot (append only newer-than-tail, no full clear on resync)
 │       │   ├── state/
-│       │   │   └── warp.ts       # TASK-7/8: warp event bus + phase store (idle/warping-in/awaiting/warp-out) + WarpController — idle→warping-in(2s)→awaiting(net)→warp-out(2s)→idle, failure→idle+onFailed('System full' toast), injectable delay
+│       │   │   ├── warp.ts       # TASK-7/8: warp event bus + phase store (idle/warping-in/awaiting/warp-out) + WarpController — idle→warping-in(2s)→awaiting(net)→warp-out(2s)→idle, failure→idle+onFailed('System full' toast), injectable delay
+│       │   │   ├── regime.ts     # TASK-25: client regime tracker — local regimeFor prediction + server authority (self entity_update flightRegime), 500 ms divergence snap + debug warn (space/atmosphere only — surface is server-authoritative: client has no terrain yet), injectable clock/warn, onRegimeChange
+│       │   │   └── regime-wiring.ts # TASK-25.2: live session wiring — one tracker + one ControlsRemapper; setSystem(seed, systemId) (reset + systemRegimePlanets), onSelfUpdate(entity, nowMs) (flightRegime authority + last-known-state prediction); consumed by useGameSession (main.tsx)
+│       │   ├── input/
+│       │   │   └── controls.ts   # TASK-25: ControlsRemapper — one ControlScheme per regime (space flight, atmosphere + VTOL key, surface walk/look/interact stub for TASK-31), instant setRegime swap + debug log, pure readInput/readCharacterInput
 │       │   ├── perf/
 │       │   │   ├── frameMonitor.ts # TASK-57: frame monitor — 300-frame circular buffer (p50/p95/p99 nearest-rank), 1 s FPS window, renderer.info capture, getFrameStats() {fps, percentiles, drawCalls, triangles, entities}; budget hook (registerBudget/budgetCheck, per-name rolling max, 1 warn per name per 10 s) — shared by TASK-30/58/59/61
 │       │   │   └── logger.ts     # TASK-57: perf logger with injectable sink (setPerfLogSink for test spies)
@@ -103,6 +107,7 @@ Excludes dotfiles, tests, and config.
 │           │   ├── atmosphere.ts # TASK-22: 1 km drag boundary ramp atmosphereFactor (shared with TASK-28)
 │           │   ├── flight.ts     # TASK-22: integrateShip — deterministic space/atmosphere/VTOL physics + ground collision (substepped)
 │           │   └── damage.ts     # TASK-23: applyDamage (pure, shield-first, destroyed at hull zero, double-destroy guard) + repairCost
+│           ├── regime.ts        # TASK-25: shared flight-regime state machine — regimeFor(pos, planets, current, speed) with atmosphere enter/exit + surface altitude hysteresis; server (authority) and client (prediction) use it verbatim
 │           └── galaxy/
 │               ├── types.ts  # Star, SystemSummary, Planet, SurfaceChunk, Biome interfaces
 │               ├── config.ts # GALAXY_STAR_COUNT, spectral weights, name word lists, disk params
@@ -112,6 +117,7 @@ Excludes dotfiles, tests, and config.
 │               ├── home.ts   # TASK-10: homeSystemIdForPlayer(seed, playerId) — deterministic spawn system
 │               ├── chart.ts  # TASK-7: galaxyChart(seed, home) — v1 3-system chart (home + 2 nearest), 800x500 projection, travel table (ls/gu, warp speed) + label formats
 │               └── dock.ts   # TASK-20: homeDockPosition(seed, systemId) — seed-derived dock coordinates
+│               ├── planets.ts  # TASK-25: regime-view of a system's planets — planetAnchor(i) (10 km spacing), atmosphere radius (1 km TASK-22 boundary / 0 airless), landable; heightAt caller-injected (server terrain / client flat until TASK-26)
 │               └── surface.ts# generateSurfaceChunk(seed, planet, chunkX, chunkZ) — heightmap, biome, nodes, pads
 ├── ralph/                    # Ralph loop implementation (TypeScript)
 │   └── src/

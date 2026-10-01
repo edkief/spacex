@@ -2,13 +2,23 @@
 
 `Current Status`
 =================
-**Last Updated:** 2026-09-30
-**Tasks Completed:** 34
+**Last Updated:** 2026-10-01
+**Tasks Completed:** 35
 **Current Task:** —
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-10-01 — TASK-25.2: Regime manager client wiring + TASK-25 closeout
+TASK-25 is now COMPLETE. The running client tracks its own regime: one `RegimeTracker` + one `ControlsRemapper` instantiated from the game session (tracker local prediction + server authority; remap + debug log on every regime change).
+- `app/src/client/state/regime-wiring.ts` (NEW) — `RegimeWiring`: owns the tracker + remapper. `setSystem(seed, systemId)` → tracker.reset() + setPlanets(systemRegimePlanets(systemForId(seed, systemId))); `onSelfUpdate(entity, nowMs)` → optional `flightRegime` = server authority (missing = no authority, v1 back-compat), then local prediction from the last known flight state (pos, |vel|) — the stand-in until TASK-26's per-frame local sim; onRegimeChange → remapper.setRegime (instant swap + debug log). Injectable warn/log sinks (DOM-free, clock-free).
+- `app/src/client/main.tsx` — `useGameSession` owns the wiring: inbound `entity_update` messages whose entity `callsign === session.callsign` route to `onSelfUpdate`; every system snapshot (boot, warp arrival, reconnect) calls `setSystem` (server seed via a ref mirror so the /api/health seed correction never re-runs the boot effect). ~15 lines; no UI change (remap consumers are TASK-27/31).
+- `app/src/client/state/regime.ts` — surface sub-state is now SERVER-AUTHORITATIVE in the client tracker: any local↔server disagreement INVOLVING 'surface' follows the server immediately with NO divergence clock, snap, or warning (the client has no terrain yet — flat ground vs the server's chunk-cached heightAt would disagree around every landing on real relief). The 500 ms clock + snap + debug warning remain for space/atmosphere only (identical same-seed data must agree there).
+- Tests: 3 new tracker tests (server surface/local atmosphere, server atmosphere/local surface — both follow server silently past the 500 ms mark; genuine space/atmosphere divergence still snaps at 500 ms with the warning) + 3 new wiring tests with a synthetic self entity_update stream (flightRegime 'atmosphere' flips the active scheme space→atmosphere with zero warnings and no duplicate swaps; further updates keep it; setSystem resets to space; missing flightRegime = no authority, 500 ms rule still applies). All pre-existing regime/controls tests unchanged and green.
+- Verified: `npm run test` → 74 files, 658 passed / 1 skipped / 0 failed; `npm run typecheck` clean; `npm run lint` (eslint + prettier) clean; e2e boot smoke `npm run test:e2e -- core-flow` → 1 passed (live client boots with the wiring active, no NEW console errors).
+- Closeout: `.ralph/tasks.json` + spec steps marked pass; STRUCTURE.md updated with the 5 regime modules. `.ralph/handoff/TASK-25.md` did not exist (no handoff dir at HEAD) — nothing to delete.
+- No screenshots (no UI change; the e2e smoke covers the boot path).
 
 ### 2026-10-01 — TASK-25.1: Regime manager — fix the 2 stale atmosphere fixtures, full suite green
 The last unmet TASK-25 acceptance criterion ('npm run test green') is now met. The two failing fixtures in `app/src/server/shard/shard.test.ts` spawned ships ~10 km from the planet anchor (10000, 0), so the new per-tick `resolveRegime` correctly flipped them to 'space' (no gravity) on tick 1. Fixed the fixtures, not the regime machine:

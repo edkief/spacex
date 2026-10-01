@@ -83,6 +83,56 @@ describe('RegimeTracker (local prediction vs server authority)', () => {
     expect(tracker.divergenceMs(300)).toBeNull();
   });
 
+  it('server surface vs local atmosphere (flat terrain): follows the server with no clock, no snap, no warning', () => {
+    // Server terrain is a plateau: the ship is low relative to the ground
+    // (surface), but the client's flat terrain sees alt = 50 (atmosphere).
+    const warns: string[] = [];
+    const tracker = new RegimeTracker({ warn: (m) => warns.push(m) });
+    tracker.setPlanets(PLANETS);
+    tracker.updateLocal(INSIDE, 0, 0); // local: atmosphere (from space)
+    tracker.applyServer('surface', 'p1');
+    // 700 ms of disagreement — far past the 500 ms tolerance: no snap, no warn.
+    expect(tracker.updateLocal(INSIDE, 0, 100)).toBe('surface');
+    expect(tracker.updateLocal(INSIDE, 0, 700)).toBe('surface');
+    expect(tracker.regime).toBe('surface');
+    expect(tracker.planetId).toBe('p1');
+    expect(tracker.divergenceMs(700)).toBeNull();
+    expect(warns.length).toBe(0);
+  });
+
+  it('server atmosphere vs local surface (flat terrain): follows the server with no clock, no warning', () => {
+    // Server terrain is a valley: the ship is airborne relative to the real
+    // ground (atmosphere), but flat terrain sees alt = 1 (surface-eligible).
+    const LOW = { x: 900, y: 1, z: 0 };
+    const warns: string[] = [];
+    const tracker = new RegimeTracker({ warn: (m) => warns.push(m) });
+    tracker.setPlanets(PLANETS);
+    tracker.updateLocal(LOW, 0, 0); // space → atmosphere (never direct to surface)
+    tracker.updateLocal(LOW, 0, 50); // local: surface (alt 1 < 2, slow)
+    tracker.applyServer('atmosphere', 'p1');
+    expect(tracker.updateLocal(LOW, 0, 600)).toBe('atmosphere');
+    expect(tracker.updateLocal(LOW, 0, 900)).toBe('atmosphere');
+    expect(tracker.regime).toBe('atmosphere');
+    expect(tracker.divergenceMs(900)).toBeNull();
+    expect(warns.length).toBe(0);
+  });
+
+  it('genuine space/atmosphere divergence still snaps to the server at 500 ms with a warning', () => {
+    const warns: string[] = [];
+    const tracker = new RegimeTracker({ warn: (m) => warns.push(m) });
+    tracker.setPlanets(PLANETS);
+    tracker.updateLocal(OUTSIDE, 0, 0); // local: space
+    tracker.applyServer('atmosphere', 'p1'); // server disagrees (neither is surface)
+    expect(tracker.updateLocal(OUTSIDE, 0, 400)).toBe('space'); // 0 ms: clock starts
+    expect(tracker.updateLocal(OUTSIDE, 0, 899)).toBe('space'); // 499 ms: under
+    expect(warns.length).toBe(0);
+    expect(tracker.updateLocal(OUTSIDE, 0, 900)).toBe('atmosphere'); // 500 ms: snap
+    expect(tracker.regime).toBe('atmosphere');
+    expect(tracker.planetId).toBe('p1');
+    expect(tracker.divergenceMs(600)).toBeNull();
+    expect(warns.length).toBe(1);
+  });
+
   it('reset (system change) drops server authority and the active regime', () => {
     const tracker = new RegimeTracker();
     tracker.setPlanets(PLANETS);

@@ -15,7 +15,8 @@ import { WarpController, warpSubscribe } from '@client/state/warp';
 import { FrameMonitorOverlay } from '@client/ui/debug-overlay';
 import { systemForId } from '@shared/galaxy/system';
 import { installDriftDebug, reportServerSeed, reportWorldSwap } from '@client/drift-debug';
-import type { ChatMessage } from '@shared/protocol/schemas';
+import { RegimeWiring } from '@client/state/regime-wiring';
+import type { ChatMessage, EntityState } from '@shared/protocol/schemas';
 
 /**
  * TASK-70: the starfield seed. Matches the server's default GALAXY_SEED so
@@ -85,6 +86,7 @@ function useGameSession(
   store: PresenceStore,
   chatStore: ChatStore,
   clientRef: React.RefObject<ClientSession | null>,
+  seedRef: React.RefObject<string>,
   onError: (msg: string) => void,
 ) {
   const systemParam = React.useMemo(
@@ -94,6 +96,10 @@ function useGameSession(
   const [systemId, setSystemId] = React.useState<string | null>(null);
   const [connState, setConnState] = React.useState<ConnectionState>('connecting');
   const systemIdRef = React.useRef<string | null>(null);
+  // TASK-25.2: the regime manager — one tracker (local prediction + server
+  // authority from self entity_updates) + one controls remapper (the active
+  // key scheme). Consumers (flight input, camera) land in TASK-27/31.
+  const regimeWiring = React.useMemo(() => new RegimeWiring(), []);
 
   React.useEffect(() => {
     if (!session) {
@@ -108,6 +114,15 @@ function useGameSession(
       onMessage: (msg) => {
         if (msg.type === 'chat') {
           chatStore.append(msg.payload as ChatMessage);
+          return;
+        }
+        if (msg.type === 'entity_update') {
+          // TASK-25.2: route our OWN 10 Hz snapshot into the regime tracker
+          // (server flightRegime authority + last-known-state prediction).
+          const self = (msg.payload as { entities: EntityState[] }).entities.find(
+            (e) => e.callsign === session.callsign,
+          );
+          if (self) regimeWiring.onSelfUpdate(self, Date.now());
           return;
         }
         if (msg.type !== 'presence') return;
@@ -137,6 +152,9 @@ function useGameSession(
         }
         systemIdRef.current = snapshot.systemId;
         setSystemId(snapshot.systemId);
+        // TASK-25.2: every system snapshot (boot, warp arrival, reconnect)
+        // resets server authority and reloads the regime planets.
+        regimeWiring.setSystem(seedRef.current, snapshot.systemId);
       },
     });
     clientRef.current = client;
@@ -234,6 +252,12 @@ function App() {
   // TASK-8: the seed systems are derived from. Starts on the default (which
   // matches the server default) and follows /api/health once it answers.
   const [serverSeed, setServerSeed] = React.useState(STARFIELD_SEED);
+  // Ref mirror so the session hook reads the latest seed without re-running
+  // its boot effect when /api/health corrects it (TASK-25.2 regime planets).
+  const serverSeedRef = React.useRef(STARFIELD_SEED);
+  React.useEffect(() => {
+    serverSeedRef.current = serverSeed;
+  }, [serverSeed]);
   const [session, setSession] = React.useState<ClaimedSession | null>(readSession);
   const [error, setError] = React.useState<string | null>(null);
   const [store] = React.useState(() => new PresenceStore());
@@ -243,11 +267,18 @@ function App() {
   // the "N aboard" occupancy below stays live.
   const [, bumpPresence] = React.useReducer((n: number) => n + 1, 0);
   React.useEffect(() => store.subscribe(bumpPresence), [store]);
-  const { systemId, connState } = useGameSession(session, store, chatStore, clientRef, (msg) => {
-    setError(msg);
-    setSession(null); // token may be stale → back to the claim form
-    localStorage.removeItem(SESSION_KEY);
-  });
+  const { systemId, connState } = useGameSession(
+    session,
+    store,
+    chatStore,
+    clientRef,
+    serverSeedRef,
+    (msg) => {
+      setError(msg);
+      setSession(null); // token may be stale → back to the claim form
+      localStorage.removeItem(SESSION_KEY);
+    },
+  );
 
   // TASK-7: the star chart (M key or the Systems button); typing in an
   // input (chat) never toggles it.
