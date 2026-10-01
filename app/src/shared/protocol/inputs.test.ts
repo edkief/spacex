@@ -48,8 +48,14 @@ describe('inputToCharacterInput (TASK-32)', () => {
   });
 
   it('action string: run / jump / the combined run+jump', () => {
-    expect(inputToCharacterInput(frame({ action: 'run' }))).toMatchObject({ run: true, jump: false });
-    expect(inputToCharacterInput(frame({ action: 'jump' }))).toMatchObject({ run: false, jump: true });
+    expect(inputToCharacterInput(frame({ action: 'run' }))).toMatchObject({
+      run: true,
+      jump: false,
+    });
+    expect(inputToCharacterInput(frame({ action: 'jump' }))).toMatchObject({
+      run: false,
+      jump: true,
+    });
     expect(inputToCharacterInput(frame({ action: 'run+jump' }))).toMatchObject({
       run: true,
       jump: true,
@@ -64,7 +70,9 @@ describe('inputToCharacterInput (TASK-32)', () => {
 
 describe('inputToShipInput (regression guard, TASK-14)', () => {
   it('still maps the flight channels exactly (character mapping did not disturb it)', () => {
-    expect(inputToShipInput(frame({ thrust: 1, turn: -1, pitch: 0.5, yaw: 0.25, action: 'vtol' }))).toEqual({
+    expect(
+      inputToShipInput(frame({ thrust: 1, turn: -1, pitch: 0.5, yaw: 0.25, action: 'vtol' })),
+    ).toEqual({
       thrust: 1,
       yaw: 0.25,
       pitch: 0.5,

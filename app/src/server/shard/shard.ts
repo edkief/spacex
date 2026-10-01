@@ -3,7 +3,7 @@ import { performance } from 'node:perf_hooks';
 import { WebSocket } from 'ws';
 
 import { encodeMessage } from '@shared/protocol';
-import { inputToShipInput } from '@shared/protocol/inputs';
+import { inputToCharacterInput, inputToShipInput } from '@shared/protocol/inputs';
 import {
   chatMessageSchema,
   messageSchemas,
@@ -26,7 +26,11 @@ import {
   vtolAssistActive,
   type PadInfo,
 } from '@shared/world/pads';
-import { characterSpawnPos } from '@shared/physics/character';
+import {
+  characterSpawnPos,
+  integrateCharacter,
+  type CharacterState,
+} from '@shared/physics/character';
 import { shipStats, HEX_COLOR } from '@shared/ships';
 import type { SystemGen } from '@shared/galaxy/types';
 import { homeDockPosition } from '@shared/galaxy/dock';
@@ -231,13 +235,10 @@ export class SystemShard implements Shard {
       this.log.debug('dropped input: ship destroyed', { playerId, seq: payload.seq });
       return false;
     }
-    // TASK-31: a disembarked player controls their CHARACTER, not the ship —
-    // frames aimed at the frozen docked ship are dropped (re-entry is
-    // TASK-35, which clears this state).
-    if (entity?.disembarked) {
-      this.log.debug('dropped input: player on foot', { playerId, seq: payload.seq });
-      return false;
-    }
+    // TASK-32: a disembarked player's frames are NOT dropped — the same
+    // 'input' message drives their CHARACTER (the tick routes the frame to
+    // integrateCharacter; the frozen ship loop skips the entity, so a frame
+    // is never applied twice). Re-entry (TASK-35) restores ship control.
     if (this.sim.inputDrops) {
       this.log.debug('dropped input: sim overloaded', { playerId, seq: payload.seq });
       return false;
@@ -360,6 +361,13 @@ export class SystemShard implements Shard {
       if (entity) {
         entity.heldInput = undefined;
         entity.idle = true;
+        // TASK-32: a disconnect while on foot also releases the character's
+        // held frame — it coasts to a stop (friction) instead of walking
+        // forever (the ship itself is frozen and holds no input).
+        if (entity.disembarked) {
+          const character = this.entities.get(`char:${state.playerId}`);
+          if (character) character.heldInput = undefined;
+        }
       }
     } else {
       this.log.debug('dropped stale connection on leave', {
@@ -628,6 +636,47 @@ export class SystemShard implements Shard {
       this.updatePadState(entity, shipInput.up);
     }
 
+    // TASK-32: integrate the on-foot characters (one per disembarked
+    // player). SAME input frames as ships — the owner's active entity kind
+    // decides the integrator (the ship loop skips disembarked ships, so the
+    // frame is consumed here exactly once). The held-frame pattern mirrors
+    // the ships: latest frame wins, re-integrated every tick until replaced,
+    // cleared when the owner disconnects (unregisterConnection) so a
+    // dropped character coasts to a stop instead of walking forever.
+    for (const entity of this.entities.values()) {
+      if (entity.kind !== 'character' || !entity.playerId) continue;
+      const connId = this.playerConns.get(entity.playerId);
+      const conn = connId ? this.connections.get(connId) : undefined;
+      if (conn) {
+        const input = conn.input;
+        if (input) {
+          conn.input = undefined; // consumed: becomes the held frame
+          entity.heldInput = input;
+          conn.appliedSeq = input.seq; // TASK-14: reconcilable from this tick on
+        }
+      }
+      const ctx = this.resolveRegimeCtx(entity);
+      const charState: CharacterState = {
+        pos: entity.ship.pos,
+        vel: entity.ship.vel,
+        quat: entity.ship.quat,
+        onGround: entity.charOnGround ?? true,
+      };
+      const next = integrateCharacter(
+        charState,
+        inputToCharacterInput(entity.heldInput ?? ZERO_INPUT),
+        this.dt,
+        ctx.options.heightAt,
+      );
+      // The character's kinematic state rides the SAME ship-shaped record
+      // (the wire snapshot reads entity.ship — no protocol change).
+      entity.ship.pos = next.pos;
+      entity.ship.vel = next.vel;
+      entity.ship.quat = next.quat;
+      entity.ship.regime = 'surface';
+      entity.charOnGround = next.onGround;
+    }
+
     // 10 Hz snapshot: every 2nd tick, serialize ONCE, share the buffer.
     if (tick % SNAPSHOT_EVERY_TICKS === 0 && this.entities.size > 0 && this.connections.size > 0) {
       this.broadcast();
@@ -833,13 +882,18 @@ export class SystemShard implements Shard {
       playerId,
       callsign: entity.callsign,
       classId: entity.classId,
-      // v1: the character is static (no walk yet — TASK-32); surface regime,
-      // zero velocity, identity orientation.
+      // Standing on the pad plane: surface regime, zero velocity, identity
+      // facing, grounded (TASK-32 walks it from here).
       ship: { pos, vel: { x: 0, y: 0, z: 0 }, quat: quatIdentity(), regime: 'surface' },
       hull: entity.hull,
       shields: entity.shields,
       targetId: null,
       docked: false,
+      // The character inherits the ship's planet (terrain context for the
+      // walk) and its livery (the client colors the character from it).
+      planetId: entity.planetId,
+      charOnGround: true,
+      ...(entity.livery ? { livery: entity.livery } : {}),
     });
     entity.disembarked = true;
     this.log.info('player disembarked', {

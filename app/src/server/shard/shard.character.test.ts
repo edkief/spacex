@@ -205,8 +205,8 @@ describe('TASK-31 step 1: server disembark', () => {
     const snap = shard.snapshot();
     expect(snap.map((s) => s.kind).sort()).toEqual(['character', 'ship']);
 
-    // Resting ticks: the ship stays EXACTLY put and docked; the character
-    // is static (no walk yet — TASK-32).
+    // Resting ticks (no input after the exit): the ship stays EXACTLY put
+    // and docked, and the character stays put too (zero input → no walk).
     const shipPosBefore = { ...entity.ship.pos };
     for (let i = 0; i < 10; i++) step();
     expect(entity.ship.pos).toEqual(shipPosBefore);
@@ -215,7 +215,7 @@ describe('TASK-31 step 1: server disembark', () => {
     expect(char!.ship.pos).toEqual(expected);
   });
 
-  it('a disembarked ship is not locally controllable: inputs dropped, smuggled held frame ignored', () => {
+  it('a disembarked ship is not locally controllable: frames route to the character, smuggled held frame ignored', () => {
     const shard = makeShard();
     const entity = makeEntity({ x: PAD.pos.x, y: PAD.pos.y + 20, z: PAD.pos.z });
     shard.addEntity(entity);
@@ -225,11 +225,26 @@ describe('TASK-31 step 1: server disembark', () => {
     approachAndDock(shard, entity, frames, step);
     expect(shard.handleExitShip('p1', 'ship-p1')).toBe('ok');
 
-    // Normal path: full-thrust frames are rejected by the queue.
-    expect(shard.enqueueInput('p1', frames({ thrust: 1 }))).toBe(false);
+    // TASK-32: the SAME 'input' frame is now ACCEPTED — it drives the
+    // character (thrust 1 = walk forward), not the frozen ship.
+    const spawnPos = { ...shard.entities.get('char:p1')!.ship.pos };
+    expect(shard.enqueueInput('p1', frames({ thrust: 1 }))).toBe(true);
+    for (let i = 0; i < 20; i++) {
+      shard.enqueueInput('p1', frames({ thrust: 1 }));
+      step();
+    }
+    // The ship is EXACTLY where it docked (frozen, still docked)…
+    expect(entity.ship.pos).toEqual({ x: PAD.pos.x, y: PAD.pos.y, z: PAD.pos.z });
+    expect(entity.padId).toBe(PAD.padId);
+    expect(entityToState(entity).regime).toBe('docked');
+    // …while the character walked forward (3 u/s × ~1 s of applied frames).
+    const charPos = shard.entities.get('char:p1')!.ship.pos;
+    expect(Math.hypot(charPos.x - spawnPos.x, charPos.z - spawnPos.z)).toBeGreaterThan(2);
+    expect(charPos.z).toBeGreaterThan(spawnPos.z);
+    expect(shard.entities.get('char:p1')!.charOnGround).toBe(true);
 
-    // Adversarial path: a held frame smuggled onto the entity cannot move
-    // the frozen ship or clear its dock (the tick skips it entirely).
+    // Adversarial path: a held frame smuggled onto the FROZEN SHIP cannot
+    // move it or clear its dock (the tick skips it entirely).
     entity.heldInput = frames({ thrust: 1, yaw: 1, pitch: 1 });
     const before = { pos: { ...entity.ship.pos }, quat: { ...entity.ship.quat } };
     for (let i = 0; i < 5; i++) step();

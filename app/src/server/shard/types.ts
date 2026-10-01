@@ -115,10 +115,17 @@ export interface SimEntity {
    * TASK-31: the owner disembarked — their character entity (id
    * `char:<playerId>`) is the player's active entity. The ship is FROZEN
    * where it docked: the tick skips it entirely (no drift, no re-dock
-   * churn) and its inputs are dropped (not locally controllable). Cleared
-   * by re-entry (TASK-35).
+   * churn) and the owner's input frames route to the character (TASK-32).
+   * Cleared by re-entry (TASK-35).
    */
   disembarked?: boolean;
+  /**
+   * TASK-32: the character's ground flag (integrateCharacter's onGround).
+   * Character entities only — ships have no ground state (the flight model
+   * clamps to terrain inline). Persisted implicitly: a character always
+   * resumes grounded (disembark spawns it standing on the pad plane).
+   */
+  charOnGround?: boolean;
 }
 
 /** The shard the router (TASK-11) will instantiate per system. */

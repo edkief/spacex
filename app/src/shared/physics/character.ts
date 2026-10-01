@@ -259,11 +259,7 @@ function characterSubstep(
     // CHAR_TERRAIN_LERP_SPEED u/s — slopes are tracked smoothly (the lerp
     // outruns any ≤ 45° slope at walk/run speed, so the gap never opens
     // and the character cannot sink into the terrain).
-    pos.y += clamp(
-      terrainY - pos.y,
-      -CHAR_TERRAIN_LERP_SPEED * h,
-      CHAR_TERRAIN_LERP_SPEED * h,
-    );
+    pos.y += clamp(terrainY - pos.y, -CHAR_TERRAIN_LERP_SPEED * h, CHAR_TERRAIN_LERP_SPEED * h);
     // Walked off an edge: the surface dropped further below the feet than
     // the lerp can follow in this substep → airborne (projectile fall).
     if (pos.y > terrainY + OFF_GROUND_EPS_M) {
