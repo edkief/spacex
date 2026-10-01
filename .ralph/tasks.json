@@ -314,7 +314,7 @@
     "title": "VTOL-assisted approach: scripted 100 m → docked in < 15 s (sim convergence test)",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-29.2.json",
-    "passes": false,
+    "passes": true,
     "splitFrom": "TASK-29",
     "splitDepth": 1
   },

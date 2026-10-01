@@ -3,12 +3,19 @@
 `Current Status`
 =================
 **Last Updated:** 2026-10-01
-**Tasks Completed:** 41
+**Tasks Completed:** 42
 **Current Task:** —
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-10-01 — TASK-29.2: VTOL-assisted approach — scripted 100 m → docked in < 15 s (sim convergence test)
+The last TASK-29 sim acceptance criterion is met: a scripted approach that STARTS 100 m horizontally from the seeded pad converges to 'docked' in **90 ticks × 50 ms = 4.5 s of sim time** (budget 15 s), through the REAL SimLoop with the committed server-side VTOL assist — no production changes (the assist constants 0.5 / 100 m / 50 u/s are untouched spec).
+- `app/src/server/shard/shard.pads.approach.test.ts` (NEW, 2 tests; shard.pads.test.ts conventions: stub repo/bus/log, addEntity + registerConnection, one tick per sim.step, pad position from `padsForSystem` only — never hardcoded): (1) the full approach — asserts 100 m start below the 1 km atmosphere boundary, exactly one 'pad-dock' {padId} on the flip tick, dockTick × 50 ms < 15 s, settlement on the flat disc (≤ 20 m, |alt − padY| ≤ 1, |vel.y| < 2, regime 'surface'), wire state 'docked' {padId} + flightRegime 'surface', the one-pad invariant per tick, and 10 extra VTOL-held rest ticks with NO undock; (2) determinism — two fresh-shard runs give the EXACT same dock tick, final position and velocity (fixed seed, no wall clock, no Math.random).
+- **TUNING (step 2) — the physics that made it converge:** the atmosphere regime has no main thruster and VTOL lift exactly cancels gravity (the pinned TASK-29.1 finding), so the approach is a two-phase glide: (a) GLIDE (up = 0) — 90 u/s inbound momentum + quadratic drag + gravity; the drag decay is logarithmic (x(t) = k⁻¹·ln(1 + k·v₀·t)), so a "few u/s" inbound stalls after ~10 m — 90 u/s dead-sticks the full 100 m from 50 m altitude (scanned a 26-combo grid; everything ≤ ~70 u/s froze 20–28 m short of the pad); (b) VTOL final phase (up = 1) — the key switches on ONLY when within 25 m AND below 2 m altitude: the committed ×0.5/tick assist kills the residual drift while the ship settles onto the flat 20 m disc; switching earlier would hover the ship (lift = gravity, no net descent) and switching at 100 m would freeze it short. Scripted as a pure state predicate `vtolKeyHeld(pos)` (distance + altitude above the padSurfaceHeight ground), documented as a block-comment phase script like shard.regime.test.ts. Measured: lands ~13 m from the pad center, rests at |v| ≈ 0.3 u/s.
+- No UI change → no Playwright/screenshots (functional, tests-only task — the unit test IS the convergence test). No new dirs → STRUCTURE.md unchanged (tests are excluded).
+Verified: `npx tsc --noEmit` clean; eslint --fix + prettier --write on the touched file clean; targeted `npx vitest run src/server/shard/shard.pads.approach.test.ts` → 2 passed; full `npm run test` → 87 files, 787 passed / 1 skipped / 0 failed (~86 s).
 
 ### 2026-10-01 — TASK-29.1: Pad + docking tests — derivation, hysteresis, dock/takeoff transitions, one-pad invariant
 Tests-only task for the committed TASK-29 server pad machine; one REAL bug found and fixed minimally (with regression coverage).
