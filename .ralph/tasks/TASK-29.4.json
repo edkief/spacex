@@ -1,0 +1,41 @@
+{
+  "id": "TASK-29.4",
+  "title": "E2E: land a ship at the station pad (docked state in DOM + screenshot) + TASK-29 close-out",
+  "category": "functional",
+  "description": "The last TASK-29 acceptance criterion: a Playwright e2e that lands a ship at the station (settlement) pad, asserts the docked state in the DOM (#docked-indicator from TASK-29.3), and saves a screenshot of the docked state. Then the whole unit + e2e suite green and the docs updated. Builds on TASK-29.3 (the indicator + pad rings exist; the whole unit suite is green).",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Server-side landing setup (raw client, deterministic)",
+      "details": "In the new spec (app/tests/e2e/landing.spec.ts, TASK-70 harness via tests/e2e/fixtures.ts → `e2eServer` {baseURL, apiPort}), do the landing with a raw REST + WS client in the Node context (reuse the claim/join/warp pattern from src/server/galaxy/warp.ws.test.ts, which is proven): (a) POST /api/callsigns → {token, playerId, homeSystemId}; (b) GET /api/dev/pad-target (Bearer token) → {systemId, planetId, padId, pad:{x,y,z}}; (c) if pad.systemId !== homeSystemId, warp the ship to pad.systemId over WS (send the `warp` message, await the arrival) so the ship's row + entity live in the pad's system — /api/dev/teleport acts on ship.position.systemId, so this MUST happen before the teleport; (d) POST /api/dev/teleport (Bearer) to a point INSIDE the pad's 20 m dock disc, a few metres above the pad height, with a small downward velocity — the committed flat-pad + surface-regime logic settles the ship to 'docked' almost immediately (no long real-physics approach needed); (e) poll the ship's entity_update until regime 'docked' + padId are present (server-authoritative proof).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Browser: assert docked in DOM + screenshot",
+      "details": "Open a Playwright page, seed the session so the client re-authenticates with the SAME player: set localStorage['drift.session.v1'] (the {token, ...} JSON the claim flow stores — see src/client/main.tsx SESSION_KEY) to the claimed token, then load `/?sys=<pad.systemId>` so the client joins the pad's system. Wait for #docked-indicator (from TASK-29.3) to be visible — this is the client-rendered docked state the AC requires. Screenshot to .ralph/screenshots/TASK-29-*.png (precedent: core-flow.spec.ts writes there) and assert the canvas is rendering non-uniform (canvasPixelVariance > 1, helpers.ts) so the shot is not a black screen. Use collectErrors + assertClean (helpers.ts). If a raw-WS warp is flaky in this harness, fall back to driving the warp through the real client UI (M star-chart → select → Warp) — the landing setup itself (teleport into the disc) stays server-side either way.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Full suites + close-out + commit",
+      "details": "Run `npm run test` (unit, ~85 s) AND `npm run test:e2e` (full e2e, ~90 s, single worker) — both green. Update .ralph/STRUCTURE.md (new/changed files: shared/world/pads.ts, server/shard/shard.ts pad state, server/routes/dev.ts, client pad rings + #docked-indicator, the new test files) and append a TASK-29 completion note to .ralph/logs/LOG.md. Commit (Conventional Commit, references TASK-29).",
+      "pass": false
+    }
+  ],
+  "acceptanceCriteria": [
+    "E2E: a ship is landed at the station (settlement) pad using the committed dev teleport-assist; the docked state is asserted in the DOM (#docked-indicator visible) and a screenshot of the docked state is saved to .ralph/screenshots/",
+    "npm run test green AND npm run test:e2e green",
+    "STRUCTURE.md and LOG.md updated; committed"
+  ],
+  "notes": [
+    "Builds on TASK-29.3: the #docked-indicator DOM node and the client pad rings already exist, and the whole unit suite is green at start.",
+    "The dev routes are ALREADY committed (3d14686) and gated to non-production (NODE_ENV !== 'production'): GET /api/dev/pad-target (deterministic first star-order system with a landable atmospheric planet + its pad position) and POST /api/dev/teleport {x,y,z} (Bearer token; moves the caller's ship in its active shard via shard.teleportForTesting and CLEARS held input — so no ghost thrust after the teleport).",
+    "CRITICAL wiring fact (the reason the setup is the risky part): /api/dev/teleport acts on ship.position.systemId — the ship's CURRENT system, not where the player is looking. /api/dev/pad-target returns a fixed first-star system that is generally NOT the player's home system. So the ship must be WARPED to the pad's system before the teleport, or the teleport will no-op / move the wrong system. Warp over WS is proven in src/server/galaxy/warp.ws.test.ts (claim → join → send `warp` → await arrival; the ship row follows).",
+    "Session/auth plumbing: the claim flow stores {token, ...} in localStorage under the key 'drift.session.v1' (src/client/main.tsx SESSION_KEY). The browser side of the e2e re-uses the SAME token (set that key, then load /?sys=<pad system>) so the client joins the pad's system as the landed player and shows its own docked state. The dev REST endpoints take the token as an Authorization: Bearer header.",
+    "De-risking principle: prove the landing SERVER-side (teleport into the flat 20 m disc a few metres up with a small downward velocity → it settles to 'docked' in a tick or two — the committed physics, no long real-physics approach in a headless browser), then let the BROWSER only render + assert the DOM indicator + screenshot. The < 15 s convergence from 100 m is ALREADY proven by the sim test in TASK-29.2, so the e2e does not need to re-prove approach speed — it only needs to reach and display a docked state.",
+    "e2e harness facts: fixtures.ts boots its own real dev server per test file (random ports, tmp sqlite DB, NODE_ENV=development so the dev routes exist) and exposes {baseURL, apiPort}; run `npm run test:e2e` (playwright.e2e.config.ts, single worker, ~90 s for the whole suite). The Playwright runner does NOT resolve the app's tsconfig path aliases — do not import app/src modules into the spec (mirror any constants). Precedents: tests/e2e/core-flow.spec.ts (claim → assert → screenshot to .ralph/screenshots/), tests/e2e/atmosphere.spec.ts (dev-hook + real WebGL assert), helpers.ts (collectErrors, canvasPixelVariance, uniqueCallsign).",
+    "The pad ring should appear in the docked screenshot but is NOT pixel-asserted — the AC is 'screenshot of docked state' + the DOM indicator, not a pixel probe of the ring.",
+    "Close-out: the DOCKED indicator is intentionally a one-node HUD stub (full ship HUD is TASK-51) — do not expand it. Keep the commit scoped to the e2e + docs."
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "task": "TASK-29",
+  "splittable": true,
+  "reason": "Both attempts died of scope, not of the environment: the unit suite is ~85 s, the headless-WebGL e2e harness is proven green (TASK-70/26.2/27/28.3), `tsc` is clean, and the last attempt left the ENTIRE server side committed and typechecking (3d14686: pad derivation, the per-tick dock/undock state machine, VTOL drift damping, wire padId, persist round-trip, and the dev teleport routes). What remains is well-defined and mechanical, and splits into four commits that each fit one 45-minute iteration, ordered so the riskiest pieces are isolated and every task is a guaranteed green milestone: (1) unit + sim tests for the committed pad math, hysteresis, dock/takeoff transitions and the one-pad invariant; (2) the single riskiest piece — the scripted 100 m → docked-in-<15 s convergence sim test — isolated so its tuning cannot sink the tests in (1); (3) the client pad rings + the one-node DOCKED indicator; (4) the Playwright landing e2e (teleport-assisted, server-side landing + browser screenshot) + full suites + docs. Each ends green and committed, so even an overrun still lands real progress.",
+  "tasks": [
+    {
+      "id": "TASK-29.1",
+      "title": "Pad + docking tests: derivation, hysteresis, dock/takeoff transitions, one-pad invariant"
+    },
+    {
+      "id": "TASK-29.2",
+      "title": "VTOL-assisted approach: scripted 100 m → docked in < 15 s (sim convergence test)"
+    },
+    {
+      "id": "TASK-29.3",
+      "title": "Client: pad ring markers + DOCKED indicator"
+    },
+    {
+      "id": "TASK-29.4",
+      "title": "E2E: land a ship at the station pad (docked state in DOM + screenshot) + TASK-29 close-out"
+    }
+  ],
+  "appliedAt": "2026-10-01T12:26:35.117Z"
+}

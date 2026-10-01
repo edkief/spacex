@@ -301,11 +301,40 @@
     "splitDepth": 1
   },
   {
-    "id": "TASK-29",
-    "title": "Landing pads: detection, VTOL assist, landed state",
+    "id": "TASK-29.1",
+    "title": "Pad + docking tests: derivation, hysteresis, dock/takeoff transitions, one-pad invariant",
     "category": "functional",
-    "specFilePath": ".ralph/tasks/TASK-29.json",
-    "passes": false
+    "specFilePath": ".ralph/tasks/TASK-29.1.json",
+    "passes": false,
+    "splitFrom": "TASK-29",
+    "splitDepth": 1
+  },
+  {
+    "id": "TASK-29.2",
+    "title": "VTOL-assisted approach: scripted 100 m → docked in < 15 s (sim convergence test)",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-29.2.json",
+    "passes": false,
+    "splitFrom": "TASK-29",
+    "splitDepth": 1
+  },
+  {
+    "id": "TASK-29.3",
+    "title": "Client: pad ring markers + DOCKED indicator",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-29.3.json",
+    "passes": false,
+    "splitFrom": "TASK-29",
+    "splitDepth": 1
+  },
+  {
+    "id": "TASK-29.4",
+    "title": "E2E: land a ship at the station pad (docked state in DOM + screenshot) + TASK-29 close-out",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-29.4.json",
+    "passes": false,
+    "splitFrom": "TASK-29",
+    "splitDepth": 1
   },
   {
     "id": "TASK-31",

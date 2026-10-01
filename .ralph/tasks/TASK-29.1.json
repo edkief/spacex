@@ -1,0 +1,41 @@
+{
+  "id": "TASK-29.1",
+  "title": "Pad + docking tests: derivation, hysteresis, dock/takeoff transitions, one-pad invariant",
+  "category": "functional",
+  "description": "Write the unit and (non-convergence) sim tests for the already-committed TASK-29 server side: pad derivation, hysteresis pad resolution, dock/takeoff transitions, VTOL damping math, and the one-pad-per-ship invariant. Tests-only task — do not change production code unless a test exposes a real bug (then fix minimally with a regression test). This is the first of the TASK-29 split; TASK-29.2 (convergence), TASK-29.3 (client) and TASK-29.4 (e2e + close-out) follow.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Unit tests for the pure pad math",
+      "details": "NEW app/src/shared/world/pads.test.ts (colocated vitest convention — run via `npm run test`): padsForSystem (deterministic per (seed, system); exactly one pad per landable planet; world position = planetAnchor(index) + chunk (0,0) local offset, i.e. INSIDE the planet's atmosphere; pad height equals the terrain cell height at that world position; second call returns the same cached array). resolvePadTarget (nearest pad acquired within 20 m; hysteresis — an UNTRACKED ship at 19 m acquires, a TRACKED ship at 21 m is kept and at 26 m is released; ties break on padId; never returns two pads). satisfiesDock (each condition individually: ≤20 m, regime must be exactly 'surface', |vel.y| < 2 strict, |alt − padY| ≤ 1). vtolAssistActive (up > 0, speed < 50 strict, ≤100 m — each gate). applyVtolAssist (x/z ×0.5, y untouched). padSurfaceHeight (flat at pad height ≤20 m, exact raised-cosine midpoint at 25 m, real terrain ≥30 m).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Sim tests through the real SimLoop",
+      "details": "NEW app/src/server/shard/shard.pads.test.ts, following src/server/shard/shard.regime.test.ts exactly: makeShard() with stub repo/shipSwapBus/log, construct a SimEntity, shard.addEntity + shard.registerConnection, ONE tick per `shard.sim.step(25 + (i + 1) * 50)`, inputs via shard.enqueueInput, events via shard.events.on. Get the pad's EXACT position from padsForSystem(seed, system) — never hardcode coordinates. Scenarios: (a) DOCK — bring the ship onto the pad disc (drop from low inside the atmosphere onto the flat pad with VTOL held until it settles into the surface regime), assert 'pad-dock' event {padId} and entityToState(entity) → regime 'docked' + state.padId; (b) TAKEOFF — from docked, inject vertical speed > 2 u/s as scripted state (the v1 atmosphere model cannot climb on VTOL alone — VTOL exactly cancels gravity; precedent: the 'ascent' phase in shard.regime.test.ts sets vel.y every tick), assert 'pad-undock' within one tick and wire state back to non-docked; (c) HYSTERESIS in sim — a docked/tracked ship moved to 21–25 m from the pad keeps its pad (no undock event), beyond 25 m releases; (d) INVARIANT — across all phases, entity.padId is ever at most one id and 'pad-dock' never re-fires while already docked.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Green + commit",
+      "details": "`npx tsc --noEmit` in app/, then `npm run test` (full vitest suite, ~85 s) green, then commit (Conventional Commit, message references TASK-29.1).",
+      "pass": false
+    }
+  ],
+  "acceptanceCriteria": [
+    "Unit tests: pad derivation — one pad per landable planet, deterministic per seed, pad at anchor + seeded offset inside the planet's atmosphere, height = terrain at pad position, cached",
+    "Unit tests: pad resolution — nearest within 20 m, hysteresis on the 20 m boundary (19 m in / 21 m out, tracked pad kept to 25 m), tie-break, never two pads",
+    "Unit tests: dock condition per clause (range, surface regime, |vel.y| < 2, altitude ±1 m), VTOL assist gate, VTOL damping ×0.5 math, flat-disc terrain blend",
+    "Sim tests through the real SimLoop: dock transition (pad-dock event + entityToState 'docked' + padId), takeoff clears docked within one tick when vertical speed > 2 u/s, 20–25 m hysteresis band, one-pad-per-ship invariant",
+    "npm run test green and committed"
+  ],
+  "notes": [
+    "STATE: the full SERVER side of TASK-29 is already committed (commit 3d14686 'wip(TASK-29)'), working tree clean, `npx tsc --noEmit` (in app/) green. Files: app/src/shared/world/pads.ts (padsForSystem + pure helpers; constants PAD_RADIUS_M=20, PAD_RELEASE_RADIUS_M=25, PAD_FLAT_BLEND_OUTER_M=30, DOCK_VERTICAL_SPEED_MAX_M_S=2, DOCK_ALTITUDE_TOLERANCE_M=1, VTOL_ASSIST_RANGE_M=100, VTOL_ASSIST_SPEED_MAX_M_S=50, VTOL_ASSIST_DAMPING=0.5); app/src/server/shard/shard.ts (per-tick updatePadState AFTER integration, padSurfaceHeight wraps heightAt on BOTH the physics and regime seams, teleportForTesting, 'pad-dock'/'pad-undock' events, entityToState → regime 'docked' + padId); app/src/server/shard/types.ts (SimEntity.padId); app/src/server/shard/persist.ts (flush/load round-trip); app/src/shared/protocol/schemas.ts (entityStateSchema.padId); app/src/server/routes/dev.ts + routes/index.ts (dev-only, NODE_ENV !== 'production': GET /api/dev/pad-target, POST /api/dev/teleport).",
+    "NO TASK-29 tests exist yet and no client work exists. Remaining split: TASK-29.2 (convergence sim test), TASK-29.3 (client pad rings + DOCKED indicator), TASK-29.4 (e2e + full suites + docs).",
+    "PHYSICS FINDINGS from the failed attempts — do NOT re-derive: (1) pads sit at planetAnchor(index) + chunk (0,0) local offset; the anchor is at (i+1)*10000 m and chunk (0,0) coords sit near the origin, so a pad WITHOUT the anchor offset is ~10 km outside the planet's atmosphere and can never reach the surface regime. In tests, obtain pad positions from padsForSystem, never hardcode. (2) The atmosphere regime has NO main thruster (drag + gravity + VTOL hover only) and VTOL alone produces no net climb (VTOL exactly cancels gravity) — takeoff tests must inject vertical velocity as scripted state (precedent: shard.regime.test.ts 'ascent'). (3) The ×0.5/tick assist kills all momentum in ~3 m — it is only useful in the FINAL approach phase; holding it earlier stops the approach.",
+    "Sim test conventions (read src/server/shard/shard.regime.test.ts first — it is the working precedent): shard.addEntity + shard.registerConnection, enqueueInput with an incrementing seq, one tick per shard.sim.step(25 + (i+1)*50), events on shard.events; the regime test's settle phase (coast → fall → ground clamp zeroes vel.y → 'surface') is the pattern for getting a ship into the surface regime on the pad.",
+    "If a test exposes a real bug in the committed code, fix production code minimally with a regression test; do not refactor working code for style.",
+    "Only one pad per landable planet exists (the settlement pad); there are no space-station pads in v1 — VTOL only makes sense at planetary surfaces. Tests pin the committed behavior."
+  ]
+}

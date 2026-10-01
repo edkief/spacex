@@ -1,0 +1,37 @@
+{
+  "id": "TASK-29.2",
+  "title": "VTOL-assisted approach: scripted 100 m → docked in < 15 s (sim convergence test)",
+  "category": "functional",
+  "description": "The remaining TASK-29 sim acceptance criterion: a scripted approach that STARTS 100 m from the pad and converges to the 'docked' state in under 15 s of sim time, made possible by the committed server-side VTOL assist. This is the riskiest piece of the task (it needs tuning), which is why it gets its own iteration. Builds on TASK-29.1 (the shard.pads.test.ts harness exists and the suite is green).",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Scripted approach sim test",
+      "details": "Extend app/src/server/shard/shard.pads.test.ts (or add a focused file in the same dir, colocated vitest): start the ship 100 m horizontally from the pad, at/below the atmosphere boundary altitude, with an initial velocity pointing at the pad. The atmosphere regime has no main thruster, so the approach is: initial momentum + drag for the long part, then hold the VTOL key (up: 1 in the input frames) for the final phase so the committed applyVtolAssist (×0.5/tick on horizontal drift) damps the residual drift while the ship descends onto the flat pad disc. Assert: 'pad-dock' fires; docked is reached in < 15 s of sim time (tick count × 50 ms); and the run is deterministic (fixed seed, no wall clock, no Math.random).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Tune until green",
+      "details": "If the approach does not converge: the levers are initial speed (a few u/s inbound is enough — drag carries the 100 m), start altitude (just above the pad so the descent is gentle), and when the VTOL key switches on (the ×0.5/tick assist kills momentum in ~3 m, so it must turn on only in the final phase — turning it on at 100 m freezes the ship short of the pad). Keep the script deterministic and documented in a block comment like shard.regime.test.ts's phase script. Do NOT change production physics to make the test pass — the assist constants (0.5, 100 m, 50 u/s) are the spec.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Green + commit",
+      "details": "`npx tsc --noEmit` + `npm run test` green, commit (Conventional Commit, references TASK-29.2).",
+      "pass": false
+    }
+  ],
+  "acceptanceCriteria": [
+    "Sim test: a scripted approach from 100 m from the pad, using the committed VTOL assist, converges to 'docked' in < 15 s of sim time",
+    "Deterministic (fixed seed, no wall clock); no production changes required to pass",
+    "npm run test green and committed"
+  ],
+  "notes": [
+    "Builds on TASK-29.1: reuse its makeShard + padsForSystem-placement helpers; the suite is green at start.",
+    "Physics findings (do NOT re-derive): the atmosphere regime has no main thruster (drag + gravity + VTOL only); VTOL alone cannot produce net climb (VTOL exactly cancels gravity) — so start at or slightly above pad altitude and descend, never climb in. The ×0.5/tick assist kills all momentum in ~3 m — hold the VTOL key only in the final phase (within roughly the last 20–40 m); holding it at 100 m freezes the ship short. Pads are flat to a 20 m disc (padSurfaceHeight), so anywhere on the disc settles at exactly the pad height.",
+    "The 15 s budget is generous: at a few u/s inbound, drag covers most of the 100 m and the final VTOL-braked descent takes only a few ticks per metre of damping — the whole thing should land well under budget, leaving headroom for the 45-minute iteration.",
+    "If after honest tuning the approach from exactly 100 m cannot settle under 15 s, the spec's own fallback reading applies: start distance 100 m with a slow inbound speed is the intent (friendly arcade landing) — the criterion is 'a scripted approach from 100 m converges to docked in < 15 s', not 'full-throttle from 100 m'."
+  ]
+}
