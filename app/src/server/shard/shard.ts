@@ -15,7 +15,16 @@ import {
 import { CHAT_HISTORY_MAX } from '@shared/chat';
 import { applyDamage, type ApplyDamageResult, type DamageSource } from '@shared/physics/damage';
 import { integrateShip, type FlightOptions, type PlanetAtmo } from '@shared/physics/flight';
-import { quatIdentity, vecLength, type Quat } from '@shared/physics/vec';
+import { quatIdentity, vecLength, type Quat, type Vec3 } from '@shared/physics/vec';
+import {
+  applyVtolAssist,
+  padSurfaceHeight,
+  padsForSystem,
+  resolvePadTarget,
+  satisfiesDock,
+  vtolAssistActive,
+  type PadInfo,
+} from '@shared/world/pads';
 import { shipStats, HEX_COLOR } from '@shared/ships';
 import type { SystemGen } from '@shared/galaxy/types';
 import { homeDockPosition } from '@shared/galaxy/dock';
@@ -126,6 +135,8 @@ export class SystemShard implements Shard {
   private readonly chatLog: ChatMessage[] = [];
   private lastChatTs = 0;
   private readonly terrain = new Map<string, TerrainContext>();
+  /** TASK-29: the system's seeded pad list, per planet (one pad each). */
+  private readonly planetPads = new Map<string, PadInfo>();
   /**
    * TASK-25: the regime manager's view of this system's planets, with a
    * LAZY terrain heightAt (the TerrainContext for a planet is only touched
@@ -149,12 +160,18 @@ export class SystemShard implements Shard {
     this.dt = (options.dtMs ?? TICK_DT_MS) / 1000;
     this.wreckTtlTicks = Math.max(1, Math.round(WRECK_TTL_MS / (options.dtMs ?? TICK_DT_MS)));
     this.persist = options.persist ?? (() => {});
+    // TASK-29: derive the system's seeded pads once (cached per system) and
+    // index them by planet — the pad list is system-derived data.
+    for (const pad of padsForSystem(options.galaxySeed, options.system)) {
+      this.planetPads.set(pad.planetId, pad);
+    }
     this.regimePlanets = systemRegimePlanets(options.system).map((planet) => ({
       ...planet,
       heightAt: (x, z) => {
         const ctx = this.getTerrain(planet.id);
         ctx.update(x, z);
-        return ctx.heightAt(x, z);
+        // The pad disc is flat for the regime machine too (surface band).
+        return padSurfaceHeight(x, z, ctx.heightAt(x, z), this.planetPads.get(planet.id));
       },
     }));
 
@@ -579,15 +596,19 @@ export class SystemShard implements Shard {
       // regime drives the physics context for THIS tick.
       this.resolveRegime(entity);
       const ctx = this.resolveRegimeCtx(entity);
+      const shipInput = inputToShipInput(entity.heldInput ?? ZERO_INPUT);
       entity.ship = integrateShip(
         entity.ship,
-        inputToShipInput(entity.heldInput ?? ZERO_INPUT),
+        shipInput,
         this.dt,
         entity.ship.regime,
         ctx.planet,
         shipStats(entity.classId),
         ctx.options,
       );
+      // TASK-29: landing-pad state machine + VTOL drift assist (both run on
+      // the integrated state, so takeoff clears 'docked' within one tick).
+      this.updatePadState(entity, shipInput.up);
     }
 
     // 10 Hz snapshot: every 2nd tick, serialize ONCE, share the buffer.
@@ -677,6 +698,70 @@ export class SystemShard implements Shard {
   }
 
   /**
+   * TASK-29: per-ship landing-pad state, evaluated AFTER integration so a
+   * takeoff (vertical speed > 2 u/s) clears 'docked' within one tick.
+   *
+   * - The ship's own planet has at most one seeded pad; tracking uses the
+   *   20 m acquisition / 25 m release hysteresis (resolvePadTarget), so a
+   *   slow ship idling on the boundary cannot flap.
+   * - 'docked' = tracking the pad AND satisfying the dock condition
+   *   (surface regime, |vel.y| < 2 u/s, altitude within 1 m of the pad
+   *   height). The state is a SINGLE padId — a ship can never be docked at
+   *   two pads (asserted in the sim tests). Docked ships keep simulating:
+   *   no input lock, the player can take off at any time.
+   * - VTOL assist (server-side physics): with the VTOL key held, within
+   *   100 m of the pad and below 50 u/s, horizontal drift is damped ×0.5
+   *   every tick — what makes parking possible.
+   *
+   * The change rides the wire in the next 10 Hz entity_update
+   * (regime 'docked' + padId); 'pad-dock'/'pad-undock' events are emitted
+   * for observability (tests, future HUD toasts).
+   */
+  private updatePadState(entity: SimEntity, up: number): void {
+    const pad = entity.planetId ? this.planetPads.get(entity.planetId) : undefined;
+    if (!pad) {
+      if (entity.padId) {
+        entity.padId = undefined;
+        this.events.emit('pad-undock', { id: entity.id, playerId: entity.playerId });
+      }
+      return;
+    }
+    const target = resolvePadTarget(entity.ship.pos, [pad], entity.padId);
+    const docked = target !== undefined && satisfiesDock(entity.ship.pos, entity.ship.vel, entity.ship.regime, target);
+    if (docked) {
+      if (entity.padId !== pad.padId) {
+        entity.padId = pad.padId;
+        this.log.debug('pad dock', { entity: entity.id, padId: pad.padId });
+        this.events.emit('pad-dock', { id: entity.id, playerId: entity.playerId, padId: pad.padId });
+      }
+    } else if (entity.padId) {
+      entity.padId = undefined;
+      this.log.debug('pad undock', { entity: entity.id });
+      this.events.emit('pad-undock', { id: entity.id, playerId: entity.playerId });
+    }
+    if (up > 0 && vtolAssistActive(up, vecLength(entity.ship.vel), entity.ship.pos, [pad])) {
+      entity.ship.vel = applyVtolAssist(entity.ship.vel);
+    }
+  }
+
+  /**
+   * Dev/test hook (TASK-29 e2e teleport-assist): hard-set a player ship's
+   * position + velocity. The regime machine re-resolves from the new
+   * position on the next tick; held input is cleared (no ghost thrust).
+   * Returns false for unknown/destroyed ships.
+   */
+  teleportForTesting(playerId: string, pos: Vec3, vel?: Vec3): boolean {
+    const entity = this.playerEntities.get(playerId);
+    if (!entity || entity.destroyed) return false;
+    entity.ship.pos = { ...pos };
+    entity.ship.vel = vel ? { ...vel } : { x: 0, y: 0, z: 0 };
+    entity.heldInput = undefined;
+    entity.idle = false;
+    this.log.debug('teleport (dev/test hook)', { playerId, x: pos.x, y: pos.y, z: pos.z });
+    return true;
+  }
+
+  /**
    * Resolve the flight-model context for an entity: its regime decides the
    * planet context (atmosphere density, O(1) chunk-cached terrain, pads).
    * Space entities get no planet context at all.
@@ -699,7 +784,9 @@ export class SystemShard implements Shard {
           }
         : undefined,
       options: {
-        heightAt: (x, z) => ctx.heightAt(x, z),
+        // TASK-29: the pad disc is flat for physics too (the ship rests at
+        // the pad height anywhere on the 40 m circle — the arcade landing).
+        heightAt: (x, z) => padSurfaceHeight(x, z, ctx.heightAt(x, z), this.planetPads.get(planet.id)),
         pads: ctx.pads(),
       },
     };
@@ -726,13 +813,17 @@ export class SystemShard implements Shard {
   private entityFromShipRow(ship: ShipRow, callsign?: string): SimEntity {
     const cls = shipStats(ship.classId);
     const docked = ship.state === 'docked';
-    // Docked ships always load at the system dock (the row's position is the
-    // home-system dock of a possibly different system; this system's dock is
-    // the canonical resting spot, seed-derived like everything else).
+    // TASK-29: a docked ship with a pad id is PAD-docked (resting on a
+    // landing pad) — it keeps its saved position; only a plain docked ship
+    // loads at the system dock (the row's position is the home-system dock
+    // of a possibly different system; this system's dock is the canonical
+    // resting spot, seed-derived like everything else).
+    const padDocked = docked && !!ship.onPad;
     const dock = homeDockPosition(this.galaxySeed, this.systemId);
-    const pos = docked
-      ? { x: dock.x, y: dock.y, z: dock.z }
-      : { x: ship.position.x, y: ship.position.y, z: ship.position.z };
+    const pos =
+      docked && !padDocked
+        ? { x: dock.x, y: dock.y, z: dock.z }
+        : { x: ship.position.x, y: ship.position.y, z: ship.position.z };
     const quat = isQuat(ship.rotation) ? { ...ship.rotation } : quatIdentity();
     // TASK-25: 'surface' is a first-class persisted regime; anything else
     // (foreign/corrupt rows) falls back to space.
@@ -761,6 +852,9 @@ export class SystemShard implements Shard {
       targetId: null,
       livery: Object.keys(livery).length > 0 ? livery : undefined,
       docked,
+      // TASK-29: pad-docked ships come back docked on their pad (the tick
+      // re-validates the dock condition, so a corrupt row self-heals).
+      ...(padDocked && ship.onPad ? { padId: ship.onPad } : {}),
       destroyed: ship.state === 'destroyed',
       destroyedAtMs: ship.destroyedAt ? Date.parse(ship.destroyedAt) : undefined,
     };
@@ -861,7 +955,7 @@ export { inputToShipInput };
 /** Entity → wire EntityState (hull/shields normalized 0..1, regime mapped). */
 export function entityToState(e: SimEntity): EntityState {
   // Wire regimes v1: docked (at a dock or settled on a pad) vs sublight flight.
-  const regime: EntityState['regime'] = e.docked || e.ship.onPad ? 'docked' : 'sublight';
+  const regime: EntityState['regime'] = e.docked || e.ship.onPad || e.padId ? 'docked' : 'sublight';
   const state: EntityState = {
     id: e.id,
     kind: e.kind,
@@ -878,5 +972,7 @@ export function entityToState(e: SimEntity): EntityState {
   };
   if (e.callsign) state.callsign = e.callsign;
   if (e.livery) state.livery = e.livery;
+  // TASK-29: the docked landing pad id (entity_update.state = 'docked' {padId}).
+  if (e.padId) state.padId = e.padId;
   return state;
 }

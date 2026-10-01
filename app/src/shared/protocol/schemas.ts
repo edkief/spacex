@@ -65,6 +65,11 @@ export const entityStateSchema = z
      * 500 ms of divergence). Optional for back-compat with v1 producers.
      */
     flightRegime: z.enum(FLIGHT_REGIMES).optional(),
+    /**
+     * TASK-29: set (with regime 'docked') when the ship is docked on a
+     * landing pad — the pad's id. Optional for back-compat with v1 producers.
+     */
+    padId: z.string().min(1).optional(),
     hull: finite.min(0).max(1),
     shields: finite.min(0).max(1),
     targetId: z.string().min(1).nullable(),

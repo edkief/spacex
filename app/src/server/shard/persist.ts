@@ -88,7 +88,7 @@ export function createShardPersist(deps: {
     const cls = shipStats(e.classId);
     const state: ShipStateInput['state'] = e.destroyed
       ? 'destroyed'
-      : e.docked || e.ship.onPad
+      : e.docked || e.ship.onPad || e.padId
         ? 'docked'
         : 'flying';
     const input: ShipStateInput = {
@@ -103,7 +103,9 @@ export function createShardPersist(deps: {
       velocity: { ...e.ship.vel },
       rotation: { ...e.ship.quat },
       regime: e.ship.regime as ShipRegime,
-      onPad: e.ship.onPad ?? null,
+      // TASK-29: the landing-pad id wins over the flight-model pad (both are
+      // 16-hex pad ids; loading restores the pad-docked state from this).
+      onPad: e.padId ?? e.ship.onPad ?? null,
       state,
       destroyedAt: e.destroyed ? new Date(e.destroyedAtMs ?? now()).toISOString() : null,
     };

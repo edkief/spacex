@@ -85,6 +85,12 @@ export interface SimEntity {
   /** Planet whose surface this ship flies above (atmosphere regime only). */
   planetId?: string;
   /**
+   * TASK-29: the landing pad this ship is docked on (server-authoritative,
+   * set/cleared by the pad state machine in the tick). One pad per ship —
+   * a single id, never two. Undefined when not docked on a pad.
+   */
+  padId?: string;
+  /**
    * TASK-14: the newest input frame, HELD and re-integrated every tick until
    * a newer frame replaces it (latest-wins persistence). This mirrors the
    * client predictor, which keeps integrating its last input between frames
