@@ -67,15 +67,17 @@ function makeShard(): SystemShard {
  * - coast: dead-sticks into the atmosphere at ~4 u/s, then falls (no VTOL
  *   input) onto the terrain. The ground clamp zeroes the vertical velocity,
  *   so the ship ends low + slow → the shared machine resolves 'surface';
- * - settle: two on-surface ticks, then a scripted vertical kick (vel.y = 4000):
- *   the v1 atmosphere model cannot climb under its own power (VTOL exactly
- *   cancels gravity, and drag caps any ballistic climb at ~400 u for this
- *   density), so the ascent is an external impulse applied as scripted state
- *   — but the regime transitions it triggers are still resolved by the real
+ * - settle: two on-surface ticks, then a scripted SUSTAINED climb (vel.y =
+ *   100 every tick): the v1 atmosphere model cannot climb under its own
+ *   power (VTOL exactly cancels gravity), and since TASK-28 the drag is
+ *   densest at the surface — a single ballistic kick from the ground is
+ *   capped at ~210 u of climb (the local terminal speed near the surface
+ *   is an unstable equilibrium), far short of the 1.05 exit radius — so
+ *   the ascent is an external sustained thrust applied as scripted state.
+ *   The regime transitions it triggers are still resolved by the real
  *   state machine in the real tick;
- * - ascent: coasts up through the surface band (→ atmosphere) and past the
- *   1.05 exit radius (→ space) no matter where the terrain put the ship,
- *   drag decaying the kick along the way.
+ * - ascent: climbs through the surface band (→ atmosphere) and past the
+ *   1.05 exit radius (→ space) no matter where the terrain put the ship.
  */
 function runScriptedFlight(noise: boolean): string[] {
   const shard = makeShard();
@@ -125,6 +127,11 @@ function runScriptedFlight(noise: boolean): string[] {
       entity.ship.pos.y += i % 3 === 1 ? 1 : -1;
       entity.ship.pos.z += i % 3 === 2 ? 1 : -1;
     }
+    // TASK-28: the sustained scripted climb — an external +Y thrust injected
+    // as state each tick (the v1 atmosphere model cannot climb on its own).
+    if (phase === 'ascent') {
+      entity.ship.vel = { x: entity.ship.vel.x, y: 100, z: entity.ship.vel.z };
+    }
     const payload =
       phase === 'cruise'
         ? frame({ thrust: 1 })
@@ -159,11 +166,10 @@ function runScriptedFlight(noise: boolean): string[] {
         if (entity.ship.regime === 'surface') settleTicks += 1;
         else settleTicks = 0;
         if (settleTicks >= 2) {
-          // Scripted climb impulse (see the function doc): vertical, pure +Y.
-          // 4000 u/s clears the ~400 u max-ballistic-climb ceiling of this
-          // atmosphere at every possible landing spot (worst case: flat
-          // terrain at the entry boundary → ~325 u to the exit radius).
-          entity.ship.vel = { x: 0, y: 4000, z: 0 };
+          // Scripted climb (see the function doc): from the next tick the
+          // loop injects vel.y = 100 every tick — ~95 u/s net after the
+          // surface-dense drag (TASK-28), which clears the ~460 u worst-case
+          // climb to the exit radius in under 10 s.
           phase = 'ascent';
         }
         break;

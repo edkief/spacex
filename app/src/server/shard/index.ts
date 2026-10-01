@@ -6,7 +6,6 @@ export {
   TICK_DT_MS,
   SNAPSHOT_EVERY_TICKS,
   SNAPSHOT_WARN_BYTES,
-  ATMO_DENSITY,
 } from './shard';
 export { SimLoop } from './sim';
 export { TickHistogram } from './histogram';

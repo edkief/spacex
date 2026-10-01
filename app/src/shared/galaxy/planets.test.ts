@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { ATMOSPHERE_BOUNDARY_M } from '../physics/atmosphere';
-import { planetAnchor, planetAtmosphereRadius, systemRegimePlanets } from './planets';
+import { ATMOSPHERE_BOUNDARY_M, hazeFactor } from '../physics/atmosphere';
+import {
+  planetAnchor,
+  planetAtmosphereDensity,
+  planetAtmosphereRadius,
+  systemRegimePlanets,
+} from './planets';
+import { generateStars } from './stars';
+import { generateSystem } from './system';
 import type { Planet, SystemGen } from './types';
 
 const airless: Planet = {
@@ -26,6 +33,42 @@ describe('planetAtmosphereRadius (TASK-4 data → regime boundary)', () => {
   it('atmospheric planets get the shared 1 km TASK-22 drag boundary', () => {
     expect(planetAtmosphereRadius(terran)).toBe(ATMOSPHERE_BOUNDARY_M);
     expect(planetAtmosphereRadius(gas)).toBe(ATMOSPHERE_BOUNDARY_M);
+  });
+});
+
+describe('planetAtmosphereDensity (TASK-28 per-planet haze + drag density)', () => {
+  it('airless planets have density 0', () => {
+    expect(planetAtmosphereDensity(airless)).toBe(0);
+  });
+
+  it('is deterministic and positive for atmospheric planets', () => {
+    expect(planetAtmosphereDensity(terran)).toBeGreaterThan(0);
+    expect(planetAtmosphereDensity(terran)).toBe(planetAtmosphereDensity(terran));
+  });
+
+  it('two planets of the seeded galaxy differ by > 20% haze at mid-boundary', () => {
+    // The render test's pure-math counterpart: a seeded system with two or
+    // more atmospheric planets shows a visible haze difference at the
+    // boundary mid-band (thin-atmosphere planets are visibly less hazy).
+    const star = generateStars('DRIFT-SEED-0001')[0];
+    const system = generateSystem('DRIFT-SEED-0001', star.id);
+    const atmospheric = system.planets.filter((p) => p.hasAtmosphere);
+    expect(atmospheric.length).toBeGreaterThanOrEqual(2);
+    const hazeAt = (p: Planet): number =>
+      hazeFactor(ATMOSPHERE_BOUNDARY_M / 2, {
+        atmosphereRadius: planetAtmosphereRadius(p),
+        atmosphereDensity: planetAtmosphereDensity(p),
+      });
+    let maxDiff = 0;
+    for (const a of atmospheric) {
+      for (const b of atmospheric) {
+        if (a.id === b.id) continue;
+        const hA = hazeAt(a);
+        const hB = hazeAt(b);
+        maxDiff = Math.max(maxDiff, Math.abs(hA - hB) / Math.max(hA, hB));
+      }
+    }
+    expect(maxDiff).toBeGreaterThan(0.2);
   });
 });
 

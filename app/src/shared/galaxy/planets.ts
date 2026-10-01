@@ -16,11 +16,24 @@
  */
 
 import { ATMOSPHERE_BOUNDARY_M } from '../physics/atmosphere';
+import { hash2, seedFromString } from '../random';
 import type { RegimePlanet } from '../regime';
-import type { Planet, SystemGen } from './types';
+import type { Planet, PlanetClass, SystemGen } from './types';
 
 /** Spacing (u) between planet surface anchors on the shared world plane. */
 export const PLANET_ANCHOR_SPACING_M = 10_000;
+
+/** Base drag density by planet class (gas giants are thickest, rocky thin). */
+const ATMOSPHERE_DENSITY_BASE: Record<PlanetClass, number> = {
+  rocky: 0.04,
+  ice: 0.05,
+  terran: 0.08,
+  ocean: 0.1,
+  gas: 0.12,
+};
+
+/** Sub-seed tag so the density draw never consumes another value's stream. */
+const DENSITY_SUBSEED = 0x57413417n;
 
 /** Surface anchor of the planet at orbital-slot `index` (world u). */
 export function planetAnchor(index: number): { x: number; z: number } {
@@ -33,6 +46,21 @@ export function planetAnchor(index: number): { x: number; z: number } {
  */
 export function planetAtmosphereRadius(planet: Pick<Planet, 'hasAtmosphere'>): number {
   return planet.hasAtmosphere ? ATMOSPHERE_BOUNDARY_M : 0;
+}
+
+/**
+ * Drag density of a planet's atmosphere (0 when airless): the class base ×
+ * a seeded per-planet variation in [0.5, 1.0) derived from the planet's
+ * stable id. Deterministic (same seed → same density, Node and browser);
+ * the range keeps distinct planets visibly different in haze (TASK-28).
+ */
+export function planetAtmosphereDensity(
+  planet: Pick<Planet, 'id' | 'class' | 'hasAtmosphere'>,
+): number {
+  if (!planet.hasAtmosphere) return 0;
+  const h = hash2(seedFromString(planet.id), DENSITY_SUBSEED);
+  const variation = 0.5 + 0.5 * (Number(h % 1_000_000n) / 1_000_000);
+  return ATMOSPHERE_DENSITY_BASE[planet.class] * variation;
 }
 
 /**

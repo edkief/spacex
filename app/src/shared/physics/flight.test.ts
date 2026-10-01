@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import atmoFixture from './__fixtures__/flight-atmo-30s.json';
 import spaceFixture from './__fixtures__/flight-space-60s.json';
-import { ATMOSPHERE_BOUNDARY_M, atmosphereFactor } from './atmosphere';
+import { ATMOSPHERE_BOUNDARY_M, boundaryFactor, reentryTintFactor } from './atmosphere';
 import {
   GRAVITY,
   integrateShip,
@@ -20,6 +20,11 @@ import type { ShipClassId } from '../ships';
 const DT = 0.05; // server fixed tick (1/20 s)
 
 const NO_INPUT: ShipInput = { thrust: 0, yaw: 0, pitch: 0, roll: 0, up: 0 };
+
+/** A test planet: full 1 km boundary at the given density. */
+function atmo(density: number): PlanetAtmo {
+  return { atmosphereDensity: density, atmosphereRadius: ATMOSPHERE_BOUNDARY_M };
+}
 
 function quatFromYaw(yaw: number): Quat {
   return { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) };
@@ -103,23 +108,56 @@ function replay(f: Fixture): void {
 }
 
 describe('atmosphere boundary (shared with TASK-28)', () => {
-  it('ramps 0→k across the 1 km band, 0 below, 1 above', () => {
-    expect(atmosphereFactor(-100)).toBe(0);
-    expect(atmosphereFactor(0)).toBe(0);
-    expect(atmosphereFactor(ATMOSPHERE_BOUNDARY_M / 2)).toBe(0.5);
-    expect(atmosphereFactor(ATMOSPHERE_BOUNDARY_M - 0.001)).toBeCloseTo(1, 5);
-    expect(atmosphereFactor(ATMOSPHERE_BOUNDARY_M)).toBe(1);
-    expect(atmosphereFactor(ATMOSPHERE_BOUNDARY_M + 500)).toBe(1);
+  /** Scout k_max at density 0.1: k = ρ·area/mass (factor-independent part). */
+  const kFull = (0.1 * 2 * Math.sqrt(20)) / 20;
+
+  it('full drag at the surface, 0 at/above the enter radius (airless: 0)', () => {
+    const p = atmo(0.1);
+    expect(boundaryFactor(-100, p)).toBe(1);
+    expect(boundaryFactor(0, p)).toBe(1);
+    expect(boundaryFactor(1, p)).toBeCloseTo(0.999, 6);
+    expect(boundaryFactor(ATMOSPHERE_BOUNDARY_M / 2, p)).toBe(0.5);
+    expect(boundaryFactor(ATMOSPHERE_BOUNDARY_M - 1, p)).toBeCloseTo(0.001, 6);
+    expect(boundaryFactor(ATMOSPHERE_BOUNDARY_M, p)).toBe(0);
+    expect(boundaryFactor(ATMOSPHERE_BOUNDARY_M + 500, p)).toBe(0);
+    expect(boundaryFactor(500, { atmosphereRadius: 0 })).toBe(0);
     expect(ATMOSPHERE_BOUNDARY_M).toBe(1000);
   });
 
+  it('no discontinuity in the drag acceleration at any boundary altitude', () => {
+    // Drag acceleration a(alt) = k·f(alt)·|v|·v must be continuous at EVERY
+    // altitude — including the two kinks (alt = 0 and alt = enter radius).
+    // The regime switch is the sharp one: drag in space is exactly 0, so the
+    // atmosphere-side limit at the enter radius must be 0 too (the pre-TASK-28
+    // ramp was full-k there — a hard kick at the crossing).
+    const p = atmo(0.1);
+    const v = 40;
+    const drag = (alt: number): number =>
+      alt >= ATMOSPHERE_BOUNDARY_M ? 0 : kFull * boundaryFactor(alt, p) * v * v;
+    // f is piecewise linear with slopes 0 or 1/R (Lipschitz 1/R) → C⁰ everywhere.
+    for (let alt = -2; alt <= ATMOSPHERE_BOUNDARY_M + 2; alt += 0.5) {
+      const d = 1;
+      expect(Math.abs(drag(alt + d) - drag(alt - d))).toBeLessThanOrEqual(
+        (2 * d * kFull * v * v) / ATMOSPHERE_BOUNDARY_M + 1e-9,
+      );
+    }
+    expect(drag(-1)).toBe(kFull * v * v); // full drag below the surface
+    expect(drag(ATMOSPHERE_BOUNDARY_M - 1e-6)).toBeLessThanOrEqual(
+      kFull * v * v * (1e-6 / ATMOSPHERE_BOUNDARY_M) + 1e-9,
+    ); // → 0 across the regime switch
+  });
+
   it('crossing the boundary under constant input changes drag continuously (no kick)', () => {
-    // fall from 1200 u through the 1000 u boundary, sampling every 10 ms
-    const planet: PlanetAtmo = { atmosphereDensity: 0.1 };
-    const kFull = (planet.atmosphereDensity * 2 * Math.sqrt(20)) / 20; // scout, factor 1
+    // fall from 1200 u (space side) at 100 u/s through the 1000 u enter
+    // radius: at the crossing the drag is ≈0 on both sides, so the crossing
+    // step's velocity change is gravity alone (a hard 0→k switch would add
+    // ~k·v²·dt on top — the pre-TASK-28 behavior).
+    const planet = atmo(0.1);
     const dtStep = 0.01;
     let s = restShipState({ x: 0, y: 1200, z: 0 }, 'atmosphere');
+    s = { ...s, vel: { x: 0, y: -100, z: 0 } };
     let maxDelta = 0;
+    let maxSpeed = 0;
     let prevY = s.vel.y;
     let prevAlt = 1200;
     for (let i = 0; i < 3000; i++) {
@@ -127,21 +165,60 @@ describe('atmosphere boundary (shared with TASK-28)', () => {
       s = integrateShip(s, NO_INPUT, dtStep, 'atmosphere', planet, 'scout');
       const delta = Math.abs(s.vel.y - prevY);
       if (prevAlt < ATMOSPHERE_BOUNDARY_M && s.pos.y >= ATMOSPHERE_BOUNDARY_M) {
-        // the exact step that crosses: the change may only be the smooth
-        // gravity + full-factor drag evolution. A step change of coefficient
-        // (the old 0→k behavior) would add an extra ~k·v²·dt kick on top.
+        // the exact step that crosses: only gravity + the (≈0) ramped drag
+        const factor = boundaryFactor(prevAlt, planet);
         expect(delta).toBeLessThanOrEqual(
-          (GRAVITY + kFull * prevSpeed * prevSpeed) * dtStep + 1e-6,
+          (GRAVITY + kFull * factor * prevSpeed * prevSpeed) * dtStep + 1e-6,
         );
       }
       maxDelta = Math.max(maxDelta, delta);
+      maxSpeed = Math.max(maxSpeed, Math.abs(s.vel.y));
       prevY = s.vel.y;
       prevAlt = s.pos.y;
     }
-    // terminal velocity in full atmosphere: every step's change is bounded by
-    // the smooth (g + k·v²)·dt — no discontinuity anywhere
-    expect(maxDelta).toBeLessThanOrEqual((GRAVITY + kFull * 16 * 16) * dtStep + 1e-6);
+    // every step bounded by the smooth (g + k·v²)·dt (v the speed at that
+    // step) — no discontinuity anywhere in the band
+    expect(maxDelta).toBeLessThanOrEqual((GRAVITY + kFull * maxSpeed * maxSpeed) * dtStep + 1e-6);
     expect(s.pos.y).toBeGreaterThanOrEqual(0);
+  });
+
+  it('entry at 100 u/s: the 10 s speed profile matches the analytic drag curve within 2%', () => {
+    // The ship enters at the top of the 1 km band, 100 u/s down. Reference:
+    // fine-dt (1e-4 s) Euler of the continuous ODE w′ = g − k·f(y)·w² with
+    // the shared linear ramp f — the analytic drag curve to ~1e-4 precision.
+    // Production: integrateShip at the server dt (1/20 s, substepped).
+    const planet = atmo(0.1);
+    const dt = 0.05;
+    let prod = restShipState({ x: 0, y: ATMOSPHERE_BOUNDARY_M, z: 0 }, 'atmosphere');
+    prod = { ...prod, vel: { x: 0, y: -100, z: 0 } };
+    const h = 1e-4;
+    let y = ATMOSPHERE_BOUNDARY_M;
+    let w = 100;
+    let maxRelErr = 0;
+    for (let i = 1; i <= 10 / dt; i++) {
+      prod = integrateShip(prod, NO_INPUT, dt, 'atmosphere', planet, 'scout');
+      for (let j = 0; j < Math.round(dt / h); j++) {
+        w += (GRAVITY - kFull * boundaryFactor(y, planet) * w * w) * h;
+        y -= w * h;
+      }
+      if (i % 10 === 0) {
+        maxRelErr = Math.max(maxRelErr, Math.abs(-prod.vel.y - w) / w);
+      }
+    }
+    expect(maxRelErr).toBeLessThan(0.02);
+    // drag actually shaped the profile (a ballistic fall would still be ≥90)
+    // and the ship stayed above the terrain.
+    expect(-prod.vel.y).toBeLessThan(90);
+    expect(prod.pos.y).toBeGreaterThan(0);
+  });
+
+  it('re-entry tint: cosmetic ramp above 200 u/s descent, only inside the band', () => {
+    expect(reentryTintFactor(100, 1)).toBe(0); // below threshold
+    expect(reentryTintFactor(300, 0)).toBe(0); // in space
+    expect(reentryTintFactor(200, 1)).toBe(0); // exactly at threshold
+    expect(reentryTintFactor(350, 1)).toBeCloseTo(0.2, 9); // mid-ramp
+    expect(reentryTintFactor(500, 1)).toBeCloseTo(0.4, 9); // capped
+    expect(reentryTintFactor(500, 0.5)).toBeCloseTo(0.2, 9); // scales with the band factor
   });
 });
 
@@ -212,34 +289,41 @@ describe('space regime', () => {
 });
 
 describe('atmosphere regime', () => {
-  it('terminal velocity: drag balances gravity at v = √(g/k)', () => {
-    const planet: PlanetAtmo = { atmosphereDensity: 0.01 };
+  it('terminal velocity: drag balances gravity — v = √(g/(k·f(alt))) locally', () => {
+    const planet = atmo(0.01);
     // k = ρ·area/mass = 0.01 · 2√20 / 20 (scout)
-    const k = (planet.atmosphereDensity * 2 * Math.sqrt(20)) / 20;
-    const vTerminal = Math.sqrt(GRAVITY / k);
+    const k = (0.01 * 2 * Math.sqrt(20)) / 20;
+    const vTerminal = Math.sqrt(GRAVITY / k); // f = 1: the surface terminal speed
 
-    // exactly at terminal velocity the net force is zero (altitude above the
-    // 1 km boundary so the drag factor is full)
+    // exactly at the LOCAL terminal speed the net force is zero, so one step
+    // leaves the velocity essentially unchanged (alt 100 → f = 0.9)
+    const alt = 100;
+    const vLocal = Math.sqrt(GRAVITY / (k * boundaryFactor(alt, planet)));
     const atTerminal: ShipState = {
-      pos: vec(0, 2000, 0),
-      vel: vec(0, -vTerminal, 0),
+      pos: vec(0, alt, 0),
+      vel: vec(0, -vLocal, 0),
       quat: { x: 0, y: 0, z: 0, w: 1 },
       regime: 'atmosphere',
     };
     const s = integrateShip(atTerminal, NO_INPUT, DT, 'atmosphere', planet, 'scout');
-    expect(s.vel.y).toBeCloseTo(-vTerminal, 9);
+    expect(s.vel.y).toBeCloseTo(-vLocal, 2);
 
-    // falling from rest converges onto terminal velocity
-    const fallen = runSteps(
-      restShipState({ x: 0, y: 50000, z: 0 }, 'atmosphere'),
-      NO_INPUT,
-      0.5,
-      200, // 100 s
-      'atmosphere',
-      planet,
-    );
-    expect(fallen.vel.y).toBeCloseTo(-vTerminal, 1);
-    expect(fallen.pos.y).toBeGreaterThan(0);
+    // a fall from the top of the band settles near the surface terminal speed
+    // (the local equilibrium √(g/(k·f)) shrinks as the air thickens toward
+    // the ground): it hits well below the ballistic √(2g·h) of a dragless fall
+    let fall = restShipState({ x: 0, y: 999, z: 0 }, 'atmosphere');
+    let vImpact = 0;
+    for (let i = 0; i < 400 && fall.pos.y > 0; i++) {
+      const next = integrateShip(fall, NO_INPUT, DT, 'atmosphere', planet, 'scout');
+      if (next.pos.y <= 0) {
+        vImpact = Math.abs(fall.vel.y); // last airborne state
+        break;
+      }
+      fall = next;
+    }
+    expect(vImpact).toBeGreaterThan(0.5 * vTerminal);
+    expect(vImpact).toBeLessThan(1.25 * vTerminal);
+    expect(Math.sqrt(2 * GRAVITY * 999)).toBeGreaterThan(1.25 * vTerminal); // drag matters
   });
 
   it('ground collision clamps to terrain and kills downward velocity (no tunneling)', () => {
@@ -250,7 +334,7 @@ describe('atmosphere regime', () => {
       quat: { x: 0, y: 0, z: 0, w: 1 },
       regime: 'atmosphere',
     };
-    const s = integrateShip(state, NO_INPUT, DT, 'atmosphere', { atmosphereDensity: 0.1 }, 'scout');
+    const s = integrateShip(state, NO_INPUT, DT, 'atmosphere', atmo(0.1), 'scout');
     expect(s.pos.y).toBe(0); // exactly at flat ground, never below
     expect(s.vel.y).toBe(0);
     expect(s.pos.x).toBe(0);
@@ -265,7 +349,7 @@ describe('atmosphere regime', () => {
       regime: 'atmosphere',
     };
     // airless (density 0) → ballistic: the ship must not tunnel past y = 20
-    const s = integrateShip(state, NO_INPUT, DT, 'atmosphere', { atmosphereDensity: 0 }, 'scout', {
+    const s = integrateShip(state, NO_INPUT, DT, 'atmosphere', atmo(0), 'scout', {
       heightAt: (x) => 10 + 0.1 * x, // slope: terrain at x=100 is y=20
     });
     expect(s.pos.y).toBe(20);
@@ -278,26 +362,18 @@ describe('atmosphere regime', () => {
       quat: { x: 0, y: 0, z: 0, w: 1 },
       regime: 'atmosphere',
     };
-    const s2 = integrateShip(
-      below,
-      NO_INPUT,
-      DT,
-      'atmosphere',
-      { atmosphereDensity: 0.1 },
-      'scout',
-      {
-        heightAt: (x) => 10 + 0.1 * x,
-      },
-    );
+    const s2 = integrateShip(below, NO_INPUT, DT, 'atmosphere', atmo(0.1), 'scout', {
+      heightAt: (x) => 10 + 0.1 * x,
+    });
     expect(s2.pos.y).toBe(20);
   });
 
   it('VTOL hover converges: lift cancels gravity, drag damps vel.y to 0', () => {
-    const planet: PlanetAtmo = { atmosphereDensity: 1 };
-    // falling into the hover at full-atmosphere altitude (above the 1 km ramp)
+    const planet = atmo(1);
+    // falling into the hover deep in the band (alt 200 → f = 0.8: thick air)
     const s = runSteps(
       {
-        pos: vec(0, 2000, 0),
+        pos: vec(0, 200, 0),
         vel: vec(0, -8, 0),
         quat: { x: 0, y: 0, z: 0, w: 1 },
         regime: 'atmosphere',
@@ -309,7 +385,7 @@ describe('atmosphere regime', () => {
       planet,
     );
     expect(Math.abs(s.vel.y)).toBeLessThan(0.1); // nearly hovering
-    expect(2000 - s.pos.y).toBeLessThan(11); // bounded drop, no sustained fall
+    expect(200 - s.pos.y).toBeLessThan(12); // bounded drop, no sustained fall
     // and it holds: near-zero drift over another 30 s
     const held = runSteps(s, { ...NO_INPUT, up: 1 }, DT, 600, 'atmosphere', planet);
     expect(Math.abs(held.vel.y)).toBeLessThan(0.1);
@@ -317,7 +393,7 @@ describe('atmosphere regime', () => {
   });
 
   it('VTOL lift is heading-independent and gated by horizontal speed', () => {
-    const planet: PlanetAtmo = { atmosphereDensity: 0.1 };
+    const planet = atmo(0.1);
     const upInput: ShipInput = { ...NO_INPUT, up: 1 };
 
     // yawed 90°: identical vertical behaviour as facing +Z
@@ -346,7 +422,7 @@ describe('atmosphere regime', () => {
   });
 
   it('settled on a pad → onPad set; off-pad or too fast → undefined', () => {
-    const planet: PlanetAtmo = { atmosphereDensity: 0.1 };
+    const planet = atmo(0.1);
     const pads = [{ id: 'pad-0', x: 0, z: 0 }];
 
     const settled: ShipState = {
@@ -374,7 +450,9 @@ describe('atmosphere regime', () => {
       regime: 'atmosphere',
     };
     const slid = integrateShip(sliding, NO_INPUT, DT, 'atmosphere', planet, 'scout', { pads });
-    expect(slid.pos.x).toBeCloseTo(1 + 6 * DT, 9); // still over the pad
+    // still over the pad (at ground level, f = 1: full drag slows it slightly)
+    expect(slid.pos.x).toBeGreaterThan(1 + 6 * DT - 0.01);
+    expect(slid.pos.x).toBeLessThan(1 + 6 * DT);
     expect(slid.onPad).toBe(undefined); // but not settled
 
     // in space, a pad never sets onPad
@@ -394,8 +472,8 @@ describe('determinism', () => {
       regime: 'atmosphere',
     };
     const input: ShipInput = { thrust: 0.7, yaw: -0.4, pitch: 0.9, roll: 0.2, up: 1 };
-    const a = integrateShip(state, input, DT, 'atmosphere', { atmosphereDensity: 0.137 }, 'scout');
-    const b = integrateShip(state, input, DT, 'atmosphere', { atmosphereDensity: 0.137 }, 'scout');
+    const a = integrateShip(state, input, DT, 'atmosphere', atmo(0.137), 'scout');
+    const b = integrateShip(state, input, DT, 'atmosphere', atmo(0.137), 'scout');
     expect(a).toStrictEqual(b);
     const c = integrateShip(state, input, DT, 'space', undefined, 'scout');
     const d = integrateShip(state, input, DT, 'space', undefined, 'scout');
@@ -432,23 +510,9 @@ describe('input sanitization and validation', () => {
     const wild = integrateShip(base, { ...NO_INPUT, thrust: 42 }, DT, 'space', undefined, 'scout');
     expect(wild).toStrictEqual(clamped);
     expect(
-      integrateShip(
-        base,
-        { ...NO_INPUT, up: 9 },
-        DT,
-        'atmosphere',
-        { atmosphereDensity: 0.1 },
-        'scout',
-      ),
+      integrateShip(base, { ...NO_INPUT, up: 9 }, DT, 'atmosphere', atmo(0.1), 'scout'),
     ).toStrictEqual(
-      integrateShip(
-        base,
-        { ...NO_INPUT, up: 1 },
-        DT,
-        'atmosphere',
-        { atmosphereDensity: 0.1 },
-        'scout',
-      ),
+      integrateShip(base, { ...NO_INPUT, up: 1 }, DT, 'atmosphere', atmo(0.1), 'scout'),
     );
   });
 
@@ -463,7 +527,7 @@ describe('input sanitization and validation', () => {
     // both real regimes work
     expect(() => integrateShip(state, NO_INPUT, DT, 'space', undefined, 'scout')).not.toThrow();
     expect(() =>
-      integrateShip(state, NO_INPUT, DT, 'atmosphere', { atmosphereDensity: 0.1 }, 'scout'),
+      integrateShip(state, NO_INPUT, DT, 'atmosphere', atmo(0.1), 'scout'),
     ).not.toThrow();
   });
 

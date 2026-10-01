@@ -17,7 +17,8 @@
  * - 'atmosphere': quadratic drag (k·|v|·v, opposing velocity), gravity,
  *   VTOL vertical lift, ground collision at terrain height (substepped so
  *   fast ships never tunnel: substep whenever |vel|·dt > 2 u). Drag ramps
- *   0→k across the 1 km boundary band (see ./atmosphere, shared with
+ *   0→k continuously from the atmosphere enter radius (space) down to the
+ *   surface (see ./atmosphere — the single shared boundary function,
  *   TASK-28).
  * - 'surface': landed. Integrates with the same atmosphere physics (drag,
  *   gravity, VTOL, ground clamp), so a landed ship rests on the terrain and
@@ -32,7 +33,7 @@
 
 import type { ShipClass, ShipClassId } from '../ships';
 import { shipStats } from '../ships';
-import { atmosphereFactor } from './atmosphere';
+import { boundaryFactor } from './atmosphere';
 import {
   quatFromEuler,
   quatIdentity,
@@ -96,6 +97,8 @@ export interface ShipInput {
 export interface PlanetAtmo {
   /** Drag density of the atmosphere (0 = none). */
   atmosphereDensity: number;
+  /** Atmosphere enter radius (u) — the drag-ramp band's top (see ./atmosphere). */
+  atmosphereRadius: number;
 }
 
 /** A landing pad for VTOL docking, in planet-surface coordinates. */
@@ -222,7 +225,7 @@ export function integrateShip(
     regime,
   };
   for (let i = 0; i < steps; i++) {
-    s = integrateStep(s, clamped, h, regime, k, cls, heightAt);
+    s = integrateStep(s, clamped, h, regime, k, planet, cls, heightAt);
   }
 
   // Soft speed cap (once per tick, independent of substepping): the excess
@@ -248,6 +251,7 @@ function integrateStep(
   h: number,
   regime: Regime,
   k: number,
+  planet: PlanetAtmo | undefined,
   cls: ShipClass,
   heightAt: (x: number, z: number) => number,
 ): ShipState {
@@ -267,9 +271,11 @@ function integrateStep(
     const forward = quatRotateVector(quat, FORWARD);
     vel = vecAdd(vel, vecScale(forward, input.thrust * cls.acceleration * h));
   } else {
-    // Quadratic drag opposing velocity, ramped across the 1 km boundary.
+    // Quadratic drag opposing velocity, ramped continuously from the
+    // atmosphere enter radius (0 in space) down to the surface (1) — the
+    // shared boundaryFactor (TASK-28 visuals use the same number).
     const groundY = heightAt(s.pos.x, s.pos.z);
-    const factor = atmosphereFactor(s.pos.y - groundY);
+    const factor = planet ? boundaryFactor(s.pos.y - groundY, planet) : 0;
     const speed = vecLength(vel);
     vel = vecAdd(vel, vecScale(vel, -k * factor * speed * h));
     // Gravity.

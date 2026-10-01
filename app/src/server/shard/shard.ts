@@ -19,7 +19,11 @@ import { quatIdentity, vecLength, type Quat } from '@shared/physics/vec';
 import { shipStats, HEX_COLOR } from '@shared/ships';
 import type { SystemGen } from '@shared/galaxy/types';
 import { homeDockPosition } from '@shared/galaxy/dock';
-import { systemRegimePlanets } from '@shared/galaxy/planets';
+import {
+  planetAtmosphereDensity,
+  planetAtmosphereRadius,
+  systemRegimePlanets,
+} from '@shared/galaxy/planets';
 import { regimeFor, type RegimePlanet } from '@shared/regime';
 import type { Repository } from '@server/db/repo';
 import type { ShipRow } from '@server/db/schema';
@@ -43,8 +47,11 @@ export const TICK_DT_MS = 50;
 export const SNAPSHOT_EVERY_TICKS = 2;
 /** Warn when a single broadcast exceeds this many bytes (TASK-60 tuning input). */
 export const SNAPSHOT_WARN_BYTES = 32 * 1024;
-/** Atmosphere density for planets that have one (flight-model units). */
-export const ATMO_DENSITY = 0.1;
+/**
+ * Per-planet atmosphere context for the flight model (TASK-28): density and
+ * the shared 1 km enter radius come from the seeded planet data (both pure
+ * functions of the planet — server and client derive identical values).
+ */
 /** Wrecks (TASK-23) stay in the shard for 600 s, then are removed. */
 export const WRECK_TTL_MS = 600_000;
 
@@ -685,7 +692,12 @@ export class SystemShard implements Shard {
     const ctx = this.getTerrain(planet.id);
     ctx.update(entity.ship.pos.x, entity.ship.pos.z);
     return {
-      planet: planet.hasAtmosphere ? { atmosphereDensity: ATMO_DENSITY } : undefined,
+      planet: planet.hasAtmosphere
+        ? {
+            atmosphereDensity: planetAtmosphereDensity(planet),
+            atmosphereRadius: planetAtmosphereRadius(planet),
+          }
+        : undefined,
       options: {
         heightAt: (x, z) => ctx.heightAt(x, z),
         pads: ctx.pads(),

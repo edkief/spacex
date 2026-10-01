@@ -19,11 +19,13 @@
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { ATMOSPHERE_BOUNDARY_M } from '../src/shared/physics/atmosphere';
 import {
   GRAVITY,
   integrateShip,
   restShipState,
   type FlightOptions,
+  type PlanetAtmo,
   type ShipInput,
   type ShipState,
 } from '../src/shared/physics/flight';
@@ -36,7 +38,7 @@ interface Fixture {
   dt: number;
   steps: number;
   shipClass: string;
-  planet: { atmosphereDensity: number } | null;
+  planet: PlanetAtmo | null;
   initial: ShipState;
   input: ShipInput;
   heightAt: { kind: 'flat' | 'slope'; value: number };
@@ -55,7 +57,7 @@ function run(opts: {
   input: ShipInput;
   dt: number;
   steps: number;
-  planet: { atmosphereDensity: number } | null;
+  planet: PlanetAtmo | null;
   shipClass: string;
   heightAt: (x: number, z: number) => number;
   pads?: FlightOptions['pads'];
@@ -117,7 +119,7 @@ const atmo: Fixture = {
   dt: DT,
   steps: 600,
   shipClass: 'freighter',
-  planet: { atmosphereDensity: 0.1 },
+  planet: { atmosphereDensity: 0.1, atmosphereRadius: ATMOSPHERE_BOUNDARY_M },
   initial: restShipState({ x: 0, y: 320, z: 0 }, 'atmosphere'),
   input: { thrust: 0, yaw: 0, pitch: 0, roll: 0, up: 0 },
   heightAt: { kind: 'flat', value: 0 },
@@ -128,7 +130,7 @@ const atmo: Fixture = {
     input: { thrust: 0, yaw: 0, pitch: 0, roll: 0, up: 0 },
     dt: DT,
     steps: 600,
-    planet: { atmosphereDensity: 0.1 },
+    planet: { atmosphereDensity: 0.1, atmosphereRadius: ATMOSPHERE_BOUNDARY_M },
     shipClass: 'freighter',
     heightAt: flatHeightAt,
     pads: [{ id: 'pad-0', x: 0, z: 0 }],
