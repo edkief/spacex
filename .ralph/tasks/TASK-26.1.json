@@ -8,25 +8,25 @@
       "step": 1,
       "description": "Fix the flight benchmark",
       "details": "app/src/client/world/streaming-benchmark.test.ts references MAX_SLICE_BUDGET_MS twice (in the console.log around line 132 and in expect(maxSliceMs).toBeLessThan(MAX_SLICE_BUDGET_MS) around line 144) but never defines it — the file fails before it can run. Define the constant: the per-slice contract is 8 ms of main-thread work (AC2); a measured slice = one in-flight unit (~1 ms) + at most the 4 ms between-unit budget. Measured on this box by the previous attempt: typical max slice ~3.5 ms, but GC jitter spiked it to 9.9 ms, and there was a rare 1-frame 3x3 miss before the heading-priority fix landed. Make the timing assert stable across repeated runs: the previous agent was adding slice percentiles — finish that (e.g. assert p99 of per-frame slice ms < MAX_SLICE_BUDGET_MS, log max + p99 + avg in the test output; a single GC outlier in the max must not fail the run). Keep the existing asserts: 3x3 near-neighborhood ready on EVERY flight frame (the no-pop-in contract, stronger than the 100 m edge margin), LRU peak <= 400, total tris < 400k every frame, max full-chunk work < 100 ms.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Find and fix the test hang",
       "details": "Running the three new world test files together previously hung (300 s timeout). The agent isolated chunks.test.ts (passes) and was isolating app/src/client/world/chunk-scene.test.ts when the iteration ended — the hang is not confirmed to be there. Run each file alone with a hard cap (npx vitest run src/client/world/<file> --testTimeout=60000) and find the offender. Prime suspect for a hang: unbounded wait loops — warmToNearBlock() in chunk-scene.test.ts, while (!streamer.isReady(chunkKey(2, 0))) streamer.update(...) in the LOD-swap test, and the pre-warm while (!restActive.every(...)) in the benchmark have no frame cap, so a build that never reaches done hangs vitest. Cap every wait loop (e.g. 4000 frames) with a clear failure message naming the stuck chunk, then fix the ROOT cause (a ChunkBuild/ImpostorBuild stuck before stage 'done', or a chunk never scheduled by ChunkStreamer.update).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Full verification",
       "details": "From app/: npm run test (76 unit/integration files — whole suite green), npm run typecheck (tsc --noEmit clean), npm run lint. Run the full suite at most ~2 times: iterate on individual files first (each takes seconds), save the full run for the end of the iteration.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Commit",
       "details": "One conventional commit covering the whole working tree (pipeline modules are already in 342f5ad; uncommitted: the heading-priority fix in app/src/client/world/chunks.ts, the makeGeometry call fix in chunk-geometry.ts, the amplitudeM Pick<Planet> signature fix in src/shared/galaxy/surface.ts, the three new test files, and the frame-monitor.test.ts + debug-overlay.test.tsx extensions). Message like: test(TASK-26): streaming pipeline tests green — flight benchmark, scene, streamer (reference that the pipeline modules landed in 342f5ad). Leave the tree clean.",
-      "pass": false
+      "pass": true
     }
   ],
   "acceptanceCriteria": [
