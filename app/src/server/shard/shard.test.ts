@@ -3,9 +3,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { generatePlanet, generateSystem } from '@shared/galaxy/system';
 import { generateStars } from '@shared/galaxy/stars';
 import type { Planet, SystemGen } from '@shared/galaxy/types';
+import { planetAnchor } from '@shared/galaxy/planets';
+import { CELL_SIZE_M, CHUNK_SIZE } from '@shared/galaxy/surface';
 import {
   integrateShip,
   restShipState,
+  type LandingPadRef,
   type ShipInput,
   type ShipState,
 } from '@shared/physics/flight';
@@ -369,12 +372,14 @@ describe('SystemShard regime context (TASK-13 step 2, atmosphere)', () => {
     // Spawn 150 m above the local terrain (planet amplitudes scale with
     // radius — gas worlds can be hundreds of metres of relief), no pad
     // nearby: the ship free-falls under gravity + quadratic drag.
+    // Spawn ~57 u from the planet anchor (10000, 0) so the per-tick
+    // resolveRegime keeps the ship inside the 1000 u atmosphere boundary.
     const probe = new TerrainContext(SEED, planet);
-    probe.update(40, 40);
-    const startY = probe.heightAt(40, 40) + 150;
+    probe.update(10040, 40);
+    const startY = probe.heightAt(10040, 40) + 150;
     const entity = makeEntity(
       'p1',
-      { x: 40, y: startY, z: 40 },
+      { x: 10040, y: startY, z: 40 },
       { regime: 'atmosphere', planetId: planet.id },
     );
     shard.addEntity(entity);
@@ -400,17 +405,39 @@ describe('SystemShard regime context (TASK-13 step 2, atmosphere)', () => {
     const system = { ...testSystem(), planets: [planet] } as SystemGen;
     const shard = makeShard(system);
     const terrain = new TerrainContext(SEED, planet);
-    // Chunk (0,0) always holds one pad on a landable planet.
-    terrain.update(0, 0);
-    const pad = terrain.pads()[0];
+    // The atmosphere is a 1000 u disc around the planet anchor (10000, 0),
+    // so cache the anchor's chunk neighborhood and take the closest pad to
+    // it (pads are a 25% per-chunk roll; deterministically walk nearby
+    // 320 m chunks until one lands a pad).
+    const anchor = planetAnchor(0);
+    const step = CHUNK_SIZE * CELL_SIZE_M; // 320 m per chunk
+    let pad: LandingPadRef | undefined;
+    let best = Infinity;
+    outer: for (let r = 0; r < 4; r++) {
+      for (let dz = -r; dz <= r; dz++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+          terrain.update(anchor.x + dx * step, anchor.z + dz * step);
+          for (const p of terrain.pads()) {
+            const d = Math.hypot(p.x - anchor.x, p.z - anchor.z);
+            if (d < best) {
+              best = d;
+              pad = p;
+            }
+          }
+        }
+      }
+      if (pad) break outer;
+    }
     expect(pad).toBeDefined();
-    const ground = terrain.heightAt(pad.x, pad.z);
+    const chosen = pad as LandingPadRef;
+    const ground = terrain.heightAt(chosen.x, chosen.z);
 
     // Descending toward the pad (VTOL lift is neutral at up=1, so the ship
     // must arrive with downward velocity and settle via ground clamp + drag).
     const entity = makeEntity(
       'p1',
-      { x: pad.x, y: ground + 10, z: pad.z },
+      { x: chosen.x, y: ground + 10, z: chosen.z },
       { regime: 'atmosphere', planetId: planet.id },
     );
     entity.ship.vel = { x: 0, y: -5, z: 0 };
@@ -431,7 +458,7 @@ describe('SystemShard regime context (TASK-13 step 2, atmosphere)', () => {
     // Settled on the pad within tolerance.
     expect(Math.abs(entity.ship.pos.y - ground)).toBeLessThan(0.5);
     expect(Math.abs(entity.ship.vel.y)).toBeLessThan(1);
-    expect(entity.ship.onPad).toBe(pad.id);
+    expect(entity.ship.onPad).toBe(chosen.id);
     // The snapshot now reports the docked wire regime.
     const states = shard.snapshot();
     expect(states[0].regime).toBe('docked');
