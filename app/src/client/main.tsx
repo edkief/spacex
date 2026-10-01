@@ -15,6 +15,7 @@ import { WarpController, warpSubscribe } from '@client/state/warp';
 import { FrameMonitorOverlay } from '@client/ui/debug-overlay';
 import { systemForId } from '@shared/galaxy/system';
 import { installDriftDebug, reportServerSeed, reportWorldSwap } from '@client/drift-debug';
+import { installStreamDebug } from '@client/stream-debug';
 import { RegimeWiring } from '@client/state/regime-wiring';
 import type { ChatMessage, EntityState } from '@shared/protocol/schemas';
 
@@ -562,6 +563,8 @@ const claimStyles: Record<string, React.CSSProperties> = {
 
 // TASK-71: dev-only determinism debug hook (no-op in production builds).
 installDriftDebug();
+// TASK-26.2: dev-only draw-distance budget benchmark hook (no-op in prod).
+installStreamDebug();
 
 const root = document.getElementById('root');
 if (!root) throw new Error('missing #root element');

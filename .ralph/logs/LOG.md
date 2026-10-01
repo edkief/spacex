@@ -3,12 +3,21 @@
 `Current Status`
 =================
 **Last Updated:** 2026-10-01
-**Tasks Completed:** 36
+**Tasks Completed:** 37
 **Current Task:** —
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-10-01 — TASK-26.2: Draw-distance budget — renderer.info measurement in the 13-chunk e2e benchmark scene
+The last literal AC of TASK-26 (AC4: total surface triangles "measured via renderer.info in a benchmark scene: 13 chunks at default LOD") is now met.
+- `app/src/client/stream-debug.ts` (NEW) — dev-only `window.__STREAM__` hook (same `import.meta.env.DEV` gate + main.tsx install pattern as `__DRIFT__`, never ships in prod). `surfaceBenchmark()`: seed from `__DRIFT__` (server-provided, same derivation path as the rest of the e2e suite) → `generateSystem(seed, fixture.starId).planets[0]` (Torolm, dev-seed fixture) → real `ChunkStreamer` warmed at the resting position (160,160), speed 0, with the real 4 ms/frame scheduler in a frame-capped (600) fail-fast loop until all 13 active chunks are ready → `ChunkScene` reporting to a FRESH `FrameMonitor` (not the app-wide singleton), one `sync()` → one frame rendered by a fresh `THREE.WebGLRenderer` on a detached 256×256 canvas, top-down camera (800,3000,800 → 800,0,800, 60° fov) so every mounted chunk passes the frustum test → returns `{ totalTris: renderer.info.render.triangles, perRing: SceneTriangleStats, readyChunks }` and disposes renderer + scene materials + all chunk geometries (no WebGL context leak).
+- `app/src/client/main.tsx` — installs `installStreamDebug()` next to `installDriftDebug()` (2 lines).
+- `app/tests/e2e/streaming-budget.spec.ts` (NEW) — self-booting fixture (worker-scoped, real app+server), goto, poll `__DRIFT__.seed`, `page.evaluate` the hook, `console.log` the measured totalTris + per-ring breakdown (recorded in test output), assert `readyChunks === 13`, `perRing.near === 9*8192`, `perRing.mid === 4*2048`, `totalTris < 400_000` (budget mirrored locally — Playwright doesn't resolve tsconfig path aliases), `assertClean()`, screenshot.
+- Measured (deterministic, two runs identical): **totalTris = 81,948** of the 400,000 budget — per-ring near 73,728 (9×8192) + mid 8,192 (4×2048) + far 80 (40 mounted impostor quads ×2; renderer.info counts the whole frame, so a few corner impostors outside the benchmark camera's frustum explain the 52-tri gap vs the scene tally of 82,000 — the scene stats are the source of truth for the per-ring asserts, exactly as the spec prescribes).
+- Also: prettier-fixed a pre-existing line wrap in `chunk-scene.ts` (committed unformatted by TASK-26.1) so `npm run lint` is clean project-wide.
+Verified: `npx playwright test --config playwright.e2e.config.ts streaming-budget` green TWICE in a row (13.3–13.4 s); `npm run test` → 77 files, 691 passed / 1 skipped; `npm run typecheck` clean; `npm run lint` clean. Screenshot: `.ralph/screenshots/TASK-26.2-1.png`.
 
 ### 2026-10-01 — TASK-26.1: Streaming pipeline — three world test files green
 All TASK-26 working tree landed and committed. The drafted tests exposed FOUR real pipeline bugs (not just the two known from the failed attempts):

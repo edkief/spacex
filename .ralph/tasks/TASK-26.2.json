@@ -8,19 +8,19 @@
       "step": 1,
       "description": "Dev-only benchmark-scene hook",
       "details": "Follow the existing __DRIFT__ pattern (src/client/drift-debug.ts: dev-only, gated on import.meta.env.DEV, installed from src/client/main.tsx with the server-provided seed): add a hook (e.g. window.__STREAM__ in a new src/client/stream-debug.ts, or extend drift-debug.ts) exposing surfaceBenchmark(): it builds a ChunkStreamer for the dev-seed fixture planet (seed/starId/planetIndex from src/shared/galaxy/__fixtures__/surface-dev-seed-chunk00.json — planet 0, Torolm), warms it at the resting position (160,160), speed 0 until the full 13-chunk active set (activeSet at speed 0) is ready (frame-capped loop, fail fast), creates a ChunkScene (reporting to a fresh FrameMonitor, NOT the app-wide singleton) and syncs once, then renders one frame with a THREE.WebGLRenderer on a detached canvas. Return { totalTris: renderer.info.render.triangles, perRing: SceneTriangleStats, readyChunks } and dispose the renderer afterwards (avoid leaking a WebGL context — headless Chromium caps contexts per page).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "e2e benchmark spec",
       "details": "New tests/e2e/streaming-budget.spec.ts using the self-booting fixture (tests/e2e/fixtures.ts, worker-scoped, boots the real app+server like core-flow.spec.ts): load the app page (headless WebGL is already proven working — core-flow.spec.ts pixel-samples the game canvas), page.evaluate the hook, assert totalTris < SURFACE_TRIANGLE_BUDGET (400,000), and console.log the measured number + per-ring breakdown so it is recorded in the test output (AC6's 'recorded' clause is already met by the triangle-based memory estimate in chunks.test.ts — keep that, do not add performance.memory dependence). Also assert readyChunks === 13 and perRing.near === 9 * 8192 (the 13-chunk default-LOD scene: 9 near + 4 mid). Use collectErrors/assertClean from tests/e2e/helpers.ts like the other specs.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Verify and commit",
       "details": "From app/: npx playwright test --config playwright.e2e.config.ts streaming-budget (new spec green, run twice — headless rendering can be flaky on first GPU init), then npm run test (unit suite still green), npm run typecheck, npm run lint. One conventional commit: test(TASK-26): renderer.info draw-distance budget benchmark (13-chunk scene, 400k surface-tris).",
-      "pass": false
+      "pass": true
     }
   ],
   "acceptanceCriteria": [

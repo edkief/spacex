@@ -144,7 +144,10 @@ export class ChunkScene {
   }
 }
 
-function ringGeometry(entry: CachedChunk, ring: 'near' | 'mid' | 'far'): THREE.BufferGeometry | null {
+function ringGeometry(
+  entry: CachedChunk,
+  ring: 'near' | 'mid' | 'far',
+): THREE.BufferGeometry | null {
   const g = entry.built.geometries;
   if (ring === 'near') return g.near;
   if (ring === 'mid') return g.mid;

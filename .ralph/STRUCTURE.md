@@ -21,6 +21,7 @@ Excludes dotfiles, tests, and config.
 │       ├── client/
 │       │   ├── main.tsx      # React shell: #game-canvas, callsign claim form + session boot (WS → join, ?sys= override), presence HUD, live occupancy, chat log (TASK-16); TASK-70: starfield renderer mounted on #game-canvas; TASK-17: ConnectionLostOverlay (#connection-lost-overlay + #reconnect-retry) on 'lost' + "reconnecting…/connection lost" status-line suffixes, resync keeps chat/list UI when the system is unchanged; TASK-71: feeds __DRIFT__ the /api/health seed; TASK-7: M-key/"SYSTEMS (M)" HUD button toggles the star chart panel (src/client/ui)
 │       │   ├── drift-debug.ts # TASK-71: dev-only window.__DRIFT__ hook (import.meta.env.DEV gate, never ships) — ready/seed + starChart()/planetList() derived from the server seed, for the two-client determinism e2e
+│       │   ├── stream-debug.ts # TASK-26.2: dev-only window.__STREAM__ hook (import.meta.env.DEV gate, never ships) — surfaceBenchmark() renders the 13-chunk default-LOD scene (Torolm dev-seed, resting player) through a fresh WebGLRenderer + detached canvas, returns renderer.info.render.triangles + per-ring SceneTriangleStats, disposes everything (no GL context leak)
 │       │   ├── net/
 │       │   │   ├── prediction.ts   # TASK-14: ClientShipPredictor — per-frame integrateShip + server-timeline reconcile (blend/rewind/snap, 10 s queue cap)
 │       │   │   ├── interpolation.ts # TASK-14: RemoteEntityBuffer/Tracker — 200 ms lerp/slerp, stale on underrun, dim after 1 s

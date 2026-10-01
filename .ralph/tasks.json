@@ -262,7 +262,7 @@
     "title": "Draw-distance budget: renderer.info measurement in a 13-chunk benchmark scene (e2e)",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-26.2.json",
-    "passes": false,
+    "passes": true,
     "splitFrom": "TASK-26",
     "splitDepth": 1
   },
