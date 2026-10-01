@@ -7,6 +7,7 @@
  * pure mapping between two wire/protocol shapes — no simulation code.
  */
 
+import type { CharacterInput } from '../physics/character';
 import type { ShipInput } from '../physics/flight';
 import type { InputPayload } from './schemas';
 
@@ -22,5 +23,27 @@ export function inputToShipInput(input: InputPayload): ShipInput {
     pitch: input.pitch,
     roll: input.turn,
     up: input.action === 'vtol' ? 1 : 0,
+  };
+}
+
+/**
+ * Map a wire input frame onto the surface-regime character channels
+ * (TASK-32). The SAME 'input' message drives both regimes — the server
+ * routes by the player's active entity kind, so no protocol change:
+ * - forward/back ride the thrust axis (W/S → +1/−1),
+ * - left/right ride the yaw axis (A/D → −1/+1),
+ * - run/jump ride the `action` string ('run', 'jump', or the combined
+ *   'run+jump' while both are held — the surface analogue of 'vtol').
+ * Fire/lock stay reserved (combat, TASK-43/44).
+ */
+export function inputToCharacterInput(input: InputPayload): CharacterInput {
+  const action = input.action ?? '';
+  return {
+    forward: input.thrust > 0.5,
+    back: input.thrust < -0.5,
+    left: input.yaw < -0.5,
+    right: input.yaw > 0.5,
+    run: action === 'run' || action === 'run+jump',
+    jump: action === 'jump' || action === 'run+jump',
   };
 }
