@@ -348,7 +348,7 @@
     "title": "On-foot character movement with terrain collision",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-32.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-33",

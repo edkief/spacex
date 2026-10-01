@@ -17,25 +17,25 @@
       "step": 1,
       "description": "Shared character physics",
       "details": "integrateCharacter as specified; state = {pos, vel, onGround, quat (facing only — yaw from input, no pitch/roll)}; heightAt injected (same contract as ship physics).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Sim routing",
       "details": "SimLoop: per entity, integrate by kind (ship → integrateShip, character → integrateCharacter); input message carries the player's activeEntity kind implicitly (the server knows from state — no protocol change).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Client predictors",
       "details": "CharacterPredictor (local) mirroring ShipPredictor structure (TASK-14); remote characters into the existing RemoteEntityBuffer. Character mesh: a simple capsule + head (placeholder) with a facing rotation; livery colors applied (character uses the player's ship livery accent — cosmetic tie-in, cheap).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Tests",
       "details": "All listed unit tests + the 30 s scripted path fixture. Run full suite + typecheck.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-31", "TASK-5"],

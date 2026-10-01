@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
 import { hash2, seedFromString } from '@shared/random';
+import type { Livery } from '@shared/protocol/schemas';
 import { SPAWN_GATE_POS } from '@shared/galaxy/spawn';
 import { planetAnchor } from '@shared/galaxy/planets';
 import type { PlanetClass, SpectralClass, SystemGen } from '@shared/galaxy/types';
@@ -286,8 +287,18 @@ export class WorldManager {
   private readonly cameraRig: CameraRig;
   /** True from the first setCharacterPos until clearCharacter (rig runs). */
   private rigActive = false;
-  /** Placeholder character mesh (capsule until TASK-32's model; null = on ship). */
-  private characterMesh: THREE.Mesh | null = null;
+  /**
+   * TASK-32: the placeholder character model (capsule body + head, lit-free)
+   * standing at the character's feet; null = on ship. Driven per frame by
+   * the local CharacterPredictor (setCharacterTransform) and re-corrected
+   * by the 10 Hz snapshot (setCharacterPos).
+   */
+  private characterMesh: THREE.Group | null = null;
+  /** The model's two materials (livery re-tint targets; null = on ship). */
+  private characterMats: { body: THREE.MeshBasicMaterial; head: THREE.MeshBasicMaterial } | null =
+    null;
+  /** The livery colors last applied (hull body, accent head) — dedup guard. */
+  private characterLivery: { body: string; head: string } | null = null;
   /** The pad plane height feeding the handoff nudge (flat disc under the feet). */
   private rigPadHeight = 0;
   private lastFrameMs = performance.now();
@@ -410,10 +421,15 @@ export class WorldManager {
     // character's ACTUAL position, not the rig's stale origin.
     this.cameraRig.setCharacterPosition(pos);
     if (!this.characterMesh) {
-      this.characterMesh = buildCharacterMesh();
+      const model = buildCharacterMesh();
+      this.characterMesh = model.group;
+      this.characterMats = { body: model.body, head: model.head };
       this.scene.add(this.characterMesh);
       // The pad the character stands on = the closest seeded pad (at most a
-      // handful per system); its flat height feeds the handoff nudge.
+      // handful per system); its flat height feeds the handoff nudge AND the
+      // local CharacterPredictor's terrain (flat on the pad disc — prediction
+      // matches the server exactly there and the 10 Hz snapshot corrects
+      // any off-pad drift, TASK-32).
       let bestIdx: number | null = null;
       let bestD = Infinity;
       for (let i = 0; i < this.pads.length; i++) {
@@ -429,11 +445,55 @@ export class WorldManager {
       this.rigActive = true;
       this.cameraRig.handoff('onfoot');
     }
+    this.applyCharacterTransform(pos);
+  }
+
+  /**
+   * TASK-32: per-frame drive from the local CharacterPredictor — moves the
+   * model to the predicted feet position with the predicted facing (the
+   * physics yaw; the camera keeps its own mouse-owned look). `livery` (the
+   * player's ship livery) re-tints the model when it changes.
+   */
+  setCharacterTransform(
+    pos: Vec3,
+    quat?: { x: number; y: number; z: number; w: number },
+    livery?: Livery | null,
+  ): void {
+    this.applyCharacterTransform(pos);
+    if (quat) this.characterMesh?.quaternion.set(quat.x, quat.y, quat.z, quat.w);
+    if (livery !== undefined) this.setCharacterLivery(livery);
+  }
+
+  /** The pad plane height under the character (the predictor's terrain). */
+  get characterPadHeight(): number {
+    return this.rigPadHeight;
+  }
+
+  /** One character model placement: the group's origin is the FEET. */
+  private applyCharacterTransform(pos: Vec3): void {
+    if (!this.characterMesh) return;
     // The rig's steady-state on-foot pose tracks THIS position (4 m back,
     // 1.6 m up) — feed it every update so the camera follows the character,
     // not the rig's stale origin.
     this.cameraRig.setCharacterPosition(pos);
-    this.characterMesh.position.set(pos.x, pos.y + 1.05, pos.z); // capsule center
+    this.characterMesh.position.set(pos.x, pos.y, pos.z);
+  }
+
+  /** Livery tint (cosmetic tie-in, TASK-32): body = hull, head = accent. */
+  private setCharacterLivery(livery: Livery | null): void {
+    if (!this.characterMats) return;
+    const body = livery?.hull ?? DEFAULT_CHARACTER_BODY;
+    const head = livery?.accent ?? DEFAULT_CHARACTER_HEAD;
+    if (
+      this.characterLivery &&
+      this.characterLivery.body === body &&
+      this.characterLivery.head === head
+    ) {
+      return; // unchanged — no material churn
+    }
+    this.characterLivery = { body, head };
+    this.characterMats.body.color.set(body);
+    this.characterMats.head.color.set(head);
   }
 
   /**
@@ -445,10 +505,11 @@ export class WorldManager {
   clearCharacter(): void {
     if (this.characterMesh) {
       this.scene.remove(this.characterMesh);
-      this.characterMesh.geometry.dispose();
-      (this.characterMesh.material as THREE.Material).dispose();
+      disposeGroup(this.characterMesh);
       this.characterMesh = null;
     }
+    this.characterMats = null;
+    this.characterLivery = null;
     if (this.rigActive) {
       this.rigActive = false;
       this.cameraRig.mode = 'cockpit'; // re-arm: the next handoff re-animates
@@ -521,10 +582,10 @@ export class WorldManager {
     }
     if (this.characterMesh) {
       this.scene.remove(this.characterMesh);
-      this.characterMesh.geometry.dispose();
-      (this.characterMesh.material as THREE.Material).dispose();
+      disposeGroup(this.characterMesh);
       this.characterMesh = null;
     }
+    this.characterMats = null;
     this.pads = [];
     this.padRings = [];
     this.dome.dispose();
@@ -533,13 +594,28 @@ export class WorldManager {
   }
 }
 
+/** Default model colors (re-tinted by the ship livery — TASK-32). */
+const DEFAULT_CHARACTER_BODY = '#7dd3fc';
+const DEFAULT_CHARACTER_HEAD = '#e2e8f0';
+
 /**
- * TASK-31: the placeholder character mesh — a simple lit-free capsule
- * (2.1 m tall, centered on its midpoint) standing at the character's feet.
- * Replaced by the real character model in TASK-32.
+ * TASK-32: the placeholder character model — a lit-free capsule body +
+ * head in a group whose ORIGIN is the character's FEET (the physics pos).
+ * Local +Z is forward (the physics facing quat), so the predicted quat
+ * orients the model directly. Replaced by the real model in a later pass.
  */
-function buildCharacterMesh(): THREE.Mesh {
-  const geometry = new THREE.CapsuleGeometry(0.45, 1.2, 4, 8);
-  const material = new THREE.MeshBasicMaterial({ color: '#7dd3fc' });
-  return new THREE.Mesh(geometry, material);
+function buildCharacterMesh(): {
+  group: THREE.Group;
+  body: THREE.MeshBasicMaterial;
+  head: THREE.MeshBasicMaterial;
+} {
+  const group = new THREE.Group();
+  const body = new THREE.MeshBasicMaterial({ color: DEFAULT_CHARACTER_BODY });
+  const bodyMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.45, 1.2, 4, 8), body);
+  bodyMesh.position.y = 1.05; // capsule center: 2.1 m tall on the feet
+  const head = new THREE.MeshBasicMaterial({ color: DEFAULT_CHARACTER_HEAD });
+  const headMesh = new THREE.Mesh(new THREE.SphereGeometry(0.28, 12, 8), head);
+  headMesh.position.y = 1.95; // above the capsule
+  group.add(bodyMesh, headMesh);
+  return { group, body, head };
 }

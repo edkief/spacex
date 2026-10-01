@@ -25,7 +25,10 @@ import { installStreamDebug } from '@client/stream-debug';
 import { installCameraDebug } from '@client/camera/camera-debug';
 import { installAtmosphereDebug } from '@client/atmosphere-debug';
 import { RegimeWiring } from '@client/state/regime-wiring';
-import type { ChatMessage, EntityState } from '@shared/protocol/schemas';
+import { CharacterPredictor, characterStateFromWire } from '@client/net/character-prediction';
+import { installCharDebug } from '@client/char-debug';
+import type { ChatMessage, EntityState, InputPayload } from '@shared/protocol/schemas';
+import { inputToCharacterInput } from '@shared/protocol/inputs';
 import type { Regime } from '@shared/regime';
 import type { Vec3 } from '@shared/physics/vec';
 
@@ -109,6 +112,9 @@ function useGameSession(
   // the player's ship entity id (the exit_ship payload). Null when the
   // snapshot batch carries no own entity.
   onSelfEntity?: (self: EntityState | null, shipId: string | null) => void,
+  // TASK-32: the last input seq the server APPLIED (10 Hz 'ack' frames) —
+  // the character predictor reconciles against it.
+  onAck?: (seq: number) => void,
 ) {
   const systemParam = React.useMemo(
     () => new URLSearchParams(window.location.search).get('sys'),
@@ -135,6 +141,12 @@ function useGameSession(
       onMessage: (msg) => {
         if (msg.type === 'chat') {
           chatStore.append(msg.payload as ChatMessage);
+          return;
+        }
+        if (msg.type === 'ack') {
+          // TASK-32: the character predictor reconciles on the next self
+          // entity_update against the seq the server last APPLIED.
+          onAck?.((msg.payload as { seq: number }).seq);
           return;
         }
         if (msg.type === 'entity_update') {
@@ -334,6 +346,18 @@ function App() {
   // payload of the 'exit_ship' disembark request. Null while on foot or
   // before the first self update.
   const selfShipIdRef = React.useRef<string | null>(null);
+  // TASK-32: on-foot input + prediction (refs only — 60 fps state must not
+  // re-render React). The local character runs the SAME integrateCharacter
+  // as the server (CharacterPredictor, the TASK-14 pattern); input frames
+  // ride the plain 'input' message (thrust = fwd/back, yaw = turn, action
+  // run/jump) — the server routes by the active entity kind.
+  const charPressedRef = React.useRef<Set<string>>(new Set());
+  const charSeqRef = React.useRef(0);
+  const charLastKeyRef = React.useRef('');
+  const charLastSendMsRef = React.useRef(0);
+  const charPredictorRef = React.useRef<CharacterPredictor | null>(null);
+  const charAckedSeqRef = React.useRef(0);
+  const charLiveryRef = React.useRef<Record<string, string> | null>(null);
   // Re-render on presence events only (join/leave), never on snapshots, so
   // the "N aboard" occupancy below stays live.
   const [, bumpPresence] = React.useReducer((n: number) => n + 1, 0);
@@ -367,8 +391,37 @@ function App() {
       selfShipIdRef.current = shipId;
       const world = worldRef.current;
       if (!world) return;
-      if (self && self.kind === 'character' && self.onFoot) world.setCharacterPos(self.pos);
-      else world.clearCharacter();
+      if (self && self.kind === 'character' && self.onFoot) {
+        world.setCharacterPos(self.pos);
+        // TASK-32: the character is the local prediction target — seed the
+        // predictor from the first snapshot (flat pad-plane terrain; the
+        // 10 Hz snapshot corrects any off-pad drift) and reconcile every
+        // self update against the last APPLIED seq (the ack).
+        charLiveryRef.current = self.livery ?? null;
+        if (!charPredictorRef.current) {
+          charPredictorRef.current = new CharacterPredictor(characterStateFromWire(self), {
+            heightAt: () => worldRef.current?.characterPadHeight ?? self.pos.y,
+          });
+        }
+        charPredictorRef.current.reconcile(
+          characterStateFromWire(self),
+          charAckedSeqRef.current,
+          performance.now(),
+        );
+        if (charDebug) {
+          charDebug.pos = { ...self.pos };
+          charDebug.rot = self.rot ? { ...self.rot } : undefined;
+        }
+      } else {
+        world.clearCharacter();
+        charPredictorRef.current = null;
+      }
+    },
+    // TASK-32: input acks — the predictor reconciles on the next self
+    // entity_update against this seq.
+    (seq) => {
+      charAckedSeqRef.current = seq;
+      if (charDebug) charDebug.acked = seq;
     },
   );
 
@@ -410,6 +463,86 @@ function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // TASK-32: on-foot key capture — the pressed set the prediction loop
+  // maps to input frames (WASD + Shift run + Space jump). Typing in an
+  // input (chat) never moves the character; blur drops everything (a
+  // stale "held" key would walk the character into the ground).
+  React.useEffect(() => {
+    const isTyping = (e: KeyboardEvent): boolean => {
+      const t = e.target as HTMLElement | null;
+      return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA');
+    };
+    const keyOf = (e: KeyboardEvent): string => (e.key === 'Shift' ? 'Shift' : e.key.toLowerCase());
+    const onDown = (e: KeyboardEvent): void => {
+      if (isTyping(e)) return;
+      charPressedRef.current.add(keyOf(e));
+    };
+    const onUp = (e: KeyboardEvent): void => {
+      if (isTyping(e)) return;
+      charPressedRef.current.delete(keyOf(e));
+    };
+    const onBlur = (): void => {
+      charPressedRef.current.clear();
+    };
+    window.addEventListener('keydown', onDown);
+    window.addEventListener('keyup', onUp);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('keydown', onDown);
+      window.removeEventListener('keyup', onUp);
+      window.removeEventListener('blur', onBlur);
+    };
+  }, []);
+
+  // TASK-32: the on-foot prediction loop — one rAF per frame, active only
+  // while disembarked (the predictor exists). Maps the pressed keys to the
+  // surface input frame (sent on change or at 20 Hz so the server's held
+  // frame + acks stay current), steps the shared-model predictor, and drives
+  // the character model every frame (position + facing + livery).
+  React.useEffect(() => {
+    let raf = 0;
+    let last = performance.now();
+    const loop = (): void => {
+      raf = requestAnimationFrame(loop);
+      const now = performance.now();
+      const dt = Math.min(0.1, (now - last) / 1000);
+      last = now;
+      const p = charPredictorRef.current;
+      const world = worldRef.current;
+      if (!p || !world) return;
+      const pressed = charPressedRef.current;
+      const thrust = (pressed.has('w') ? 1 : 0) - (pressed.has('s') ? 1 : 0);
+      const yaw = (pressed.has('d') ? 1 : 0) - (pressed.has('a') ? 1 : 0);
+      const run = pressed.has('Shift');
+      const jump = pressed.has(' ');
+      const action = run && jump ? 'run+jump' : run ? 'run' : jump ? 'jump' : undefined;
+      const key = `${thrust}|${yaw}|${action ?? ''}`;
+      if (key !== charLastKeyRef.current || now - charLastSendMsRef.current >= 50) {
+        charSeqRef.current += 1;
+        const payload: InputPayload = {
+          seq: charSeqRef.current,
+          thrust,
+          turn: 0,
+          pitch: 0,
+          yaw,
+          fire: false,
+          lock: false,
+          ...(action ? { action } : {}),
+        };
+        clientRef.current?.send('input', payload);
+        charLastKeyRef.current = key;
+        charLastSendMsRef.current = now;
+        p.step(dt, now, { seq: payload.seq, input: inputToCharacterInput(payload) });
+      } else {
+        p.step(dt, now);
+      }
+      const st = p.getState();
+      world.setCharacterTransform(st.pos, st.quat, charLiveryRef.current);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
   }, []);
 
   // TASK-8: the warp controller. The chart dispatches 'warp-started' on the
@@ -681,6 +814,8 @@ const claimStyles: Record<string, React.CSSProperties> = {
 
 // TASK-71: dev-only determinism debug hook (no-op in production builds).
 installDriftDebug();
+// TASK-32: dev-only self-character probe hook (no-op in production builds).
+const charDebug = installCharDebug();
 // TASK-26.2: dev-only draw-distance budget benchmark hook (no-op in prod).
 installStreamDebug();
 // TASK-27: dev-only camera handoff probe hook (no-op in production builds).

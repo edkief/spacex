@@ -21,9 +21,10 @@
  *   while airborne.
  * - terrain following: on the ground the feet y is lerped toward
  *   heightAt(x, z) at 20 u/s, so slopes are tracked smoothly (no
- *   stair-stepping at 10 Hz snapshots). The lerp outruns the steepest
- *   seeded slope at any walk/run speed (max slope 45° ⇒ ≤ 6 u/s of
- *   vertical travel), so the character can never sink below the surface.
+ *   stair-stepping at 10 Hz snapshots). Seeded terrain is integer-metre
+ *   heights on a 5 m grid, so LOCAL slopes can exceed the lerp's 20 u/s
+ *   budget on steep uphills; a hard floor clamp (feet never below
+ *   heightAt) closes that case — the character never sinks in.
  * - substepping: whenever horizontal speed · dt > 1 m the step is split
  *   into ≤ 1 m substeps, so a cliff edge / slope kink is resolved at
  *   sub-metre precision and never tunneled.
@@ -260,6 +261,12 @@ function characterSubstep(
     // outruns any ≤ 45° slope at walk/run speed, so the gap never opens
     // and the character cannot sink into the terrain).
     pos.y += clamp(terrainY - pos.y, -CHAR_TERRAIN_LERP_SPEED * h, CHAR_TERRAIN_LERP_SPEED * h);
+    // Hard floor: the lerp outruns ≤ 45° slopes, but seeded terrain can be
+    // steeper locally (integer-metre heights on a 5 m grid) — when the
+    // uphill gradient beats the 20 u/s cap the feet would lag below the
+    // surface, so they are clamped onto it (substep-limited, never a long
+    // tunnel). The documented invariant: the character never sinks in.
+    if (pos.y < terrainY) pos.y = terrainY;
     // Walked off an edge: the surface dropped further below the feet than
     // the lerp can follow in this substep → airborne (projectile fall).
     if (pos.y > terrainY + OFF_GROUND_EPS_M) {
