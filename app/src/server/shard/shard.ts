@@ -18,6 +18,7 @@ import { integrateShip, type FlightOptions, type PlanetAtmo } from '@shared/phys
 import { quatIdentity, vecLength, type Quat, type Vec3 } from '@shared/physics/vec';
 import {
   applyVtolAssist,
+  DOCK_VERTICAL_SPEED_MAX_M_S,
   padSurfaceHeight,
   padsForSystem,
   resolvePadTarget,
@@ -727,12 +728,27 @@ export class SystemShard implements Shard {
       return;
     }
     const target = resolvePadTarget(entity.ship.pos, [pad], entity.padId);
-    const docked = target !== undefined && satisfiesDock(entity.ship.pos, entity.ship.vel, entity.ship.regime, target);
+    const wasDocked = entity.padId === pad.padId;
+    // Distance is owned by resolvePadTarget (20 m acquire / 25 m release
+    // hysteresis), so a docked ship idling on the 20–25 m boundary KEEPS its
+    // pad instead of flapping — only a takeoff (|vel.y| ≥ 2) or leaving the
+    // surface regime releases it. A FRESH dock still requires the full
+    // condition (on the ≤ 20 m disc, surface, slow, at pad height).
+    const docked = wasDocked
+      ? target !== undefined &&
+        entity.ship.regime === 'surface' &&
+        Math.abs(entity.ship.vel.y) < DOCK_VERTICAL_SPEED_MAX_M_S
+      : target !== undefined &&
+        satisfiesDock(entity.ship.pos, entity.ship.vel, entity.ship.regime, target);
     if (docked) {
       if (entity.padId !== pad.padId) {
         entity.padId = pad.padId;
         this.log.debug('pad dock', { entity: entity.id, padId: pad.padId });
-        this.events.emit('pad-dock', { id: entity.id, playerId: entity.playerId, padId: pad.padId });
+        this.events.emit('pad-dock', {
+          id: entity.id,
+          playerId: entity.playerId,
+          padId: pad.padId,
+        });
       }
     } else if (entity.padId) {
       entity.padId = undefined;
@@ -786,7 +802,8 @@ export class SystemShard implements Shard {
       options: {
         // TASK-29: the pad disc is flat for physics too (the ship rests at
         // the pad height anywhere on the 40 m circle — the arcade landing).
-        heightAt: (x, z) => padSurfaceHeight(x, z, ctx.heightAt(x, z), this.planetPads.get(planet.id)),
+        heightAt: (x, z) =>
+          padSurfaceHeight(x, z, ctx.heightAt(x, z), this.planetPads.get(planet.id)),
         pads: ctx.pads(),
       },
     };

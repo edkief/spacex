@@ -8,19 +8,19 @@
       "step": 1,
       "description": "Unit tests for the pure pad math",
       "details": "NEW app/src/shared/world/pads.test.ts (colocated vitest convention — run via `npm run test`): padsForSystem (deterministic per (seed, system); exactly one pad per landable planet; world position = planetAnchor(index) + chunk (0,0) local offset, i.e. INSIDE the planet's atmosphere; pad height equals the terrain cell height at that world position; second call returns the same cached array). resolvePadTarget (nearest pad acquired within 20 m; hysteresis — an UNTRACKED ship at 19 m acquires, a TRACKED ship at 21 m is kept and at 26 m is released; ties break on padId; never returns two pads). satisfiesDock (each condition individually: ≤20 m, regime must be exactly 'surface', |vel.y| < 2 strict, |alt − padY| ≤ 1). vtolAssistActive (up > 0, speed < 50 strict, ≤100 m — each gate). applyVtolAssist (x/z ×0.5, y untouched). padSurfaceHeight (flat at pad height ≤20 m, exact raised-cosine midpoint at 25 m, real terrain ≥30 m).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Sim tests through the real SimLoop",
       "details": "NEW app/src/server/shard/shard.pads.test.ts, following src/server/shard/shard.regime.test.ts exactly: makeShard() with stub repo/shipSwapBus/log, construct a SimEntity, shard.addEntity + shard.registerConnection, ONE tick per `shard.sim.step(25 + (i + 1) * 50)`, inputs via shard.enqueueInput, events via shard.events.on. Get the pad's EXACT position from padsForSystem(seed, system) — never hardcode coordinates. Scenarios: (a) DOCK — bring the ship onto the pad disc (drop from low inside the atmosphere onto the flat pad with VTOL held until it settles into the surface regime), assert 'pad-dock' event {padId} and entityToState(entity) → regime 'docked' + state.padId; (b) TAKEOFF — from docked, inject vertical speed > 2 u/s as scripted state (the v1 atmosphere model cannot climb on VTOL alone — VTOL exactly cancels gravity; precedent: the 'ascent' phase in shard.regime.test.ts sets vel.y every tick), assert 'pad-undock' within one tick and wire state back to non-docked; (c) HYSTERESIS in sim — a docked/tracked ship moved to 21–25 m from the pad keeps its pad (no undock event), beyond 25 m releases; (d) INVARIANT — across all phases, entity.padId is ever at most one id and 'pad-dock' never re-fires while already docked.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Green + commit",
       "details": "`npx tsc --noEmit` in app/, then `npm run test` (full vitest suite, ~85 s) green, then commit (Conventional Commit, message references TASK-29.1).",
-      "pass": false
+      "pass": true
     }
   ],
   "acceptanceCriteria": [

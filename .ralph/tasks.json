@@ -305,7 +305,7 @@
     "title": "Pad + docking tests: derivation, hysteresis, dock/takeoff transitions, one-pad invariant",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-29.1.json",
-    "passes": false,
+    "passes": true,
     "splitFrom": "TASK-29",
     "splitDepth": 1
   },
