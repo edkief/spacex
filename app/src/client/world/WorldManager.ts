@@ -625,7 +625,12 @@ const DEFAULT_CHARACTER_HEAD = '#e2e8f0';
  * Local +Z is forward (the physics facing quat), so the predicted quat
  * orients the model directly. Replaced by the real model in a later pass.
  */
-function buildCharacterMesh(): {
+/**
+ * TASK-30: exported (not just private) so the transition-hitch benchmark
+ * (client/test/transitionCycle) measures the SAME character-model build cost
+ * the live disembark pays, and can dispose it the same way.
+ */
+export function buildCharacterMesh(): {
   group: THREE.Group;
   body: THREE.MeshBasicMaterial;
   head: THREE.MeshBasicMaterial;
