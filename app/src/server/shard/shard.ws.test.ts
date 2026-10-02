@@ -211,10 +211,11 @@ describe('shard sim over live ws (TASK-13)', () => {
     )!;
     expect(after.pos.z).toBeGreaterThanOrEqual(before - 1e-9); // no reverse thrust applied
 
+    const sizeBeforeClose = shard.entities.size; // player entity + seeded deposits
     client.close();
     // Leaving the system releases the connection (entity stays in-world).
     await new Promise((r) => setTimeout(r, 200));
     expect(shard.connections.size).toBe(0);
-    expect(shard.entities.size).toBe(1);
+    expect(shard.entities.size).toBe(sizeBeforeClose);
   }, 15000);
 });

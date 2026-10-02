@@ -152,6 +152,7 @@ interface WireEntity {
   regime: string;
   callsign?: string;
   playerId?: string;
+  padId?: string;
   onFoot?: boolean;
   quantity?: number;
   resourceId?: string;
@@ -199,11 +200,18 @@ async function onFoot(client: WsTestClient, player: Claimed): Promise<WireEntity
     }),
   ).toBe(true);
   const docked = await client.next(
-    // surface structured rejections immediately (they explain a stuck wait)
+    // surface structured rejections immediately (they explain a stuck wait).
+    // Require the padId: the wire regime 'docked' ALSO covers home-dock rest
+    // (docked: true, no pad) — a STALE snapshot of that state, buffered
+    // before the teleport, must not satisfy this wait, or exit_ship races
+    // the real pad dock and is correctly rejected ('not-docked'). padId is
+    // exactly the precondition handleExitShip checks.
     (m) =>
       m.type === 'error' ||
-      entitiesOf(m).some((e) => e.callsign === player.callsign && e.regime === 'docked'),
-    `docked entity_update for ${player.callsign}`,
+      entitiesOf(m).some(
+        (e) => e.callsign === player.callsign && e.regime === 'docked' && e.padId !== undefined,
+      ),
+    `pad-docked entity_update for ${player.callsign}`,
     20_000,
   );
   if (docked.type === 'error') throw new Error(`dock failed: ${JSON.stringify(docked.payload)}`);
@@ -345,9 +353,15 @@ describe('TASK-36: on-foot multiplayer over live ws', () => {
         z: PAD.pad.pos.z,
       }),
     ).toBe(true);
+    // padId required (same rationale as onFoot): the wire 'docked' regime
+    // also covers home-dock rest, so a stale pre-teleport snapshot must not
+    // satisfy this wait or the later exit_ship races the real pad dock.
     await cb.next(
-      (m) => entitiesOf(m).some((e) => e.callsign === b.callsign && e.regime === 'docked'),
-      'B docked',
+      (m) =>
+        entitiesOf(m).some(
+          (e) => e.callsign === b.callsign && e.regime === 'docked' && e.padId !== undefined,
+        ),
+      'B pad-docked',
       15_000,
     );
 
