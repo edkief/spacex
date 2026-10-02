@@ -3,12 +3,23 @@ import type { FastifyInstance } from 'fastify';
 import { homeDockPosition } from '@shared/galaxy/dock';
 import { repairCost } from '@shared/physics/damage';
 import { shipStats, type ShipClass } from '@shared/ships';
+import { isResourceId } from '@shared/inventory';
+import { TERMINAL_RANGE_M } from '@shared/world/terminals';
 import { InsufficientCreditsError } from '@server/db/errors';
 import type { ShipRow } from '@server/db/schema';
 import { requireAuth } from './auth';
 import type { RouteDeps } from './callsigns';
 
 const buyBody = z.object({ classId: z.string().min(1).max(32) }).strict();
+
+/** TASK-40: the sell body — the WS 'sell' payload, one shape for both. */
+const sellBody = z
+  .object({
+    resourceId: z.string().min(1).max(32),
+    amount: z.number().int().finite().positive(),
+    source: z.enum(['hold', 'inv']),
+  })
+  .strict();
 
 /** TASK-21: exactly the three named paint slots, hex colors, no extras. */
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/);
@@ -257,5 +268,86 @@ export function registerShipRoutes(app: FastifyInstance, deps: RouteDeps): void 
     deps.shipSwapBus?.emitSwap({ playerId: player.id, ship: repaired, oldShipId: ship.id });
 
     return { ...shipPayload(repaired), balance, cost };
+  });
+
+  /**
+   * POST /api/ships/sell (TASK-40) — sell cargo to the dock. The WS 'sell'
+   * frame is an alias of this endpoint: BOTH delegate to the SAME handler
+   * (shard.handleSell), so the two surfaces can never diverge. The live
+   * system shard is the position authority (the docked state + the on-foot
+   * terminal proximity are shard state, never row state), so the ship's
+   * system must have an active shard — a player who is not in the station
+   * cannot sell here (409 not-in-system, the dev-route precedent).
+   *
+   * Success: {sold, earned, newBalance} — the credits were granted in the
+   * SAME transaction as the stack decrement (atomicity: one commit).
+   * Errors map the handler's codes: not-at-station / not-docked /
+   * insufficient → 409/409/422, unknown resource / bad amount → 400.
+   */
+  app.post('/api/ships/sell', async (req, reply) => {
+    const auth = await requireAuth(req, deps.sessions);
+    if (!auth.ok) {
+      return reply.code(401).send({ code: 'unauthenticated', reason: auth.reason });
+    }
+    const player = auth.player;
+
+    const parsed = sellBody.safeParse(req.body);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      return reply.code(400).send({
+        code: 'invalid-body',
+        message: issue?.message ?? 'expected {resourceId, amount, source: hold|inv}',
+      });
+    }
+    if (!isResourceId(parsed.data.resourceId)) {
+      return reply
+        .code(400)
+        .send({ code: 'unknown-resource', message: `unknown resource: ${parsed.data.resourceId}` });
+    }
+
+    const ship = await deps.repo.getShipByOwner(player.id);
+    if (!ship) {
+      return reply.code(404).send({ code: 'no-ship', message: 'player has no ship' });
+    }
+    const active = deps.galaxyRouter?.active(ship.position.systemId);
+    if (!active) {
+      return reply
+        .code(409)
+        .send({ code: 'not-in-system', message: 'ship system has no active shard — sell from in-system' });
+    }
+
+    const result = await active.shard.handleSell(player.id, parsed.data);
+    if (result.ok) {
+      return { sold: result.sold, earned: result.earned, newBalance: result.balance };
+    }
+    switch (result.code) {
+      case 'invalid-resource':
+        return reply
+          .code(400)
+          .send({ code: 'invalid-resource', message: `unknown resource ${parsed.data.resourceId}` });
+      case 'invalid-amount':
+        return reply
+          .code(400)
+          .send({ code: 'invalid-amount', message: 'amount must be a positive integer' });
+      case 'not-docked':
+        return reply
+          .code(409)
+          .send({ code: 'not-docked', message: 'the ship must be docked at the station to sell' });
+      case 'not-at-station':
+        return reply.code(409).send({
+          code: 'not-at-station',
+          message: `sell from your inventory requires standing within ${TERMINAL_RANGE_M} m of a station terminal`,
+        });
+      case 'insufficient':
+        return reply
+          .code(422)
+          .send({ code: 'insufficient', message: 'not enough of that resource in the selected source' });
+      case 'unknown-ship':
+        return reply.code(404).send({ code: 'no-ship', message: 'player has no ship in-system' });
+      default:
+        return reply
+          .code(500)
+          .send({ code: 'sell-failed', message: 'the sale could not be completed' });
+    }
   });
 }

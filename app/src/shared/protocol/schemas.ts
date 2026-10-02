@@ -293,9 +293,47 @@ export const messageSchemas = {
       .strict(),
   ]),
   mine: z.object({ nodeId: z.string().min(1) }).strict(),
-  sell: z
-    .object({ cargoId: z.string().min(1), quantity: z.number().int().finite().positive() })
-    .strict(),
+  /**
+   * TASK-40: the dock sell — client → server `{resourceId, amount, source}`
+   * (the WS alias of POST /api/ships/sell, same handler; source 'hold' =
+   * the ship's cargo hold (docked required), 'inv' = the on-foot inventory
+   * (on foot, within 10 m of a station terminal)). Server → client result
+   * `{resourceId, sold, earned, balance, hold, inventory}` — the new
+   * stacks ride the frame so the dock panel re-renders (source stack
+   * decreases) and the credits counter updates within one frame, plus the
+   * '+N cr' float. Replaces the unused v0 placeholder {cargoId, quantity}.
+   * Wire contract change documented for TASK-69.
+   */
+  sell: z.union([
+    z
+      .object({
+        resourceId: z.string().min(1).max(32),
+        amount: z.number().int().finite().positive(),
+        source: z.enum(['hold', 'inv']),
+      })
+      .strict(),
+    z
+      .object({
+        resourceId: z.string().min(1).max(32),
+        sold: z.number().int().finite().nonnegative(),
+        earned: z.number().int().finite().nonnegative(),
+        balance: z.number().int().finite().nonnegative(),
+        hold: z
+          .object({
+            stacks: z.record(z.string().min(1), z.number().int().finite().nonnegative()),
+            weightUsed: z.number().int().finite().nonnegative(),
+            capacity: z.number().int().finite().nonnegative(),
+          })
+          .strict(),
+        inventory: z
+          .object({
+            stacks: z.record(z.string().min(1), z.number().int().finite().nonnegative()),
+            weightUsed: z.number().int().finite().nonnegative(),
+          })
+          .strict(),
+      })
+      .strict(),
+  ]),
   buy_ship: z.object({ classId: z.string().min(1).max(32) }).strict(),
   set_livery: z.object({ livery: liverySchema }).strict(),
   /**

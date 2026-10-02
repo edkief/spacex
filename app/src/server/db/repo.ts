@@ -127,6 +127,12 @@ export interface Repository {
   getPlayerInventory(playerId: string): Promise<Record<string, number>>;
   /** TASK-34: persist the player's inventory stacks (shard flush cadence). */
   updatePlayerInventory(playerId: string, stacks: Record<string, number>): Promise<void>;
+  /**
+   * TASK-40: persist the ship's cargo-hold stacks (ships.cargo JSON) in ONE
+   * UPDATE — the sell path writes it inside the same transaction as its
+   * addCredits (atomicity: a failed credit write rolls the stack back).
+   */
+  updateShipCargo(shipId: string, stacks: Record<string, number>): Promise<void>;
   /** Insert a ship (used by dock purchases, TASK-20); caller sets class-full hull/shields. */
   createShip(input: {
     ownerId: string;
@@ -353,6 +359,13 @@ export function createRepo(db: Db, tables: Schema): Repository {
         .update(t.players)
         .set({ inventory: JSON.stringify(stacks) })
         .where(eq(t.players.id, playerId));
+    },
+
+    async updateShipCargo(shipId, stacks) {
+      await d
+        .update(t.ships)
+        .set({ cargo: JSON.stringify(stacks), updatedAt: nowIso() })
+        .where(eq(t.ships.id, shipId));
     },
 
     async createShip(input) {

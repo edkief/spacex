@@ -38,6 +38,8 @@ import {
   integrateCharacter,
   type CharacterState,
 } from '@shared/physics/character';
+import { TERMINAL_RANGE_M, terminalsFor, type TerminalInfo } from '@shared/world/terminals';
+import { sellFrom, type SellErrorCode, type SellSource } from '@shared/sell';
 import {
   ENTER_SHIP_MAX_SPEED,
   ENTER_SHIP_RANGE_M,
@@ -134,7 +136,12 @@ export interface CreateSystemShardOptions {
     /** TASK-34: inventory load on join (optional — test stubs predate it). */
     Partial<Pick<Repository, 'getPlayerInventory'>> &
     /** TASK-37: deposit delta upsert on mine (optional — test stubs predate it). */
-    Partial<Pick<Repository, 'upsertDeposit'>>;
+    Partial<Pick<Repository, 'upsertDeposit'>> &
+    /**
+     * TASK-40: the sell path's atomic commit (stack decrement + addCredits in
+     * one transaction — optional, test stubs predate it).
+     */
+    Partial<Pick<Repository, 'withTransaction' | 'addCredits' | 'updatePlayerInventory' | 'updateShipCargo'>>;
   /** Keep in-shard entities in sync with dock purchases / livery changes. */
   shipSwapBus: ShipSwapBus;
   persist?: (entities: EntityState[]) => void;
@@ -233,6 +240,12 @@ export class SystemShard implements Shard {
     // (remaining / discovered / despawned-at-zero).
     for (const deposit of depositsFor(options.galaxySeed, options.system)) {
       this.spawnDepositEntity(deposit);
+    }
+    // TASK-40: the station terminals — one per pad, at the pad edge (the
+    // SAME pure derivation the client renders: terminalsFor). The sell
+    // flow's on-foot proximity check runs against these entities.
+    for (const terminal of terminalsFor(options.galaxySeed, options.system)) {
+      this.spawnTerminalEntity(terminal);
     }
     this.regimePlanets = systemRegimePlanets(options.system).map((planet) => ({
       ...planet,
@@ -995,6 +1008,32 @@ export class SystemShard implements Shard {
   }
 
   /**
+   * TASK-40: spawn the static entity for one derived station terminal
+   * (one per pad, at the pad edge — terminalsFor). Same static shape as the
+   * deposit entities; the sell flow's proximity check runs against the
+   * positions of these entities (server validates, TASK-40 AC).
+   */
+  private spawnTerminalEntity(terminal: TerminalInfo): void {
+    this.entities.set(terminal.terminalId, {
+      id: terminal.terminalId,
+      kind: 'terminal',
+      playerId: null,
+      classId: 'terminal',
+      ship: {
+        pos: { ...terminal.pos },
+        vel: { x: 0, y: 0, z: 0 },
+        quat: quatIdentity(),
+        regime: 'surface',
+      },
+      hull: 1,
+      shields: 1,
+      targetId: null,
+      docked: false,
+      planetId: terminal.planetId,
+    });
+  }
+
+  /**
    * TASK-37: the player positions a discovery/streaming check runs against
    * — every player's ACTIVE entity (the on-foot character when disembarked,
    * else the ship — including idle ships of disconnected players).
@@ -1082,6 +1121,28 @@ export class SystemShard implements Shard {
     entity.heldInput = undefined;
     entity.idle = false;
     this.log.debug('teleport (dev/test hook)', { playerId, x: pos.x, y: pos.y, z: pos.z });
+    return true;
+  }
+
+  /**
+   * Dev/test hook (TASK-40 e2e teleport-assist): hard-set the player's ON-FOOT
+   * character position (id `char:<playerId>`). Needed because the station
+   * terminal sits at the pad edge (PAD_RADIUS_M from the docked ship), far
+   * beyond the disembark spawn offset — the e2e walks the character straight
+   * to the terminal instead of simulating the walk. Returns false when the
+   * player has no on-foot character in this shard.
+   */
+  teleportCharacterForTesting(playerId: string, pos: Vec3): boolean {
+    const character = this.entities.get(`char:${playerId}`);
+    if (!character || character.kind !== 'character') return false;
+    character.ship.pos = { ...pos };
+    character.ship.vel = { x: 0, y: 0, z: 0 };
+    this.log.debug('character teleport (dev/test hook)', {
+      playerId,
+      x: pos.x,
+      y: pos.y,
+      z: pos.z,
+    });
     return true;
   }
 
@@ -1406,6 +1467,234 @@ export class SystemShard implements Shard {
       return;
     }
     conn.send(encodeMessage('cargo', check.data));
+  }
+
+  /**
+   * TASK-40: horizontal (xz) distance to the NEAREST station terminal (m).
+   * Infinity when the shard has none (a system without landable planets).
+   * The pad disc is flat, so altitude is not part of the reach.
+   */
+  private nearestTerminalDistance(pos: Vec3): number {
+    let best = Infinity;
+    for (const e of this.entities.values()) {
+      if (e.kind !== 'terminal') continue;
+      const d = Math.hypot(e.ship.pos.x - pos.x, e.ship.pos.z - pos.z);
+      if (d < best) best = d;
+    }
+    return best;
+  }
+
+  /**
+   * TASK-40: sell `amount` units of `resourceId` to the dock — the closing
+   * leg of the resource loop (mine → load → haul → SELL). The single handler
+   * behind BOTH surfaces: the WS 'sell' frame (in-game terminal flow) and
+   * POST /api/ships/sell (the route delegates here — "same handler" AC).
+   *
+   * Validation order — each failure answers the REQUESTING connection with a
+   * structured error (stale-conn guarded, like handleCargoTransfer):
+   * 1. own ship entity exists (implicit: one ship per player, v1);
+   * 2. known resource + positive integer amount;
+   * 3. STATION CHECK (the spec's position validation against station
+   *    entities): the ship must be DOCKED (at a station pad — a docked ship
+   *    is at its station) → else {code:'not-docked'}; for source 'inv' the
+   *    player must be ON FOOT within 10 m (TERMINAL_RANGE_M) of a station
+   *    terminal → else {code:'not-at-station'} (source 'hold' needs only
+   *    the docked ship — in-ship selling requires docked);
+   * 4. the source fully funds the request → else {code:'insufficient'}
+   *    (partial sells are not the dock's job: the UI offers Sell 1/All).
+   * On success the shared pure sellFrom math produces the NEW stacks and
+   * the earned credits, and ONE database transaction commits them together
+   * (updateShipCargo/updatePlayerInventory + addCredits — atomicity AC: a
+   * failed credit write rolls the stack back, and vice versa). The in-memory
+   * entity is then applied (stacks + character mirror), a 'sold' event
+   * fires, and the requester gets the 'sell' result frame (new stacks ride
+   * it: the dock panel re-renders and the credits counter updates within
+   * one frame — the '+N cr' float).
+   */
+  async handleSell(
+    playerId: string,
+    payload: { resourceId: string; amount: number; source: SellSource },
+    source?: unknown,
+  ): Promise<
+    | { ok: true; sold: number; earned: number; balance: number }
+    | { ok: false; code: SellErrorCode }
+  > {
+    const ship = this.playerEntities.get(playerId);
+    if (!ship || ship.kind !== 'ship') {
+      this.sendErrorToPlayer(playerId, 'unknown-ship', 'you have no ship', source);
+      return { ok: false, code: 'unknown-ship' };
+    }
+    if (!isResourceId(payload.resourceId)) {
+      this.sendErrorToPlayer(
+        playerId,
+        'invalid-resource',
+        `unknown resource ${payload.resourceId}`,
+        source,
+      );
+      return { ok: false, code: 'invalid-resource' };
+    }
+    if (!Number.isInteger(payload.amount) || payload.amount <= 0) {
+      this.sendErrorToPlayer(playerId, 'invalid-amount', 'amount must be a positive integer', source);
+      return { ok: false, code: 'invalid-amount' };
+    }
+    // The station check: a docked ship is AT its station (pad or dock plane).
+    if (!ship.docked && !ship.padId) {
+      this.sendErrorToPlayer(
+        playerId,
+        'not-docked',
+        'the ship must be docked at the station to sell',
+        source,
+      );
+      return { ok: false, code: 'not-docked' };
+    }
+    if (payload.source === 'inv') {
+      const character = this.entities.get(`char:${playerId}`);
+      if (!character || this.nearestTerminalDistance(character.ship.pos) > TERMINAL_RANGE_M) {
+        this.sendErrorToPlayer(
+          playerId,
+          'not-at-station',
+          `selling from your inventory requires standing within ${TERMINAL_RANGE_M} m of a station terminal`,
+          source,
+        );
+        return { ok: false, code: 'not-at-station' };
+      }
+    }
+    const res = sellFrom(
+      this.holdOf(ship),
+      ship.inventory ?? emptyInventory(),
+      payload.resourceId,
+      payload.amount,
+      payload.source,
+    );
+    if (!res.ok) {
+      // resource/amount were validated above: this point is only reachable
+      // as 'insufficient' (the other two codes are impossible here).
+      const available = res.code === 'insufficient' ? res.available : 0;
+      this.sendErrorToPlayer(
+        playerId,
+        'insufficient',
+        `you can only sell ${available} ${payload.resourceId} from that source`,
+        source,
+      );
+      return { ok: false, code: 'insufficient' };
+    }
+    // One transaction: the source stack decrement + the credit grant commit
+    // TOGETHER (atomicity AC — the rollback test exercises this path).
+    // Const captures: the typeof guards below narrow the CLOSURE too.
+    const repo = this.repo;
+    const updateShipCargo = repo.updateShipCargo;
+    const updatePlayerInventory = repo.updatePlayerInventory;
+    if (
+      typeof repo.withTransaction !== 'function' ||
+      typeof repo.addCredits !== 'function' ||
+      (payload.source === 'hold' && typeof updateShipCargo !== 'function') ||
+      (payload.source === 'inv' && typeof updatePlayerInventory !== 'function')
+    ) {
+      this.sendErrorToPlayer(playerId, 'sell-failed', 'the dock could not complete the sale', source);
+      return { ok: false, code: 'sell-failed' };
+    }
+    let balance: number;
+    try {
+      balance = await repo.withTransaction(async (tx) => {
+        // The source-specific writer is guarded above (and TS does not carry
+        // that narrowing into the closure) — re-check in-branch before use.
+        if (payload.source === 'hold') {
+          if (typeof updateShipCargo !== 'function') throw new Error('missing updateShipCargo');
+          await updateShipCargo(ship.id, res.hold.stacks);
+        } else {
+          if (typeof updatePlayerInventory !== 'function') {
+            throw new Error('missing updatePlayerInventory');
+          }
+          await updatePlayerInventory(playerId, res.inv);
+        }
+        const row = await tx.addCredits(playerId, res.earned);
+        return row.credits;
+      });
+    } catch (err) {
+      // A failed commit rolled EVERYTHING back (stacks AND credits) — the
+      // in-memory entity is untouched and the denial answers the requester.
+      this.log.warn('sell transaction failed', {
+        playerId,
+        resource: payload.resourceId,
+        error: String(err),
+      });
+      this.sendErrorToPlayer(playerId, 'sell-failed', 'the dock could not complete the sale', source);
+      return { ok: false, code: 'sell-failed' };
+    }
+    // Atomic in-memory apply: both stacks replaced (never mutated), the
+    // character mirror follows the inventory (weight bar updates within one
+    // snapshot), the 'sell' result frame answers the requester.
+    ship.cargo = res.hold;
+    ship.inventory = res.inv;
+    this.syncCharacterInventory(playerId);
+    this.log.info('cargo sold to the dock', {
+      playerId,
+      resource: payload.resourceId,
+      source: payload.source,
+      sold: res.sold,
+      earned: res.earned,
+      balance,
+    });
+    this.events.emit('sold', {
+      playerId,
+      resource: payload.resourceId,
+      source: payload.source,
+      sold: res.sold,
+      earned: res.earned,
+      balance,
+    });
+    this.sendSellResult(
+      playerId,
+      payload.resourceId,
+      res.sold,
+      res.earned,
+      balance,
+      res.hold,
+      res.inv,
+      source,
+    );
+    return { ok: true, sold: res.sold, earned: res.earned, balance };
+  }
+
+  /**
+   * TASK-40: the 'sell' result frame — server → the requesting connection
+   * ONLY (like 'cargo' / 'ui-open'): {resourceId, sold, earned, balance,
+   * hold, inventory} — the NEW stacks ride the frame so the dock panel
+   * re-renders (the source stack decreases) and the credits counter updates
+   * within one frame (the '+N cr' float). Validated against the wire
+   * contract before it goes out (a failing frame must never crash the
+   * dispatch, mirroring the snapshot path).
+   */
+  private sendSellResult(
+    playerId: string,
+    resourceId: string,
+    sold: number,
+    earned: number,
+    balance: number,
+    hold: CargoHold,
+    inv: InventoryStacks,
+    source?: unknown,
+  ): void {
+    const connId = this.playerConns.get(playerId);
+    const conn = connId ? this.connections.get(connId) : undefined;
+    if (!conn) return;
+    if (source !== undefined && conn.source !== source) return;
+    const payload = {
+      resourceId,
+      sold,
+      earned,
+      balance,
+      hold: { stacks: hold.stacks, weightUsed: hold.weightUsed, capacity: hold.capacity },
+      inventory: toPlayerInventory(inv),
+    } satisfies PayloadSchemas['sell'];
+    const check = messageSchemas['sell'].safeParse(payload);
+    if (!check.success) {
+      this.log.warn('sell frame failed wire validation', {
+        issue: check.error.issues[0]?.message,
+      });
+      return;
+    }
+    conn.send(encodeMessage('sell', check.data));
   }
 
   /**
@@ -1962,9 +2251,24 @@ export class SystemShard implements Shard {
     const conn = connId ? this.connections.get(connId) : undefined;
     if (!conn) return;
     if (source !== undefined && conn.source !== source) return;
+    // TASK-40: the dock Sell tab opens fully populated — the ship's hold + the
+    // player's on-foot inventory ride the frame (the server's authority at
+    // open time). The terminal sits at the pad edge, FAR from the docked ship,
+    // so the cargo panel's 5 m reach does not apply here; the frame is the
+    // panel's initial state (a later 'sell' result frame re-fills it).
+    const ship = this.playerEntities.get(playerId);
+    const dockState = ship
+      ? (() => {
+          const hold = this.holdOf(ship);
+          return {
+            hold: { stacks: hold.stacks, weightUsed: hold.weightUsed, capacity: hold.capacity },
+            inventory: toPlayerInventory(ship.inventory ?? emptyInventory()),
+          };
+        })()
+      : {};
     const payload = {
       ui: 'dock',
-      payload: { terminalId },
+      payload: { terminalId, ...dockState },
     } satisfies PayloadSchemas['ui-open'];
     const check = messageSchemas['ui-open'].safeParse(payload);
     if (!check.success) {

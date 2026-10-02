@@ -74,8 +74,8 @@ const CASES: Record<string, { valid: unknown; invalid: unknown }> = {
   },
   mine: { valid: { nodeId: 'node-1' }, invalid: { nodeId: 7 } },
   sell: {
-    valid: { cargoId: 'cargo-1', quantity: 2 },
-    invalid: { cargoId: 'cargo-1', quantity: 0 },
+    valid: { resourceId: 'iron', amount: 5, source: 'hold' }, // TASK-40 request form
+    invalid: { cargoId: 'cargo-1', quantity: 2 }, // v0 placeholder shape — replaced
   },
   buy_ship: { valid: { classId: 'freighter' }, invalid: { classId: '' } },
   set_livery: {

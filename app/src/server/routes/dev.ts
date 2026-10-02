@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 
 import { RESOURCE_IDS } from '@shared/inventory';
 import { padsForSystem } from '@shared/world/pads';
+import { terminalsFor } from '@shared/world/terminals';
 import { generateStars } from '@shared/galaxy/stars';
 import { generateSystem } from '@shared/galaxy/system';
 import { requireAuth } from './auth';
@@ -71,6 +72,59 @@ export function registerDevRoutes(app: FastifyInstance, deps: RouteDeps): void {
     return reply
       .code(404)
       .send({ code: 'no-pad', message: 'no landable atmospheric planet in the seeded galaxy' });
+  });
+
+  // TASK-40 e2e assist: the station SELL terminal's world position for the
+  // pad target (derived exactly like the pads/terminals the shard spawns).
+  // Lets the e2e park the on-foot character at the terminal (within the 3 m
+  // interact range AND the 10 m sell range) without simulating the walk.
+  app.get('/api/dev/terminal-target', async (req, reply) => {
+    const auth = await requireAuth(req, deps.sessions);
+    if (!auth.ok) return reply.code(401).send({ code: 'unauthorized', reason: auth.reason });
+    for (const star of generateStars(deps.galaxySeed)) {
+      const system = generateSystem(deps.galaxySeed, star.id);
+      const planet = system.planets.find((p) => p.landable && p.hasAtmosphere);
+      if (!planet) continue;
+      const pad = padsForSystem(deps.galaxySeed, system).find((p) => p.planetId === planet.id);
+      if (!pad) continue;
+      const terminal = terminalsFor(deps.galaxySeed, system).find((t) => t.padId === pad.padId);
+      if (terminal) {
+        return { systemId: system.systemId, terminalId: terminal.terminalId, pos: terminal.pos };
+      }
+    }
+    return reply
+      .code(404)
+      .send({ code: 'no-terminal', message: 'no station terminal in the seeded galaxy' });
+  });
+
+  // TASK-40 e2e assist: teleport the caller's ON-FOOT character to an exact
+  // position (shard.teleportCharacterForTesting). The real movement path is
+  // the on-foot walker; this parks the character at the terminal for the
+  // dock-sell e2e. No production surface, no persistence.
+  app.post('/api/dev/teleport-char', async (req, reply) => {
+    const auth = await requireAuth(req, deps.sessions);
+    if (!auth.ok) return reply.code(401).send({ code: 'unauthorized', reason: auth.reason });
+    const parsed = teleportBody.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({
+        code: 'invalid-teleport',
+        message: parsed.error.issues[0]?.message ?? 'invalid body',
+      });
+    }
+    const ship = await deps.repo.getShipByOwner(auth.player.id);
+    if (!ship) return reply.code(404).send({ code: 'no-ship', message: 'player has no ship' });
+    const active = router.active(ship.position.systemId);
+    if (!active) {
+      return reply
+        .code(409)
+        .send({ code: 'not-in-system', message: 'ship system has no active shard' });
+    }
+    if (!active.shard.teleportCharacterForTesting(auth.player.id, parsed.data)) {
+      return reply
+        .code(409)
+        .send({ code: 'teleport-failed', message: 'no on-foot character in the shard (not disembarked?)' });
+    }
+    return { ok: true, systemId: ship.position.systemId };
   });
 
   app.post('/api/dev/teleport', async (req, reply) => {

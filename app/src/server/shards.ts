@@ -233,5 +233,12 @@ export function routeGameMessage(
     // frame answers the requester.
     const p = payload as { resourceId: string; amount: number; from: 'inv' | 'hold' };
     shard.handleCargoTransfer(conn.playerId, p, conn);
+  } else if (type === 'sell') {
+    // TASK-40: the WS alias of POST /api/ships/sell — the SAME handler
+    // (shard.handleSell) the route delegates to. Docked + source-specific
+    // station proximity validated in one step; the 'sell' result frame
+    // (new stacks + balance) answers the requester.
+    const p = payload as { resourceId: string; amount: number; source: 'hold' | 'inv' };
+    void shard.handleSell(conn.playerId, p, conn);
   }
 }

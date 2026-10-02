@@ -18,6 +18,16 @@ import { InteractPrompt } from '@client/ui/interact-prompt';
 import { WeightBar } from '@client/ui/weight-bar';
 import { CargoPanel } from '@client/ui/cargo-panel';
 import { openCargoPanel } from '@client/state/cargo';
+import { DockPanel } from '@client/ui/dock-panel';
+import { CreditsCounter, CreditFloatLayer } from '@client/ui/credits-hud';
+import {
+  openDockPanel,
+  applySellResult,
+  type DockHoldView,
+  type DockInventoryView,
+} from '@client/state/dock';
+import { setCredits } from '@client/state/credits';
+import { pushCreditFloat } from '@client/state/credit-float';
 import { MiningHud } from '@client/ui/mining-hud';
 import { inventory, setInventory } from '@client/state/inventory';
 import {
@@ -191,10 +201,19 @@ function useGameSession(
           return;
         }
         if (msg.type === 'ui-open') {
-          // TASK-33: the server wants a panel open (the dock-terminal
-          // interaction answers with {ui:'dock'}). The dock UI that consumes
-          // it lands in TASK-40/53 — until then the client just logs it.
-          console.debug('[ui-open]', msg.payload);
+          // TASK-40: the server wants the DOCK panel open (the station-terminal
+          // interaction answers with {ui:'dock'}). The payload carries the
+          // initial hold + inventory (the server's authority at open time) so
+          // the Sell tab renders sellable amounts immediately — no extra round
+          // trip (the panel is far from the ship: cargo_open's 5 m reach does
+          // not apply at a pad-edge terminal).
+          const p = msg.payload as {
+            ui: string;
+            payload?: { terminalId?: string; hold?: DockHoldView; inventory?: DockInventoryView };
+          };
+          if (p.ui === 'dock') {
+            openDockPanel(p.payload?.terminalId ?? null, p.payload?.hold ?? null, p.payload?.inventory ?? null);
+          }
           return;
         }
         if (msg.type === 'cargo') {
@@ -207,6 +226,24 @@ function useGameSession(
             inventory?: { stacks: Record<string, number>; weightUsed: number };
           };
           openCargoPanel(p.hold, p.inventory ?? null);
+          return;
+        }
+        if (msg.type === 'sell') {
+          // TASK-40: the 'sell' RESULT frame (the WS alias of POST /api/ships/
+          // sell — the server only ever sends the result form). The NEW stacks
+          // + balance ride it, so the dock panel re-renders (the source stack
+          // decreases) and the credits counter updates within one frame, plus
+          // the "+N cr" float at the terminal.
+          const sp = msg.payload as {
+            sold: number;
+            earned: number;
+            balance: number;
+            hold: DockHoldView;
+            inventory: DockInventoryView;
+          };
+          applySellResult(sp.balance, sp.hold, sp.inventory);
+          setCredits(sp.balance);
+          pushCreditFloat(`+${sp.earned} cr`);
           return;
         }
         if (msg.type === 'mining') {
@@ -841,6 +878,31 @@ function App() {
     });
   }, []);
 
+  // TASK-40: seed the credits counter from the player's own record on session
+  // boot (GET /api/players/me — the only endpoint that exposes a balance, and
+  // only the caller's own). Every subsequent sale overwrites it in place via
+  // the 'sell' result frame; a boot fetch failure just keeps the counter
+  // hidden until the first sale lands.
+  React.useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/players/me', {
+          headers: { authorization: `Bearer ${session.token}` },
+        });
+        if (!res.ok) return;
+        const body = (await res.json()) as { credits?: number };
+        if (body.credits !== undefined && !cancelled) setCredits(body.credits);
+      } catch {
+        // server unreachable — the counter stays hidden until a sale lands
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
+
   // TASK-70: the three.js starfield owns #game-canvas (mounted outside
   // React on purpose) until the player has a system, when the WorldManager
   // (TASK-8) takes over the same canvas for the in-system view.
@@ -983,6 +1045,19 @@ function App() {
           clientRef.current?.send('cargo_transfer', { resourceId, amount, from })
         }
       />
+      {/* TASK-40: the station dock panel (SELL tab live; SHIPS/REPAIR are
+          TASK-53 stubs) — opened by the server's 'ui-open' {ui:'dock'} frame,
+          driven by the 'sell' result frame. The panel sends the 'sell' frame. */}
+      <DockPanel
+        onSell={(resourceId, amount, source) =>
+          clientRef.current?.send('sell', { resourceId, amount, source })
+        }
+      />
+      {/* TASK-40: the HUD credit balance (top-right) + the transient "+N cr"
+          float at the terminal (both driven by the credits / credit-float
+          stores, seeded by /api/players/me and updated on each 'sell'). */}
+      <CreditsCounter />
+      <CreditFloatLayer />
       {/* TASK-38: the hold-to-mine channel HUD (radial progress, ore
           counter, 'Backpack full' / 'Depleted') — server-timed. */}
       <MiningHud />
