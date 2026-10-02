@@ -48,9 +48,7 @@ test('transition hook: window.__TRANSITION__.runCycle() is green in the page', a
     () => typeof (window as any).__TRANSITION__?.runCycle === 'function',
   );
   expect(installed).toBe(true);
-  expect(await page.evaluate(() => (window as any).__TRANSITION__?.lastReport === null)).toBe(
-    true,
-  );
+  expect(await page.evaluate(() => (window as any).__TRANSITION__?.lastReport === null)).toBe(true);
 
   // Run the full cycle 3x on the page's main thread (blocking, a few
   // seconds each) and take the median run — the same measurement hygiene
@@ -121,9 +119,7 @@ test('transition hook: window.__TRANSITION__.runCycle() is green in the page', a
   expect(report.control.busyP50Ms).toBeGreaterThan(0);
 
   // lastReport is the run that just finished.
-  expect(await page.evaluate(() => (window as any).__TRANSITION__!.lastReport !== null)).toBe(
-    true,
-  );
+  expect(await page.evaluate(() => (window as any).__TRANSITION__!.lastReport !== null)).toBe(true);
 
   await page.screenshot({ path: '../.ralph/screenshots/TASK-30-1.png' });
   assertClean();

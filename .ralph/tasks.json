@@ -376,7 +376,7 @@
     "title": "Re-verify green, lint touched files, record fresh numbers",
     "category": "performance",
     "specFilePath": ".ralph/tasks/TASK-30.1.json",
-    "passes": false,
+    "passes": true,
     "splitFrom": "TASK-30",
     "splitDepth": 1
   },

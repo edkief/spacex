@@ -102,12 +102,17 @@ for (let run = 0; run < RUNS; run++) {
         );
       }
       if (phase.budgetWarnings > 0) {
-        failures.push(`${where}: ${phase.transition} emitted ${phase.budgetWarnings} budget warning(s)`);
+        failures.push(
+          `${where}: ${phase.transition} emitted ${phase.budgetWarnings} budget warning(s)`,
+        );
       }
     }
-    if (report.budgetWarnings > 0) failures.push(`${where}: ${report.budgetWarnings} total budget warning(s)`);
+    if (report.budgetWarnings > 0)
+      failures.push(`${where}: ${report.budgetWarnings} total budget warning(s)`);
     if (report.maxFrameMs >= NO_PULL_MAX_MS) {
-      failures.push(`${where}: frame of ${report.maxFrameMs} ms breaks the no-pull check (> ${NO_PULL_MAX_MS} ms)`);
+      failures.push(
+        `${where}: frame of ${report.maxFrameMs} ms breaks the no-pull check (> ${NO_PULL_MAX_MS} ms)`,
+      );
     }
     if (!report.padNearRingReadyAtArrival) {
       failures.push(`${where}: pad 3x3 near ring NOT ready before arrival (pre-generation failed)`);
@@ -136,9 +141,7 @@ if (!strictPass && !floorPass) {
 // ---- recorded numbers (AC7: paste into the task log for TASK-61) ----
 if (lastReport) {
   console.log('\nrecorded numbers (dev machine, TASK-30):');
-  console.log(
-    `  per-run worst-p99 medians (ms): ${runWorsts.map((w) => w.toFixed(3)).join(', ')}`,
-  );
+  console.log(`  per-run worst-p99 medians (ms): ${runWorsts.map((w) => w.toFixed(3)).join(', ')}`);
   console.log(
     `  strict 20% gate: ${strictPass ? 'PASS' : `spread ${(spread * 100).toFixed(1)}% (dev-machine clause applied)`}`,
   );

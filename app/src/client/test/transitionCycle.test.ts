@@ -85,11 +85,7 @@ describe('transition cycle (TASK-30, 1 fast cycle)', () => {
     expect(report.maxFrameMs).toBeLessThan(NO_PULL_MAX_MS);
 
     // AC2: the 3 s idle baselines exist and are positive for all scenes.
-    expect(report.idleBaselines.map((b) => b.scene)).toEqual([
-      'space',
-      'atmosphere',
-      'surface',
-    ]);
+    expect(report.idleBaselines.map((b) => b.scene)).toEqual(['space', 'atmosphere', 'surface']);
     for (const baseline of report.idleBaselines) {
       expect(baseline.p50Ms).toBeGreaterThan(0);
       expect(baseline.p95Ms).toBeGreaterThanOrEqual(baseline.p50Ms);

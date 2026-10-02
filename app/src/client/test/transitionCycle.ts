@@ -55,12 +55,7 @@
 import * as THREE from 'three';
 
 import { generateSystem } from '@shared/galaxy/system';
-import {
-  planetAnchor,
-  planetAtmosphereDensity,
-  planetAtmosphereRadius,
-  systemRegimePlanets,
-} from '@shared/galaxy/planets';
+import { planetAnchor, systemRegimePlanets } from '@shared/galaxy/planets';
 import { regimeFor, type Regime } from '@shared/regime';
 import { ATMOSPHERE_BOUNDARY_M } from '@shared/physics/atmosphere';
 import type { Vec3 } from '@shared/physics/vec';
@@ -111,7 +106,7 @@ const CONTROL_TRAVEL_M = 720;
 const CONTROL_FRAMES = 6 * FRAME_HZ;
 const WALK_SPEED = 3;
 /** Horizontal streamer travel of the descent (460 m fast + 39 m VTOL). */
-const STREAM_TRAVEL_M = (MID_ALT_M - VTOL_START_ALT_M) + (VTOL_START_ALT_M - PAD_ALT_M);
+const STREAM_TRAVEL_M = MID_ALT_M - VTOL_START_ALT_M + (VTOL_START_ALT_M - PAD_ALT_M);
 
 /** The 8 AC transition phases, in cycle order (idle phases are baselines). */
 export type TransitionPhase =
@@ -125,11 +120,7 @@ export type TransitionPhase =
 
 /** A transition phase, an idle baseline phase, or the streaming control. */
 export type PhaseName =
-  | TransitionPhase
-  | 'idle-space'
-  | 'idle-atmosphere'
-  | 'idle-surface'
-  | 'steady-streaming-control';
+  TransitionPhase | 'idle-space' | 'idle-atmosphere' | 'idle-surface' | 'steady-streaming-control';
 
 export const CYCLE_PHASES: PhaseName[] = [
   'idle-space',
@@ -356,18 +347,30 @@ export function analyzeCycle(
     surface: byPhase.get('idle-surface')!,
   };
   const idleP50: Record<'space' | 'atmosphere' | 'surface', number> = {
-    space: percentile(idleSamples.space.map((s) => s.measuredMs), 50),
-    atmosphere: percentile(idleSamples.atmosphere.map((s) => s.measuredMs), 50),
-    surface: percentile(idleSamples.surface.map((s) => s.measuredMs), 50),
+    space: percentile(
+      idleSamples.space.map((s) => s.measuredMs),
+      50,
+    ),
+    atmosphere: percentile(
+      idleSamples.atmosphere.map((s) => s.measuredMs),
+      50,
+    ),
+    surface: percentile(
+      idleSamples.surface.map((s) => s.measuredMs),
+      50,
+    ),
   };
-  const idleBaselines: IdleBaseline[] = (
-    ['space', 'atmosphere', 'surface'] as const
-  ).map((scene) => ({
-    scene,
-    p50Ms: idleP50[scene],
-    p95Ms: percentile(idleSamples[scene].map((s) => s.measuredMs), 95),
-    frames: idleSamples[scene].length,
-  }));
+  const idleBaselines: IdleBaseline[] = (['space', 'atmosphere', 'surface'] as const).map(
+    (scene) => ({
+      scene,
+      p50Ms: idleP50[scene],
+      p95Ms: percentile(
+        idleSamples[scene].map((s) => s.measuredMs),
+        95,
+      ),
+      frames: idleSamples[scene].length,
+    }),
+  );
 
   // Steady-streaming control stats: the "same scene without the transition"
   // for a streaming phase is the descent cruise WITH the streamer's normal
@@ -376,9 +379,24 @@ export function analyzeCycle(
   const controlFrames = byPhase.get('steady-streaming-control')!;
   const busyControl = controlFrames.filter((f) => f.stages.streamerMs >= CONTROL_BUSY_MS);
   const streamingControl = {
-    p50Ms: round3(percentile(controlFrames.map((s) => s.measuredMs), 50)),
-    p95Ms: round3(percentile(controlFrames.map((s) => s.measuredMs), 95)),
-    busyP50Ms: round3(percentile(busyControl.map((s) => s.measuredMs), 50)),
+    p50Ms: round3(
+      percentile(
+        controlFrames.map((s) => s.measuredMs),
+        50,
+      ),
+    ),
+    p95Ms: round3(
+      percentile(
+        controlFrames.map((s) => s.measuredMs),
+        95,
+      ),
+    ),
+    busyP50Ms: round3(
+      percentile(
+        busyControl.map((s) => s.measuredMs),
+        50,
+      ),
+    ),
     frames: controlFrames.length,
   };
 
@@ -408,7 +426,10 @@ export function analyzeCycle(
       baselineMs = idleP50['surface'];
       baselineSource = 'idle';
     } else if (steady.length >= 30) {
-      baselineMs = percentile(steady.map((s) => s.measuredMs), 50);
+      baselineMs = percentile(
+        steady.map((s) => s.measuredMs),
+        50,
+      );
       baselineSource = 'phase-steady';
     } else {
       baselineMs = idleP50[PHASE_SCENE[phase]];
@@ -534,18 +555,102 @@ export function runTransitionCycle(options: TransitionCycleOptions = {}): CycleR
   // Descent approaches the pad (−X), the climb pulls away (+X). The 499 m
   // total descent travel splits with the altitudes (460 m fast + 39 m VTOL).
   const segments: Segment[] = [
-    { phase: 'idle-space', frames: IDLE_FRAMES, altFrom: START_ALT_M, altTo: START_ALT_M, speed: 0, streamerDeltaM: 0 },
-    { phase: 'space-to-atmosphere', frames: segFrames(START_ALT_M, MID_ALT_M, SPACE_SPEED), altFrom: START_ALT_M, altTo: MID_ALT_M, speed: SPACE_SPEED, streamerDeltaM: 0 },
-    { phase: 'idle-atmosphere', frames: IDLE_FRAMES, altFrom: MID_ALT_M, altTo: MID_ALT_M, speed: 0, streamerDeltaM: 0 },
-    { phase: 'steady-streaming-control', frames: CONTROL_FRAMES, altFrom: MID_ALT_M, altTo: MID_ALT_M, speed: SURFACE_SPEED, streamerDeltaM: -CONTROL_TRAVEL_M },
-    { phase: 'atmosphere-to-surface', frames: segFrames(MID_ALT_M, VTOL_START_ALT_M, SURFACE_SPEED), altFrom: MID_ALT_M, altTo: VTOL_START_ALT_M, speed: SURFACE_SPEED, streamerDeltaM: -(MID_ALT_M - VTOL_START_ALT_M) },
-    { phase: 'atmosphere-to-surface', frames: segFrames(VTOL_START_ALT_M, PAD_ALT_M, VTOL_SPEED), altFrom: VTOL_START_ALT_M, altTo: PAD_ALT_M, speed: VTOL_SPEED, streamerDeltaM: -(VTOL_START_ALT_M - PAD_ALT_M) },
-    { phase: 'idle-surface', frames: IDLE_FRAMES, altFrom: PAD_ALT_M, altTo: PAD_ALT_M, speed: 0, streamerDeltaM: 0 },
-    { phase: 'disembark', frames: HANDOFF_FRAMES, altFrom: PAD_ALT_M, altTo: PAD_ALT_M, speed: 0, streamerDeltaM: 0 },
-    { phase: 'walk-10m', frames: Math.round((10 / WALK_SPEED) * FRAME_HZ), altFrom: PAD_ALT_M, altTo: PAD_ALT_M, speed: WALK_SPEED, streamerDeltaM: 10 },
-    { phase: 're-enter', frames: HANDOFF_FRAMES, altFrom: PAD_ALT_M, altTo: PAD_ALT_M, speed: 0, streamerDeltaM: 0 },
-    { phase: 'surface-to-atmosphere', frames: segFrames(PAD_ALT_M, MID_ALT_M, SURFACE_SPEED), altFrom: PAD_ALT_M, altTo: MID_ALT_M, speed: SURFACE_SPEED, streamerDeltaM: STREAM_TRAVEL_M },
-    { phase: 'atmosphere-to-space', frames: segFrames(MID_ALT_M, START_ALT_M, SPACE_SPEED), altFrom: MID_ALT_M, altTo: START_ALT_M, speed: SPACE_SPEED, streamerDeltaM: 0 },
+    {
+      phase: 'idle-space',
+      frames: IDLE_FRAMES,
+      altFrom: START_ALT_M,
+      altTo: START_ALT_M,
+      speed: 0,
+      streamerDeltaM: 0,
+    },
+    {
+      phase: 'space-to-atmosphere',
+      frames: segFrames(START_ALT_M, MID_ALT_M, SPACE_SPEED),
+      altFrom: START_ALT_M,
+      altTo: MID_ALT_M,
+      speed: SPACE_SPEED,
+      streamerDeltaM: 0,
+    },
+    {
+      phase: 'idle-atmosphere',
+      frames: IDLE_FRAMES,
+      altFrom: MID_ALT_M,
+      altTo: MID_ALT_M,
+      speed: 0,
+      streamerDeltaM: 0,
+    },
+    {
+      phase: 'steady-streaming-control',
+      frames: CONTROL_FRAMES,
+      altFrom: MID_ALT_M,
+      altTo: MID_ALT_M,
+      speed: SURFACE_SPEED,
+      streamerDeltaM: -CONTROL_TRAVEL_M,
+    },
+    {
+      phase: 'atmosphere-to-surface',
+      frames: segFrames(MID_ALT_M, VTOL_START_ALT_M, SURFACE_SPEED),
+      altFrom: MID_ALT_M,
+      altTo: VTOL_START_ALT_M,
+      speed: SURFACE_SPEED,
+      streamerDeltaM: -(MID_ALT_M - VTOL_START_ALT_M),
+    },
+    {
+      phase: 'atmosphere-to-surface',
+      frames: segFrames(VTOL_START_ALT_M, PAD_ALT_M, VTOL_SPEED),
+      altFrom: VTOL_START_ALT_M,
+      altTo: PAD_ALT_M,
+      speed: VTOL_SPEED,
+      streamerDeltaM: -(VTOL_START_ALT_M - PAD_ALT_M),
+    },
+    {
+      phase: 'idle-surface',
+      frames: IDLE_FRAMES,
+      altFrom: PAD_ALT_M,
+      altTo: PAD_ALT_M,
+      speed: 0,
+      streamerDeltaM: 0,
+    },
+    {
+      phase: 'disembark',
+      frames: HANDOFF_FRAMES,
+      altFrom: PAD_ALT_M,
+      altTo: PAD_ALT_M,
+      speed: 0,
+      streamerDeltaM: 0,
+    },
+    {
+      phase: 'walk-10m',
+      frames: Math.round((10 / WALK_SPEED) * FRAME_HZ),
+      altFrom: PAD_ALT_M,
+      altTo: PAD_ALT_M,
+      speed: WALK_SPEED,
+      streamerDeltaM: 10,
+    },
+    {
+      phase: 're-enter',
+      frames: HANDOFF_FRAMES,
+      altFrom: PAD_ALT_M,
+      altTo: PAD_ALT_M,
+      speed: 0,
+      streamerDeltaM: 0,
+    },
+    {
+      phase: 'surface-to-atmosphere',
+      frames: segFrames(PAD_ALT_M, MID_ALT_M, SURFACE_SPEED),
+      altFrom: PAD_ALT_M,
+      altTo: MID_ALT_M,
+      speed: SURFACE_SPEED,
+      streamerDeltaM: STREAM_TRAVEL_M,
+    },
+    {
+      phase: 'atmosphere-to-space',
+      frames: segFrames(MID_ALT_M, START_ALT_M, SPACE_SPEED),
+      altFrom: MID_ALT_M,
+      altTo: START_ALT_M,
+      speed: SPACE_SPEED,
+      streamerDeltaM: 0,
+    },
   ];
 
   // Live-loop state.
@@ -633,13 +738,12 @@ export function runTransitionCycle(options: TransitionCycleOptions = {}): CycleR
           if (view.planet) {
             dome.set(
               view.haze,
-              domeColor
-                .setRGB(
-                  parseInt(hazeColors[view.planet.class].slice(1, 3), 16) / 255,
-                  parseInt(hazeColors[view.planet.class].slice(3, 5), 16) / 255,
-                  parseInt(hazeColors[view.planet.class].slice(5, 7), 16) / 255,
-                  THREE.NoColorSpace,
-                ),
+              domeColor.setRGB(
+                parseInt(hazeColors[view.planet.class].slice(1, 3), 16) / 255,
+                parseInt(hazeColors[view.planet.class].slice(3, 5), 16) / 255,
+                parseInt(hazeColors[view.planet.class].slice(5, 7), 16) / 255,
+                THREE.NoColorSpace,
+              ),
             );
           } else {
             dome.set(0, domeColor);
@@ -770,7 +874,11 @@ export function runTransitionCycle(options: TransitionCycleOptions = {}): CycleR
         if (streaming && padNearReadyFrame === -1 && isPadNearRingReady()) {
           padNearReadyFrame = frameIndex;
         }
-        if (seg.phase === 'atmosphere-to-surface' && f === seg.frames - 1 && alt <= PAD_ALT_M + 1e-9) {
+        if (
+          seg.phase === 'atmosphere-to-surface' &&
+          f === seg.frames - 1 &&
+          alt <= PAD_ALT_M + 1e-9
+        ) {
           padArrivalFrame = frameIndex;
         }
 
@@ -788,11 +896,7 @@ export function runTransitionCycle(options: TransitionCycleOptions = {}): CycleR
     dome.dispose();
   }
 
-  const report = analyzeCycle(
-    samples,
-    monitor,
-    (fi) => fi * (1000 / FRAME_HZ),
-  );
+  const report = analyzeCycle(samples, monitor, (fi) => fi * (1000 / FRAME_HZ));
   report.wallMs = Math.round(performance.now() - wallStart);
   report.padNearRingReadyAtArrival =
     padNearReadyFrame !== -1 && (padArrivalFrame === -1 || padNearReadyFrame <= padArrivalFrame);
