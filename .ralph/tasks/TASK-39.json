@@ -17,25 +17,25 @@
       "step": 1,
       "description": "Cargo model + persistence",
       "details": "src/shared/cargo.ts (types + capacity math); ships.cargo JSON column (schema migration); load/save with the ship state (TASK-24 flush already ships the JSON field — extend it).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Transfer handler + UI",
       "details": "shard.handleCargoTransfer (docked + ownership + amounts, one transaction); 'cargo' UI React panel (two columns, Move buttons, weight bars); prompt via the TASK-33 registry (ship kind, sub-prompt by proximity: Enter ship / Open cargo).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Warp round trip",
       "details": "Warp (TASK-8) moves the whole ship entity including cargo — verify with a test: load 10 iron, warp A→B, hold still has 10.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Tests",
       "details": "All listed; run full suite + typecheck.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-34", "TASK-19", "TASK-62"],
