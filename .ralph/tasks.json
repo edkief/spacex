@@ -369,7 +369,7 @@
     "title": "Re-entry: return to ship seamlessly",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-35.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-30",

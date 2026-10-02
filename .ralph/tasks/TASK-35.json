@@ -16,19 +16,19 @@
       "step": 1,
       "description": "Server enter_ship",
       "details": "shard.handleEnterShip: find player's ship (must exist), ownership check, speed check (< 1 u/s), remove character entity, switch activeEntity, broadcast. Idempotency: if already in ship \u2192 'already-in-ship'.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Client prompt + handoff",
       "details": "Registry entry for kind 'ship' (own ship only, proximity 5 m); on success: CameraRig.handoff to cockpit, controls \u2192 flight, character mesh disposed (local) / entity_update removes it (remote).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Tests + e2e",
       "details": "All listed integration cases + the e2e cycle (dock \u2192 out \u2192 walk 10 m \u2192 in). Run full suite + e2e.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": [

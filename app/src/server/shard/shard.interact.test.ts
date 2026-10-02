@@ -315,8 +315,10 @@ describe('TASK-33: server interact validation + effects', () => {
     expect(ship.disembarked).toBe(false);
     expect(ship.ship.pos).toEqual(before.pos);
     expect(ship.padId).toBe(before.padId);
-    // A second interact on the ship is the idempotent denial (no character
-    // left → the player is already in the ship).
-    expect(shard.handleInteract('p1', 'ship-p1')).toBe('already-in-ship');
+    // A second interact is denied by the regime check first (no char:p1
+    // left → not on foot). The idempotent 'already-in-ship' denial lives in
+    // handleEnterShip itself (covered in shard.enter-ship.test.ts and
+    // enter-ship.ws.test.ts).
+    expect(shard.handleInteract('p1', 'ship-p1')).toBe('wrong-regime');
   });
 });
