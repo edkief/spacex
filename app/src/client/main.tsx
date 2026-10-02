@@ -385,6 +385,14 @@ function App() {
   }, [session]);
   const [store] = React.useState(() => new PresenceStore());
   const [chatStore] = React.useState(() => new ChatStore());
+  // TASK-36: every snapshot batch feeds BOTH remote render targets — the
+  // remote-entity layer (interpolated remote characters + shared ground
+  // items, 200 ms behind) and presence' onFoot derivation (the PlayerList
+  // icon flips on disembark / re-enter). Refs only — no React state churn.
+  const feedRemote = (entities: EntityState[]): void => {
+    worldRef.current?.feedRemoteEntities(entities, sessionCallsignRef.current);
+    store.applyActiveEntities(entities);
+  };
   const clientRef = React.useRef<ClientSession | null>(null);
   // TASK-31: the player's ship entity id (latest self entity_update) — the
   // payload of the 'exit_ship' disembark request. Null while on foot or
@@ -453,6 +461,7 @@ function App() {
         // ON FOOT: the predictor must SURVIVE every 10 Hz self update — the
         // prediction loop owns it between snapshots (clearing it here would
         // stop on-foot input entirely after the first snapshot).
+        store.setSelfOnFoot(true); // TASK-36: PlayerList icon (self row)
         world.setCharacterPos(self.pos);
         // TASK-32: the character is the local prediction target — seed the
         // predictor from the first snapshot (flat pad-plane terrain; the
@@ -478,6 +487,7 @@ function App() {
         // the world runs the reverse camera handoff when the self entity is
         // the ship (once, while the capsule still exists; later updates just
         // feed the pose), and clears all on-foot state otherwise.
+        store.setSelfOnFoot(false); // TASK-36: PlayerList icon (self row)
         if (self && self.kind === 'ship') {
           world.reEnterShip(self.pos, self.rot ?? { x: 0, y: 0, z: 0, w: 1 });
         } else {
@@ -501,13 +511,18 @@ function App() {
     },
     // TASK-33: entity_update batches → the raycast's target list (a pickup
     // by ANY player leaves the list within one snapshot → the prompt hides).
+    // TASK-36: the same batch feeds the remote characters + ground items.
     (entities) => {
       interactTargetsRef.current = interactableTargetsFrom(entities);
+      feedRemote(entities);
     },
     // TASK-33: a system snapshot rebuilds the list from ground truth and
     // clears any stale prompt (boot / warp / resync never carry one).
+    // TASK-36: the snapshot is ALSO the remote layer's ground truth (a
+    // resync rebuilds the 200 ms buffers from it).
     (entities) => {
       interactTargetsRef.current = interactableTargetsFrom(entities);
+      feedRemote(entities);
       promptStateRef.current = { kind: 'hidden' };
       setInteractPrompt(null);
     },
@@ -724,9 +739,17 @@ function App() {
       // First in-system view (or a seed correction): hand the canvas over.
       starfieldRef.current?.dispose();
       starfieldRef.current = null;
-      worldRef.current?.dispose();
+      worldRef.current?.dispose(); // also removes its #remote-labels overlay
       worldRef.current = new WorldManager(canvas, serverSeed);
       worldSeedRef.current = serverSeed;
+      // TASK-36: the callsign-label overlay — a canvas-sibling element (same
+      // box, pointer-transparent) so the labels track the viewport exactly.
+      const labelsHost = document.createElement('div');
+      labelsHost.id = 'remote-labels';
+      labelsHost.style.cssText =
+        'position:absolute;inset:0;overflow:hidden;pointer-events:none;';
+      canvas.parentElement?.insertBefore(labelsHost, canvas.nextSibling);
+      worldRef.current.attachRemoteLabels(labelsHost);
     }
     // The world is the pure function (seed, systemId) — boot join and warp
     // arrival (warp_arrived snapshot) take the same swapWorld path.

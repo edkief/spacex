@@ -4,8 +4,13 @@ import type { PresenceEntry } from '@shared/protocol/schemas';
 export interface PlayerPresence {
   playerId: string;
   callsign: string;
-  /** Ship observed on; the onFoot flag arrives with TASK-36. */
+  /** Ship observed on (wire field; kept for the ship-only snapshot path). */
   shipId?: string;
+  /**
+   * On foot (disembarked) — TASK-36: DERIVED client-side from the entity
+   * list (a `character` entity for this player ⇒ on foot), never sent over
+   * the wire. The PlayerList icon switches on this flag.
+   */
   onFoot?: boolean;
   /**
    * Wall-clock time of the last observation. Not displayed in v1 (ping /
@@ -101,6 +106,41 @@ export class PresenceStore {
   presenceLeave(entry: PresenceEntry): void {
     if (this.others.delete(entry.playerId)) this.emitChange();
     this.emitToast({ kind: 'leave', callsign: entry.callsign, at: this.now() });
+  }
+
+  /**
+   * TASK-36: derive each player's onFoot flag from the entity list — a
+   * `character` entity owned by the player (playerId, falling back to
+   * callsign) means on foot; no character means back in the ship. Fed from
+   * every 10 Hz entity batch + system snapshot; emits ONLY when a flag
+   * actually flips (disembark / re-enter), never on the snapshot cadence —
+   * the PlayerList icon switches live without re-rendering while flying.
+   */
+  applyActiveEntities(
+    entities: Array<{ callsign?: string; playerId?: string; kind: string }>,
+  ): void {
+    let changed = false;
+    for (const [id, p] of this.others) {
+      const onFoot = entities.some(
+        (e) =>
+          e.kind === 'character' &&
+          ((e.playerId !== undefined && e.playerId === id) ||
+            (e.callsign !== undefined && e.callsign === p.callsign)),
+      );
+      if (p.onFoot !== onFoot) {
+        p.onFoot = onFoot;
+        changed = true;
+      }
+    }
+    if (changed) this.emitChange();
+  }
+
+  /** TASK-36: the LOCAL player's onFoot flag (from the self-entity bridge). */
+  setSelfOnFoot(onFoot: boolean): void {
+    if (!this.self) return;
+    if ((this.self.onFoot ?? false) === onFoot) return;
+    this.self = { ...this.self, onFoot, lastSeen: this.now() };
+    this.emitChange();
   }
 
   /**

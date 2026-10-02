@@ -8,8 +8,25 @@ import type { PlanetClass, SpectralClass, SystemGen } from '@shared/galaxy/types
 import { ATMOSPHERE_BOUNDARY_M } from '@shared/physics/atmosphere';
 import type { Vec3 } from '@shared/physics/vec';
 import type { Regime } from '@shared/regime';
+import type { EntityState } from '@shared/protocol/schemas';
 import { padsForSystem, type PadInfo } from '@shared/world/pads';
 import { createBackground } from '@client/render/starfield';
+import { RemoteEntityLayer } from './remote-entities';
+import {
+  buildCharacterMesh,
+  DEFAULT_CHARACTER_BODY,
+  DEFAULT_CHARACTER_HEAD,
+} from './character-mesh';
+
+// TASK-36: the character model lives in character-mesh.ts — imported by BOTH
+// the local path (re-exported here for the transition-hitch benchmark) and
+// the remote-entity layer, so local + remote players render with the SAME
+// capsule (and there is no WorldManager ↔ remote-entities import cycle).
+export {
+  buildCharacterMesh,
+  DEFAULT_CHARACTER_BODY,
+  DEFAULT_CHARACTER_HEAD,
+} from './character-mesh';
 import {
   createAtmosphereDome,
   ATMOSPHERE_HAZE_COLORS,
@@ -301,6 +318,15 @@ export class WorldManager {
   private characterLivery: { body: string; head: string } | null = null;
   /** The pad plane height feeding the handoff nudge (flat disc under the feet). */
   private rigPadHeight = 0;
+  /**
+   * TASK-36: the remote-entity render layer (interpolated remote characters
+   * + shared ground items, the 200 ms TASK-14 buffer). Meshes attach to the
+   * per-system world group; the callsign labels ride a DOM host attached
+   * via attachRemoteLabels.
+   */
+  private readonly remoteLayer = new RemoteEntityLayer();
+  /** Scratch vector for projectToScreen (never escapes the manager). */
+  private readonly projectVec = new THREE.Vector3();
   private lastFrameMs = performance.now();
   private disposed = false;
   private raf = 0;
@@ -365,6 +391,9 @@ export class WorldManager {
       for (const ring of this.padRings) {
         ring.visible = padRingVisible(this.selfPos, ring.position);
       }
+      // TASK-36: drive the remotes 200 ms in the past (interpolated) before
+      // the render — cheap (a handful of entities, direct transforms).
+      this.remoteLayer.renderFrame(nowMs);
       this.renderer.render(this.scene, this.camera);
       // renderer.info.render resets per frame — capture it right after the
       // render, before the next frame (TASK-57 frame monitor).
@@ -395,6 +424,10 @@ export class WorldManager {
       this.scene.remove(this.worldGroup);
       disposeGroup(this.worldGroup);
     }
+    // TASK-36: remotes belong to the system just left — clear the layer and
+    // re-parent its meshes into the new group (the next snapshot rebuilds).
+    this.remoteLayer.clear();
+    this.remoteLayer.setParent(next);
     this.worldGroup = next;
     this.scene.add(next);
     this.currentSystemId = system.systemId;
@@ -406,6 +439,40 @@ export class WorldManager {
   /** The client-side pad list of the current system (empty before the first swap). */
   getPads(): PadInfo[] {
     return this.pads;
+  }
+
+  /**
+   * TASK-36: feed one snapshot batch to the remote-entity layer (self
+   * excluded by callsign — the local predictor owns it). Called from the
+   * entity_update + snapshot paths in main.tsx.
+   */
+  feedRemoteEntities(entities: EntityState[], selfCallsign: string): void {
+    this.remoteLayer.addSnapshot(performance.now(), entities, selfCallsign);
+  }
+
+  /**
+   * TASK-36: attach the callsign-label DOM overlay (a canvas-sibling element
+   * sized like the viewport) + wire the world→screen projector.
+   */
+  attachRemoteLabels(host: HTMLElement): void {
+    this.remoteLayer.attach(host);
+    this.remoteLayer.setProjector((pos) => this.projectToScreen(pos));
+  }
+
+  /**
+   * TASK-36: world→screen projection for a world point (CSS pixels, origin
+   * top-left). Null when the point is behind the camera — the caller hides
+   * the label rather than mirroring it.
+   */
+  projectToScreen(pos: Vec3): { x: number; y: number; dist: number } | null {
+    const v = this.projectVec.set(pos.x, pos.y, pos.z);
+    const dist = this.camera.position.distanceTo(v);
+    v.project(this.camera);
+    if (v.z > 1) return null; // behind the camera (NDC z past the far clip)
+    const canvas = this.renderer.domElement;
+    const w = canvas.clientWidth || canvas.width;
+    const h = canvas.clientHeight || canvas.height;
+    return { x: (v.x * 0.5 + 0.5) * w, y: (-v.y * 0.5 + 0.5) * h, dist };
   }
 
   /**
@@ -424,7 +491,7 @@ export class WorldManager {
       const model = buildCharacterMesh();
       this.characterMesh = model.group;
       this.characterMats = { body: model.body, head: model.head };
-      this.scene.add(this.characterMesh);
+      this.scene.add(model.group);
       // The pad the character stands on = the closest seeded pad (at most a
       // handful per system); its flat height feeds the handoff nudge AND the
       // local CharacterPredictor's terrain (flat on the pad disc — prediction
@@ -607,6 +674,7 @@ export class WorldManager {
       this.worldGroup = null;
     }
     this.disposeCharacterMesh();
+    this.remoteLayer.dispose();
     this.pads = [];
     this.padRings = [];
     this.dome.dispose();
@@ -615,33 +683,4 @@ export class WorldManager {
   }
 }
 
-/** Default model colors (re-tinted by the ship livery — TASK-32). */
-const DEFAULT_CHARACTER_BODY = '#7dd3fc';
-const DEFAULT_CHARACTER_HEAD = '#e2e8f0';
 
-/**
- * TASK-32: the placeholder character model — a lit-free capsule body +
- * head in a group whose ORIGIN is the character's FEET (the physics pos).
- * Local +Z is forward (the physics facing quat), so the predicted quat
- * orients the model directly. Replaced by the real model in a later pass.
- */
-/**
- * TASK-30: exported (not just private) so the transition-hitch benchmark
- * (client/test/transitionCycle) measures the SAME character-model build cost
- * the live disembark pays, and can dispose it the same way.
- */
-export function buildCharacterMesh(): {
-  group: THREE.Group;
-  body: THREE.MeshBasicMaterial;
-  head: THREE.MeshBasicMaterial;
-} {
-  const group = new THREE.Group();
-  const body = new THREE.MeshBasicMaterial({ color: DEFAULT_CHARACTER_BODY });
-  const bodyMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.45, 1.2, 4, 8), body);
-  bodyMesh.position.y = 1.05; // capsule center: 2.1 m tall on the feet
-  const head = new THREE.MeshBasicMaterial({ color: DEFAULT_CHARACTER_HEAD });
-  const headMesh = new THREE.Mesh(new THREE.SphereGeometry(0.28, 12, 8), head);
-  headMesh.position.y = 1.95; // above the capsule
-  group.add(bodyMesh, headMesh);
-  return { group, body, head };
-}

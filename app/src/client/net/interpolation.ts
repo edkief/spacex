@@ -153,6 +153,11 @@ export class RemoteEntityTracker {
     return this.buffers.get(id);
   }
 
+  /** Drop every buffer (system swap / resync boundary — TASK-36). */
+  reset(): void {
+    this.buffers.clear();
+  }
+
   renderAll(now: number): Map<string, RemoteRenderState> {
     const out = new Map<string, RemoteRenderState>();
     for (const [id, buf] of this.buffers) {
