@@ -2,6 +2,7 @@ import { and, eq, inArray, like, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { SHIP_CLASSES } from '@shared/ships';
+import { parseInventoryJson } from '@shared/inventory';
 import type { Db } from './client';
 import {
   CallsignTakenError,
@@ -322,16 +323,9 @@ export function createRepo(db: Db, tables: Schema): Repository {
         .from(t.players)
         .where(eq(t.players.id, playerId))
         .limit(1);
-      const raw = rows[0]?.inventory;
-      if (typeof raw !== 'string' || raw === '') return {};
-      try {
-        const parsed: unknown = JSON.parse(raw);
-        return typeof parsed === 'object' && parsed !== null
-          ? (parsed as Record<string, number>)
-          : {};
-      } catch {
-        return {}; // corrupt row: treat as empty (shard sanitizes further)
-      }
+      // parseInventoryJson handles empty/corrupt rows (→ {} — the shard
+      // sanitizes the same way when it loads directly from a row).
+      return parseInventoryJson(rows[0]?.inventory);
     },
 
     async updatePlayerInventory(playerId, stacks) {

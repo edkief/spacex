@@ -60,6 +60,10 @@ const CASES: Record<string, { valid: unknown; invalid: unknown }> = {
     valid: { targetId: 't-1' }, // TASK-33: action is optional (kind dispatch)
     invalid: { targetId: 't-1', action: '' },
   },
+  drop: {
+    valid: { resourceId: 'iron', amount: 2 }, // TASK-34: the resource id is validated server-side
+    invalid: { resourceId: 'iron', amount: 0 },
+  },
   'ui-open': {
     valid: { ui: 'dock', payload: { terminalId: 'term-1' } },
     invalid: { ui: '' },

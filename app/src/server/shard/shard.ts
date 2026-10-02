@@ -36,6 +36,7 @@ import {
   dropFrom,
   emptyInventory,
   isResourceId,
+  parseInventoryJson,
   pickupInto,
   sanitizeInventory,
   toPlayerInventory,
@@ -702,6 +703,10 @@ export class SystemShard implements Shard {
       entity.ship.quat = next.quat;
       entity.ship.regime = 'surface';
       entity.charOnGround = next.onGround;
+      // TASK-34: the character carries the owner's inventory to the wire
+      // (the client's weight bar reads the SELF entity — on foot that is
+      // the character — so it mirrors the ship's stacks every tick).
+      this.syncCharacterInventory(entity.playerId);
     }
 
     // 10 Hz snapshot: every 2nd tick, serialize ONCE, share the buffer.
@@ -1082,6 +1087,19 @@ export class SystemShard implements Shard {
   }
 
   /**
+   * TASK-34: mirror the owner's stacks onto the on-foot CHARACTER entity.
+   * The client's weight bar reads the SELF entity — on foot the self entity
+   * IS the character — so it must carry the same inventory as the ship
+   * (stacks objects are replaced, never mutated, so sharing the reference is
+   * safe as long as this runs after every inventory change).
+   */
+  private syncCharacterInventory(playerId: string): void {
+    const character = this.entities.get(`char:${playerId}`);
+    if (!character) return;
+    character.inventory = this.playerEntities.get(playerId)?.inventory;
+  }
+
+  /**
    * TASK-34: partial pickup of a GROUND ITEM into the weight-capped
    * inventory (the TASK-38 contract defined early — mining reuses it):
    * validation mirrors handleInteract (on foot → known ground item → 3 m
@@ -1122,7 +1140,10 @@ export class SystemShard implements Shard {
       this.sendErrorToPlayer(playerId, 'inventory-full', 'not enough weight capacity', source);
       return res;
     }
-    if (player) player.inventory = res.stacks;
+    if (player) {
+      player.inventory = res.stacks;
+      this.syncCharacterInventory(playerId);
+    }
     const left = available - res.taken;
     if (left <= 0) this.entities.delete(target.id);
     else target.quantity = left;
@@ -1185,7 +1206,10 @@ export class SystemShard implements Shard {
       return 'not-owned';
     }
     const res = dropFrom(stacks, resourceId, amount);
-    if (player) player.inventory = res.stacks;
+    if (player) {
+      player.inventory = res.stacks;
+      this.syncCharacterInventory(playerId);
+    }
     const id = `groundItem:${++this.groundItemSeq}`;
     this.entities.set(id, {
       id,
@@ -1230,6 +1254,7 @@ export class SystemShard implements Shard {
       }
     }
     player.inventory = next;
+    this.syncCharacterInventory(playerId);
   }
 
   /**
@@ -1386,8 +1411,9 @@ export class SystemShard implements Shard {
       if (this.playerEntities.has(row.ownerId)) continue; // already in-shard
       const owner = playerRows.get(row.ownerId);
       const entity = this.entityFromShipRow(row, owner?.callsign);
-      // TASK-34: restart rehydration includes the inventory (players.inventory).
-      if (owner) entity.inventory = sanitizeInventory(owner.inventory);
+      // TASK-34: restart rehydration includes the inventory (players.inventory —
+      // the raw JSON row field, parsed + sanitized in one place).
+      if (owner) entity.inventory = parseInventoryJson(owner.inventory);
       this.entities.set(entity.id, entity);
       this.playerEntities.set(row.ownerId, entity);
       ships += 1;

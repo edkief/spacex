@@ -147,6 +147,23 @@ export function sanitizeInventory(raw: unknown): InventoryStacks {
   return out;
 }
 
+/**
+ * Parse the raw players.inventory JSON string into sanitized stacks (empty
+ * string / corrupt JSON / non-object → {}). The one definition for the read
+ * sites (the repo's getPlayerInventory and the shard's loadShips
+ * rehydration both read the raw row field).
+ */
+export function parseInventoryJson(raw: string | null | undefined): InventoryStacks {
+  if (typeof raw !== 'string' || raw === '') return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return {}; // corrupt row: treat as empty
+  }
+  return sanitizeInventory(parsed);
+}
+
 /** The wire/persistence shape of an inventory (weight recomputed, never stored blind). */
 export function toPlayerInventory(stacks: InventoryStacks): PlayerInventory {
   return { stacks, weightUsed: inventoryWeight(stacks) };

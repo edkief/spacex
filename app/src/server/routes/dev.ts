@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 
+import { RESOURCE_IDS } from '@shared/inventory';
 import { padsForSystem } from '@shared/world/pads';
 import { generateStars } from '@shared/galaxy/stars';
 import { generateSystem } from '@shared/galaxy/system';
@@ -23,6 +24,9 @@ import type { RouteDeps } from './callsigns';
  *   exact position in the caller's system shard (shard.addDepositForTesting)
  *   so the interaction flow has an interactable before TASK-37's seeded
  *   placement lands. No production surface, no persistence.
+ * - POST /api/dev/give       — TASK-34 e2e assist: grants inventory units to
+ *   the caller (shard.giveInventoryForTesting — the real earn path is
+ *   pickup/mining, TASK-38). No production surface, no persistence.
  */
 
 const teleportBody = z
@@ -35,6 +39,13 @@ const depositBody = z
     y: z.number().finite(),
     z: z.number().finite(),
     quantity: z.number().int().finite().positive().max(1000).optional(),
+  })
+  .strict();
+
+const giveBody = z
+  .object({
+    resourceId: z.enum(RESOURCE_IDS),
+    amount: z.number().int().finite().positive().max(10_000),
   })
   .strict();
 
@@ -112,5 +123,33 @@ export function registerDevRoutes(app: FastifyInstance, deps: RouteDeps): void {
       parsed.data.quantity ?? 1,
     );
     return { ok: true, depositId, systemId: ship.position.systemId };
+  });
+
+  // TASK-34 e2e assist: grant inventory units to the caller (the weight bar
+  // needs units to display before TASK-38's mining path lands).
+  app.post('/api/dev/give', async (req, reply) => {
+    const auth = await requireAuth(req, deps.sessions);
+    if (!auth.ok) return reply.code(401).send({ code: 'unauthorized', reason: auth.reason });
+    const parsed = giveBody.safeParse(req.body);
+    if (!parsed.success) {
+      return reply
+        .code(400)
+        .send({
+          code: 'invalid-give',
+          message: parsed.error.issues[0]?.message ?? 'invalid body',
+        });
+    }
+    const ship = await deps.repo.getShipByOwner(auth.player.id);
+    if (!ship) return reply.code(404).send({ code: 'no-ship', message: 'player has no ship' });
+    const active = router.active(ship.position.systemId);
+    if (!active) {
+      return reply
+        .code(409)
+        .send({ code: 'not-in-system', message: 'ship system has no active shard' });
+    }
+    active.shard.giveInventoryForTesting(auth.player.id, {
+      [parsed.data.resourceId]: parsed.data.amount,
+    });
+    return { ok: true, systemId: ship.position.systemId };
   });
 }
