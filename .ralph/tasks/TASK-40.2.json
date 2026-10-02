@@ -1,0 +1,46 @@
+{
+  "id": "TASK-40.2",
+  "title": "Dock sell close-out: full suite green, lint pass, bookkeeping, final commit",
+  "category": "functional",
+  "description": "Close TASK-40: verify the whole project with the e2e green (full unit/WS suite, typecheck, lint — the 3122ad1 files were never linted), then the bookkeeping (step flags, passes, LOG entry, handoff deletion) and the final commit. Small and deterministic; it fits one iteration with margin even in the worst case where everything must be re-run from scratch (~15 min: e2e re-run, ~3 min suite, lint, flags).",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Verify TASK-40.1's state (finish it first if it ran out of time)",
+      "details": "Check `git status` + `git log --oneline 3122ad1..HEAD`: app/tests/e2e/sell.spec.ts should exist and be committed (with .ralph/screenshots/TASK-40-1.png present on disk). If TASK-40.1 ran out of time mid-e2e, its handoff (or the working tree) describes the remainder — finish the e2e first, exactly per the TASK-40.1 spec and .ralph/handoff/TASK-40.md, and commit it as its own WIP commit before the bookkeeping. Then re-run `cd app && npm run test:e2e sell.spec.ts` (the fixture boots the real dev server itself — do NOT also run `npm run dev`; no background dev server may be left up) — it must be green before any bookkeeping.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Full verification pass",
+      "details": "cd app && npm run test (the FULL suite, ~3 min, ~119 files — the first full run since 3122ad1). Known flaky class (characterized in the TASK-39 close-out, pre-existing under parallel load on this machine, they fail on the parent commit too): transition/streaming p99 benchmarks, the surface 5 s timeout, multiplayer-foot scale p95, persist perf guard — if any go red, re-run that file ALONE twice; if it passes in isolation, record it as a pre-existing flaky in the LOG entry (cite the isolated pass) and proceed. Then `cd app && npx tsc --noEmit` (must be clean) and the lint pass: the 3122ad1 files (shared/sell.ts, shared/world/terminals.ts, server shard/shards/routes/schemas, client state+ui files) have NEVER been through eslint/prettier — run `npx eslint --fix` + `npx prettier --write` on them and re-run the affected test files afterwards if any file changed.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Bookkeeping",
+      "details": "Set all 4 step `pass` flags to true in .ralph/tasks/TASK-40.json; set \"passes\": true for TASK-40 in .ralph/tasks.json (the TASK-40 entry starts at ~line 421, \"passes\": false at ~line 424); add a new TOP entry in .ralph/logs/LOG.md in the TASK-39 style ('### YYYY-MM-DD — TASK-40: Dock selling: deliver cargo for credits' + summary + Unit/WS/E2E/Verify bullets with the FRESH suite numbers and the screenshot path .ralph/screenshots/TASK-40-1.png); bump 'Tasks Completed' (currently 53) by 1 in the LOG header and leave 'Current Task' as the last close-out did ('—'); check .ralph/STRUCTURE.md — the new files all live in EXISTING directories (app/src/shared, app/src/client/state, app/src/client/ui, app/src/server, app/tests/e2e) so likely no change, add lines only if the file's convention demands; DELETE .ralph/handoff/TASK-40.md.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Final commit + promise",
+      "details": "Stage everything (lint fixes, bookkeeping, handoff deletion); commit with a Conventional Commit message (e.g. 'feat(sell): TASK-40 dock selling — e2e verified, close-out'); confirm no background processes are left running; output <promise>TASK-40:DONE</promise>.",
+      "pass": false
+    }
+  ],
+  "acceptanceCriteria": [
+    "cd app && npm run test is green — or every red is a documented pre-existing flaky perf benchmark that passes 2x in isolation (the TASK-39 precedent), with the evidence cited in the LOG entry",
+    "cd app && npx tsc --noEmit clean; eslint + prettier clean across the sell-feature files (the 3122ad1 files were never linted)",
+    "cd app && npm run test:e2e sell.spec.ts green on a fresh run; .ralph/screenshots/TASK-40-1.png present and showing the dock panel + the updated credits counter (525 cr after selling 5 iron)",
+    "All 4 step flags in .ralph/tasks/TASK-40.json are true; TASK-40 has \"passes\": true in .ralph/tasks.json; a new top LOG.md entry with fresh verification numbers and the screenshot path; 'Tasks Completed' bumped; .ralph/handoff/TASK-40.md deleted",
+    "Everything committed with a Conventional Commit message; no background processes left; <promise>TASK-40:DONE</promise> emitted",
+    "With TASK-40.1's e2e, every TASK-40 acceptance criterion is now met: dock UI Sell panel (base-price rows, sellable amounts with hold/inv source selectors, Sell action), POST /api/ships/sell + WS alias (auth, station validation, one-transaction atomicity, all error codes not-at-station/insufficient/not-docked/400), sell feedback (float, counter within one snapshot, stack decrease), base-price-only v1 model, unit + WS/API full-loop (550) tests, e2e browser sell with screenshot, full suite green"
+  ],
+  "notes": [
+    "CLOSE-OUT ONLY — by the time this task starts the whole feature is committed: 3122ad1 (server + client + 33 unit/WS tests) plus TASK-40.1's commit(s) (the e2e). The only substantive work this task can carry is finishing an e2e that TASK-40.1 timed out on (step 1); the remaining close-out after that is ~15 min (e2e re-run ~10-25 s, full suite ~3 min, lint ~1 min, flags ~5 min) and fits with margin.",
+    "Full-suite facts from the closest prior state (TASK-39 close-out, commit b4d4ced): ~119 files / ~1028 tests, ~3 min; the load-sensitive perf benchmarks (transitionCycle p99, streaming-slice p99, surface 5 s timeout, multiplayer-foot scale p95, persist perf guard) can go red under parallel load and pass 2x in isolation — pre-existing on this machine (they fail on the parent commit too), NOT regressions; the earlier repo.test.ts / schemas.test.ts reds were already fixed.",
+    "E2E facts: `npm run test:e2e sell.spec.ts` (the fixture boots the dev server itself — never alongside npm run dev); green in ~10-25 s; the screenshot is written to .ralph/screenshots/TASK-40-1.png by the spec (screenshots are untracked — only .gitkeep is committed, do not add the png to git).",
+    "Bookkeeping shapes: LOG.md entries are '### YYYY-MM-DD — TASK-NN: <title>' followed by a summary paragraph and 'Unit:'/'WS:'/'E2E:'/'Verify:' bullets — mirror the TASK-39 entry (immediately above where the new top entry goes); the LOG header block carries 'Tasks Completed' (currently 53) and 'Current Task' (leave '—'); the TASK-40 spec's 4 steps all start pass: false in .ralph/tasks/TASK-40.json; Conventional Commits throughout."
+  ]
+}

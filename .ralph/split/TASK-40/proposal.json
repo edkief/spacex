@@ -1,0 +1,16 @@
+{
+  "task": "TASK-40",
+  "splittable": true,
+  "reason": "The two timeouts were a sizing problem, not an environment problem: the full implementation (server handler + REST/WS + shared math + 33 tests + client DockPanel/HUD) took a whole 45-minute iteration each, and that work is now all committed in 3122ad1 with a clean tree. What remains splits cleanly by risk: TASK-40.1 owns the browser e2e — the only substantive piece left AND the first browser run of the never-verified client dock-sell code, so it can expose new client work and gets a full iteration to itself plus a WIP commit; TASK-40.2 is a small deterministic close-out (full suite ~3 min, the first lint pass over the 3122ad1 files, flags/LOG/handoff deletion) that fits in one iteration with margin even if it must re-run everything. Unsplit, a slow e2e debug session would time out and hand the next fresh session the exact same bundle again.",
+  "tasks": [
+    {
+      "id": "TASK-40.1",
+      "title": "Dock sell e2e: sell cargo in the browser at a station terminal (counter 500 to 525)"
+    },
+    {
+      "id": "TASK-40.2",
+      "title": "Dock sell close-out: full suite green, lint pass, bookkeeping, final commit"
+    }
+  ],
+  "appliedAt": "2026-10-02T23:42:33.223Z"
+}

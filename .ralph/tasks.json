@@ -418,11 +418,22 @@
     "passes": true
   },
   {
-    "id": "TASK-40",
-    "title": "Dock selling: deliver cargo for credits",
+    "id": "TASK-40.1",
+    "title": "Dock sell e2e: sell cargo in the browser at a station terminal (counter 500 to 525)",
     "category": "api-endpoint",
-    "specFilePath": ".ralph/tasks/TASK-40.json",
-    "passes": false
+    "specFilePath": ".ralph/tasks/TASK-40.1.json",
+    "passes": false,
+    "splitFrom": "TASK-40",
+    "splitDepth": 1
+  },
+  {
+    "id": "TASK-40.2",
+    "title": "Dock sell close-out: full suite green, lint pass, bookkeeping, final commit",
+    "category": "api-endpoint",
+    "specFilePath": ".ralph/tasks/TASK-40.2.json",
+    "passes": false,
+    "splitFrom": "TASK-40",
+    "splitDepth": 1
   },
   {
     "id": "TASK-42",
