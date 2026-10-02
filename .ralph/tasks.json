@@ -372,11 +372,22 @@
     "passes": true
   },
   {
-    "id": "TASK-30",
-    "title": "Transition hitch budget verification + tuning",
+    "id": "TASK-30.1",
+    "title": "Re-verify green, lint touched files, record fresh numbers",
     "category": "performance",
-    "specFilePath": ".ralph/tasks/TASK-30.json",
-    "passes": false
+    "specFilePath": ".ralph/tasks/TASK-30.1.json",
+    "passes": false,
+    "splitFrom": "TASK-30",
+    "splitDepth": 1
+  },
+  {
+    "id": "TASK-30.2",
+    "title": "Close-out: LOG entry with recorded numbers, flags, handoff deletion, final commit",
+    "category": "performance",
+    "specFilePath": ".ralph/tasks/TASK-30.2.json",
+    "passes": false,
+    "splitFrom": "TASK-30",
+    "splitDepth": 1
   },
   {
     "id": "TASK-36",

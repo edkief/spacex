@@ -1,0 +1,47 @@
+{
+  "id": "TASK-30.1",
+  "title": "Transition budget: re-verify green, lint touched files, record fresh numbers",
+  "category": "performance",
+  "description": "TASK-30 (transition hitch budget, every regime change < 4 ms) is functionally complete and committed: the scripted cycle harness (src/client/test/transitionCycle.ts), the CI test (transitionCycle.test.ts), the 5-run bench script (scripts/bench-transitions.ts, npm run bench:transitions), the main.tsx dev hook, and the e2e spec (tests/e2e/transitions.spec.ts) all pass with all 7 phases under budget and 0 warnings. What remains of TASK-30 is close-out, split into this task (fresh verification + lint + recorded numbers) and TASK-30.2 (bookkeeping + final commit). This task re-runs the full verification matrix on a fresh session, applies the missing eslint/prettier pass over the changed files, and writes the FRESH bench numbers into the handoff so TASK-30.2 can log them. No design or implementation work is expected; if a verification run fails, diagnose minimally — the known-good state is HEAD.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Baseline sanity on a fresh session",
+      "details": "cd app. npx tsc --noEmit must be clean. npx vitest run src/client/test/transitionCycle.test.ts must pass 5/5 in ~2.5 s. If either fails, the tree has drifted — stop and note it in the handoff; do not redesign."
+    },
+    {
+      "step": 2,
+      "description": "Lint + format the changed files",
+      "details": "cd app && npx eslint --fix src/client/test/transitionCycle.ts src/client/test/transitionCycle.test.ts scripts/bench-transitions.ts src/client/main.tsx tests/e2e/transitions.spec.ts && npx prettier --write (same 5 files) && npx tsc --noEmit. scripts/ is outside the tsconfig include, so tsc not checking bench-transitions.ts is expected (gen-*.ts precedent). Re-run the CI test from step 1 if lint touched transitionCycle files."
+    },
+    {
+      "step": 3,
+      "description": "Fresh bench run — capture the numbers",
+      "details": "cd app && npm run bench:transitions. Expect 'bench:transitions PASS': every cycle per-phase p99 < 4 ms, 0 budget warnings, no frame > 100 ms, pad near-ring ready at arrival, and the AC5 gate (strict spread (max-min)/mean < 20%, or the recorded dev-machine clause spread < 2x the session-measured CPU floor). Copy the FULL printed numbers table verbatim (per-run medians, spread, floor, per-phase frames/tagged/baseline/worst/p99, streaming-control p50/p95/busyP50, idle baselines, pad ring ready frames-early, maxFrame, wall time) — these fresh numbers replace the older table in the handoff."
+    },
+    {
+      "step": 4,
+      "description": "E2E pass",
+      "details": "cd app && npx playwright test --config playwright.e2e.config.ts tests/e2e/transitions.spec.ts. Expect 1 passed in ~20 s (the spec uses median-of-3 in-page runCycle() runs — do not change that). Screenshot lands at .ralph/screenshots/TASK-30-1.png (gitignored; reference only, never commit)."
+    },
+    {
+      "step": 5,
+      "description": "Full unit suite",
+      "details": "cd app && npm run test — must be all green (107 files, ~919 passed / 1 skipped at last known good). A run on 2026-10-02 ~07:39 had one unreproduced flake (file never identified); the next run was fully green. If a file fails, re-run the file to check reproducibility, capture the file name, and fix it before proceeding — the suite must be green at close-out."
+    },
+    {
+      "step": 6,
+      "description": "Record fresh numbers in the handoff and commit",
+      "details": "Update .ralph/handoff/TASK-30.md: replace the 'Recorded numbers' paragraph with the fresh bench table from step 3, and append a short 'Verified on fresh session' line list (tsc clean, CI test 5/5, bench gate result, e2e time, full-suite counts, lint result). If lint in step 2 changed any file, include that diff in the commit. Commit as: test(perf): TASK-30 fresh verification run — lint clean, suite + bench + e2e green, numbers recorded for close-out. End with a passing state and this commit."
+    }
+  ],
+  "acceptanceCriteria": [
+    "npx tsc --noEmit clean and npx vitest run src/client/test/transitionCycle.test.ts 5/5 green",
+    "eslint --fix + prettier --write applied to transitionCycle.ts, transitionCycle.test.ts, scripts/bench-transitions.ts, src/client/main.tsx, tests/e2e/transitions.spec.ts with zero remaining errors (any resulting diff committed)",
+    "npm run bench:transitions PASSES on a fresh run: per-phase p99 < 4 ms, 0 budget warnings, no frame > 100 ms, pad ring ready, AC5 gate via strict 20% spread or the recorded floor clause",
+    "npx playwright test tests/e2e/transitions.spec.ts passes (~20 s)",
+    "npm run test fully green (107 files), counts recorded in the handoff",
+    ".ralph/handoff/TASK-30.md carries the fresh bench numbers table and the fresh verification evidence, committed"
+  ],
+  "notes": "CONTEXT — what is already done and committed (do NOT redo): commits 30ee531 (harness v1: transitionCycle.ts 775 lines driving the real pipeline headless with synthetic inputs, onFrame(phase, frameStats) callback, 3 s idle baselines, phase attribution, budgetCheck via the TASK-57 monitor) and ac84562 (the atmosphere-to-surface fix: 'steady-streaming-control' 360-frame segment at 120 m/s / 500 m altitude with streamerDeltaM -720 so the cold-start 49-chunk burst lands on the control baseline, streamer boot moved to control f=0, analyzeCycle PHASE_BASELINE precedence streaming-control > idle-surface > phase-steady > idle, CameraRig constructed with a sim clock simNowMs = frameIndex * (1000/FRAME_HZ) so handoff tags confine to the 36 disembark / 36 re-enter frames; plus transitionCycle.test.ts, scripts/bench-transitions.ts + package.json bench:transitions script, installTransitionDebug() in main.tsx ~line 957-959, tests/e2e/transitions.spec.ts). Last green run: 3000 frames, budgetWarnings 0, maxFrameMs ~6-11, atmosphere-to-surface p99 delta ~0.2-0.6 ms, padNearRingReadyAtArrival true. Working tree at handoff time: CLEAN except pre-existing untracked .ralph/decisions.jsonl and .ralph/split/TASK-34/ which are NOT this task's — leave both alone. The old handoff's 'Working tree: NOT committed' section is STALE (ac84562 committed all of it); same for 'bump Tasks Completed 47 -> 48' (LOG.md already reads 48 after TASK-35's close-out — TASK-30.2 will bump 48 -> 49). Screenshots are gitignored (.ralph/screenshots/*.png): TASK-30-1.png exists on disk (~72 KB), just reference the path in logs, never commit it. DEAD ENDS — do not re-derive any of these: (1) AC5 variance < 20% as a raw (max-min)/mean of single-run worst deltas is NOT achievable on this dev machine — a pure-CPU 200k-iter probe alone jitters 26-54% per session and container CPU has systematic per-run drift up to 2x; rejected: --gc-interval (not allowed in NODE_OPTIONS anyway), --max-old-space-size, per-run CPU spin warmups, median-of-3/5 of full cycles (20.5%), CPU-probe normalization (worse). The implemented design is FINAL and passed 3/3 independent runs: median-of-3 per run + strict 20% gate with a self-calibrating dev-machine clause (spread < 2x the session-measured CPU floor, recorded). (2) The e2e spec must stay median-of-3 in-page runs — a single in-page run flaked once (GC spike on the 36-frame tagged set); do not revert to single-run. (3) vitest timeout signature is it(name, { timeout: 60_000 }, fn), NOT it(name, timeout, fn). (4) Do not add a second declare global Window augmentation for window.__TRANSITION__ (TS2717 duplicate property); the e2e spec casts (window as any) locally. (5) Do not remove the PHASE_BASELINE === 'idle-surface' branch in analyzeCycle — without it disembark/re-enter silently fall to phase-steady. (6) Do not 'fix' variance by pre-loading the whole world — that breaks the streaming design. If npm run test flakes, capture the failing file name and fix it before close-out; do not ignore it. Verification quick smoke (optional): cd app && npx tsx -e \"import('/workspace/master/app/src/client/test/transitionCycle').then(m => { const r = m.runTransitionCycle(); console.log(r.budgetWarnings, r.maxFrameMs, r.worstDeltaMs, r.worstDeltaP99Ms) })\" -> expect 0 <11 <2.5 <1. One task per invocation: finish this task, commit, stop — TASK-30.2 is a separate iteration."
+}

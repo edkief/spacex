@@ -1,0 +1,42 @@
+{
+  "id": "TASK-30.2",
+  "title": "TASK-30 close-out: LOG entry with recorded numbers, flags, handoff deletion, final commit",
+  "category": "performance",
+  "description": "Pure bookkeeping close-out for TASK-30 (transition hitch budget, every regime change < 4 ms). All code, tests, bench and e2e are committed and were re-verified green in TASK-30.1, which left the FRESH bench numbers in .ralph/handoff/TASK-30.md. This task records those numbers in the task log (acceptance criterion: 'numbers recorded in the task log for TASK-61's reference-hardware run'), flips the task/step pass flags, updates the project log header, removes the handoff, and makes the final commit. No code changes, no test runs required — read the numbers from the handoff. Only if the handoff's fresh numbers are missing (TASK-30.1 died before recording them) run cd app && npm run bench:transitions once and use those numbers instead.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Read the fresh numbers",
+      "details": "Read .ralph/handoff/TASK-30.md — the 'Recorded numbers' paragraph and 'Verified on fresh session' evidence written by TASK-30.1 (fresh bench table: per-run medians, spread, CPU floor, per-phase frames/tagged/baseline/worst/p99, streaming-control p50/p95/busyP50, idle baselines, pad ring ready frames-early, maxFrame, wall time; plus suite/e2e/bench verification counts). If they are missing, run cd app && npm run bench:transitions once and record that run instead."
+    },
+    {
+      "step": 2,
+      "description": "Flips in the task files",
+      "details": "In .ralph/tasks/TASK-30.json set all 4 steps' \"pass\": false to true. In .ralph/tasks.json set \"passes\": true on the TASK-30 entry (it sits between TASK-35 and TASK-36, currently passes: false). Do not touch any other task entry."
+    },
+    {
+      "step": 3,
+      "description": "LOG.md entry (newest at top)",
+      "details": "In .ralph/logs/LOG.md: insert a new entry at the top of the entries (after the Current Status block), matching the format of the existing entries (e.g. the TASK-35 entry: '### 2026-10-02 — TASK-35: title', a summary paragraph, then bullet points). Content: what the transition budget task verified (all 7 phases of the scripted cycle — space to atmosphere, atmosphere to surface, disembark, walk 10 m, re-enter, surface to atmosphere, atmosphere to space — under 4 ms delta over per-phase baseline on the reference client, 0 budget warnings, no frame > 100 ms, TASK-26 7x7 pre-gen ring verified ready at arrival); the implementation across commits 30ee531 + ac84562 (cycle harness, CI test, bench script npm run bench:transitions, e2e spec, main.tsx dev hook) and this iteration's fresh verification; the FULL fresh numbers table from the handoff (per-phase rows + control/idle baselines + medians/spread/floor + maxFrame + wall time) — this table is the reference for TASK-61's reference-hardware run; screenshot path .ralph/screenshots/TASK-30-1.png; and a note that the strict 20% variance gate passed but this dev machine's measured CPU jitter floor is ~54%, so TASK-61's reference hardware is the final variance authority (the bench implements both the strict gate and the recorded floor clause). Then update the header: bump 'Tasks Completed' 48 -> 49 (NOT 47 -> 48 — TASK-35 already took 47 to 48 the same day; read the current value first) and set 'Current Task' per the convention of the last update."
+    },
+    {
+      "step": 4,
+      "description": "Structure check + handoff deletion",
+      "details": "Check .ralph/STRUCTURE.md — expected NO change: app/src/client/test/ is tests (excluded from the tree), scripts/ and tests/e2e/ should already be listed or excluded; only update it if a directory is genuinely missing. Then delete .ralph/handoff/TASK-30.md. Do NOT touch .ralph/decisions.jsonl or .ralph/split/ (not this task's). No git push, no remote changes."
+    },
+    {
+      "step": 5,
+      "description": "Final commit and promise",
+      "details": "Commit all of the above (the diff is .ralph bookkeeping only: tasks/TASK-30.json, tasks.json, logs/LOG.md, deleted handoff) as: feat(perf): TASK-30 transition hitch budget verified — cycle harness green under 4 ms, bench + CI test + e2e. Then output the completion promise per the PROMPT.md convention and STOP — nothing may be written after it."
+    }
+  ],
+  "acceptanceCriteria": [
+    "All 4 steps in .ralph/tasks/TASK-30.json have pass: true",
+    "TASK-30 entry in .ralph/tasks.json has passes: true; no other task entry changed",
+    ".ralph/logs/LOG.md has a TASK-30 entry at the top containing the fresh numbers table from TASK-30.1's handoff (per-phase rows, control/idle baselines, spread + floor, maxFrame, wall time), the screenshot path .ralph/screenshots/TASK-30-1.png, and the note that TASK-61's reference hardware is the final variance authority; header 'Tasks Completed' bumped 48 -> 49",
+    ".ralph/handoff/TASK-30.md deleted; .ralph/decisions.jsonl and .ralph/split/ untouched",
+    "No application code changed (diff limited to .ralph bookkeeping)",
+    "Committed in Conventional Commit format; completion promise output and response ends there"
+  ],
+  "notes": "DEPENDED ON TASK-30.1: it re-ran the verification matrix (tsc, CI test, fresh bench, e2e, full suite), applied the eslint/prettier pass, and wrote the FRESH numbers into .ralph/handoff/TASK-30.md — this task logs exactly those numbers. Do not re-run the bench unless the handoff numbers are missing, and never mix the stale numbers from the original handoff text with the fresh ones (the handoff's own instructions say to use the fresh run's numbers, not the older table). If TASK-30.1's iteration died mid-way, the handoff may lack the fresh numbers — in that case run npm run bench:transitions once (it takes well under a minute: 8-block CPU probe, 2 warmup cycles, 5 runs of 3 cycles each, ~0.9 s per cycle) and use that output. Format references: see the existing TASK-35 and TASK-34 entries in .ralph/logs/LOG.md for the exact entry shape; the Current Status header block reads 'Tasks Completed: 48' at the time this spec was written — verify before editing. Screenshots are gitignored (.ralph/screenshots/*.png): reference the path in the log entry, do not add the png to git. This task is deliberately tiny — it exists because the previous two full attempts each burned their 45-minute budget and the last one died with exactly this bookkeeping left undone. One task per invocation: commit, promise, stop."
+}

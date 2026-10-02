@@ -1,0 +1,16 @@
+{
+  "task": "TASK-30",
+  "splittable": true,
+  "reason": "The two failed attempts were not blocked by environment or a hanging command — they spent the iteration implementing the harness, and that work is now fully committed and green (30ee531, ac84562: cycle harness, CI test, 5-run bench, e2e spec, dev hook; all 7 phases under the 4 ms budget, 0 warnings). What remains is a close-out the last attempt never reached: a fresh verification run + the missing lint pass with the new numbers recorded (TASK-30.1), and pure bookkeeping — LOG.md entry with the numbers for TASK-61, pass flags, handoff deletion, final commit (TASK-30.2). Splitting keeps both iterations comfortably inside 45 minutes and makes the worst case a trivial bookkeeping task that cannot run out of time, instead of repeating the pattern of dying on the tail.",
+  "tasks": [
+    {
+      "id": "TASK-30.1",
+      "title": "Re-verify green, lint touched files, record fresh numbers"
+    },
+    {
+      "id": "TASK-30.2",
+      "title": "Close-out: LOG entry with recorded numbers, flags, handoff deletion, final commit"
+    }
+  ],
+  "appliedAt": "2026-10-02T08:02:12.344Z"
+}
