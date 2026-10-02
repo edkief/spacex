@@ -16,7 +16,6 @@
 
 import {
   INTERACT_CONE_DEG,
-  INTERACT_RANGE_M,
   interactForward,
   nearestInteractable,
   type InteractableKind,
@@ -78,8 +77,9 @@ export class InteractableRegistry {
 
 /**
  * The v1 registry (AC): resource deposits (pick up — the TASK-38 channel
- * replaces this entry's hold-to-mine flow), the player's own ship (re-enter,
- * TASK-35), dock terminals (open the dock UI via the server's 'ui-open').
+ * replaces this entry's hold-to-mine flow), the player's own ship (re-enter
+ * via the 'enter_ship' message, TASK-35), dock terminals (open the dock UI
+ * via the server's 'ui-open').
  */
 export function createInteractableRegistry(): InteractableRegistry {
   return new InteractableRegistry()
@@ -94,8 +94,7 @@ export function createInteractableRegistry(): InteractableRegistry {
     .register({
       kind: 'groundItem',
       // TASK-34: dropped inventory — 'Take iron x3' (resource + units).
-      prompt: (target) =>
-        `[E] Take ${target.resourceId ?? 'items'} x${target.quantity ?? 1}`,
+      prompt: (target) => `[E] Take ${target.resourceId ?? 'items'} x${target.quantity ?? 1}`,
       eligible: () => true,
       // Partial pickup: the server takes what fits in the weight cap and
       // leaves the remainder on the ground item (same 'interact' message).
@@ -104,9 +103,13 @@ export function createInteractableRegistry(): InteractableRegistry {
     .register({
       kind: 'ship',
       prompt: () => '[E] Enter ship',
-      // v1: ONLY the player's own ship (no boarding others — TASK-35).
+      // v1: ONLY the player's own ship (no boarding others — the server
+      // re-validates ownership either way, {code:'not-owner'}).
       eligible: (target, ctx) => target.callsign === ctx.callsign,
-      onInteract: (target, send) => send('interact', { targetId: target.id }),
+      // TASK-35: re-entry is its own message — the server switches the
+      // player's active entity character → ship (5 m radius, < 1 u/s speed
+      // cap, idempotent 'already-in-ship').
+      onInteract: (target, send) => send('enter_ship', { shipId: target.id }),
     })
     .register({
       kind: 'terminal',
@@ -128,7 +131,8 @@ export interface ResolvedInteract {
 /**
  * One frame of the interaction raycast (AC): pre-filter the target list
  * (registered kind + the entry's eligibility — the prompt only ever shows
- * VALID targets), then the shared nearestInteractable (3 m, 30° cone).
+ * VALID targets), then the shared nearestInteractable (per-kind reach —
+ * 3 m default, the ship's 5 m enter radius (TASK-35) — 30° cone).
  * Pure — the caller feeds it the last snapshot's target list each frame.
  */
 export function resolveInteract(
@@ -137,7 +141,7 @@ export function resolveInteract(
   facing: Quat | undefined,
   ctx: InteractContext,
   registry: InteractableRegistry,
-  range: number = INTERACT_RANGE_M,
+  range?: number,
   coneDeg: number = INTERACT_CONE_DEG,
 ): ResolvedInteract | null {
   const eligible = targets.filter((t) => registry.get(t.kind)?.eligible(t, ctx));
@@ -156,7 +160,12 @@ export function resolveInteract(
 export function interactableTargetsFrom(entities: readonly EntityState[]): InteractableTarget[] {
   const out: InteractableTarget[] = [];
   for (const e of entities) {
-    if (e.kind !== 'deposit' && e.kind !== 'ship' && e.kind !== 'terminal' && e.kind !== 'groundItem')
+    if (
+      e.kind !== 'deposit' &&
+      e.kind !== 'ship' &&
+      e.kind !== 'terminal' &&
+      e.kind !== 'groundItem'
+    )
       continue;
     out.push({
       id: e.id,

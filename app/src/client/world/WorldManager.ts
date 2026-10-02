@@ -497,12 +497,44 @@ export class WorldManager {
   }
 
   /**
-   * TASK-31: the player is back in a ship (warp / re-entry in TASK-35 /
-   * snapshot reset). Removes the capsule and hands the camera back to its
-   * pre-disembark pose (the manager's spectator vantage) so a system swap
-   * never inherits an on-foot camera.
+   * TASK-35: the player is back in a ship — RE-ENTRY. The first call of the
+   * transition (the capsule still exists) disposes the capsule and runs the
+   * REVERSE handoff (onfoot → cockpit, the same 600 ms TASK-27 animation the
+   * disembark played forward). The rig STAYS active in cockpit mode and
+   * tracks the ship pose fed here on every 10 Hz self update — the view is
+   * continuous, no cut to the spectator vantage. Later calls (ship updates)
+   * only feed the pose; while the rig is inactive (never disembarked) this
+   * is a no-op and the spectator camera is untouched.
+   */
+  reEnterShip(pos: Vec3, quat: { x: number; y: number; z: number; w: number }): void {
+    if (!this.rigActive) return;
+    this.cameraRig.setShip(pos, quat);
+    if (this.characterMesh) {
+      this.disposeCharacterMesh();
+      this.cameraRig.handoff('cockpit');
+    }
+  }
+
+  /**
+   * TASK-31: full on-foot teardown (warp / boot / snapshot reset — NOT the
+   * seamless re-entry, which is reEnterShip). Removes the capsule and hands
+   * the camera back to its pre-disembark pose (the manager's spectator
+   * vantage) so a system swap never inherits an on-foot camera.
    */
   clearCharacter(): void {
+    if (this.characterMesh) {
+      this.disposeCharacterMesh();
+    }
+    if (this.rigActive) {
+      this.rigActive = false;
+      this.cameraRig.mode = 'cockpit'; // re-arm: the next handoff re-animates
+      this.camera.position.set(150, 40, 150);
+      this.camera.lookAt(0, 0, 0);
+    }
+  }
+
+  /** Removes + disposes the capsule model and its materials (one site). */
+  private disposeCharacterMesh(): void {
     if (this.characterMesh) {
       this.scene.remove(this.characterMesh);
       disposeGroup(this.characterMesh);
@@ -510,12 +542,6 @@ export class WorldManager {
     }
     this.characterMats = null;
     this.characterLivery = null;
-    if (this.rigActive) {
-      this.rigActive = false;
-      this.cameraRig.mode = 'cockpit'; // re-arm: the next handoff re-animates
-      this.camera.position.set(150, 40, 150);
-      this.camera.lookAt(0, 0, 0);
-    }
   }
 
   /** True while the player is disembarked (character capsule rendered). */
@@ -580,12 +606,7 @@ export class WorldManager {
       disposeGroup(this.worldGroup);
       this.worldGroup = null;
     }
-    if (this.characterMesh) {
-      this.scene.remove(this.characterMesh);
-      disposeGroup(this.characterMesh);
-      this.characterMesh = null;
-    }
-    this.characterMats = null;
+    this.disposeCharacterMesh();
     this.pads = [];
     this.padRings = [];
     this.dome.dispose();

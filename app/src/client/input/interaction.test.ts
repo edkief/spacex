@@ -82,6 +82,14 @@ describe('InteractableRegistry', () => {
     expect(reg.get('ship')!.eligible(theirs, ctx)).toBe(false);
     expect(reg.get('deposit')!.eligible(target('d', F), ctx)).toBe(true);
   });
+
+  it('dispatching the ship entry sends the enter_ship message (TASK-35), not interact', () => {
+    const reg = createInteractableRegistry();
+    const { send, frames } = sendMock();
+    reg.dispatch(target('ship-1', F, { kind: 'ship', callsign: 'pilot' }), send);
+    expect(frames).toHaveLength(1);
+    expect(frames[0]).toEqual({ type: 'enter_ship', payload: { shipId: 'ship-1' } });
+  });
 });
 
 describe('resolveInteract (per-frame raycast)', () => {
@@ -123,7 +131,26 @@ describe('resolveInteract (per-frame raycast)', () => {
     expect(resolveInteract([target('d', { x: 0, y: 0, z: -1 })], O, pi, ctx, reg2)?.target.id).toBe(
       'd',
     );
-    // 4 m ahead → out of the 3 m reach.
+    // 4 m ahead → out of the 3 m reach (deposits keep the default).
+    expect(
+      resolveInteract([target('d', { x: 0, y: 0, z: 4 })], O, undefined, ctx, reg2),
+    ).toBeNull();
+  });
+
+  it('the ship gets the 5 m enter radius (TASK-35): 4 m resolves, 5 m is inclusive, >5 m is not', () => {
+    const reg2 = reg;
+    const shipAt = (z: number) =>
+      resolveInteract(
+        [target('ship', { x: 0, y: 0, z }, { kind: 'ship', callsign: 'pilot' })],
+        O,
+        undefined,
+        ctx,
+        reg2,
+      );
+    expect(shipAt(4)?.target.id).toBe('ship'); // 4 m: beyond the 3 m default, inside 5
+    expect(shipAt(5)?.target.id).toBe('ship'); // exactly 5 m (inclusive)
+    expect(shipAt(5.001)).toBeNull();
+    // …and the same 4 m deposit is still out of reach (per-kind reach).
     expect(
       resolveInteract([target('d', { x: 0, y: 0, z: 4 })], O, undefined, ctx, reg2),
     ).toBeNull();
@@ -211,7 +238,7 @@ describe('nextPromptState (show / hide / switch, emit-on-change)', () => {
 });
 
 describe('registry-only dispatch (the lint-style AC)', () => {
-  it('no file in src/client but input/interaction.ts constructs an interact frame', () => {
+  it('no file in src/client but input/interaction.ts constructs an interaction frame', () => {
     const clientDir = path.resolve(__dirname, '..');
     const offenders: string[] = [];
     const walk = (dir: string): void => {
@@ -224,9 +251,12 @@ describe('registry-only dispatch (the lint-style AC)', () => {
         const file = path.join(dir, entry.name);
         if (file === path.join(clientDir, 'input', 'interaction.ts')) continue;
         const src = fs.readFileSync(file, 'utf8');
-        // A dispatch site is where the 'interact' message type is used with
-        // a send (the registry's onInteract callbacks are the only ones).
-        if (/\bsend\(\s*['"]interact['"]/.test(src)) offenders.push(path.relative(clientDir, file));
+        // A dispatch site is where an interaction message type ('interact'
+        // for deposits/terminals, 'enter_ship' for ships — TASK-35) is used
+        // with a send (the registry's onInteract callbacks are the only ones).
+        if (/\bsend\(\s*['"](interact|enter_ship)['"]/.test(src)) {
+          offenders.push(path.relative(clientDir, file));
+        }
       }
     };
     walk(clientDir);

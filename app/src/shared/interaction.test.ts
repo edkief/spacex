@@ -2,12 +2,15 @@ import { describe, expect, it } from 'vitest';
 
 import { quatFromAxisAngle } from './physics/vec';
 import {
+  ENTER_SHIP_MAX_SPEED,
+  ENTER_SHIP_RANGE_M,
   INTERACT_CONE_DEG,
   INTERACT_RANGE_M,
   inInteractCone,
   inInteractRange,
   interactConeAngle,
   interactForward,
+  interactRangeFor,
   isInteractableKind,
   nearestInteractable,
   type InteractableTarget,
@@ -138,6 +141,48 @@ describe('nearestInteractable', () => {
     const side = target('s', { x: 2.5, y: 0, z: 1 }); // ≈ 68° off axis
     expect(nearestInteractable(O, F, [side], 3, 80)?.target.id).toBe('s');
     expect(nearestInteractable(O, F, [side], 3, 30)).toBeNull();
+  });
+});
+
+describe('TASK-35: enter-ship tunables (per-kind reach + speed cap)', () => {
+  it('the pinned constants are the AC values (5 m radius, 1 u/s cap)', () => {
+    expect(ENTER_SHIP_RANGE_M).toBe(5);
+    expect(ENTER_SHIP_MAX_SPEED).toBe(1);
+  });
+
+  it('interactRangeFor: ships get 5 m, every other kind keeps 3 m', () => {
+    expect(interactRangeFor('ship')).toBe(5);
+    expect(interactRangeFor('deposit')).toBe(INTERACT_RANGE_M);
+    expect(interactRangeFor('terminal')).toBe(INTERACT_RANGE_M);
+    expect(interactRangeFor('groundItem')).toBe(INTERACT_RANGE_M);
+  });
+
+  it('nearestInteractable with NO explicit range uses the per-kind reach', () => {
+    const ship = (id: string, z: number): InteractableTarget => ({
+      id,
+      kind: 'ship',
+      pos: { x: 0, y: 0, z },
+    });
+    // A ship at 4 m: outside the 3 m default, inside the 5 m enter radius.
+    expect(nearestInteractable(O, F, [ship('ship', 4)])?.target.id).toBe('ship');
+    expect(nearestInteractable(O, F, [ship('ship', 5)])?.target.id).toBe('ship'); // inclusive
+    expect(nearestInteractable(O, F, [ship('ship', 5.001)])).toBeNull();
+    // The same 4 m distance for a deposit is still out of reach.
+    expect(nearestInteractable(O, F, [target('d', { x: 0, y: 0, z: 4 })])).toBeNull();
+    // A mixed list: the nearest ELIGIBLE-by-range target wins per kind.
+    expect(
+      nearestInteractable(O, F, [target('d', { x: 0, y: 0, z: 2 }), ship('ship', 4)])?.target.id,
+    ).toBe('d');
+  });
+
+  it('an EXPLICIT range still applies uniformly (callers tighten, never the constants)', () => {
+    const ship = (z: number): InteractableTarget => ({
+      id: 'ship',
+      kind: 'ship',
+      pos: { x: 0, y: 0, z },
+    });
+    expect(nearestInteractable(O, F, [ship(4)], 3)).toBeNull(); // 4 m > explicit 3 m
+    expect(nearestInteractable(O, F, [target('d', { x: 0, y: 0, z: 4 })], 5)?.target.id).toBe('d');
   });
 });
 

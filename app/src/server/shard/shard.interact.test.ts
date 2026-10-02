@@ -21,8 +21,8 @@ import type { SimEntity } from './types';
  *   the wire state carries the quantity until it leaves the next snapshot;
  * - terminal → a 'ui-open' {ui:'dock', payload:{terminalId}} frame to the
  *   requesting connection ONLY;
- * - ship → validation live, the enter effect is the TASK-35 stub ('ok',
- *   no state change).
+ * - ship → TASK-35: the branch delegates to handleEnterShip — a valid
+ *   in-reach request re-enters the ship (character removed, ship unfrozen).
  */
 
 const SEED = 'INTERACT-SIM-SEED';
@@ -296,24 +296,27 @@ describe('TASK-33: server interact validation + effects', () => {
     expect(shard.entities.has(term)).toBe(true);
   });
 
-  it('ship kind: validation live, enter effect stubbed (ok, no state change) — TASK-35', () => {
+  it('ship kind (TASK-35): a valid in-reach request re-enters the ship via the delegate', () => {
     const shard = makeShard();
     const { charPos } = onFootAtPad(shard);
-    // The player's own docked ship is a ship-kind target, ~2.5 m away.
+    // The player's own docked ship is a ship-kind target, ~2.5 m away
+    // (inside the 5 m enter radius).
     const ship = shard.entities.get('ship-p1')!;
     const dist = Math.hypot(ship.ship.pos.x - charPos.x, ship.ship.pos.z - charPos.z);
-    expect(dist).toBeLessThanOrEqual(3);
+    expect(dist).toBeLessThanOrEqual(5);
+    expect(ship.disembarked).toBe(true);
+    expect(shard.entities.has('char:p1')).toBe(true);
 
-    const before = {
-      pos: { ...ship.ship.pos },
-      padId: ship.padId,
-      disembarked: ship.disembarked,
-    };
+    const before = { pos: { ...ship.ship.pos }, padId: ship.padId };
     expect(shard.handleInteract('p1', 'ship-p1')).toBe('ok');
+    // The delegated enter-ship effect applied: the character is GONE and
+    // the ship is unfrozen where it docked (no drift, dock state kept).
+    expect(shard.entities.has('char:p1')).toBe(false);
+    expect(ship.disembarked).toBe(false);
     expect(ship.ship.pos).toEqual(before.pos);
     expect(ship.padId).toBe(before.padId);
-    expect(ship.disembarked).toBe(before.disembarked);
-    // Still on foot: no character was removed, no re-entry happened.
-    expect(shard.entities.has('char:p1')).toBe(true);
+    // A second interact on the ship is the idempotent denial (no character
+    // left → the player is already in the ship).
+    expect(shard.handleInteract('p1', 'ship-p1')).toBe('already-in-ship');
   });
 });

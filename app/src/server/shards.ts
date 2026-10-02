@@ -194,10 +194,13 @@ export function attachShipSwapBroadcast(
  *                  'not-docked' denial on the requesting connection;
  * - 'interact'   → on-foot interaction (TASK-33): regime/target/range
  *                  validation, then dispatch by target kind (pickup /
- *                  terminal 'ui-open' / enter-ship stub; TASK-34: ground
- *                  items do the partial inventory pickup);
+ *                  terminal 'ui-open' / the ship branch delegates to the
+ *                  enter-ship handler; TASK-34: ground items do the partial
+ *                  inventory pickup);
  * - 'drop'       → on-foot drop (TASK-34): weight-capped inventory →
- *                  groundItem entity at the character's position.
+ *                  groundItem entity at the character's position;
+ * - 'enter_ship' → re-entry (TASK-35): ownership / idempotency / 5 m range /
+ *                  < 1 u/s speed validation, character → ship switch.
  */
 export function routeGameMessage(
   shard: SystemShard,
@@ -218,5 +221,7 @@ export function routeGameMessage(
   } else if (type === 'drop') {
     const p = payload as { resourceId: string; amount: number };
     shard.handleDrop(conn.playerId, p.resourceId, p.amount, conn);
+  } else if (type === 'enter_ship') {
+    shard.handleEnterShip(conn.playerId, (payload as { shipId: string }).shipId, conn);
   }
 }

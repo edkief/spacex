@@ -439,14 +439,19 @@ function App() {
       world.setShipPos(pos);
       world.setAtmosphereView(pos, regime);
     },
-    // TASK-31: the self-entity bridge — on foot: the capsule follows the
+    // TASK-31/35: the self-entity bridge — on foot: the capsule follows the
     // character (first call spawns it + runs the camera handoff); back in
-    // the ship: clear any stale on-foot state.
+    // the ship (re-entry): the world runs the REVERSE handoff (onfoot →
+    // cockpit) once per transition and the rig tracks the ship pose; a
+    // missing self entity (system swap / boot) clears all on-foot state.
     (self, shipId) => {
       selfShipIdRef.current = shipId;
       const world = worldRef.current;
       if (!world) return;
       if (self && self.kind === 'character' && self.onFoot) {
+        // ON FOOT: the predictor must SURVIVE every 10 Hz self update — the
+        // prediction loop owns it between snapshots (clearing it here would
+        // stop on-foot input entirely after the first snapshot).
         world.setCharacterPos(self.pos);
         // TASK-32: the character is the local prediction target — seed the
         // predictor from the first snapshot (flat pad-plane terrain; the
@@ -468,10 +473,20 @@ function App() {
           charDebug.rot = self.rot ? { ...self.rot } : undefined;
         }
       } else {
-        world.clearCharacter();
+        // NOT on foot (re-entry — TASK-35 — or a system swap / boot reset):
+        // the world runs the reverse camera handoff when the self entity is
+        // the ship (once, while the capsule still exists; later updates just
+        // feed the pose), and clears all on-foot state otherwise.
+        if (self && self.kind === 'ship') {
+          world.reEnterShip(self.pos, self.rot ?? { x: 0, y: 0, z: 0, w: 1 });
+        } else {
+          world.clearCharacter();
+        }
+        // No character → no prediction, and no interaction either (TASK-33:
+        // the prompt never outlives the on-foot state — e.g. right after
+        // re-entering the ship). The ON-FOOT branch above keeps the
+        // predictor alive across its 10 Hz snapshots.
         charPredictorRef.current = null;
-        // TASK-33: no character → no interaction (the prompt never outlives
-        // the on-foot state, e.g. after re-entering the ship).
         resolvedTargetRef.current = null;
         promptStateRef.current = { kind: 'hidden' };
         setInteractPrompt(null);

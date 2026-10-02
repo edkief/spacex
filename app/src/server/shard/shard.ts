@@ -31,7 +31,13 @@ import {
   integrateCharacter,
   type CharacterState,
 } from '@shared/physics/character';
-import { INTERACT_RANGE_M, isInteractableKind } from '@shared/interaction';
+import {
+  ENTER_SHIP_MAX_SPEED,
+  ENTER_SHIP_RANGE_M,
+  INTERACT_RANGE_M,
+  interactRangeFor,
+  isInteractableKind,
+} from '@shared/interaction';
 import {
   dropFrom,
   emptyInventory,
@@ -187,7 +193,10 @@ export class SystemShard implements Shard {
     this.now = options.now ?? (() => Date.now());
     this.dt = (options.dtMs ?? TICK_DT_MS) / 1000;
     this.wreckTtlTicks = Math.max(1, Math.round(WRECK_TTL_MS / (options.dtMs ?? TICK_DT_MS)));
-    this.groundItemTtlTicks = Math.max(1, Math.round(GROUND_ITEM_TTL_MS / (options.dtMs ?? TICK_DT_MS)));
+    this.groundItemTtlTicks = Math.max(
+      1,
+      Math.round(GROUND_ITEM_TTL_MS / (options.dtMs ?? TICK_DT_MS)),
+    );
     this.persist = options.persist ?? (() => {});
     // TASK-29: derive the system's seeded pads once (cached per system) and
     // index them by planet — the pad list is system-derived data.
@@ -296,9 +305,7 @@ export class SystemShard implements Shard {
       entity = this.entityFromShipRow(ship, callsign);
       // TASK-34: load the persisted inventory (survives reconnect + server
       // restart; an empty/corrupt row simply starts empty).
-      entity.inventory = sanitizeInventory(
-        (await this.repo.getPlayerInventory?.(playerId)) ?? {},
-      );
+      entity.inventory = sanitizeInventory((await this.repo.getPlayerInventory?.(playerId)) ?? {});
       this.entities.set(entity.id, entity);
       this.playerEntities.set(playerId, entity);
     }
@@ -974,6 +981,79 @@ export class SystemShard implements Shard {
   }
 
   /**
+   * TASK-35: re-entry — the reverse of handleExitShip. The on-foot player
+   * (authenticated + joined, guaranteed by the WS layer) re-claims their
+   * own ship: the CHARACTER entity is removed, the ship is unfrozen
+   * (disembarked cleared, held frame dropped so no ghost thrust), and the
+   * player's active entity switches character → ship. The whole world sees
+   * it in the next 10 Hz entity_update (one shared buffer — the character
+   * simply leaves every client's snapshot; no orphan state survives).
+   *
+   * Validation order (each failure answers the REQUESTING connection with a
+   * structured error, stale-conn guarded, like handleExitShip):
+   * 1. the ship entity must exist in the shard → {code:'not-found'};
+   * 2. ownership — ONLY the ship's owner can board it in v1 (no boarding
+   *    others' ships) → {code:'not-owner'};
+   * 3. idempotency — the player must be on foot (a `char:<playerId>`
+   *    exists). A double enter_ship (e.g. racing a reconnect) is
+   *    {code:'already-in-ship'} — the switch is a no-op, no duplicate state;
+   * 4. range — within 5 m of the ship's position (ENTER_SHIP_RANGE_M, the
+   *    per-kind reach shared with the client prompt) → {code:'out-of-range'};
+   * 5. speed — the ship must be IDLE (velocity < 1 u/s,
+   *    ENTER_SHIP_MAX_SPEED). Being off-pad is fine (a drifting ship at
+   *    rest can be re-claimed); a moving ship is {code:'ship-moving'}.
+   */
+  handleEnterShip(playerId: string, shipId: string, source?: unknown): EnterShipOutcome {
+    const entity = this.entities.get(shipId);
+    if (!entity || entity.kind !== 'ship') {
+      this.sendErrorToPlayer(playerId, 'not-found', `unknown ship ${shipId}`, source);
+      return 'unknown-ship';
+    }
+    if (entity.playerId !== playerId) {
+      this.sendErrorToPlayer(playerId, 'not-owner', 'that ship belongs to another pilot', source);
+      return 'not-owner';
+    }
+    const character = this.entities.get(`char:${playerId}`);
+    if (!character) {
+      // Already in the ship (or never disembarked) — the switch is a no-op.
+      // This is the idempotency guard: a double enter_ship (stale character
+      // racing a reconnect) changes nothing and gets a structured error.
+      this.log.debug('enter ignored: already in ship', { playerId, shipId });
+      this.sendErrorToPlayer(playerId, 'already-in-ship', 'you are already in this ship', source);
+      return 'already-in-ship';
+    }
+    if (vecLength(vecSub(entity.ship.pos, character.ship.pos)) > ENTER_SHIP_RANGE_M) {
+      this.sendErrorToPlayer(playerId, 'out-of-range', 'the ship is out of reach', source);
+      return 'out-of-range';
+    }
+    if (vecLength(entity.ship.vel) >= ENTER_SHIP_MAX_SPEED) {
+      this.sendErrorToPlayer(
+        playerId,
+        'ship-moving',
+        'the ship is moving — too fast to board',
+        source,
+      );
+      return 'ship-moving';
+    }
+    this.entities.delete(character.id);
+    entity.disembarked = false;
+    entity.heldInput = undefined; // no ghost thrust on re-entry
+    entity.idle = false; // the owner is here again (covers reconnect races)
+    this.log.info('player re-entered ship', {
+      playerId,
+      ship: shipId,
+      removed: character.id,
+      pos: entity.ship.pos,
+    });
+    this.events.emit('entered-ship', {
+      playerId,
+      shipId,
+      removedCharacterId: character.id,
+    });
+    return 'ok';
+  }
+
+  /**
    * TASK-33: an on-foot player interacts with the target in front of them.
    * Validation order — each failure answers the REQUESTING connection with a
    * structured error (stale-conn guarded, like handleExitShip):
@@ -982,7 +1062,8 @@ export class SystemShard implements Shard {
    * 2. target — must exist in the shard AND be an interactable kind
    *    (deposit / ship / terminal); unknown id or non-interactable kind →
    *    {code:'not-found'};
-   * 3. range — within 3 m of the player's CHARACTER position (server-side) →
+   * 3. range — within the PER-KIND reach (3 m default, the ship's 5 m enter
+   *    radius — TASK-35) of the player's CHARACTER position (server-side) →
    *    else {code:'out-of-range'}.
    * Then dispatch BY KIND — the server-side counterpart of the client's
    * InteractableRegistry, one branch per kind (no scattered if-chains):
@@ -990,8 +1071,9 @@ export class SystemShard implements Shard {
    *                delegate point TASK-38 replaces with the 1.5 s channel;
    * - 'terminal' → a 'ui-open' {ui:'dock'} frame to the requester (the dock
    *                UI that consumes it lands in TASK-40/53);
-   * - 'ship'     → stub: validation is live, the enter-ship effect (character
-   *                → ship) is TASK-35.
+   * - 'ship'     → delegates to handleEnterShip (TASK-35) — the same effect
+   *                 and validation as the dedicated 'enter_ship' message, so
+   *                 a legacy interact frame and the new one can never diverge.
    * Like handleExitShip the handler mutates the entity directly; the next
    * 10 Hz entity_update carries the effect to EVERY peer (one shared buffer,
    * so all clients see a pickup within one snapshot).
@@ -1017,7 +1099,9 @@ export class SystemShard implements Shard {
       this.sendErrorToPlayer(playerId, 'not-found', `unknown interactable ${targetId}`, source);
       return 'not-found';
     }
-    if (vecLength(vecSub(target.ship.pos, character.ship.pos)) > INTERACT_RANGE_M) {
+    // Per-kind reach (TASK-35): ships get the 5 m enter radius, the rest
+    // 3 m — the SAME number the client prompt raycasts with.
+    if (vecLength(vecSub(target.ship.pos, character.ship.pos)) > interactRangeFor(target.kind)) {
       this.sendErrorToPlayer(playerId, 'out-of-range', 'the target is out of reach', source);
       return 'out-of-range';
     }
@@ -1034,14 +1118,10 @@ export class SystemShard implements Shard {
         this.sendUiOpen(playerId, target.id, source);
         return 'ok';
       case 'ship':
-        // TASK-35: the enter-ship effect is not landed yet — validation is
-        // live, the effect is a stub (no state change) until then.
-        this.log.debug('enter-ship interact: effect delegated to TASK-35', {
-          playerId,
-          shipId: targetId,
-          ...(action !== undefined ? { action } : {}),
-        });
-        return 'ok';
+        // TASK-35: re-entry — delegate to the dedicated handler (ownership,
+        // 5 m range, speed cap, idempotency). Same effect as the 'enter_ship'
+        // message; one handler owns the state change.
+        return this.handleEnterShip(playerId, targetId, source);
     }
   }
 
@@ -1186,23 +1266,28 @@ export class SystemShard implements Shard {
       return 'wrong-regime';
     }
     if (!isResourceId(resourceId)) {
-      this.sendErrorToPlayer(playerId, 'invalid-resource', `unknown resource ${resourceId}`, source);
+      this.sendErrorToPlayer(
+        playerId,
+        'invalid-resource',
+        `unknown resource ${resourceId}`,
+        source,
+      );
       return 'invalid-resource';
     }
     if (!Number.isInteger(amount) || amount <= 0) {
-      this.sendErrorToPlayer(playerId, 'invalid-amount', 'amount must be a positive integer', source);
+      this.sendErrorToPlayer(
+        playerId,
+        'invalid-amount',
+        'amount must be a positive integer',
+        source,
+      );
       return 'invalid-amount';
     }
     const player = this.playerEntities.get(playerId);
     const stacks = player?.inventory ?? emptyInventory();
     const owned = stacks[resourceId] ?? 0;
     if (amount > owned) {
-      this.sendErrorToPlayer(
-        playerId,
-        'not-owned',
-        `you only have ${owned} ${resourceId}`,
-        source,
-      );
+      this.sendErrorToPlayer(playerId, 'not-owned', `you only have ${owned} ${resourceId}`, source);
       return 'not-owned';
     }
     const res = dropFrom(stacks, resourceId, amount);
@@ -1493,8 +1578,21 @@ export { inputToShipInput };
 /** The outcome of a disembark request (TASK-31). */
 export type ExitShipOutcome = 'ok' | 'not-docked' | 'unknown-ship' | 'already-on-foot';
 
-/** The outcome of an interaction request (TASK-33). */
-export type InteractOutcome = 'ok' | 'not-found' | 'out-of-range' | 'wrong-regime';
+/** The outcome of a re-entry request (TASK-35). */
+export type EnterShipOutcome =
+  'ok' | 'unknown-ship' | 'not-owner' | 'already-in-ship' | 'out-of-range' | 'ship-moving';
+
+/**
+ * The outcome of an interaction request (TASK-33) — the 'ship' branch
+ * delegates to handleEnterShip, so the enter-ship codes are part of the
+ * union (TASK-35).
+ */
+export type InteractOutcome =
+  | 'ok'
+  | 'not-found'
+  | 'out-of-range'
+  | 'wrong-regime'
+  | Exclude<EnterShipOutcome, 'ok' | 'out-of-range'>;
 
 /** Entity → wire EntityState (hull/shields normalized 0..1, regime mapped). */
 export function entityToState(e: SimEntity): EntityState {
