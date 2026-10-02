@@ -380,6 +380,12 @@ export function createGalaxyRouter(deps: GalaxyRouterDeps): GalaxyRouter {
     // at the target, then reposition it at the gate.
     const entity = await target.shard.adoptEntity(player.playerId, player.callsign);
     if (entity) {
+      // TASK-39: adopt reads the ROW (flush-period stale), so the
+      // authoritative in-memory hold replaces the adopted entity's BEFORE
+      // the row is written — otherwise the target's next flush would
+      // overwrite the fresh cargo in the row with the stale one (cargo
+      // lost across warp).
+      if (cargo) entity.cargo = cargo;
       entity.ship.pos = { ...gate.pos };
       entity.ship.vel = { x: 0, y: 0, z: 0 };
       entity.ship.quat = { ...gate.quat };

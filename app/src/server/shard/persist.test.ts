@@ -255,6 +255,31 @@ describe('flushShips (step 1)', () => {
     expect((await repo.getShip(ship.id))!.livery).toEqual(before);
   });
 
+  it('TASK-39: the cargo hold rides the ship state (ships.cargo JSON); a cargo-less flush never wipes it', async () => {
+    const ship = await makeShip('FLUSH-CARGO');
+    const ownerId = (await repo.getShip(ship.id))!.ownerId;
+    const persist = createShardPersist({ repo, systemId: SYSTEM_ID, options: { log: SILENT } });
+    await persist.flushShips({
+      systemId: SYSTEM_ID,
+      entities: new Map([
+        [
+          ship.id,
+          shipEntity(ownerId, ship.id, {
+            cargo: { stacks: { iron: 5 }, weightUsed: 5, capacity: 40 },
+          }),
+        ],
+      ]),
+    });
+    expect((await repo.getShip(ship.id))!.cargo).toBe('{"iron":5}');
+    // A flush whose entity carries NO cargo in memory (pre-39 entity) must
+    // keep the stored hold — the conflict set COALESCEs back to the row.
+    await persist.flushShips({
+      systemId: SYSTEM_ID,
+      entities: new Map([[ship.id, shipEntity(ownerId, ship.id)]]),
+    });
+    expect((await repo.getShip(ship.id))!.cargo).toBe('{"iron":5}');
+  });
+
   it('AI ships (no owner) are skipped', async () => {
     const persist = createShardPersist({ repo, systemId: SYSTEM_ID, options: { log: SILENT } });
     const summary = await persist.flushShips({
@@ -497,6 +522,42 @@ describe('SystemShard restart load (shard spawn, no teleport)', () => {
     expect(entity!.id).toBe(row.id);
     expect(entity!.ship.pos).toEqual({ x: 111, y: 22, z: -33 }); // still the saved state
     expect(entity!.ship.vel).toEqual({ x: 4, y: 0, z: -1 });
+  });
+
+  it('TASK-39: the cargo hold survives a restart (flush → row → loadShips → entity)', async () => {
+    const ship = await makeShip('RD-CARGO', system.systemId);
+    const ownerId = (await repo.getShip(ship.id))!.ownerId;
+    await persist.flushShips({
+      systemId: system.systemId,
+      entities: new Map([
+        [
+          ship.id,
+          shipEntity(ownerId, ship.id, {
+            cargo: { stacks: { iron: 10, crystal: 1 }, weightUsed: 13, capacity: 40 },
+          }),
+        ],
+      ]),
+    });
+    expect((await repo.getShip(ship.id))!.cargo).toBe('{"iron":10,"crystal":1}');
+
+    // Restart: the persisted row is the only source — a fresh shard reloads it.
+    const fresh = new SystemShard({
+      systemId: system.systemId,
+      galaxySeed: SEED,
+      system,
+      repo,
+      shipSwapBus: createShipSwapBus(),
+      log: SILENT,
+    });
+    try {
+      await fresh.loadShips(await persist.loadShips());
+      const e = fresh.entities.get(ship.id)!;
+      expect(e.cargo?.stacks).toEqual({ iron: 10, crystal: 1 });
+      expect(e.cargo?.weightUsed).toBe(13); // 10 iron + 1 crystal x 3 u
+      expect(e.cargo?.capacity).toBe(40); // scout: 4 slots x 10
+    } finally {
+      fresh.stop();
+    }
   });
 });
 

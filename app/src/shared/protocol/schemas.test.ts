@@ -115,6 +115,18 @@ const CASES: Record<string, { valid: unknown; invalid: unknown }> = {
       hullHit: 4,
     },
   },
+  cargo_transfer: {
+    valid: { resourceId: 'iron', amount: 3, from: 'inv' },
+    invalid: { resourceId: 'iron', amount: 0, from: 'inv' },
+  },
+  cargo_open: { valid: {}, invalid: { surprise: 1 } },
+  cargo: {
+    valid: {
+      hold: { stacks: { iron: 10 }, weightUsed: 10, capacity: 40 },
+      inventory: { stacks: {}, weightUsed: 0 },
+    },
+    invalid: { hold: { stacks: { iron: -1 }, weightUsed: 0, capacity: 40 } },
+  },
 };
 
 describe('message payload schemas', () => {
