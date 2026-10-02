@@ -51,7 +51,7 @@ describe('InteractableRegistry', () => {
   it('registers one entry per kind; dispatch runs exactly the entry for the target kind', () => {
     const reg = createInteractableRegistry();
     const { send, frames } = sendMock();
-    reg.dispatch(target('dep-1', F), send);
+    reg.dispatch(target('dep-1', F), 1, send);
     expect(frames).toHaveLength(1);
     // TASK-38: deposits are MINED, not tapped — E down starts the 1.5 s
     // channel (the server's tick is the award authority).
@@ -78,7 +78,7 @@ describe('InteractableRegistry', () => {
   it('dispatching an unknown kind is a silent no-op (never a crash, never a frame)', () => {
     const reg = createInteractableRegistry();
     const { send, frames } = sendMock();
-    reg.dispatch(target('x-1', F, { kind: 'wreck' as never }), send);
+    reg.dispatch(target('x-1', F, { kind: 'wreck' as never }), 1, send);
     expect(frames).toHaveLength(0);
   });
 
@@ -107,9 +107,35 @@ describe('InteractableRegistry', () => {
   it('dispatching the ship entry sends the enter_ship message (TASK-35), not interact', () => {
     const reg = createInteractableRegistry();
     const { send, frames } = sendMock();
-    reg.dispatch(target('ship-1', F, { kind: 'ship', callsign: 'pilot' }), send);
+    reg.dispatch(target('ship-1', F, { kind: 'ship', callsign: 'pilot' }), 1, send);
     expect(frames).toHaveLength(1);
     expect(frames[0]).toEqual({ type: 'enter_ship', payload: { shipId: 'ship-1' } });
+  });
+
+  it('TASK-39: the docked-ship proximity sub-prompts (≤ 3 m Enter ship, 3–5 m Open cargo)', () => {
+    const reg = createInteractableRegistry();
+    const docked = target('ship-1', F, { kind: 'ship', callsign: 'pilot', docked: true });
+    const flying = target('ship-2', F, { kind: 'ship', callsign: 'pilot', docked: false });
+
+    // Close (≤ 3 m): always board — docked or not.
+    expect(reg.get('ship')!.prompt(docked, 3)).toBe('[E] Enter ship');
+    expect(reg.get('ship')!.prompt(flying, 1)).toBe('[E] Enter ship');
+    // Far zone (3–5 m): only a DOCKED ship offers the cargo panel…
+    expect(reg.get('ship')!.prompt(docked, 4)).toBe('[E] Open cargo');
+    // …a flying ship always offers boarding (no cargo at speed).
+    expect(reg.get('ship')!.prompt(flying, 4)).toBe('[E] Enter ship');
+
+    // Dispatch follows the same split: far zone of a docked ship sends the
+    // 'open-cargo' interact action; everywhere else 'enter_ship'.
+    const { send, frames } = sendMock();
+    reg.dispatch(docked, 4, send);
+    expect(frames).toEqual([{ type: 'interact', payload: { targetId: 'ship-1', action: 'open-cargo' } }]);
+    frames.length = 0;
+    reg.dispatch(docked, 2, send);
+    expect(frames).toEqual([{ type: 'enter_ship', payload: { shipId: 'ship-1' } }]);
+    frames.length = 0;
+    reg.dispatch(flying, 4, send);
+    expect(frames).toEqual([{ type: 'enter_ship', payload: { shipId: 'ship-2' } }]);
   });
 });
 
@@ -213,6 +239,17 @@ describe('interactableTargetsFrom (snapshot → sparse target list)', () => {
     expect(list.map((t) => t.id)).toEqual(['dep-1', 'ship-1', 'term-1']);
     expect(list.find((t) => t.id === 'ship-1')?.callsign).toBe('pilot');
     expect(list.find((t) => t.id === 'dep-1')?.callsign).toBeUndefined();
+  });
+
+  it('TASK-39: ships carry their docked flag (regime docked + padId) for the sub-prompt', () => {
+    const list = interactableTargetsFrom([
+      e({ id: 'ship-1', kind: 'ship', callsign: 'pilot', regime: 'docked', padId: 'pad-1' }),
+      e({ id: 'ship-2', kind: 'ship', callsign: 'pilot', regime: 'sublight', padId: 'pad-1' }),
+      e({ id: 'ship-3', kind: 'ship', callsign: 'pilot', regime: 'docked' }),
+    ]);
+    expect(list.find((t) => t.id === 'ship-1')?.docked).toBe(true);
+    expect(list.find((t) => t.id === 'ship-2')?.docked).toBe(false);
+    expect(list.find((t) => t.id === 'ship-3')?.docked).toBe(false);
   });
 
   it('an empty batch yields an empty list (nothing to show)', () => {

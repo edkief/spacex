@@ -223,5 +223,15 @@ export function routeGameMessage(
     shard.handleDrop(conn.playerId, p.resourceId, p.amount, conn);
   } else if (type === 'enter_ship') {
     shard.handleEnterShip(conn.playerId, (payload as { shipId: string }).shipId, conn);
+  } else if (type === 'cargo_open') {
+    // TASK-39: ship-HUD 'Cargo' button (in flight / docked) — the server
+    // answers the requester with the 'cargo' frame (hold only in flight).
+    shard.handleCargoOpen(conn.playerId, conn);
+  } else if (type === 'cargo_transfer') {
+    // TASK-39: docked transfer (on foot, within 5 m of the own ship) —
+    // docked + ownership + amounts validated in one step; the 'cargo'
+    // frame answers the requester.
+    const p = payload as { resourceId: string; amount: number; from: 'inv' | 'hold' };
+    shard.handleCargoTransfer(conn.playerId, p, conn);
   }
 }

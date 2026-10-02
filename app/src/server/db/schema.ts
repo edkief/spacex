@@ -75,6 +75,13 @@ export interface ShipRow {
   onPad: string | null;
   /** When the ship was destroyed (drives the wreck ttl; null = alive). */
   destroyedAt: string | null;
+  /**
+   * TASK-39: the cargo hold as a raw JSON string ('{"iron":10}' — NULL when
+   * no cargo was ever written; parsed + sanitized at the read sites via
+   * @shared/cargo.parseCargoJson). weightUsed/capacity are derived, never
+   * stored.
+   */
+  cargo: string | null;
   updatedAt: string;
 }
 
@@ -169,6 +176,8 @@ export const ships = sqliteTable(
     regime: text('regime', { enum: SHIP_REGIMES }).notNull().default('space'),
     onPad: text('on_pad'),
     destroyedAt: text('destroyed_at'),
+    // TASK-39: cargo hold JSON (nullable — NULL = never written; see ShipRow).
+    cargo: text('cargo'),
     updatedAt: text('updated_at').notNull(),
   },
   (t) => [check('chk_ships_state', sql`${t.state} IN ('docked', 'flying', 'onfoot', 'destroyed')`)],
@@ -273,6 +282,8 @@ export const pgShips = pgTable(
     regime: pgText('regime').notNull().default('space'),
     onPad: pgText('on_pad'),
     destroyedAt: timestamptz('destroyed_at'),
+    // TASK-39: cargo hold JSON (nullable — NULL = never written; see ShipRow).
+    cargo: pgText('cargo'),
     updatedAt: timestamptz('updated_at').notNull(),
   },
   (t) => [

@@ -16,6 +16,7 @@
 
 import {
   INTERACT_CONE_DEG,
+  INTERACT_RANGE_M,
   interactForward,
   nearestInteractable,
   type InteractableKind,
@@ -34,15 +35,24 @@ export interface InteractContext {
 
 export interface InteractableEntry {
   kind: InteractableKind;
-  /** The prompt text (rendered bottom-center, e.g. 'Hold [E] to mine iron'). */
-  prompt: (target: InteractableTarget) => string;
+  /**
+   * The prompt text (rendered bottom-center, e.g. 'Hold [E] to mine iron').
+   * TASK-39: `distance` (character ↔ target, m) is the raycast's range —
+   * entries with proximity sub-prompts (the ship: Open cargo vs Enter ship)
+   * branch on it.
+   */
+  prompt: (target: InteractableTarget, distance?: number) => string;
   /**
    * Client pre-filter: the prompt ONLY ever shows valid targets (v1: the
    * ship prompt is for the player's OWN ship — no boarding others).
    */
   eligible: (target: InteractableTarget, ctx: InteractContext) => boolean;
-  /** THE dispatch site for this kind: send the interaction message (E down). */
-  onInteract: (target: InteractableTarget, send: InteractSend) => void;
+  /**
+   * THE dispatch site for this kind: send the interaction message (E down).
+   * TASK-39: `distance` rides along for the same proximity sub-actions the
+   * prompt shows.
+   */
+  onInteract: (target: InteractableTarget, distance: number | undefined, send: InteractSend) => void;
   /**
    * TASK-38: the hold-release half (E up): deposits end their mining
    * channel ('mine-stop' — a cancel). Kinds with no hold (a tap is the
@@ -72,12 +82,13 @@ export class InteractableRegistry {
   /**
    * THE ONLY interact dispatch (AC): look up the target's kind and run the
    * entry's onInteract. Unknown kinds are ignored (the pre-filter never
-   * presents them, and the server re-validates either way).
+   * presents them, and the server re-validates either way). TASK-39: the
+   * raycast's `distance` is forwarded (the ship's proximity sub-prompts).
    */
-  dispatch(target: InteractableTarget, send: InteractSend): void {
+  dispatch(target: InteractableTarget, distance: number | undefined, send: InteractSend): void {
     const entry = this.byKind.get(target.kind);
     if (!entry) return;
-    entry.onInteract(target, send);
+    entry.onInteract(target, distance, send);
   }
 
   /**
@@ -111,7 +122,8 @@ export function createInteractableRegistry(): InteractableRegistry {
       // 'mine-start' (the server begins the channel), E up (onRelease) sends
       // 'mine-stop' (a cancel — no unit awarded on cancel). The server's
       // tick is the award authority; the client never runs its own timer.
-      onInteract: (target, send) => send('interact', { targetId: target.id, action: 'mine-start' }),
+      onInteract: (target, _distance, send) =>
+        send('interact', { targetId: target.id, action: 'mine-start' }),
       onRelease: (target, send) => send('interact', { targetId: target.id, action: 'mine-stop' }),
     })
     .register({
@@ -121,25 +133,40 @@ export function createInteractableRegistry(): InteractableRegistry {
       eligible: () => true,
       // Partial pickup: the server takes what fits in the weight cap and
       // leaves the remainder on the ground item (same 'interact' message).
-      onInteract: (target, send) => send('interact', { targetId: target.id, action: 'pickup' }),
+      onInteract: (target, _distance, send) =>
+        send('interact', { targetId: target.id, action: 'pickup' }),
     })
     .register({
       kind: 'ship',
-      prompt: () => '[E] Enter ship',
+      // TASK-39: the proximity sub-prompt within the ship's 5 m reach —
+      // close (≤ 3 m) boards the ship (TASK-35); a DOCKED ship in the far
+      // zone (3–5 m) offers the cargo panel ('[E] Open cargo' → the 'cargo'
+      // UI; a non-docked ship always offers boarding).
+      prompt: (target, distance) =>
+        target.docked && (distance ?? 0) > INTERACT_RANGE_M ? '[E] Open cargo' : '[E] Enter ship',
       // v1: ONLY the player's own ship (no boarding others — the server
       // re-validates ownership either way, {code:'not-owner'}).
       eligible: (target, ctx) => target.callsign === ctx.callsign,
       // TASK-35: re-entry is its own message — the server switches the
       // player's active entity character → ship (5 m radius, < 1 u/s speed
-      // cap, idempotent 'already-in-ship').
-      onInteract: (target, send) => send('enter_ship', { shipId: target.id }),
+      // cap, idempotent 'already-in-ship'). TASK-39: the far zone of a
+      // docked ship opens the cargo panel instead ('interact' with the
+      // kind-specific 'open-cargo' action — the server answers with the
+      // 'cargo' frame).
+      onInteract: (target, distance, send) => {
+        if (target.docked && (distance ?? 0) > INTERACT_RANGE_M) {
+          send('interact', { targetId: target.id, action: 'open-cargo' });
+        } else {
+          send('enter_ship', { shipId: target.id });
+        }
+      },
     })
     .register({
       kind: 'terminal',
       prompt: () => '[E] Dock terminal',
       eligible: () => true,
       // The server answers with the 'ui-open' {ui:'dock'} frame (TASK-40/53).
-      onInteract: (target, send) => send('interact', { targetId: target.id }),
+      onInteract: (target, _distance, send) => send('interact', { targetId: target.id }),
     });
 }
 
@@ -172,7 +199,9 @@ export function resolveInteract(
   if (!hit) return null;
   const entry = registry.get(hit.target.kind);
   if (!entry) return null;
-  return { target: hit.target, text: entry.prompt(hit.target), distance: hit.distance };
+  // TASK-39: the prompt may branch on the raycast's distance (the ship's
+  // proximity sub-prompts: Open cargo vs Enter ship).
+  return { target: hit.target, text: entry.prompt(hit.target, hit.distance), distance: hit.distance };
 }
 
 /**
@@ -198,6 +227,8 @@ export function interactableTargetsFrom(entities: readonly EntityState[]): Inter
       // TASK-34: ground items carry resource + units for the prompt text.
       ...(e.resourceId !== undefined ? { resourceId: e.resourceId } : {}),
       ...(e.quantity !== undefined ? { quantity: e.quantity } : {}),
+      // TASK-39: the ship prompt's sub-choice (Open cargo vs Enter ship).
+      ...(e.kind === 'ship' ? { docked: e.regime === 'docked' && !!e.padId } : {}),
     });
   }
   return out;

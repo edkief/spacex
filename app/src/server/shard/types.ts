@@ -171,6 +171,14 @@ export interface SimEntity {
    * ship's cargo hold is separate, TASK-39). Persisted in players.inventory.
    */
   inventory?: import('@shared/inventory').InventoryStacks;
+  /**
+   * TASK-39: the ship's cargo hold (ships.cargo JSON). Lives ON THE SHIP
+   * entity — it persists with the ship (TASK-24 flush/load), survives
+   * restarts, and travels with the ship across warp. Undefined on
+   * pre-39 test entities (treated as an empty hold, never persisted —
+   * the flush COALESCEs it).
+   */
+  cargo?: import('@shared/cargo').CargoHold;
 }
 
 /** The shard the router (TASK-11) will instantiate per system. */

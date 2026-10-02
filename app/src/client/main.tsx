@@ -16,6 +16,8 @@ import { DockedIndicator } from '@client/ui/docked-indicator';
 import { LeaveShipPrompt } from '@client/ui/leave-ship-prompt';
 import { InteractPrompt } from '@client/ui/interact-prompt';
 import { WeightBar } from '@client/ui/weight-bar';
+import { CargoPanel } from '@client/ui/cargo-panel';
+import { openCargoPanel } from '@client/state/cargo';
 import { MiningHud } from '@client/ui/mining-hud';
 import { inventory, setInventory } from '@client/state/inventory';
 import {
@@ -193,6 +195,18 @@ function useGameSession(
           // interaction answers with {ui:'dock'}). The dock UI that consumes
           // it lands in TASK-40/53 — until then the client just logs it.
           console.debug('[ui-open]', msg.payload);
+          return;
+        }
+        if (msg.type === 'cargo') {
+          // TASK-39: the server's cargo-panel frame (the answer to a
+          // 'cargo_open' / 'cargo_transfer' — per-connection, never
+          // broadcast). It is only ever sent IN RESPONSE to our request,
+          // so receiving it opens (or refills) the panel.
+          const p = msg.payload as {
+            hold: { stacks: Record<string, number>; weightUsed: number; capacity: number };
+            inventory?: { stacks: Record<string, number>; weightUsed: number };
+          };
+          openCargoPanel(p.hold, p.inventory ?? null);
           return;
         }
         if (msg.type === 'mining') {
@@ -448,7 +462,14 @@ function App() {
   // The last raycast hit (the E key dispatches THIS target through the
   // registry — the only place an 'interact' message is sent).
   const resolvedTargetRef = React.useRef<InteractableTarget | null>(null);
+  // TASK-39: the raycast's distance for the current target (the ship's
+  // proximity sub-prompts branch on it: Open cargo vs Enter ship).
+  const resolvedDistanceRef = React.useRef<number | undefined>(undefined);
   const [interactPrompt, setInteractPrompt] = React.useState<string | null>(null);
+  // TASK-39: the ship-HUD 'Cargo' button (stub until the full HUD, TASK-51)
+  // renders exactly while the self entity IS the ship (in flight or docked
+  // in the cockpit) — on foot the prompt path (Open cargo) takes over.
+  const [inShip, setInShip] = React.useState(false);
   // TASK-38: the target dispatched by the CURRENT E hold (E down →
   // onInteract / mine-start; E up or blur → onRelease / mine-stop). Cleared
   // when the channel ends server-side, on a system swap, or when the player
@@ -497,6 +518,7 @@ function App() {
         // prediction loop owns it between snapshots (clearing it here would
         // stop on-foot input entirely after the first snapshot).
         store.setSelfOnFoot(true); // TASK-36: PlayerList icon (self row)
+        setInShip(false); // TASK-39: the HUD Cargo button is in-ship only
         world.setCharacterPos(self.pos);
         // TASK-32: the character is the local prediction target — seed the
         // predictor from the first snapshot (flat pad-plane terrain; the
@@ -523,6 +545,7 @@ function App() {
         // the ship (once, while the capsule still exists; later updates just
         // feed the pose), and clears all on-foot state otherwise.
         store.setSelfOnFoot(false); // TASK-36: PlayerList icon (self row)
+        setInShip(self?.kind === 'ship'); // TASK-39: ship-HUD Cargo button
         if (self && self.kind === 'ship') {
           world.reEnterShip(self.pos, self.rot ?? { x: 0, y: 0, z: 0, w: 1 });
         } else {
@@ -534,6 +557,7 @@ function App() {
         // predictor alive across its 10 Hz snapshots.
         charPredictorRef.current = null;
         resolvedTargetRef.current = null;
+        resolvedDistanceRef.current = undefined;
         heldInteractRef.current = null; // a held E never survives re-entry
         promptStateRef.current = { kind: 'hidden' };
         setInteractPrompt(null);
@@ -632,7 +656,9 @@ function App() {
       const target = resolvedTargetRef.current;
       if (!target) return;
       const send: InteractSend = (type, payload) => clientRef.current?.send(type, payload);
-      interactRegistry.dispatch(target, send);
+      // TASK-39: the raycast's distance rides along (the ship's far zone
+      // sends 'open-cargo', the near zone 'enter_ship').
+      interactRegistry.dispatch(target, resolvedDistanceRef.current, send);
       heldInteractRef.current = { target, send };
     };
     // TASK-38: E up releases the hold — deposits end their mining channel
@@ -770,6 +796,7 @@ function App() {
         interactRegistry,
       );
       resolvedTargetRef.current = resolved?.target ?? null;
+      resolvedDistanceRef.current = resolved?.distance;
       const next = nextPromptState(promptStateRef.current, resolved);
       if (next !== promptStateRef.current) {
         promptStateRef.current = next;
@@ -922,6 +949,40 @@ function App() {
       <LeaveShipPrompt />
       <InteractPrompt text={interactPrompt} />
       <WeightBar />
+      {/* TASK-39: the ship-HUD 'Cargo' button (stub until the full HUD,
+          TASK-51) — in-ship (in flight or docked) it opens the cargo panel
+          with the hold ONLY ('cargo_open' — no inventory side in flight). */}
+      {inShip && (
+        <button
+          id="ship-hud-cargo"
+          type="button"
+          onClick={() => clientRef.current?.send('cargo_open', {})}
+          style={{
+            position: 'fixed',
+            bottom: '2rem',
+            right: '6.5rem', // left of the weight bar (right 2rem, 120 px)
+            zIndex: 85,
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+            fontSize: '0.7rem',
+            letterSpacing: '0.08em',
+            color: '#9fb0c3',
+            background: 'rgba(15, 20, 28, 0.8)',
+            border: '1px solid #2c3a4d',
+            borderRadius: '4px',
+            padding: '0.35rem 0.6rem',
+            cursor: 'pointer',
+          }}
+        >
+          CARGO
+        </button>
+      )}
+      {/* TASK-39: the cargo panel (INVENTORY | CARGO HOLD, Move buttons) —
+          driven by the server's per-connection 'cargo' frame. */}
+      <CargoPanel
+        onMove={(resourceId, amount, from) =>
+          clientRef.current?.send('cargo_transfer', { resourceId, amount, from })
+        }
+      />
       {/* TASK-38: the hold-to-mine channel HUD (radial progress, ore
           counter, 'Backpack full' / 'Depleted') — server-timed. */}
       <MiningHud />

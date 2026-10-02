@@ -313,6 +313,54 @@ export const messageSchemas = {
   enter_ship: z.object({ shipId: z.string().min(1) }).strict(),
   repair: z.object({}).strict(),
   /**
+   * TASK-39: move `amount` units of `resourceId` between the on-foot
+   * inventory and the ship's cargo hold. `from: 'inv'` = LOAD (into the
+   * hold), `from: 'hold'` = UNLOAD (back to the inventory). The server
+   * (docked + on foot + within 5 m of the own ship) moves what FITS
+   * (partial at the boundary — the hold nears its cap, or the destination
+   * runs out of weight room) and answers with a 'cargo' frame. The ship is
+   * implicit (the player's own — one ship per player, v1 invariant).
+   */
+  cargo_transfer: z
+    .object({
+      resourceId: z.string().min(1).max(32),
+      amount: z.number().int().finite().positive(),
+      from: z.enum(['inv', 'hold']),
+    })
+    .strict(),
+  /**
+   * TASK-39: open the cargo panel. Sent by the ship-HUD 'Cargo' button (in
+   * flight / docked) — the server answers with a 'cargo' frame of the OWN
+   * hold (no inventory side: transfers require being on foot at the ship).
+   * The on-foot 'Open cargo' prompt instead uses 'interact' {action:
+   * 'open-cargo'} so the shared interact validation (target + range) applies.
+   */
+  cargo_open: z.object({}).strict(),
+  /**
+   * TASK-39: server → ONE player — the cargo panel's contents (the hold
+   * always; the inventory only when sent from the on-foot prompt). The
+   * panel re-renders from this frame after every 'cargo_transfer'.
+   * Server-originated only — clients never send it.
+   */
+  cargo: z
+    .object({
+      hold: z
+        .object({
+          stacks: z.record(z.string().min(1), z.number().int().finite().nonnegative()),
+          weightUsed: z.number().int().finite().nonnegative(),
+          capacity: z.number().int().finite().nonnegative(),
+        })
+        .strict(),
+      inventory: z
+        .object({
+          stacks: z.record(z.string().min(1), z.number().int().finite().nonnegative()),
+          weightUsed: z.number().int().finite().nonnegative(),
+        })
+        .strict()
+        .optional(),
+    })
+    .strict(),
+  /**
    * TASK-14: the server tells a connection the last input seq it has APPLIED
    * (integrated in a tick). Server→client only, sent to the owning
    * connection at snapshot cadence so the 10 Hz shared snapshot buffer stays

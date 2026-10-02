@@ -69,6 +69,12 @@ export interface InteractableTarget {
   /** TASK-34: ground items — the resource + units ('[E] Take iron x3'). */
   resourceId?: string;
   quantity?: number;
+  /**
+   * TASK-39: ships — true when docked on a landing pad (regime 'docked' +
+   * padId). Drives the ship prompt's sub-choice: '[E] Open cargo' in the
+   * far zone (3–5 m) vs '[E] Enter ship' when close (≤ 3 m).
+   */
+  docked?: boolean;
 }
 
 /**

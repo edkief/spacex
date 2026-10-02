@@ -371,6 +371,10 @@ export function createGalaxyRouter(deps: GalaxyRouterDeps): GalaxyRouter {
         message: `no ship for player ${player.playerId}`,
       };
     }
+    // TASK-39: the cargo hold travels with the ship. The SOURCE shard's
+    // in-memory hold is the authority (the row may be a flush period stale)
+    // — it is written into the row below so the target's adopt rehydrates it.
+    const cargo = shards.get(fromSystemId)?.shard.getCargo(player.playerId);
     const gate = spawnGatePose();
     // Warp is a teleport by design: adopt (or re-adopt a rehydrated) entity
     // at the target, then reposition it at the gate.
@@ -396,6 +400,7 @@ export function createGalaxyRouter(deps: GalaxyRouterDeps): GalaxyRouter {
       rotation: gate.quat,
       regime: 'space',
       onPad: null,
+      ...(cargo ? { cargo: JSON.stringify(cargo.stacks) } : {}),
     });
     // Only now does the source let go: connection AND entity leave the shard
     // (no idle ghost), then the grace stamp runs via leave() (leavePlayer is

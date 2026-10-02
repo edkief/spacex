@@ -120,6 +120,10 @@ export function createShardPersist(deps: {
     // Livery only when it is the exact 3-slot contract (the route is the
     // authoritative livery writer; a partial value must not clobber it).
     if (isLivery(e.livery)) input.livery = e.livery;
+    // TASK-39: the cargo hold rides the ship state (ships.cargo JSON —
+    // stacks only; weightUsed/capacity are derived at read time). Undefined
+    // (pre-39 test entities) = untouched: the upsert COALESCEs it.
+    if (e.cargo !== undefined) input.cargo = JSON.stringify(e.cargo.stacks);
     return input;
   }
 

@@ -71,6 +71,11 @@ export interface ShipStateInput {
   onPad?: string | null;
   /** TASK-24: destruction timestamp or null; only written when provided. */
   destroyedAt?: string | null;
+  /**
+   * TASK-39: the cargo hold's raw stacks JSON ('{"iron":10}' / '{}' when
+   * empty); undefined = keep the stored value (the upsert COALESCEs it).
+   */
+  cargo?: string | null;
 }
 
 /** The class default for a known id, neutral black livery otherwise. */
@@ -404,6 +409,7 @@ export function createRepo(db: Db, tables: Schema): Repository {
           ...(regime ? { regime } : {}),
           ...(state.onPad !== undefined ? { onPad: state.onPad } : {}),
           ...(state.destroyedAt !== undefined ? { destroyedAt: state.destroyedAt } : {}),
+          ...(state.cargo !== undefined ? { cargo: state.cargo } : {}),
           updatedAt: nowIso(),
         })
         .where(eq(t.ships.id, shipId));
@@ -456,6 +462,9 @@ export function createRepo(db: Db, tables: Schema): Repository {
         regime: r.state.regime ?? 'space',
         onPad: r.state.onPad ?? null,
         destroyedAt: r.state.destroyedAt ?? null,
+        // undefined cargo → NULL (the conflict set COALESCEs back to the
+        // stored value, so an entity without a cargo in memory never wipes it).
+        cargo: r.state.cargo ?? null,
         updatedAt: nowIso,
       }));
       // ONE statement for the whole batch: each row upserts on its owner key
@@ -476,6 +485,9 @@ export function createRepo(db: Db, tables: Schema): Repository {
             regime: sql`excluded.regime`,
             onPad: sql`excluded.on_pad`,
             destroyedAt: sql`excluded.destroyed_at`,
+            // TASK-39: a NULL excluded.cargo (entity had none) KEEPS the
+            // stored value — only a real write clobbers it.
+            cargo: sql`COALESCE(excluded.cargo, ${t.ships.cargo})`,
             updatedAt: sql`excluded.updated_at`,
           },
         });

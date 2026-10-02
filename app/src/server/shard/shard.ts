@@ -56,6 +56,13 @@ import {
   type InventoryStacks,
   type ResourceId,
 } from '@shared/inventory';
+import {
+  emptyCargoHold,
+  parseCargoJson,
+  toCargoHold,
+  transferCargo,
+  type CargoHold,
+} from '@shared/cargo';
 import { MINING_UNIT_MS, stepMiningChannel, type MiningChannel } from '@shared/mining';
 import { shipStats, HEX_COLOR } from '@shared/ships';
 import type { SystemGen } from '@shared/galaxy/types';
@@ -1221,6 +1228,187 @@ export class SystemShard implements Shard {
   }
 
   /**
+   * TASK-39: the player's cargo hold (an EMPTY one for a class whose cargo
+   * field is somehow absent — pre-39 entities; a real ship entity always
+   * carries one after entityFromShipRow/adoptEntity).
+   */
+  private holdOf(ship: SimEntity): CargoHold {
+    return ship.cargo ?? (ship.cargo = emptyCargoHold(ship.classId));
+  }
+
+  /**
+   * TASK-39: open the cargo panel — the server answers the REQUESTING
+   * connection (stale-conn guarded) with a 'cargo' frame:
+   * - in the ship (the HUD 'Cargo' button — in flight OR docked): the hold
+   *   ONLY (no inventory side: transfers require being on foot at the ship);
+   * - on foot (the '[E] Open cargo' prompt): the hold AND the inventory,
+   *   but only for a PAD-DOCKED own ship within 5 m (the same reach as the
+   *   enter-ship prompt — the one that can also transfer).
+   * Validation order mirrors handleEnterShip: own ship (implicit — the
+   * payload carries no shipId: one ship per player, v1 invariant), docked,
+   * range.
+   */
+  handleCargoOpen(playerId: string, source?: unknown): CargoOpenOutcome {
+    const ship = this.playerEntities.get(playerId);
+    if (!ship || ship.kind !== 'ship') {
+      this.sendErrorToPlayer(playerId, 'unknown-ship', 'you have no ship', source);
+      return 'unknown-ship';
+    }
+    const character = this.entities.get(`char:${playerId}`);
+    if (character) {
+      if (!ship.padId) {
+        this.sendErrorToPlayer(playerId, 'not-docked', 'ship is not docked on a landing pad', source);
+        return 'not-docked';
+      }
+      if (vecLength(vecSub(ship.ship.pos, character.ship.pos)) > ENTER_SHIP_RANGE_M) {
+        this.sendErrorToPlayer(playerId, 'out-of-range', 'the ship is out of reach', source);
+        return 'out-of-range';
+      }
+      this.sendCargo(playerId, this.holdOf(ship), ship.inventory ?? emptyInventory(), source);
+    } else {
+      // In the ship: the hold only (the AC's "no inventory side while in
+      // flight" — the panel is read-only until you are on foot at the ship).
+      this.sendCargo(playerId, this.holdOf(ship), undefined, source);
+    }
+    return 'ok';
+  }
+
+  /**
+   * TASK-39: move units between the on-foot inventory and the cargo hold
+   * (the haul leg: mine → LOAD here → fly → sell from the hold, TASK-40).
+   * Validation order — each failure answers the REQUESTING connection with
+   * a structured error (stale-conn guarded, like handleEnterShip):
+   * 1. on foot (transfers happen AT the dock, not in the cockpit);
+   * 2. own ship exists (implicit: the player's own ship — no one else's
+   *    hold is ever reachable);
+   * 3. the ship is PAD-DOCKED;
+   * 4. the character is within 5 m (ENTER_SHIP_RANGE_M, the ship's reach);
+   * 5. known resource + positive integer amount.
+   * Then the shared atomic transfer math (@shared/cargo.transferCargo):
+   * `from: 'inv'` loads into the hold (bounded by what is owned AND the
+   * hold's remaining weight — PARTIAL when the hold nears its cap),
+   * `from: 'hold'` unloads into the weight-capped inventory. Both stacks
+   * are applied in one step; moved 0 (nothing owned, or no space) is a
+   * structured 'insufficient' denial. Success answers the requester with
+   * the new 'cargo' frame (the panel re-renders); persistence rides the
+   * next shard flush (ships.cargo — the TASK-24 cadence), and warp writes
+   * it explicitly (router).
+   */
+  handleCargoTransfer(
+    playerId: string,
+    payload: { resourceId: string; amount: number; from: 'inv' | 'hold' },
+    source?: unknown,
+  ): CargoTransferOutcome {
+    const character = this.entities.get(`char:${playerId}`);
+    if (!character) {
+      this.sendErrorToPlayer(
+        playerId,
+        'wrong-regime',
+        'cargo transfers require being on foot at the ship',
+        source,
+      );
+      return 'wrong-regime';
+    }
+    const ship = this.playerEntities.get(playerId);
+    if (!ship || ship.kind !== 'ship') {
+      this.sendErrorToPlayer(playerId, 'unknown-ship', 'you have no ship', source);
+      return 'unknown-ship';
+    }
+    if (!ship.padId) {
+      this.sendErrorToPlayer(playerId, 'not-docked', 'ship is not docked on a landing pad', source);
+      return 'not-docked';
+    }
+    if (vecLength(vecSub(ship.ship.pos, character.ship.pos)) > ENTER_SHIP_RANGE_M) {
+      this.sendErrorToPlayer(playerId, 'out-of-range', 'the ship is out of reach', source);
+      return 'out-of-range';
+    }
+    if (!isResourceId(payload.resourceId)) {
+      this.sendErrorToPlayer(
+        playerId,
+        'invalid-resource',
+        `unknown resource ${payload.resourceId}`,
+        source,
+      );
+      return 'invalid-resource';
+    }
+    if (!Number.isInteger(payload.amount) || payload.amount <= 0) {
+      this.sendErrorToPlayer(playerId, 'invalid-amount', 'amount must be a positive integer', source);
+      return 'invalid-amount';
+    }
+    const res = transferCargo(
+      this.holdOf(ship),
+      ship.inventory ?? emptyInventory(),
+      payload.resourceId,
+      payload.amount,
+      payload.from,
+    );
+    if (res.moved === 0) {
+      this.sendErrorToPlayer(
+        playerId,
+        'insufficient',
+        'nothing to move — no units owned or no weight space in the destination',
+        source,
+      );
+      return 'insufficient';
+    }
+    // One atomic apply: both stacks replaced (never mutated), the character
+    // mirror follows the inventory (the client's weight bar reads the self
+    // entity), and the requester gets the fresh 'cargo' frame.
+    ship.cargo = res.hold;
+    ship.inventory = res.inv;
+    this.syncCharacterInventory(playerId);
+    this.log.info('cargo transferred', {
+      playerId,
+      resource: payload.resourceId,
+      from: payload.from,
+      moved: res.moved,
+      remaining: res.remaining,
+      hold: res.hold.weightUsed,
+      capacity: res.hold.capacity,
+    });
+    this.events.emit('cargo-transfer', {
+      playerId,
+      resource: payload.resourceId,
+      from: payload.from,
+      moved: res.moved,
+      remaining: res.remaining,
+    });
+    this.sendCargo(playerId, res.hold, res.inv, source);
+    return 'ok';
+  }
+
+  /**
+   * TASK-39: the 'cargo' frame — server → the requesting connection ONLY
+   * (the panel is a per-player view, like 'ui-open'). The hold is always;
+   * the inventory only when `inventory` is given (on-foot prompt).
+   * Validated against the wire contract before it goes out (a failing
+   * frame must never crash the dispatch, mirroring the snapshot path).
+   */
+  private sendCargo(
+    playerId: string,
+    hold: CargoHold,
+    inventory: InventoryStacks | undefined,
+    source?: unknown,
+  ): void {
+    const connId = this.playerConns.get(playerId);
+    const conn = connId ? this.connections.get(connId) : undefined;
+    if (!conn) return;
+    if (source !== undefined && conn.source !== source) return;
+    const payload = {
+      hold: { stacks: hold.stacks, weightUsed: hold.weightUsed, capacity: hold.capacity },
+      ...(inventory !== undefined ? { inventory: toPlayerInventory(inventory) } : {}),
+    } satisfies PayloadSchemas['cargo'];
+    const check = messageSchemas['cargo'].safeParse(payload);
+    if (!check.success) {
+      this.log.warn('cargo frame failed wire validation', {
+        issue: check.error.issues[0]?.message,
+      });
+      return;
+    }
+    conn.send(encodeMessage('cargo', check.data));
+  }
+
+  /**
    * TASK-33: an on-foot player interacts with the target in front of them.
    * Validation order — each failure answers the REQUESTING connection with a
    * structured error (stale-conn guarded, like handleExitShip):
@@ -1240,9 +1428,13 @@ export class SystemShard implements Shard {
    *                weight-cap pause, depletion despawn);
    * - 'terminal' → a 'ui-open' {ui:'dock'} frame to the requester (the dock
    *                UI that consumes it lands in TASK-40/53);
-   * - 'ship'     → delegates to handleEnterShip (TASK-35) — the same effect
-   *                 and validation as the dedicated 'enter_ship' message, so
-   *                 a legacy interact frame and the new one can never diverge.
+   * - 'ship'     → 'open-cargo' (TASK-39, the far-zone '[E] Open cargo'
+   *                prompt) opens the panel via handleCargoOpen (ownership
+   *                checked here — the interact path targets a SHIP entity,
+   *                which may not be the player's own); any other action
+   *                delegates to handleEnterShip (TASK-35) — the same effect
+   *                and validation as the dedicated 'enter_ship' message, so
+   *                a legacy interact frame and the new one can never diverge.
    * Like handleExitShip the handler mutates the entity directly; the next
    * 10 Hz entity_update carries the effect to EVERY peer (one shared buffer,
    * so all clients see a pickup within one snapshot).
@@ -1287,6 +1479,22 @@ export class SystemShard implements Shard {
         this.sendUiOpen(playerId, target.id, source);
         return 'ok';
       case 'ship':
+        if (action === 'open-cargo') {
+          // TASK-39: the far-zone '[E] Open cargo' prompt. Ownership first
+          // (the raycast pre-filters own-ship already, the server stays the
+          // authority), then the shared open path (docked + 5 m + the
+          // 'cargo' frame).
+          if (target.playerId !== playerId) {
+            this.sendErrorToPlayer(
+              playerId,
+              'not-owner',
+              'that ship belongs to another pilot',
+              source,
+            );
+            return 'not-owner';
+          }
+          return this.handleCargoOpen(playerId, source);
+        }
         // TASK-35: re-entry — delegate to the dedicated handler (ownership,
         // 5 m range, speed cap, idempotency). Same effect as the 'enter_ship'
         // message; one handler owns the state change.
@@ -1555,6 +1763,16 @@ export class SystemShard implements Shard {
   getInventory(playerId: string): InventoryStacks {
     const entity = this.playerEntities.get(playerId);
     return entity?.inventory ?? emptyInventory();
+  }
+
+  /**
+   * TASK-39: the player's cargo hold (lives on the PLAYER's ship entity —
+   * the ship's cargo, NOT the player's inventory). The router reads this on
+   * a warp: the in-memory hold is the authority (the DB row may be up to
+   * one flush period stale). Undefined for a player with no ship entity.
+   */
+  getCargo(playerId: string): CargoHold | undefined {
+    return this.playerEntities.get(playerId)?.cargo;
   }
 
   /**
@@ -1869,6 +2087,10 @@ export class SystemShard implements Shard {
       ...(padDocked && ship.onPad ? { padId: ship.onPad } : {}),
       destroyed: ship.state === 'destroyed',
       destroyedAtMs: ship.destroyedAt ? Date.parse(ship.destroyedAt) : undefined,
+      // TASK-39: the cargo hold rehydrates WITH the ship (ships.cargo JSON —
+      // the raw row field, parsed + sanitized in one place; corrupt/missing
+      // rows start empty, never wedge the shard).
+      cargo: toCargoHold(parseCargoJson(ship.cargo), ship.classId),
     };
   }
 
@@ -2015,7 +2237,26 @@ export type InteractOutcome =
   | 'wrong-regime'
   | 'invalid-action'
   | 'invalid-resource'
+  | 'not-docked'
   | Exclude<EnterShipOutcome, 'ok' | 'out-of-range'>;
+
+/** The outcome of a cargo-panel open request (TASK-39). */
+export type CargoOpenOutcome = 'ok' | 'unknown-ship' | 'not-docked' | 'out-of-range';
+
+/**
+ * The outcome of a cargo-transfer request (TASK-39) — the full validation
+ * ladder plus the two shared-math denials (unknown resource, bad amount,
+ * nothing to move).
+ */
+export type CargoTransferOutcome =
+  | 'ok'
+  | 'unknown-ship'
+  | 'not-docked'
+  | 'out-of-range'
+  | 'wrong-regime'
+  | 'invalid-resource'
+  | 'invalid-amount'
+  | 'insufficient';
 
 /** Entity → wire EntityState (hull/shields normalized 0..1, regime mapped). */
 export function entityToState(e: SimEntity): EntityState {
