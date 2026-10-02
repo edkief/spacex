@@ -362,7 +362,7 @@
     "title": "On-foot inventory with pickup and transfer",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-34.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-35",

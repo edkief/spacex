@@ -17,25 +17,25 @@
       "step": 1,
       "description": "Inventory model + persistence",
       "details": "src/shared/inventory.ts: types + weight math (pure); repo: players.inventory JSON column (schema migration in this task); load on join, flush on the TASK-24 cadence.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Pickup/drop handlers",
       "details": "shard.handlePickup (from the TASK-38 flow — define the contract now: adds up to capacity, returns {taken, remaining}) and handleDrop (validates amount owned, spawns ground item {pos, resourceId, amount, ttl}). Ground items in the entity list (kind 'groundItem').",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "HUD + prompt",
       "details": "WeightBar component (bottom-right, 120 px, fills amber near cap, red at cap); ground item prompt via the TASK-33 registry ('[E] Take iron x3').",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Tests",
       "details": "All listed; run full suite + typecheck.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-33"],
