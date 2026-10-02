@@ -52,11 +52,14 @@ export interface SimEntity {
   id: string;
   /**
    * 'wreck': static wreck of a destroyed ship (TASK-23), removed after its
-   * ttl. 'character': the on-foot player entity (TASK-31) — static in v1
-   * (walking is TASK-32), lives in `entities` (NOT playerEntities: it never
-   * owns a ship-input lane).
+   * ttl. 'character': the on-foot player entity (TASK-31/32), lives in
+   * `entities` (NOT playerEntities: it never owns a ship-input lane).
+   * 'deposit' / 'terminal' (TASK-33): static interactable world objects
+   * (deposits carry a `quantity` — the v1 pickup decrements it and despawns
+   * the entity at zero; seeded placement lands in TASK-37, terminals in
+   * TASK-40/53).
    */
-  kind: 'ship' | 'ai-ship' | 'wreck' | 'character';
+  kind: 'ship' | 'ai-ship' | 'wreck' | 'character' | 'deposit' | 'terminal';
   /** Owner (null for AI ships and wrecks). One entity per player. */
   playerId: string | null;
   callsign?: string;
@@ -126,6 +129,12 @@ export interface SimEntity {
    * resumes grounded (disembark spawns it standing on the pad plane).
    */
   charOnGround?: boolean;
+  /**
+   * TASK-33: remaining units (deposit entities only). The v1 pickup
+   * decrements it by one per interaction; at zero the deposit despawns.
+   * TASK-38's channel flow replaces the per-tap decrement (same field).
+   */
+  quantity?: number;
 }
 
 /** The shard the router (TASK-11) will instantiate per system. */

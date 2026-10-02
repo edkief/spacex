@@ -57,8 +57,12 @@ const CASES: Record<string, { valid: unknown; invalid: unknown }> = {
     invalid: { systemId: '', snapshot },
   },
   interact: {
-    valid: { targetId: 't-1', action: 'board' },
+    valid: { targetId: 't-1' }, // TASK-33: action is optional (kind dispatch)
     invalid: { targetId: 't-1', action: '' },
+  },
+  'ui-open': {
+    valid: { ui: 'dock', payload: { terminalId: 'term-1' } },
+    invalid: { ui: '' },
   },
   mine: { valid: { nodeId: 'node-1' }, invalid: { nodeId: 7 } },
   sell: {
@@ -206,6 +210,33 @@ describe('message payload schemas', () => {
       messageSchemas.entity_update.safeParse({
         entities: [{ ...entity, rot: { x: 0, y: 0, z: 1 } }],
       }).success,
+    ).toBe(false);
+  });
+
+  it('TASK-33: interact takes an optional action; deposit/terminal entities + quantity parse', () => {
+    // Target-only form (the AC: pressing E sends 'interact' {targetId}).
+    expect(messageSchemas.interact.safeParse({ targetId: 'dep-1' }).success).toBe(true);
+    // The kind-specific action still rides the same message (TASK-38 flow).
+    expect(
+      messageSchemas.interact.safeParse({ targetId: 'dep-1', action: 'mine-start' }).success,
+    ).toBe(true);
+    // Unknown fields are rejected (strict).
+    expect(messageSchemas.interact.safeParse({ targetId: 'dep-1', extra: 1 }).success).toBe(false);
+    // New interactable kinds ride the plain entity_update with a quantity.
+    const deposit = { ...entity, id: 'dep-1', kind: 'deposit', quantity: 7 };
+    const terminal = { ...entity, id: 'term-1', kind: 'terminal' };
+    const parsed = messageSchemas.entity_update.safeParse({ entities: [deposit, terminal] });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.entities[0].quantity).toBe(7);
+      expect(parsed.data.entities[1].quantity).toBeUndefined();
+    }
+    // Quantity is an integer >= 0.
+    expect(
+      messageSchemas.entity_update.safeParse({ entities: [{ ...deposit, quantity: -1 }] }).success,
+    ).toBe(false);
+    expect(
+      messageSchemas.entity_update.safeParse({ entities: [{ ...deposit, quantity: 1.5 }] }).success,
     ).toBe(false);
   });
 

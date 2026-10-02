@@ -355,7 +355,7 @@
     "title": "Proximity interaction: inspect/interact with world",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-33.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-34",

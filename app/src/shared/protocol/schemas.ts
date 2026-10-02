@@ -7,7 +7,21 @@ import { CHAT_MAX_CHARS } from '@shared/chat';
  * wire contract has a single source of truth (names are stable — TASK-69 docs).
  */
 
-export const ENTITY_KINDS = ['ship', 'character', 'ai-ship', 'wreck'] as const;
+/**
+ * 'deposit' (TASK-33/37): a resource deposit — interactable on foot (pickup,
+ * TASK-38's channel), carried as an entity so both the prompt raycast and the
+ * 10 Hz snapshot see it. 'terminal' (TASK-33/40/53): a dock terminal —
+ * interacting sends the player a 'ui-open' frame. Wire-contract additions
+ * (TASK-33), noted for TASK-69.
+ */
+export const ENTITY_KINDS = [
+  'ship',
+  'character',
+  'ai-ship',
+  'wreck',
+  'deposit',
+  'terminal',
+] as const;
 export type EntityKind = (typeof ENTITY_KINDS)[number];
 
 export const REGIMES = ['sublight', 'cruise', 'warp', 'docked'] as const;
@@ -87,6 +101,12 @@ export const entityStateSchema = z
      * routes its control target + camera off this flag.
      */
     onFoot: z.boolean().optional(),
+    /**
+     * TASK-33: remaining units, for kind 'deposit' only. Wire-visible so a
+     * pickup shows as a quantity change — or a removal at zero — in the
+     * next 10 Hz snapshot for every client. Other kinds omit it.
+     */
+    quantity: z.number().int().finite().nonnegative().optional(),
   })
   .strict();
 export type EntityState = z.infer<typeof entityStateSchema>;
@@ -210,7 +230,15 @@ export const messageSchemas = {
   warp_arrived: z
     .object({ systemId: z.string().min(1).max(64), snapshot: stateSnapshotSchema })
     .strict(),
-  interact: z.object({ targetId: z.string().min(1), action: z.string().min(1).max(32) }).strict(),
+  /**
+   * TASK-33: on-foot interaction — the target id only; the SERVER dispatches
+   * by the target's kind (deposit / ship / terminal). `action` is optional
+   * and kind-specific: the v1 deposit pickup sends 'pickup', and TASK-38
+   * extends the deposit flow with 'mine-start' / 'mine-stop' (hold-to-mine).
+   */
+  interact: z
+    .object({ targetId: z.string().min(1), action: z.string().min(1).max(32).optional() })
+    .strict(),
   mine: z.object({ nodeId: z.string().min(1) }).strict(),
   sell: z
     .object({ cargoId: z.string().min(1), quantity: z.number().int().finite().positive() })
@@ -228,6 +256,19 @@ export const messageSchemas = {
    * encode-once design). Wire contract change documented for TASK-69.
    */
   ack: z.object({ seq: z.number().int().finite().nonnegative() }).strict(),
+  /**
+   * TASK-33: server → ONE client — the server wants a UI panel open (the
+   * dock-terminal interaction). `ui` names the panel ('dock' in v1) and
+   * `payload` is its seed data (the dock UI, TASK-40/53, consumes it); the
+   * shape stays generic for future terminal kinds. Server-originated only —
+   * clients never send it.
+   */
+  'ui-open': z
+    .object({
+      ui: z.string().min(1).max(32),
+      payload: z.record(z.string(), z.unknown()).optional(),
+    })
+    .strict(),
   error: z.object({ code: z.string().min(1), message: z.string().max(512) }).strict(),
   ping: z.object({}).strict(),
   pong: z.object({}).strict(),

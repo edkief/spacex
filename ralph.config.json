@@ -1,5 +1,5 @@
 {
-  "maxIterations": 20,
+  "maxIterations": 100,
   "pinTask": true,
   "timeouts": {
     "iterationMs": 2700000,
@@ -12,7 +12,7 @@
   },
   "stall": {
     "maxUnproductiveIterations": 3,
-    "onRepeatedTimeout": "propose"
+    "onRepeatedTimeout": "split"
   },
   "permissions": {
     "fallback": "allow",
@@ -25,5 +25,8 @@
   "git": {
     "push": "iteration",
     "remote": "origin"
+  },
+  "ui": {
+    "actions": "open"
   }
 }

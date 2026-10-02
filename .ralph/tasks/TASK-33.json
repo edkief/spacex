@@ -17,28 +17,31 @@
       "step": 1,
       "description": "Client raycast + prompt",
       "details": "Per-frame (cheap: only against a small interactable list, not the scene graph — interactables are sparse seed entities): ray from character eye, cone filter, nearest ≤ 3 m; prompt React component with the target's prompt text.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Server interact handler",
       "details": "shard.handleInteract: load target entity, range check (3 m, server-side position), regime check, dispatch by target kind (pickup/terminal/ship — the latter two stubbed until their tasks land); unknown kind → 'not-found'.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Registry",
       "details": "InteractableRegistry: Map<kind, {prompt(entity), onInteract(entity)}>; the interact dispatch reads only from the registry. The registry test asserts no other dispatch site exists (grep-based test or a build-time marker).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Tests",
       "details": "All listed; run full suite + typecheck.",
-      "pass": false
+      "pass": true
     }
   ],
-  "dependencies": ["TASK-32", "TASK-5"],
+  "dependencies": [
+    "TASK-32",
+    "TASK-5"
+  ],
   "estimatedComplexity": "medium",
   "technicalNotes": [
     "Interactables are a bounded set (seed deposits ≤ 200 per system, ships, terminals) — the raycast list is tiny; no spatial hash needed in v1.",

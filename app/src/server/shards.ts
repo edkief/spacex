@@ -191,7 +191,10 @@ export function attachShipSwapBroadcast(
  * - 'input'      → the per-tick input queue (stale-seq / stale-conn guarded);
  * - 'chat'       → ts + ring buffer + whole-shard broadcast;
  * - 'exit_ship'  → disembark (TASK-31): pad-docked check, character spawn,
- *                  'not-docked' denial on the requesting connection.
+ *                  'not-docked' denial on the requesting connection;
+ * - 'interact'   → on-foot interaction (TASK-33): regime/target/range
+ *                  validation, then dispatch by target kind (pickup /
+ *                  terminal 'ui-open' / enter-ship stub).
  */
 export function routeGameMessage(
   shard: SystemShard,
@@ -206,5 +209,8 @@ export function routeGameMessage(
     shard.handleChat(conn.callsign, (payload as { text: string }).text);
   } else if (type === 'exit_ship') {
     shard.handleExitShip(conn.playerId, (payload as { shipId: string }).shipId, conn);
+  } else if (type === 'interact') {
+    const p = payload as { targetId: string; action?: string };
+    shard.handleInteract(conn.playerId, p.targetId, p.action, conn);
   }
 }

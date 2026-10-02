@@ -15,7 +15,7 @@ import {
 import { CHAT_HISTORY_MAX } from '@shared/chat';
 import { applyDamage, type ApplyDamageResult, type DamageSource } from '@shared/physics/damage';
 import { integrateShip, type FlightOptions, type PlanetAtmo } from '@shared/physics/flight';
-import { quatIdentity, vecLength, type Quat, type Vec3 } from '@shared/physics/vec';
+import { quatIdentity, vecLength, vecSub, type Quat, type Vec3 } from '@shared/physics/vec';
 import {
   applyVtolAssist,
   DOCK_VERTICAL_SPEED_MAX_M_S,
@@ -31,6 +31,7 @@ import {
   integrateCharacter,
   type CharacterState,
 } from '@shared/physics/character';
+import { INTERACT_RANGE_M, isInteractableKind } from '@shared/interaction';
 import { shipStats, HEX_COLOR } from '@shared/ships';
 import type { SystemGen } from '@shared/galaxy/types';
 import { homeDockPosition } from '@shared/galaxy/dock';
@@ -152,6 +153,8 @@ export class SystemShard implements Shard {
   private readonly regimePlanets: RegimePlanet[];
   private readonly playerConns = new Map<string, string>();
   private readonly playerEntities = new Map<string, SimEntity>();
+  /** Dev-hook deposit ids stay unique per shard (addDepositForTesting). */
+  private devDepositSeq = 0;
   private connSeq = 0;
   private offBus: (() => void) | undefined;
   private snapshotSizeWarned = false;
@@ -826,6 +829,36 @@ export class SystemShard implements Shard {
   }
 
   /**
+   * Dev/test hook (TASK-33 e2e): place a deposit at an exact position in the
+   * shard (the seeded deposit PLACEMENT lands in TASK-37 — until then the
+   * e2e and the interaction tests need an interactable to stand in front of).
+   * Returns the new entity id (`deposit:dev<n>`).
+   */
+  addDepositForTesting(pos: Vec3, quantity = 1): string {
+    const id = `deposit:dev${++this.devDepositSeq}`;
+    this.entities.set(id, {
+      id,
+      kind: 'deposit',
+      playerId: null,
+      classId: 'deposit',
+      // Static world object: zero velocity, identity facing, surface regime.
+      ship: {
+        pos: { ...pos },
+        vel: { x: 0, y: 0, z: 0 },
+        quat: quatIdentity(),
+        regime: 'surface',
+      },
+      hull: 1,
+      shields: 1,
+      targetId: null,
+      docked: false,
+      quantity,
+    });
+    this.log.debug('deposit placed (dev/test hook)', { deposit: id, pos });
+    return id;
+  }
+
+  /**
    * Dev/test hook (TASK-29 e2e teleport-assist): hard-set a player ship's
    * position + velocity. The regime machine re-resolves from the new
    * position on the next tick; held input is cleared (no ghost thrust).
@@ -909,6 +942,128 @@ export class SystemShard implements Shard {
       pos,
     });
     return 'ok';
+  }
+
+  /**
+   * TASK-33: an on-foot player interacts with the target in front of them.
+   * Validation order — each failure answers the REQUESTING connection with a
+   * structured error (stale-conn guarded, like handleExitShip):
+   * 1. regime — the player must be ON FOOT (a `char:<playerId>` entity
+   *    exists); still in the ship → {code:'wrong-regime'};
+   * 2. target — must exist in the shard AND be an interactable kind
+   *    (deposit / ship / terminal); unknown id or non-interactable kind →
+   *    {code:'not-found'};
+   * 3. range — within 3 m of the player's CHARACTER position (server-side) →
+   *    else {code:'out-of-range'}.
+   * Then dispatch BY KIND — the server-side counterpart of the client's
+   * InteractableRegistry, one branch per kind (no scattered if-chains):
+   * - 'deposit'  → the v1 pickup (one unit; despawn at zero). This is the
+   *                delegate point TASK-38 replaces with the 1.5 s channel;
+   * - 'terminal' → a 'ui-open' {ui:'dock'} frame to the requester (the dock
+   *                UI that consumes it lands in TASK-40/53);
+   * - 'ship'     → stub: validation is live, the enter-ship effect (character
+   *                → ship) is TASK-35.
+   * Like handleExitShip the handler mutates the entity directly; the next
+   * 10 Hz entity_update carries the effect to EVERY peer (one shared buffer,
+   * so all clients see a pickup within one snapshot).
+   */
+  handleInteract(
+    playerId: string,
+    targetId: string,
+    action?: string,
+    source?: unknown,
+  ): InteractOutcome {
+    const character = this.entities.get(`char:${playerId}`);
+    if (!character) {
+      this.sendErrorToPlayer(
+        playerId,
+        'wrong-regime',
+        'interactions require being on foot',
+        source,
+      );
+      return 'wrong-regime';
+    }
+    const target = this.entities.get(targetId);
+    if (!target || !isInteractableKind(target.kind)) {
+      this.sendErrorToPlayer(playerId, 'not-found', `unknown interactable ${targetId}`, source);
+      return 'not-found';
+    }
+    if (vecLength(vecSub(target.ship.pos, character.ship.pos)) > INTERACT_RANGE_M) {
+      this.sendErrorToPlayer(playerId, 'out-of-range', 'the target is out of reach', source);
+      return 'out-of-range';
+    }
+    switch (target.kind) {
+      case 'deposit':
+        return this.applyPickup(playerId, target, action);
+      case 'terminal':
+        this.sendUiOpen(playerId, target.id, source);
+        return 'ok';
+      case 'ship':
+        // TASK-35: the enter-ship effect is not landed yet — validation is
+        // live, the effect is a stub (no state change) until then.
+        this.log.debug('enter-ship interact: effect delegated to TASK-35', {
+          playerId,
+          shipId: targetId,
+          ...(action !== undefined ? { action } : {}),
+        });
+        return 'ok';
+    }
+  }
+
+  /**
+   * The v1 pickup effect (delegate point for TASK-38's 1.5 s mining
+   * channel): one unit leaves the deposit; at zero remaining the deposit
+   * despawns for everyone (it simply leaves the next 10 Hz snapshot).
+   */
+  private applyPickup(
+    playerId: string,
+    target: SimEntity,
+    action: string | undefined,
+  ): InteractOutcome {
+    const remaining = Math.max(0, (target.quantity ?? 1) - 1);
+    if (remaining === 0) {
+      this.entities.delete(target.id);
+    } else {
+      target.quantity = remaining;
+    }
+    this.log.info('deposit picked up', {
+      playerId,
+      deposit: target.id,
+      remaining,
+      ...(action !== undefined ? { action } : {}),
+    });
+    this.events.emit('pickup', {
+      playerId,
+      targetId: target.id,
+      remaining,
+      depleted: remaining === 0,
+    });
+    return 'ok';
+  }
+
+  /**
+   * TASK-33: the 'ui-open' frame — server → the requesting connection ONLY
+   * (the panel is a per-player view): {ui:'dock', payload:{terminalId}}.
+   * Validated against the wire contract before it goes out (a failing frame
+   * must never crash the dispatch, mirroring the snapshot path).
+   */
+  private sendUiOpen(playerId: string, terminalId: string, source?: unknown): void {
+    const connId = this.playerConns.get(playerId);
+    const conn = connId ? this.connections.get(connId) : undefined;
+    if (!conn) return;
+    if (source !== undefined && conn.source !== source) return;
+    const payload = {
+      ui: 'dock',
+      payload: { terminalId },
+    } satisfies PayloadSchemas['ui-open'];
+    const check = messageSchemas['ui-open'].safeParse(payload);
+    if (!check.success) {
+      this.log.warn('ui-open failed wire validation', {
+        issue: check.error.issues[0]?.message,
+      });
+      return;
+    }
+    conn.send(encodeMessage('ui-open', check.data));
   }
 
   /** Structured error to one player's CURRENT connection (stale-conn guarded). */
@@ -1120,6 +1275,9 @@ export { inputToShipInput };
 /** The outcome of a disembark request (TASK-31). */
 export type ExitShipOutcome = 'ok' | 'not-docked' | 'unknown-ship' | 'already-on-foot';
 
+/** The outcome of an interaction request (TASK-33). */
+export type InteractOutcome = 'ok' | 'not-found' | 'out-of-range' | 'wrong-regime';
+
 /** Entity → wire EntityState (hull/shields normalized 0..1, regime mapped). */
 export function entityToState(e: SimEntity): EntityState {
   // Wire regimes v1: docked (at a dock or settled on a pad) vs sublight flight.
@@ -1142,6 +1300,9 @@ export function entityToState(e: SimEntity): EntityState {
   if (e.livery) state.livery = e.livery;
   // TASK-29: the docked landing pad id (entity_update.state = 'docked' {padId}).
   if (e.padId) state.padId = e.padId;
+  // TASK-33: deposit remaining units — a pickup shows as a quantity change,
+  // or a removal at zero, in every client's next snapshot.
+  if (e.quantity !== undefined) state.quantity = e.quantity;
   // TASK-31: character entities carry their owner + the on-foot flag so
   // clients route the control target / camera off the same shape.
   if (e.kind === 'character') {

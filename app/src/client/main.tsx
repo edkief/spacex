@@ -14,6 +14,15 @@ import { WarpOverlay } from '@client/ui/warp-overlay';
 import { ReentryTint } from '@client/ui/reentry-tint';
 import { DockedIndicator } from '@client/ui/docked-indicator';
 import { LeaveShipPrompt } from '@client/ui/leave-ship-prompt';
+import { InteractPrompt } from '@client/ui/interact-prompt';
+import {
+  createInteractableRegistry,
+  interactableTargetsFrom,
+  nextPromptState,
+  resolveInteract,
+  type PromptState,
+} from '@client/input/interaction';
+import type { InteractableTarget } from '@shared/interaction';
 import { WarpController, warpSubscribe } from '@client/state/warp';
 import { setReentryTint } from '@client/state/reentry';
 import { dockedIndicator, isDocked, setDockedIndicator } from '@client/state/docked';
@@ -115,6 +124,12 @@ function useGameSession(
   // TASK-32: the last input seq the server APPLIED (10 Hz 'ack' frames) —
   // the character predictor reconciles against it.
   onAck?: (seq: number) => void,
+  // TASK-33: every entity_update batch → the interaction raycast's target
+  // list (deposits / ships / terminals only — sparse by construction).
+  onWorldEntities?: (entities: EntityState[]) => void,
+  // TASK-33: a system snapshot (boot / warp / resync) → the target list is
+  // rebuilt from GROUND TRUTH (and the prompt never carries stale state).
+  onSnapshotEntities?: (entities: EntityState[]) => void,
 ) {
   const systemParam = React.useMemo(
     () => new URLSearchParams(window.location.search).get('sys'),
@@ -149,12 +164,23 @@ function useGameSession(
           onAck?.((msg.payload as { seq: number }).seq);
           return;
         }
+        if (msg.type === 'ui-open') {
+          // TASK-33: the server wants a panel open (the dock-terminal
+          // interaction answers with {ui:'dock'}). The dock UI that consumes
+          // it lands in TASK-40/53 — until then the client just logs it.
+          console.debug('[ui-open]', msg.payload);
+          return;
+        }
         if (msg.type === 'entity_update') {
           // TASK-31: the SELF entity is the CHARACTER first — after
           // disembark the frozen docked ship STILL carries the callsign,
           // and the character is the player's active entity (its
           // flightRegime 'surface' drives the controls remap).
           const entities = (msg.payload as { entities: EntityState[] }).entities;
+          // TASK-33: the raycast's target list tracks every snapshot batch
+          // (a deposit picked up by ANY player leaves this list within one
+          // snapshot — the prompt hides with it).
+          onWorldEntities?.(entities);
           const charSelf = entities.find(
             (e) => e.kind === 'character' && e.callsign === session.callsign,
           );
@@ -218,6 +244,9 @@ function useGameSession(
         setReentryTint(0);
         // TASK-29.3: a warp must never carry a stale docked state either.
         setDockedIndicator(false);
+        // TASK-33: a system snapshot rebuilds the interaction target list
+        // from ground truth (and resets any stale prompt state).
+        onSnapshotEntities?.(snapshot.entities);
         // TASK-31: a system snapshot is the ground truth for the player's
         // ACTIVE entity — on foot (character present, e.g. reconnect after a
         // disembark) the capsule stays; otherwise clear any stale on-foot
@@ -339,6 +368,12 @@ function App() {
   }, [serverSeed]);
   const [session, setSession] = React.useState<ClaimedSession | null>(readSession);
   const [error, setError] = React.useState<string | null>(null);
+  // TASK-33: the interaction pre-filter (own-ship prompt) needs the callsign
+  // without re-running the []-dep rAF/key effects when the session boots.
+  const sessionCallsignRef = React.useRef('');
+  React.useEffect(() => {
+    sessionCallsignRef.current = session?.callsign ?? '';
+  }, [session]);
   const [store] = React.useState(() => new PresenceStore());
   const [chatStore] = React.useState(() => new ChatStore());
   const clientRef = React.useRef<ClientSession | null>(null);
@@ -358,6 +393,18 @@ function App() {
   const charPredictorRef = React.useRef<CharacterPredictor | null>(null);
   const charAckedSeqRef = React.useRef(0);
   const charLiveryRef = React.useRef<Record<string, string> | null>(null);
+  // TASK-33: the on-foot interaction system (refs only — per-frame state must
+  // NOT re-render React): the InteractableRegistry is the single dispatch
+  // site, the target list tracks the last snapshot batch, and the prompt
+  // state machine emits only on a real show/hide/switch (the one React
+  // state below flips on that rare change).
+  const interactRegistry = React.useMemo(() => createInteractableRegistry(), []);
+  const interactTargetsRef = React.useRef<InteractableTarget[]>([]);
+  const promptStateRef = React.useRef<PromptState>({ kind: 'hidden' });
+  // The last raycast hit (the E key dispatches THIS target through the
+  // registry — the only place an 'interact' message is sent).
+  const resolvedTargetRef = React.useRef<InteractableTarget | null>(null);
+  const [interactPrompt, setInteractPrompt] = React.useState<string | null>(null);
   // Re-render on presence events only (join/leave), never on snapshots, so
   // the "N aboard" occupancy below stays live.
   const [, bumpPresence] = React.useReducer((n: number) => n + 1, 0);
@@ -415,6 +462,11 @@ function App() {
       } else {
         world.clearCharacter();
         charPredictorRef.current = null;
+        // TASK-33: no character → no interaction (the prompt never outlives
+        // the on-foot state, e.g. after re-entering the ship).
+        resolvedTargetRef.current = null;
+        promptStateRef.current = { kind: 'hidden' };
+        setInteractPrompt(null);
       }
     },
     // TASK-32: input acks — the predictor reconciles on the next self
@@ -422,6 +474,18 @@ function App() {
     (seq) => {
       charAckedSeqRef.current = seq;
       if (charDebug) charDebug.acked = seq;
+    },
+    // TASK-33: entity_update batches → the raycast's target list (a pickup
+    // by ANY player leaves the list within one snapshot → the prompt hides).
+    (entities) => {
+      interactTargetsRef.current = interactableTargetsFrom(entities);
+    },
+    // TASK-33: a system snapshot rebuilds the list from ground truth and
+    // clears any stale prompt (boot / warp / resync never carry one).
+    (entities) => {
+      interactTargetsRef.current = interactableTargetsFrom(entities);
+      promptStateRef.current = { kind: 'hidden' };
+      setInteractPrompt(null);
     },
   );
 
@@ -456,14 +520,21 @@ function App() {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
       if (chartOpenRef.current) return;
-      if (!dockedIndicator()) return;
-      const shipId = selfShipIdRef.current;
-      if (!shipId) return;
-      clientRef.current?.send('exit_ship', { shipId });
+      if (dockedIndicator()) {
+        const shipId = selfShipIdRef.current;
+        if (!shipId) return;
+        clientRef.current?.send('exit_ship', { shipId });
+        return;
+      }
+      // TASK-33: on foot with a prompt up → dispatch the hit target. The
+      // registry is the ONLY place an 'interact' frame goes out (AC).
+      const target = resolvedTargetRef.current;
+      if (!target) return;
+      interactRegistry.dispatch(target, (type, payload) => clientRef.current?.send(type, payload));
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [interactRegistry]);
 
   // TASK-32: on-foot key capture — the pressed set the prediction loop
   // maps to input frames (WASD + Shift run + Space jump). Typing in an
@@ -540,10 +611,28 @@ function App() {
       }
       const st = p.getState();
       world.setCharacterTransform(st.pos, st.quat, charLiveryRef.current);
+      // TASK-33: the per-frame interaction raycast — cheap by construction
+      // (the target list is the sparse seed entities, never the scene
+      // graph), anchored at the character's feet + facing. The state
+      // machine emits on change only, so React re-renders only on a real
+      // show / hide / switch of the bottom-center prompt.
+      const resolved = resolveInteract(
+        interactTargetsRef.current,
+        st.pos,
+        st.quat,
+        { callsign: sessionCallsignRef.current },
+        interactRegistry,
+      );
+      resolvedTargetRef.current = resolved?.target ?? null;
+      const next = nextPromptState(promptStateRef.current, resolved);
+      if (next !== promptStateRef.current) {
+        promptStateRef.current = next;
+        setInteractPrompt(next.kind === 'visible' ? next.text : null);
+      }
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, []);
+  }, [interactRegistry]);
 
   // TASK-8: the warp controller. The chart dispatches 'warp-started' on the
   // shared bus; the controller runs the state machine (warp-in → awaiting →
@@ -675,6 +764,7 @@ function App() {
       <ReentryTint />
       <DockedIndicator />
       <LeaveShipPrompt />
+      <InteractPrompt text={interactPrompt} />
       {/* TASK-57: dev-only frame monitor (F3) — never shipped in prod. */}
       {import.meta.env.DEV && <FrameMonitorOverlay />}
       {connState === 'lost' && session && (
