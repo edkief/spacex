@@ -17,25 +17,25 @@
       "step": 1,
       "description": "Remote character rendering",
       "details": "CharacterMesh for remote players (same capsule as local, livery-colored); label sprite (callsign) as a screen-space DOM overlay positioned per-frame (cheap: ≤ 16 labels); into the existing RemoteEntityBuffer pipeline (kind 'character').",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Presence onFoot flag",
       "details": "PresenceStore (TASK-15) gains onFoot from the entity list (activeEntity kind); the PlayerList icon switches; join/leave toasts unchanged.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Shared ground items",
       "details": "Already server-broadcast (TASK-34) — verify the client renders ground items for all players (small glowing ore chunk mesh) and the interact prompt works for any player (server validates ownership of the pickup effect: the picker's inventory, not the dropper's).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Scale test + e2e",
       "details": "8-player integration (4 ws clients on foot + 4 in ships, scripted movement), frame-time assertion via server-side sim timing (client headless can't easily do 8 tabs — use the server tick budget as the proxy + a 2-tab e2e for visuals). Run full suite + e2e.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-35", "TASK-13", "TASK-15"],

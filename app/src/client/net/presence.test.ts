@@ -156,6 +156,65 @@ describe('PresenceStore', () => {
     expect(store.otherPlayers[0].onFoot).toBe(true);
   });
 
+  it('applyActiveEntities derives onFoot from character entities (playerId, then callsign)', () => {
+    const store = new PresenceStore();
+    store.setSelf(ME);
+    store.applySnapshot([ALICE, BOB]);
+
+    // Bob is matched by playerId; no character for alice → she stays in the ship.
+    store.applyActiveEntities([
+      { kind: 'ship', playerId: 'p-a', callsign: 'alice' },
+      { kind: 'character', playerId: 'p-b' },
+    ]);
+    expect(store.otherPlayers.find((p) => p.callsign === 'alice')?.onFoot).toBe(false);
+    expect(store.otherPlayers.find((p) => p.callsign === 'bob')?.onFoot).toBe(true);
+
+    // The callsign fallback: a character entity without a playerId.
+    store.applyActiveEntities([
+      { kind: 'ship', playerId: 'p-b' },
+      { kind: 'character', callsign: 'alice' },
+    ]);
+    expect(store.otherPlayers.find((p) => p.callsign === 'alice')?.onFoot).toBe(true);
+    expect(store.otherPlayers.find((p) => p.callsign === 'bob')?.onFoot).toBe(false);
+  });
+
+  it('applyActiveEntities emits ONLY when a flag flips (10 Hz cadence stays silent)', () => {
+    const store = new PresenceStore();
+    store.setSelf(ME);
+    store.applySnapshot([ALICE]);
+    let changes = 0;
+    store.subscribe(() => changes++);
+
+    const onFoot = [{ kind: 'character' as const, playerId: 'p-a', callsign: 'alice' }];
+    store.applyActiveEntities(onFoot); // undefined → true
+    expect(changes).toBe(1);
+    store.applyActiveEntities(onFoot); // unchanged (snapshot cadence)
+    store.applyActiveEntities(onFoot);
+    expect(changes).toBe(1);
+    store.applyActiveEntities([]); // re-entered the ship: true → false
+    expect(changes).toBe(2);
+    expect(store.otherPlayers[0].onFoot).toBe(false);
+  });
+
+  it('setSelfOnFoot flips the local row (no duplicate emit, no-op before setSelf)', () => {
+    const store = new PresenceStore();
+    let changes = 0;
+    store.subscribe(() => changes++);
+    store.setSelfOnFoot(true); // no self yet → no-op
+    expect(changes).toBe(0);
+
+    store.setSelf(ME); // emits once (the self row appears)
+    changes = 0;
+    store.setSelfOnFoot(true);
+    expect(changes).toBe(1);
+    expect(store.selfPlayer?.onFoot).toBe(true);
+    store.setSelfOnFoot(true); // unchanged → silent
+    expect(changes).toBe(1);
+    store.setSelfOnFoot(false);
+    expect(changes).toBe(2);
+    expect(store.selfPlayer?.onFoot).toBe(false);
+  });
+
   it('unsubscribes stop receiving events', () => {
     const store = new PresenceStore();
     store.setSelf(ME);

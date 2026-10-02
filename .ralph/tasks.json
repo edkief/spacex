@@ -394,7 +394,7 @@
     "title": "On-foot multiplayer: character sync between players",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-36.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-37",
