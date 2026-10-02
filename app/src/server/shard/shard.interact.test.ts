@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { MINING_UNIT_MS } from '@shared/mining';
 import { quatIdentity, type Vec3 } from '@shared/physics/vec';
 import type { InputPayload } from '@shared/protocol/schemas';
 import type { Planet, SystemGen } from '@shared/galaxy/types';
@@ -17,8 +18,9 @@ import type { SimEntity } from './types';
  * - unknown id / non-interactable kind → {code:'not-found'};
  * - > 3 m from the CHARACTER (server-side position) → {code:'out-of-range'},
  *   exactly 3 m (inclusive) is accepted;
- * - deposit → the v1 pickup: quantity −1, despawn at zero, a 'pickup' event,
- *   the wire state carries the quantity until it leaves the next snapshot;
+ * - deposit → the TASK-38 hold-to-mine channel: 'mine-start' starts it
+ *   ('ok', nothing awarded yet); the TICK awards one unit at the server's
+ *   1.5 s cadence (deposit −1, inventory +1, 'mine' event, despawn at zero);
  * - terminal → a 'ui-open' {ui:'dock', payload:{terminalId}} frame to the
  *   requesting connection ONLY;
  * - ship → TASK-35: the branch delegates to handleEnterShip — a valid
@@ -78,7 +80,19 @@ function makeShard(): SystemShard {
       onLivery: () => () => {},
     },
     log: { debug() {}, warn() {}, info() {} },
+    now: () => fakeNow,
   });
+}
+
+/** TASK-38: the injected clock + one 50 ms sim step per slice of fake time. */
+let fakeNow = 1_000_000;
+
+function advance(shard: SystemShard, ms: number): void {
+  const end = fakeNow + ms;
+  while (fakeNow < end) {
+    fakeNow += 50;
+    shard.sim.step(fakeNow);
+  }
 }
 
 const SHIP_ROW: ShipRowStub = {
@@ -235,36 +249,50 @@ describe('TASK-33: server interact validation + effects', () => {
     // The denial did not consume the deposit.
     expect(shard.entities.get(far)?.quantity).toBe(3);
 
-    // Exactly 3 m (inclusive, the AC boundary) is accepted.
+    // Exactly 3 m (inclusive, the AC boundary) STARTS the channel — the
+    // TASK-38 flow: nothing is awarded until the server's 1.5 s tick.
     const edge = shard.addDepositForTesting({ x: charPos.x + 3, y: charPos.y, z: charPos.z }, 1);
     expect(shard.handleInteract('p1', edge)).toBe('ok');
-    expect(shard.entities.has(edge)).toBe(false); // 1 → 0 → despawned
+    expect(shard.mining.has('p1')).toBe(true); // the channel is live
+    expect(shard.entities.has(edge)).toBe(true); // no award before the first tick
+    advance(shard, MINING_UNIT_MS + 50);
+    expect(shard.entities.has(edge)).toBe(false); // 1 → 0 → despawned (depleted)
+    expect(shard.mining.size).toBe(0); // the channel ended with the deposit
   });
 
-  it('deposit pickup: quantity decrements, despawns at zero, emits pickup, wire carries quantity', () => {
+  it('deposit mine (TASK-38): hold-to-mine — the unit lands on the server tick, wire carries quantity', () => {
     const shard = makeShard();
     const { charPos } = onFootAtPad(shard);
-    const pickups: { playerId: string; targetId: string; remaining: number; depleted: boolean }[] =
+    const mines: { playerId: string; depositId: string; resource: string; remaining: number; units: number }[] =
       [];
-    shard.events.on('pickup', (e) => pickups.push(e));
+    shard.events.on('mine', (e) => mines.push(e));
 
     const dep = shard.addDepositForTesting({ x: charPos.x + 1, y: charPos.y, z: charPos.z }, 2);
 
-    // First tap: 2 → 1, still in the sim, visible in the snapshot.
-    expect(shard.handleInteract('p1', dep, 'pickup')).toBe('ok');
+    // E down starts the channel: NOTHING is awarded yet (hold, not tap)…
+    expect(shard.handleInteract('p1', dep, 'mine-start')).toBe('ok');
+    expect(shard.entities.get(dep)?.quantity).toBe(2);
+    expect(shard.getInventory('p1')).toEqual({});
+    expect(mines).toHaveLength(0);
+
+    // …the FIRST unit lands on the server's 1.5 s cadence: deposit −1, the
+    // unit is in the inventory, the 'mine' event rides, the wire (snapshot +
+    // entityToState) carries the decremented quantity.
+    advance(shard, MINING_UNIT_MS + 50);
     expect(shard.entities.get(dep)?.quantity).toBe(1);
     const snap = shard.snapshot();
     expect(snap.find((s) => s.id === dep)?.quantity).toBe(1);
     expect(entityToState(shard.entities.get(dep)!).quantity).toBe(1);
+    expect(shard.getInventory('p1')).toEqual({ iron: 1 });
 
-    // Second tap: 1 → 0, despawned for everyone, gone from the snapshot.
-    expect(shard.handleInteract('p1', dep, 'pickup')).toBe('ok');
+    // The second unit lands 1.5 s later: 1 → 0, despawned for everyone.
+    advance(shard, MINING_UNIT_MS + 50);
     expect(shard.entities.has(dep)).toBe(false);
     expect(shard.snapshot().some((s) => s.id === dep)).toBe(false);
 
-    expect(pickups).toEqual([
-      { playerId: 'p1', targetId: dep, remaining: 1, depleted: false },
-      { playerId: 'p1', targetId: dep, remaining: 0, depleted: true },
+    expect(mines).toEqual([
+      { playerId: 'p1', depositId: dep, resource: 'iron', remaining: 1, units: 1 },
+      { playerId: 'p1', depositId: dep, resource: 'iron', remaining: 0, units: 2 },
     ]);
   });
 

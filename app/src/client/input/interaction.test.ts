@@ -53,10 +53,26 @@ describe('InteractableRegistry', () => {
     const { send, frames } = sendMock();
     reg.dispatch(target('dep-1', F), send);
     expect(frames).toHaveLength(1);
+    // TASK-38: deposits are MINED, not tapped — E down starts the 1.5 s
+    // channel (the server's tick is the award authority).
     expect(frames[0]).toEqual({
       type: 'interact',
-      payload: { targetId: 'dep-1', action: 'pickup' },
+      payload: { targetId: 'dep-1', action: 'mine-start' },
     });
+  });
+
+  it('release is the E-up half: deposits end their channel, tap-only kinds are silent (TASK-38)', () => {
+    const reg = createInteractableRegistry();
+    const { send, frames } = sendMock();
+    reg.release(target('dep-1', F), send);
+    expect(frames).toEqual([{ type: 'interact', payload: { targetId: 'dep-1', action: 'mine-stop' } }]);
+    // A tap-only kind (no onRelease) releases as a silent no-op…
+    frames.length = 0;
+    reg.release(target('ship-1', F, { kind: 'ship', callsign: 'pilot' }), send);
+    expect(frames).toHaveLength(0);
+    // …and so is an unknown kind (never a crash).
+    reg.release(target('x-1', F, { kind: 'wreck' as never }), send);
+    expect(frames).toHaveLength(0);
   });
 
   it('dispatching an unknown kind is a silent no-op (never a crash, never a frame)', () => {
@@ -72,7 +88,12 @@ describe('InteractableRegistry', () => {
     const theirs = target('ship-2', F, { kind: 'ship', callsign: 'other' });
     const ctx = { callsign: 'pilot' };
 
-    expect(reg.get('deposit')!.prompt(target('d', F))).toBe('[E] Take ore');
+    // TASK-38: the deposit prompt names the resource + the HOLD (the wire
+    // carries the deposit's resourceId; a target without one says 'ore').
+    expect(reg.get('deposit')!.prompt(target('d', F))).toBe('Hold [E] to mine ore');
+    expect(reg.get('deposit')!.prompt(target('d', F, { resourceId: 'copper' }))).toBe(
+      'Hold [E] to mine copper',
+    );
     expect(reg.get('ship')!.prompt(mine)).toBe('[E] Enter ship');
     expect(reg.get('terminal')!.prompt(target('t', F, { kind: 'terminal' }))).toBe(
       '[E] Dock terminal',
@@ -101,7 +122,7 @@ describe('resolveInteract (per-frame raycast)', () => {
     const far = target('dep-far', { x: 0, y: 0, z: 2.9 });
     const r = resolveInteract([far, near], O, undefined, ctx, reg);
     expect(r?.target.id).toBe('dep-near');
-    expect(r?.text).toBe('[E] Take ore');
+    expect(r?.text).toBe('Hold [E] to mine ore');
     expect(r?.distance).toBeCloseTo(1, 10);
   });
 

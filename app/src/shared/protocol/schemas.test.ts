@@ -60,6 +60,10 @@ const CASES: Record<string, { valid: unknown; invalid: unknown }> = {
     valid: { targetId: 't-1' }, // TASK-33: action is optional (kind dispatch)
     invalid: { targetId: 't-1', action: '' },
   },
+  mining: {
+    valid: { phase: 'active', depositId: 'dep-1', progress: 0.5, units: 2, status: 'mining' },
+    invalid: { phase: 'exploded', depositId: 'dep-1', progress: 0.5, units: 2, status: 'mining' },
+  },
   drop: {
     valid: { resourceId: 'iron', amount: 2 }, // TASK-34: the resource id is validated server-side
     invalid: { resourceId: 'iron', amount: 0 },

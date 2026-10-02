@@ -251,13 +251,47 @@ export const messageSchemas = {
     .strict(),
   /**
    * TASK-33: on-foot interaction — the target id only; the SERVER dispatches
-   * by the target's kind (deposit / ship / terminal). `action` is optional
-   * and kind-specific: the v1 deposit pickup sends 'pickup', and TASK-38
-   * extends the deposit flow with 'mine-start' / 'mine-stop' (hold-to-mine).
+   * by the target's kind (deposit / ship / terminal / groundItem). `action`
+   * is optional and kind-specific: TASK-38's deposit flow is the hold-to-
+   * mine channel — 'mine-start' (E down) begins it, 'mine-tick' re-asserts
+   * intent, 'mine-stop' (E up) cancels it; the server's tick is the award
+   * authority (a legacy 'pickup' on a deposit still starts the channel).
    */
   interact: z
     .object({ targetId: z.string().min(1), action: z.string().min(1).max(32).optional() })
     .strict(),
+  /**
+   * TASK-38: server → ONE player — the authoritative mining-channel state.
+   * Sent at 10 Hz (snapshot cadence) while that player is channeling, plus
+   * one final phase:'ended' frame when the channel dies. Per-connection on
+   * purpose: the shared entity_update buffer must stay byte-identical for
+   * every in-system peer (the encode-once design — the TASK-14 'ack'
+   * precedent), and the channel is the miner's private view.
+   */
+  mining: z.discriminatedUnion('phase', [
+    z
+      .object({
+        phase: z.literal('active'),
+        depositId: z.string().min(1),
+        /** Progress 0..1 through the current 1.5 s unit (server clock echo). */
+        progress: finite.min(0).max(1),
+        /** Units already awarded in this channel (the client's ore counter). */
+        units: z.number().int().finite().nonnegative(),
+        /** 'full': at the weight cap — the channel is PAUSED ('Backpack full'). */
+        status: z.enum(['mining', 'full']),
+      })
+      .strict(),
+    z
+      .object({
+        phase: z.literal('ended'),
+        depositId: z.string().min(1),
+        /** stopped: E released; cancelled: out of range / character gone; depleted: the deposit ran out. */
+        reason: z.enum(['stopped', 'cancelled', 'depleted']),
+        /** Units awarded in total (no unit is awarded on cancel). */
+        units: z.number().int().finite().nonnegative(),
+      })
+      .strict(),
+  ]),
   mine: z.object({ nodeId: z.string().min(1) }).strict(),
   sell: z
     .object({ cargoId: z.string().min(1), quantity: z.number().int().finite().positive() })

@@ -56,6 +56,11 @@ import {
   type InventoryStacks,
   type ResourceId,
 } from '@shared/inventory';
+import {
+  MINING_UNIT_MS,
+  stepMiningChannel,
+  type MiningChannel,
+} from '@shared/mining';
 import { shipStats, HEX_COLOR } from '@shared/ships';
 import type { SystemGen } from '@shared/galaxy/types';
 import { homeDockPosition } from '@shared/galaxy/dock';
@@ -185,6 +190,12 @@ export class SystemShard implements Shard {
   private readonly playerEntities = new Map<string, SimEntity>();
   /** Dev-hook deposit ids stay unique per shard (addDepositForTesting). */
   private devDepositSeq = 0;
+  /**
+   * TASK-38: the active mining channels (playerId → channel). The tick is
+   * the ONLY award path — the server clock is the 1.5 s cadence truth,
+   * client messages only assert intent (anti-spam).
+   */
+  readonly mining = new Map<string, MiningChannel>();
   /** TASK-34: ground item ids stay unique per shard (handleDrop). */
   private groundItemSeq = 0;
   /** TASK-34: ground item ttl in TICKS (300 s at the shard's dt). */
@@ -420,6 +431,18 @@ export class SystemShard implements Shard {
           const character = this.entities.get(`char:${state.playerId}`);
           if (character) character.heldInput = undefined;
         }
+      }
+      // TASK-38: a disconnect kills the player's mining channel — nobody is
+      // holding E anymore (the character stays, so the tick cannot see the
+      // loss; the channel must not keep awarding into an empty backpack).
+      const channel = this.mining.get(state.playerId);
+      if (channel) {
+        this.mining.delete(state.playerId);
+        this.log.info('mining cancelled (disconnect)', {
+          playerId: state.playerId,
+          deposit: channel.depositId,
+          units: channel.unitsSoFar,
+        });
       }
     } else {
       this.log.debug('dropped stale connection on leave', {
@@ -751,6 +774,10 @@ export class SystemShard implements Shard {
       this.syncCharacterInventory(entity.playerId);
     }
 
+    // TASK-38: advance the active mining channels (the server clock is the
+    // award authority — awards, cancellations and the 10 Hz progress echo).
+    this.updateMining(tick);
+
     // TASK-37: deposit discovery (any player within 50 m flips the flag).
     this.sweepDiscovery();
 
@@ -908,7 +935,7 @@ export class SystemShard implements Shard {
    * e2e and the interaction tests need an interactable to stand in front of).
    * Returns the new entity id (`deposit:dev<n>`).
    */
-  addDepositForTesting(pos: Vec3, quantity = 1): string {
+  addDepositForTesting(pos: Vec3, quantity = 1, resourceId: ResourceId = 'iron'): string {
     const id = `${DEPOSIT_ENTITY_PREFIX}dev${++this.devDepositSeq}`;
     this.entities.set(id, {
       id,
@@ -927,6 +954,9 @@ export class SystemShard implements Shard {
       targetId: null,
       docked: false,
       quantity,
+      // TASK-38: mining awards the deposit's resource — a dev deposit always
+      // has one (the client's '+1 <resource>' float + prompt use it).
+      resourceId,
     });
     this.log.debug('deposit placed (dev/test hook)', { deposit: id, pos });
     return id;
@@ -1208,8 +1238,10 @@ export class SystemShard implements Shard {
    *    else {code:'out-of-range'}.
    * Then dispatch BY KIND — the server-side counterpart of the client's
    * InteractableRegistry, one branch per kind (no scattered if-chains):
-   * - 'deposit'  → the v1 pickup (one unit; despawn at zero). This is the
-   *                delegate point TASK-38 replaces with the 1.5 s channel;
+   * - 'deposit'  → the hold-to-mine channel (TASK-38): 'mine-start' (or a
+   *                legacy 'pickup' / absent action) starts it, 'mine-stop'
+   *                cancels it — the TICK advances it (1.5 s per unit,
+   *                weight-cap pause, depletion despawn);
    * - 'terminal' → a 'ui-open' {ui:'dock'} frame to the requester (the dock
    *                UI that consumes it lands in TASK-40/53);
    * - 'ship'     → delegates to handleEnterShip (TASK-35) — the same effect
@@ -1254,7 +1286,7 @@ export class SystemShard implements Shard {
         this.handlePickup(playerId, target, source);
         return 'ok';
       case 'deposit':
-        return this.applyPickup(playerId, target, action);
+        return this.handleMine(playerId, target, action, source);
       case 'terminal':
         this.sendUiOpen(playerId, target.id, source);
         return 'ok';
@@ -1267,50 +1299,236 @@ export class SystemShard implements Shard {
   }
 
   /**
-   * The v1 pickup effect (delegate point for TASK-38's 1.5 s mining
-   * channel): one unit leaves the deposit; at zero remaining the deposit
-   * despawns for everyone (it simply leaves the next 10 Hz snapshot).
+   * TASK-38: the hold-to-mine deposit flow (replaces the v1 tap pickup —
+   * "hold, not tap": the 1.5 s channel is the only deposit effect):
+   * - 'mine-start' / 'mine-tick' (and a legacy 'pickup' / absent action,
+   *   for back-compat) → ensure a channel on the target deposit: it STARTS
+   *   when none is active, is an idempotent no-op on the same deposit
+   *   (re-asserted intent), and SWITCHES (cancelling the old channel) when
+   *   the target changed;
+   * - 'mine-stop' → end the channel ('stopped' — a cancel: the in-flight
+   *   unit is NOT awarded);
+   * - any other action on a deposit is a structured denial.
+   * The handler only manages channel STATE — the TICK (updateMining) is the
+   * award authority: units land on the server's 1.5 s cadence, so a client
+   * can spam any of these messages and gain nothing extra (anti-spam AC).
+   * A fresh channel gets an immediate progress-0 echo so the ring appears
+   * without waiting for the next 10 Hz cadence.
    */
-  private applyPickup(
+  private handleMine(
     playerId: string,
     target: SimEntity,
     action: string | undefined,
+    source?: unknown,
   ): InteractOutcome {
-    const remaining = Math.max(0, (target.quantity ?? 1) - 1);
-    const depleted = remaining === 0;
-    if (depleted) {
-      // TASK-37: a depleted SEED deposit despawns (entity removed) but its
-      // DB row stays with remaining 0 — the mine is what persists it.
-      if (target.depositSeq !== undefined) {
-        target.quantity = 0;
-        target.depositDiscovered = true;
-        this.persistDeposit(target);
-        this.entities.delete(target.id);
-      } else {
-        this.entities.delete(target.id);
+    if (action === 'mine-stop') {
+      const channel = this.mining.get(playerId);
+      if (channel && channel.depositId === target.id) {
+        this.mining.delete(playerId);
+        this.log.info('mining stopped (E released)', {
+          playerId,
+          deposit: target.id,
+          units: channel.unitsSoFar,
+        });
+        this.sendMiningEnd(playerId, target.id, 'stopped', channel.unitsSoFar);
       }
-    } else {
-      target.quantity = remaining;
-      // TASK-37: seed deposits persist on every mine (row created lazily on
-      // the FIRST mine; upsert after). Dev-hook deposits stay in-memory.
-      if (target.depositSeq !== undefined) {
-        target.depositDiscovered = true; // a mine happened at < 3 m
-        this.persistDeposit(target);
+      return 'ok';
+    }
+    if (action !== 'mine-start' && action !== 'mine-tick' && action !== 'pickup') {
+      this.sendErrorToPlayer(
+        playerId,
+        'invalid-action',
+        `deposits are mined by holding E (got '${action ?? ''}')`,
+        source,
+      );
+      return 'invalid-action';
+    }
+    if (!target.resourceId || !isResourceId(target.resourceId)) {
+      this.sendErrorToPlayer(playerId, 'invalid-resource', 'the deposit has no known resource', source);
+      return 'invalid-resource';
+    }
+    const existing = this.mining.get(playerId);
+    if (existing && existing.depositId !== target.id) {
+      // The player aimed at a different deposit: the old channel cancels
+      // (no in-flight unit awarded) and the new one starts fresh.
+      this.mining.delete(playerId);
+      this.log.info('mining switched deposit', {
+        playerId,
+        from: existing.depositId,
+        to: target.id,
+      });
+      this.sendMiningEnd(playerId, existing.depositId, 'cancelled', existing.unitsSoFar);
+    }
+    if (!existing || existing.depositId !== target.id) {
+      this.mining.set(playerId, {
+        depositId: target.id,
+        unitsSoFar: 0,
+        lastAwardAt: this.now(),
+      });
+      this.log.info('mining started', { playerId, deposit: target.id, resource: target.resourceId });
+      this.sendMiningActive(playerId, target.id, 0, 0, 'mining');
+    }
+    return 'ok';
+  }
+
+  /**
+   * TASK-38: advance EVERY active mining channel by one tick (the single
+   * award path — client messages can never grant):
+   * - the server clock is the truth: a unit is awarded exactly when
+   *   `now − lastAwardAt ≥ MINING_UNIT_MS` (the shared stepMiningChannel
+   *   math; spamming mine-tick changes nothing — anti-spam AC);
+   * - each award is the atomic pair deposit.remaining −1 / inventory +1
+   *   (weight-capped via the shared pickup math), the seed row persisted
+   *   (TASK-37 lazy upsert), and a 'mine' event emitted;
+   * - at the weight cap the channel PAUSES ('full' status, the due award is
+   *   HELD — lastAwardAt is not advanced — and lands on the next tick once
+   *   space frees);
+   * - cancellation: walking > 3 m (checked per tick) or the character being
+   *   gone (re-entry) ends the channel ('cancelled', NO unit awarded);
+   * - depletion: at zero remaining the deposit despawns for ALL clients
+   *   (it leaves the next 10 Hz snapshot; the seed row stays at 0) and the
+   *   channel ends cleanly ('depleted' — the mid-channel 'Depleted' prompt);
+   * - every 2nd tick (10 Hz) the miner's CURRENT connection gets the
+   *   progress echo (per-connection frame: the shared entity_update buffer
+   *   must stay byte-identical for every peer — the TASK-14 ack precedent).
+   */
+  private updateMining(tick: number): void {
+    if (this.mining.size === 0) return;
+    const now = this.now();
+    for (const [playerId, channel] of this.mining) {
+      const character = this.entities.get(`char:${playerId}`);
+      if (!character) {
+        // Re-entered the ship (or fully gone): the channel dies with it.
+        this.mining.delete(playerId);
+        this.sendMiningEnd(playerId, channel.depositId, 'cancelled', channel.unitsSoFar);
+        continue;
+      }
+      const deposit = this.entities.get(channel.depositId);
+      if (!deposit || deposit.kind !== 'deposit') {
+        // The deposit is gone — deposits despawn ONLY at zero remaining.
+        this.mining.delete(playerId);
+        this.sendMiningEnd(playerId, channel.depositId, 'depleted', channel.unitsSoFar);
+        continue;
+      }
+      if (vecLength(vecSub(deposit.ship.pos, character.ship.pos)) > INTERACT_RANGE_M) {
+        // Walked > 3 m: the channel cancels (no unit awarded on cancel).
+        this.mining.delete(playerId);
+        this.log.info('mining cancelled (out of range)', {
+          playerId,
+          deposit: deposit.id,
+          units: channel.unitsSoFar,
+        });
+        this.sendMiningEnd(playerId, deposit.id, 'cancelled', channel.unitsSoFar);
+        continue;
+      }
+      const step = stepMiningChannel(
+        channel,
+        now,
+        deposit.quantity ?? 0,
+        this.getInventory(playerId),
+        (deposit.resourceId ?? 'iron') as ResourceId,
+      );
+      let full = false;
+      if (step.kind === 'awarded') {
+        // The atomic award: inventory +1 (weight-capped) and deposit −1.
+        const player = this.playerEntities.get(playerId);
+        if (player) {
+          player.inventory = step.stacks;
+          this.syncCharacterInventory(playerId);
+        }
+        channel.unitsSoFar += 1;
+        channel.lastAwardAt = now;
+        const left = (deposit.quantity ?? 1) - 1;
+        if (left <= 0) {
+          // Depleted: despawn for everyone, the seed row stays at 0 (TASK-37).
+          if (deposit.depositSeq !== undefined) {
+            deposit.quantity = 0;
+            deposit.depositDiscovered = true;
+            this.persistDeposit(deposit);
+          }
+          this.entities.delete(deposit.id);
+          this.log.info('deposit depleted', { playerId, deposit: deposit.id });
+          this.mining.delete(playerId);
+          this.sendMiningEnd(playerId, deposit.id, 'depleted', channel.unitsSoFar);
+          this.events.emit('mine', {
+            playerId,
+            depositId: deposit.id,
+            resource: deposit.resourceId,
+            remaining: 0,
+            units: channel.unitsSoFar,
+          });
+          continue;
+        }
+        deposit.quantity = left;
+        // Seed deposits persist on every mine (row created lazily on the
+        // FIRST mine; upsert after). Dev-hook deposits stay in-memory.
+        if (deposit.depositSeq !== undefined) {
+          deposit.depositDiscovered = true; // a mine happened at < 3 m
+          this.persistDeposit(deposit);
+        }
+        this.log.info('mining unit awarded', {
+          playerId,
+          deposit: deposit.id,
+          resource: deposit.resourceId,
+          remaining: left,
+          units: channel.unitsSoFar,
+        });
+        this.events.emit('mine', {
+          playerId,
+          depositId: deposit.id,
+          resource: deposit.resourceId,
+          remaining: left,
+          units: channel.unitsSoFar,
+        });
+      } else if (step.kind === 'full') {
+        // At the weight cap: PAUSED — lastAwardAt is NOT advanced, so the
+        // due award lands on the next tick once space frees.
+        full = true;
+      }
+      // 10 Hz progress echo to the miner (the client UI is server-timed).
+      if (tick % SNAPSHOT_EVERY_TICKS === 0) {
+        const progress = Math.min(1, (now - channel.lastAwardAt) / MINING_UNIT_MS);
+        this.sendMiningActive(playerId, deposit.id, progress, channel.unitsSoFar, full ? 'full' : 'mining');
       }
     }
-    this.log.info('deposit picked up', {
-      playerId,
-      deposit: target.id,
-      remaining,
-      ...(action !== undefined ? { action } : {}),
-    });
-    this.events.emit('pickup', {
-      playerId,
-      targetId: target.id,
-      remaining,
-      depleted,
-    });
-    return 'ok';
+  }
+
+  /**
+   * TASK-38: a 'mining' frame to the miner's CURRENT connection (stale-conn
+   * guarded, like the errors; wire-validated — a failing frame must never
+   * crash the tick). Server → ONE client only (the channel is private view).
+   */
+  private sendMining(playerId: string, frame: PayloadSchemas['mining']): void {
+    const connId = this.playerConns.get(playerId);
+    const conn = connId ? this.connections.get(connId) : undefined;
+    if (!conn) return;
+    const check = messageSchemas.mining.safeParse(frame);
+    if (!check.success) {
+      this.log.warn('mining frame failed wire validation', {
+        issue: check.error.issues[0]?.message,
+      });
+      return;
+    }
+    conn.send(encodeMessage('mining', check.data));
+  }
+
+  private sendMiningActive(
+    playerId: string,
+    depositId: string,
+    progress: number,
+    units: number,
+    status: 'mining' | 'full',
+  ): void {
+    this.sendMining(playerId, { phase: 'active', depositId, progress, units, status });
+  }
+
+  private sendMiningEnd(
+    playerId: string,
+    depositId: string,
+    reason: 'stopped' | 'cancelled' | 'depleted',
+    units: number,
+  ): void {
+    this.sendMining(playerId, { phase: 'ended', depositId, reason, units });
   }
 
   /**
@@ -1770,13 +1988,17 @@ export type EnterShipOutcome =
 /**
  * The outcome of an interaction request (TASK-33) — the 'ship' branch
  * delegates to handleEnterShip, so the enter-ship codes are part of the
- * union (TASK-35).
+ * union (TASK-35). The 'deposit' branch runs the TASK-38 hold-to-mine
+ * channel: 'invalid-action' (an action the channel does not speak) and
+ * 'invalid-resource' (a deposit without a known resource type).
  */
 export type InteractOutcome =
   | 'ok'
   | 'not-found'
   | 'out-of-range'
   | 'wrong-regime'
+  | 'invalid-action'
+  | 'invalid-resource'
   | Exclude<EnterShipOutcome, 'ok' | 'out-of-range'>;
 
 /** Entity → wire EntityState (hull/shields normalized 0..1, regime mapped). */

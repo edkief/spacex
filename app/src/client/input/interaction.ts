@@ -34,15 +34,21 @@ export interface InteractContext {
 
 export interface InteractableEntry {
   kind: InteractableKind;
-  /** The prompt text (rendered bottom-center, e.g. '[E] Take ore'). */
+  /** The prompt text (rendered bottom-center, e.g. 'Hold [E] to mine iron'). */
   prompt: (target: InteractableTarget) => string;
   /**
    * Client pre-filter: the prompt ONLY ever shows valid targets (v1: the
    * ship prompt is for the player's OWN ship — no boarding others).
    */
   eligible: (target: InteractableTarget, ctx: InteractContext) => boolean;
-  /** THE dispatch site for this kind: send the interaction message. */
+  /** THE dispatch site for this kind: send the interaction message (E down). */
   onInteract: (target: InteractableTarget, send: InteractSend) => void;
+  /**
+   * TASK-38: the hold-release half (E up): deposits end their mining
+   * channel ('mine-stop' — a cancel). Kinds with no hold (a tap is the
+   * whole interaction) have none.
+   */
+  onRelease?: (target: InteractableTarget, send: InteractSend) => void;
 }
 
 /** The central client registry: one entry per interactable kind. */
@@ -73,6 +79,18 @@ export class InteractableRegistry {
     if (!entry) return;
     entry.onInteract(target, send);
   }
+
+  /**
+   * THE ONLY release dispatch (TASK-38): the E-up half of a hold. Runs the
+   * entry's onRelease when it has one (deposits end their mining channel
+   * with 'mine-stop'); kinds whose whole interaction is one tap are a
+   * silent no-op (no frame, never a crash).
+   */
+  release(target: InteractableTarget, send: InteractSend): void {
+    const entry = this.byKind.get(target.kind);
+    if (!entry?.onRelease) return;
+    entry.onRelease(target, send);
+  }
 }
 
 /**
@@ -85,11 +103,16 @@ export function createInteractableRegistry(): InteractableRegistry {
   return new InteractableRegistry()
     .register({
       kind: 'deposit',
-      prompt: () => '[E] Take ore',
+      // The resource rides the deposit entity (the wire carries it), so the
+      // prompt names it: 'Hold [E] to mine iron'.
+      prompt: (target) => `Hold [E] to mine ${target.resourceId ?? 'ore'}`,
       eligible: () => true,
-      // 'pickup' = the v1 one-unit take; TASK-38 extends with the
-      // 'mine-start' / 'mine-stop' hold-channel (same message, this entry).
-      onInteract: (target, send) => send('interact', { targetId: target.id, action: 'pickup' }),
+      // TASK-38: hold-to-mine — the 1.5 s channel per unit. E down sends
+      // 'mine-start' (the server begins the channel), E up (onRelease) sends
+      // 'mine-stop' (a cancel — no unit awarded on cancel). The server's
+      // tick is the award authority; the client never runs its own timer.
+      onInteract: (target, send) => send('interact', { targetId: target.id, action: 'mine-start' }),
+      onRelease: (target, send) => send('interact', { targetId: target.id, action: 'mine-stop' }),
     })
     .register({
       kind: 'groundItem',

@@ -9,6 +9,7 @@ import { sqliteTables } from '@server/db/schema';
 import { generateSystem } from '@shared/galaxy/system';
 import { quatIdentity, type Vec3 } from '@shared/physics/vec';
 import type { Planet, SystemGen } from '@shared/galaxy/types';
+import { MINING_UNIT_MS } from '@shared/mining';
 import { depositsFor, DEPOSIT_DISCOVERY_RADIUS_M, DEPOSIT_RENDER_RANGE_M } from '@shared/world/deposits';
 import { SystemShard } from './shard';
 import { createShardPersist } from './persist';
@@ -75,6 +76,7 @@ function makeShard(): SystemShard {
       onLivery: () => () => {},
     },
     log: SILENT,
+    now: () => fakeNow,
   });
 }
 
@@ -129,9 +131,26 @@ async function restart(original: SystemShard): Promise<SystemShard> {
   return shard;
 }
 
+// TASK-38: mining is the hold channel — the units land on the server's
+// 1.5 s ticks (the injected fake clock below), not on the interact message.
+let fakeNow = 1_000_000;
+
+function advance(shard: SystemShard, ms: number): void {
+  const end = fakeNow + ms;
+  while (fakeNow < end) {
+    fakeNow += 50;
+    shard.sim.step(fakeNow);
+  }
+}
+
 function mine(shard: SystemShard, depositId: string, times: number): void {
+  expect(shard.handleInteract('p1', depositId, 'mine-start')).toBe('ok');
   for (let i = 0; i < times; i++) {
-    expect(shard.handleInteract('p1', depositId, 'pickup')).toBe('ok');
+    advance(shard, MINING_UNIT_MS + 100); // one full cadence per unit
+  }
+  // End the (possibly still-live) channel so later tests start clean.
+  if (shard.mining.size > 0) {
+    expect(shard.handleInteract('p1', depositId, 'mine-stop')).toBe('ok');
   }
 }
 

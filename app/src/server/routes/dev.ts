@@ -39,6 +39,9 @@ const depositBody = z
     y: z.number().finite(),
     z: z.number().finite(),
     quantity: z.number().int().finite().positive().max(1000).optional(),
+    // TASK-38: the resource a mine awards (defaults to iron — the client's
+    // prompt + '+1 <resource>' float read it off the deposit entity).
+    resourceId: z.enum(RESOURCE_IDS).optional(),
   })
   .strict();
 
@@ -121,6 +124,7 @@ export function registerDevRoutes(app: FastifyInstance, deps: RouteDeps): void {
     const depositId = active.shard.addDepositForTesting(
       { x: parsed.data.x, y: parsed.data.y, z: parsed.data.z },
       parsed.data.quantity ?? 1,
+      parsed.data.resourceId ?? 'iron',
     );
     return { ok: true, depositId, systemId: ship.position.systemId };
   });

@@ -16,13 +16,21 @@ import { DockedIndicator } from '@client/ui/docked-indicator';
 import { LeaveShipPrompt } from '@client/ui/leave-ship-prompt';
 import { InteractPrompt } from '@client/ui/interact-prompt';
 import { WeightBar } from '@client/ui/weight-bar';
+import { MiningHud } from '@client/ui/mining-hud';
 import { inventory, setInventory } from '@client/state/inventory';
+import {
+  setMiningActive,
+  setMiningEnded,
+  type MiningActiveFrame,
+  type MiningEndedFrame,
+} from '@client/state/mining';
 import { RESOURCE_IDS } from '@shared/inventory';
 import {
   createInteractableRegistry,
   interactableTargetsFrom,
   nextPromptState,
   resolveInteract,
+  type InteractSend,
   type PromptState,
 } from '@client/input/interaction';
 import type { InteractableTarget } from '@shared/interaction';
@@ -135,6 +143,17 @@ function useGameSession(
   // TASK-33: a system snapshot (boot / warp / resync) → the target list is
   // rebuilt from GROUND TRUTH (and the prompt never carries stale state).
   onSnapshotEntities?: (entities: EntityState[]) => void,
+  // TASK-38: the server's authoritative mining-channel frame (per-connection
+  // 'mining' — 10 Hz while channeling + one final 'ended'). The caller
+  // resolves the deposit's resource for the '+1 <resource>' float.
+  onMining?: (frame: {
+    phase: 'active' | 'ended';
+    depositId: string;
+    progress?: number;
+    units: number;
+    status?: 'mining' | 'full';
+    reason?: 'stopped' | 'cancelled' | 'depleted';
+  }) => void,
 ) {
   const systemParam = React.useMemo(
     () => new URLSearchParams(window.location.search).get('sys'),
@@ -174,6 +193,13 @@ function useGameSession(
           // interaction answers with {ui:'dock'}). The dock UI that consumes
           // it lands in TASK-40/53 — until then the client just logs it.
           console.debug('[ui-open]', msg.payload);
+          return;
+        }
+        if (msg.type === 'mining') {
+          // TASK-38: the server's authoritative channel frame (10 Hz echo +
+          // the final 'ended'). The HUD is driven from this — the client
+          // never runs its own channel timer.
+          onMining?.(msg.payload as never);
           return;
         }
         if (msg.type === 'entity_update') {
@@ -423,6 +449,14 @@ function App() {
   // registry — the only place an 'interact' message is sent).
   const resolvedTargetRef = React.useRef<InteractableTarget | null>(null);
   const [interactPrompt, setInteractPrompt] = React.useState<string | null>(null);
+  // TASK-38: the target dispatched by the CURRENT E hold (E down →
+  // onInteract / mine-start; E up or blur → onRelease / mine-stop). Cleared
+  // when the channel ends server-side, on a system swap, or when the player
+  // is no longer on foot.
+  const heldInteractRef = React.useRef<{
+    target: InteractableTarget;
+    send: InteractSend;
+  } | null>(null);
   // Re-render on presence events only (join/leave), never on snapshots, so
   // the "N aboard" occupancy below stays live.
   const [, bumpPresence] = React.useReducer((n: number) => n + 1, 0);
@@ -500,6 +534,7 @@ function App() {
         // predictor alive across its 10 Hz snapshots.
         charPredictorRef.current = null;
         resolvedTargetRef.current = null;
+        heldInteractRef.current = null; // a held E never survives re-entry
         promptStateRef.current = { kind: 'hidden' };
         setInteractPrompt(null);
       }
@@ -526,6 +561,28 @@ function App() {
       feedRemote(entities);
       promptStateRef.current = { kind: 'hidden' };
       setInteractPrompt(null);
+      // TASK-38: a system swap never carries a channel — drop the held-E
+      // bookkeeping and any stale mining HUD state (the server kills the
+      // channel itself on warp departure).
+      heldInteractRef.current = null;
+      setMiningActive(null);
+      setMiningEnded(null);
+    },
+    // TASK-38: the server's channel frame → the mining HUD store. The
+    // '+1 <resource>' float's resource is the deposit's (the target list
+    // carries it — the wire deposit entity always has a resourceId now).
+    (frame) => {
+      const resource =
+        interactTargetsRef.current.find((t) => t.id === frame.depositId)?.resourceId ?? null;
+      if (frame.phase === 'active') {
+        const activeFrame = frame as unknown as MiningActiveFrame;
+        setMiningActive(activeFrame, resource);
+      } else {
+        setMiningEnded(frame as unknown as MiningEndedFrame, resource);
+        // The channel died server-side (cancel / depleted / stopped): a
+        // later keyup must not send a stale mine-stop for it.
+        heldInteractRef.current = null;
+      }
     },
   );
 
@@ -566,14 +623,45 @@ function App() {
         clientRef.current?.send('exit_ship', { shipId });
         return;
       }
-      // TASK-33: on foot with a prompt up → dispatch the hit target. The
-      // registry is the ONLY place an 'interact' frame goes out (AC).
+      // TASK-38: a HELD E (hold, not tap) — the first keydown starts the
+      // hold (dispatch → 'mine-start' for deposits); auto-repeat re-sends
+      // are ignored (the server is idempotent either way). E up (onKeyUp)
+      // releases it. The registry is the ONLY place an 'interact' frame
+      // goes out (AC).
+      if (e.repeat) return;
       const target = resolvedTargetRef.current;
       if (!target) return;
-      interactRegistry.dispatch(target, (type, payload) => clientRef.current?.send(type, payload));
+      const send: InteractSend = (type, payload) => clientRef.current?.send(type, payload);
+      interactRegistry.dispatch(target, send);
+      heldInteractRef.current = { target, send };
+    };
+    // TASK-38: E up releases the hold — deposits end their mining channel
+    // ('mine-stop' — a cancel); kinds without onRelease are a silent no-op.
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key !== 'e' && e.key !== 'E') return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+      const held = heldInteractRef.current;
+      if (!held) return;
+      interactRegistry.release(held.target, held.send);
+      heldInteractRef.current = null;
+    };
+    const onBlur = (): void => {
+      // The window lost focus: the key is physically released — end the
+      // channel so the server never awards into a key nobody holds.
+      const held = heldInteractRef.current;
+      if (!held) return;
+      interactRegistry.release(held.target, held.send);
+      heldInteractRef.current = null;
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onBlur);
+    };
   }, [interactRegistry]);
   // TASK-34: Q — DROP one unit of the first owned resource (catalog order:
   // iron, copper, rare-earth, crystal). The server is the authority: it
@@ -834,6 +922,9 @@ function App() {
       <LeaveShipPrompt />
       <InteractPrompt text={interactPrompt} />
       <WeightBar />
+      {/* TASK-38: the hold-to-mine channel HUD (radial progress, ore
+          counter, 'Backpack full' / 'Depleted') — server-timed. */}
+      <MiningHud />
       {/* TASK-57: dev-only frame monitor (F3) — never shipped in prod. */}
       {import.meta.env.DEV && <FrameMonitorOverlay />}
       {connState === 'lost' && session && (
