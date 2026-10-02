@@ -385,7 +385,7 @@
     "title": "Close-out: LOG entry with recorded numbers, flags, handoff deletion, final commit",
     "category": "performance",
     "specFilePath": ".ralph/tasks/TASK-30.2.json",
-    "passes": false,
+    "passes": true,
     "splitFrom": "TASK-30",
     "splitDepth": 1
   },

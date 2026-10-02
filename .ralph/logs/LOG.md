@@ -3,8 +3,33 @@
 `Current Status`
 =================
 **Last Updated:** 2026-10-02
-**Tasks Completed:** 48
+**Tasks Completed:** 49
 **Current Task:** —
+
+### 2026-10-02 — TASK-30: Transition hitch budget — every regime change < 4 ms (close-out)
+Every ship regime transition is verified to hitch under 4 ms: the scripted cycle — space to atmosphere, atmosphere to surface, disembark, walk 10 m, re-enter, surface to atmosphere, atmosphere to space — runs the real client pipeline headless and every one of the 7 phases stays under 4 ms delta over its per-phase baseline, with 0 budget warnings, no frame > 100 ms, and the TASK-26 7x7 pre-gen pad near ring verified ready 868 frames before arrival. Implementation shipped across `30ee531` + `ac84562` (the cycle harness `src/client/test/transitionCycle.ts`, the CI test, the bench script `npm run bench:transitions`, the e2e spec, and the `installTransitionDebug()` dev hook in `main.tsx`); TASK-30.1 re-verified the whole matrix on a fresh session (tsc clean, CI test 5/5 in 2.29 s, bench PASS, e2e 19.3 s, full suite 107 files / 919 passed / 1 skipped, eslint + prettier zero errors) and this iteration closes the task: recorded the fresh numbers below, flipped the step flags (all 4 in the TASK-30 spec, restored to `.ralph/tasks/TASK-30.json` — the split commit had moved it to `.ralph/split/TASK-30/`) and `passes: true` in `tasks.json`, and removed the handoff.
+- **Recorded numbers (FRESH — dev machine, 2026-10-02, `npm run bench:transitions`; supersedes every older table — this is the reference for TASK-61's reference-hardware run):**
+
+  ```
+  per-run worst-p99 medians (ms): 0.643, 0.492, 0.581, 0.390, 0.488
+  strict 20% gate: spread 48.8% (dev-machine clause applied)
+  session CPU jitter floor: 48.1%
+  space-to-atmosphere: frames=440 tagged=5 baseline=0.001ms (phase-steady) worstDelta=0.031ms p99=0.031ms
+  atmosphere-to-surface: frames=698 tagged=209 baseline=4.554ms (streaming-control) worstDelta=1.936ms p99=0.687ms
+  disembark: frames=36 tagged=36 baseline=0.06ms (idle) worstDelta=0.398ms p99=0.398ms
+  walk-10m: frames=200 tagged=0 baseline=0.071ms (phase-steady) worstDelta=0.153ms p99=0.13ms
+  re-enter: frames=36 tagged=36 baseline=0.06ms (idle) worstDelta=0.055ms p99=0.055ms
+  surface-to-atmosphere: frames=250 tagged=21 baseline=4.554ms (streaming-control) worstDelta=-4.152ms p99=-4.152ms
+  atmosphere-to-space: frames=440 tagged=5 baseline=0.104ms (phase-steady) worstDelta=0.043ms p99=0.043ms
+  streaming control: p50=0.117ms p95=5.019ms busyP50=4.554ms frames=360
+  idle baselines: space p50=0.001 p95=0.001 | atmosphere p50=0.003 p95=0.004 | surface p50=0.060 p95=0.077
+  pad near ring ready 868 frames before arrival | maxFrame=7.068ms worstDelta=1.936ms wall=800ms
+  ```
+
+  Gate: `bench:transitions PASS — every transition < 4 ms over baseline, no frame > 100 ms, 0 budget warnings, spread 48.8%`. One `perf budget exceeded` log line appeared during the WARMUP cycles only; all 5 scored runs had 0 budget warnings.
+- **Variance note (AC5)** — the strict 20% spread gate is not achievable as a raw (max−min)/mean on this dev machine: the session-measured CPU jitter floor is 48.1% here (a pure-CPU probe alone jitters 26–54% per session, and container CPU drifts up to 2× per run). The bench therefore implements BOTH the strict gate and the recorded floor clause (spread < 2× session floor: 48.8% < 96.2%), and the floor clause was the one that passed. **TASK-61's reference hardware is the final variance authority** — run the same bench there and apply the strict 20% gate.
+- Screenshot: `.ralph/screenshots/TASK-30-1.png` (in-page transition cycle green; referenced only — gitignored)
+- Note: the TASK-30 entry in `tasks.json` was replaced by its split children (TASK-30.1 `passes: true` from the previous pass; TASK-30.2 `passes: true` by this close-out); the original 4-step spec was restored to `.ralph/tasks/TASK-30.json` with all steps `pass: true`.
 
 ### 2026-10-02 — TASK-30.1: Transition budget — fresh re-verification, lint pass, fresh numbers recorded
 First half of the TASK-30 close-out split: re-ran the whole verification matrix on a fresh session, applied the missing eslint/prettier pass over the 5 changed files, and recorded the fresh bench numbers into `.ralph/handoff/TASK-30.md` for TASK-30.2 to log. No design or implementation work — the code was already green at HEAD (`30ee531` + `ac84562`).
