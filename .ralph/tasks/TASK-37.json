@@ -17,25 +17,25 @@
       "step": 1,
       "description": "Catalog + placement",
       "details": "resources.ts (catalog) + deposits.ts (placement): seeded RNG per (systemId, 'deposits'); candidate rejection: terrain slope > 30° rejected, spacing 200 m rejected, count cap 120; amount from a seeded range; resource type weighted (iron 40%, copper 30%, rare-earth 20%, crystal 10%).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Persistence",
       "details": "Schema: deposits {id, system_id, planet_id, pos (json), resource_id, remaining, discovered, PRIMARY KEY (system_id, deposit_seq)} — upsert-on-first-mine; remaining decremented atomically in the mine transaction (TASK-38).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Client rendering",
       "details": "OreRock meshes (low-poly dodecahedron variant per resource, emissive pulse < 10); streamed by distance (500 m) from the deposit list (client derives it — same seed); part of the entity snapshot only when discovered or within range (server sends 'deposit' entities for the player's 500 m ring — keep the snapshot lean).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Tests",
       "details": "All listed incl. the restart persistence test (child server process, like TASK-24). Run full suite + typecheck.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-5", "TASK-62", "TASK-63"],

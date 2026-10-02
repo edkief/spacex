@@ -39,6 +39,7 @@ import { installAtmosphereDebug } from '@client/atmosphere-debug';
 import { RegimeWiring } from '@client/state/regime-wiring';
 import { CharacterPredictor, characterStateFromWire } from '@client/net/character-prediction';
 import { installCharDebug } from '@client/char-debug';
+import { bindDepositsDebug, installDepositsDebug } from '@client/deposits-debug';
 import { installTransitionDebug } from '@client/test/transitionCycle';
 import type { ChatMessage, EntityState, InputPayload } from '@shared/protocol/schemas';
 import { inputToCharacterInput } from '@shared/protocol/inputs';
@@ -742,12 +743,14 @@ function App() {
       worldRef.current?.dispose(); // also removes its #remote-labels overlay
       worldRef.current = new WorldManager(canvas, serverSeed);
       worldSeedRef.current = serverSeed;
+      // TASK-37: dev-only ore-rock probe hook (reads the live manager lazily
+      // — a seed-corrected re-creation stays bound through the ref).
+      bindDepositsDebug(depositsDebug, () => worldRef.current?.oreRocks());
       // TASK-36: the callsign-label overlay — a canvas-sibling element (same
       // box, pointer-transparent) so the labels track the viewport exactly.
       const labelsHost = document.createElement('div');
       labelsHost.id = 'remote-labels';
-      labelsHost.style.cssText =
-        'position:absolute;inset:0;overflow:hidden;pointer-events:none;';
+      labelsHost.style.cssText = 'position:absolute;inset:0;overflow:hidden;pointer-events:none;';
       canvas.parentElement?.insertBefore(labelsHost, canvas.nextSibling);
       worldRef.current.attachRemoteLabels(labelsHost);
     }
@@ -972,6 +975,8 @@ const claimStyles: Record<string, React.CSSProperties> = {
 installDriftDebug();
 // TASK-32: dev-only self-character probe hook (no-op in production builds).
 const charDebug = installCharDebug();
+// TASK-37: dev-only ore-rock probe hook (no-op in production builds).
+const depositsDebug = installDepositsDebug();
 // TASK-26.2: dev-only draw-distance budget benchmark hook (no-op in prod).
 installStreamDebug();
 // TASK-27: dev-only camera handoff probe hook (no-op in production builds).

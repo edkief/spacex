@@ -28,6 +28,7 @@ import {
 } from '@shared/world/pads';
 import {
   DEPOSIT_DISCOVERY_RADIUS_M,
+  DEPOSIT_ENTITY_PREFIX,
   DEPOSIT_RENDER_RANGE_M,
   depositsFor,
   type Deposit,
@@ -908,7 +909,7 @@ export class SystemShard implements Shard {
    * Returns the new entity id (`deposit:dev<n>`).
    */
   addDepositForTesting(pos: Vec3, quantity = 1): string {
-    const id = `deposit:dev${++this.devDepositSeq}`;
+    const id = `${DEPOSIT_ENTITY_PREFIX}dev${++this.devDepositSeq}`;
     this.entities.set(id, {
       id,
       kind: 'deposit',
@@ -937,8 +938,8 @@ export class SystemShard implements Shard {
    * the stable seed-derived key the DB delta row maps back to.
    */
   private spawnDepositEntity(deposit: Deposit): void {
-    this.entities.set(`deposit:${deposit.depositId}`, {
-      id: `deposit:${deposit.depositId}`,
+    this.entities.set(`${DEPOSIT_ENTITY_PREFIX}${deposit.depositId}`, {
+      id: `${DEPOSIT_ENTITY_PREFIX}${deposit.depositId}`,
       kind: 'deposit',
       playerId: null,
       classId: 'deposit',
@@ -990,8 +991,7 @@ export class SystemShard implements Shard {
     for (const entity of this.entities.values()) {
       if (entity.kind !== 'deposit' || entity.depositDiscovered) continue;
       const near = positions.some(
-        (p) =>
-          vecLength(vecSub(entity.ship.pos, p)) <= DEPOSIT_DISCOVERY_RADIUS_M,
+        (p) => vecLength(vecSub(entity.ship.pos, p)) <= DEPOSIT_DISCOVERY_RADIUS_M,
       );
       if (near) {
         entity.depositDiscovered = true;
@@ -1647,7 +1647,7 @@ export class SystemShard implements Shard {
   private applyDepositDeltas(rows: DepositRow[]): number {
     let applied = 0;
     for (const row of rows) {
-      const entity = this.entities.get(`deposit:${row.depositId}`);
+      const entity = this.entities.get(`${DEPOSIT_ENTITY_PREFIX}${row.depositId}`);
       if (!entity) continue; // the derived list is the source of truth
       if (row.remaining <= 0) {
         this.entities.delete(entity.id);
@@ -1667,7 +1667,9 @@ export class SystemShard implements Shard {
    * destroyed ships as static wrecks with their remaining ttl. Entities that
    * are already in the shard are never clobbered.
    */
-  async loadShips(load: ShipsLoad): Promise<{ ships: number; wrecks: number; depositDeltas: number }> {
+  async loadShips(
+    load: ShipsLoad,
+  ): Promise<{ ships: number; wrecks: number; depositDeltas: number }> {
     const owners = [...new Set(load.ships.map((r) => r.ownerId))];
     const playerRows = new Map((await this.repo.getPlayersByIds(owners)).map((p) => [p.id, p]));
     let ships = 0;

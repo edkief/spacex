@@ -26,6 +26,12 @@ import type { Vec3 } from '../physics/vec';
 
 /** Hard cap on deposits per system (bounded economy — task note). */
 export const DEPOSIT_MAX_PER_SYSTEM = 120;
+/**
+ * Wire entity-id prefix for deposit entities: the server spawns
+ * `deposit:<depositId>` (seeded) / `deposit:dev<n>` (dev hook) — the client
+ * strips it to match the seed-derived depositId.
+ */
+export const DEPOSIT_ENTITY_PREFIX = 'deposit:';
 /** Min horizontal spacing between two deposits on the same planet (m). */
 export const DEPOSIT_MIN_SPACING_M = 200;
 /** A player within this radius (m) DISCOVERS a deposit (server-side flag). */
