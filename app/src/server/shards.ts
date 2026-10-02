@@ -194,7 +194,10 @@ export function attachShipSwapBroadcast(
  *                  'not-docked' denial on the requesting connection;
  * - 'interact'   → on-foot interaction (TASK-33): regime/target/range
  *                  validation, then dispatch by target kind (pickup /
- *                  terminal 'ui-open' / enter-ship stub).
+ *                  terminal 'ui-open' / enter-ship stub; TASK-34: ground
+ *                  items do the partial inventory pickup);
+ * - 'drop'       → on-foot drop (TASK-34): weight-capped inventory →
+ *                  groundItem entity at the character's position.
  */
 export function routeGameMessage(
   shard: SystemShard,
@@ -212,5 +215,8 @@ export function routeGameMessage(
   } else if (type === 'interact') {
     const p = payload as { targetId: string; action?: string };
     shard.handleInteract(conn.playerId, p.targetId, p.action, conn);
+  } else if (type === 'drop') {
+    const p = payload as { resourceId: string; amount: number };
+    shard.handleDrop(conn.playerId, p.resourceId, p.amount, conn);
   }
 }

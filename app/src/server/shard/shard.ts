@@ -32,6 +32,16 @@ import {
   type CharacterState,
 } from '@shared/physics/character';
 import { INTERACT_RANGE_M, isInteractableKind } from '@shared/interaction';
+import {
+  dropFrom,
+  emptyInventory,
+  isResourceId,
+  pickupInto,
+  sanitizeInventory,
+  toPlayerInventory,
+  type InventoryStacks,
+  type ResourceId,
+} from '@shared/inventory';
 import { shipStats, HEX_COLOR } from '@shared/ships';
 import type { SystemGen } from '@shared/galaxy/types';
 import { homeDockPosition } from '@shared/galaxy/dock';
@@ -70,6 +80,8 @@ export const SNAPSHOT_WARN_BYTES = 32 * 1024;
  */
 /** Wrecks (TASK-23) stay in the shard for 600 s, then are removed. */
 export const WRECK_TTL_MS = 600_000;
+/** TASK-34: dropped ground items persist 300 s, then despawn. */
+export const GROUND_ITEM_TTL_MS = 300_000;
 
 /** Zero control frame for players with nothing queued (coast). */
 const ZERO_INPUT: InputPayload = {
@@ -96,7 +108,9 @@ export interface CreateSystemShardOptions {
   /** The generated system (planets give the regime context). */
   system: SystemGen;
   /** Player ship lookup (entity spawn on join). */
-  repo: Pick<Repository, 'getShipByOwner' | 'getPlayersByIds'>;
+  repo: Pick<Repository, 'getShipByOwner' | 'getPlayersByIds'> &
+    /** TASK-34: inventory load on join (optional — test stubs predate it). */
+    Partial<Pick<Repository, 'getPlayerInventory'>>;
   /** Keep in-shard entities in sync with dock purchases / livery changes. */
   shipSwapBus: ShipSwapBus;
   persist?: (entities: EntityState[]) => void;
@@ -155,6 +169,10 @@ export class SystemShard implements Shard {
   private readonly playerEntities = new Map<string, SimEntity>();
   /** Dev-hook deposit ids stay unique per shard (addDepositForTesting). */
   private devDepositSeq = 0;
+  /** TASK-34: ground item ids stay unique per shard (handleDrop). */
+  private groundItemSeq = 0;
+  /** TASK-34: ground item ttl in TICKS (300 s at the shard's dt). */
+  private readonly groundItemTtlTicks: number;
   private connSeq = 0;
   private offBus: (() => void) | undefined;
   private snapshotSizeWarned = false;
@@ -168,6 +186,7 @@ export class SystemShard implements Shard {
     this.now = options.now ?? (() => Date.now());
     this.dt = (options.dtMs ?? TICK_DT_MS) / 1000;
     this.wreckTtlTicks = Math.max(1, Math.round(WRECK_TTL_MS / (options.dtMs ?? TICK_DT_MS)));
+    this.groundItemTtlTicks = Math.max(1, Math.round(GROUND_ITEM_TTL_MS / (options.dtMs ?? TICK_DT_MS)));
     this.persist = options.persist ?? (() => {});
     // TASK-29: derive the system's seeded pads once (cached per system) and
     // index them by planet — the pad list is system-derived data.
@@ -274,6 +293,11 @@ export class SystemShard implements Shard {
       // TASK-24: the entity spawns with the ship's PERSISTED flight state
       // (pos/vel/quat/regime), not a fresh rest state — no teleports.
       entity = this.entityFromShipRow(ship, callsign);
+      // TASK-34: load the persisted inventory (survives reconnect + server
+      // restart; an empty/corrupt row simply starts empty).
+      entity.inventory = sanitizeInventory(
+        (await this.repo.getPlayerInventory?.(playerId)) ?? {},
+      );
       this.entities.set(entity.id, entity);
       this.playerEntities.set(playerId, entity);
     }
@@ -993,6 +1017,12 @@ export class SystemShard implements Shard {
       return 'out-of-range';
     }
     switch (target.kind) {
+      case 'groundItem':
+        // TASK-34: partial pickup into the weight-capped inventory (the
+        // same interact/prompt flow as deposits — 'Take iron x3'). The
+        // {taken, remaining} result rides the 'pickup' event + logs.
+        this.handlePickup(playerId, target, source);
+        return 'ok';
       case 'deposit':
         return this.applyPickup(playerId, target, action);
       case 'terminal':
@@ -1039,6 +1069,167 @@ export class SystemShard implements Shard {
       depleted: remaining === 0,
     });
     return 'ok';
+  }
+
+  /**
+   * TASK-34: the player's inventory stacks (one per player, kept on the
+   * PLAYER's ship entity — shared across ship and on-foot). Undefined until
+   * the first pickup / loaded row; treated as empty otherwise.
+   */
+  getInventory(playerId: string): InventoryStacks {
+    const entity = this.playerEntities.get(playerId);
+    return entity?.inventory ?? emptyInventory();
+  }
+
+  /**
+   * TASK-34: partial pickup of a GROUND ITEM into the weight-capped
+   * inventory (the TASK-38 contract defined early — mining reuses it):
+   * validation mirrors handleInteract (on foot → known ground item → 3 m
+   * range), then the shared pickupInto math — takes what FITS, leaves the
+   * remainder on the ground item (despawn at zero). Returns
+   * {taken, remaining}. All state rides the next 10 Hz entity_update
+   * (quantity change + the taker's inventory) to every peer.
+   */
+  handlePickup(
+    playerId: string,
+    target: SimEntity,
+    source?: unknown,
+  ): { taken: number; remaining: number } {
+    const character = this.entities.get(`char:${playerId}`);
+    if (!character) {
+      this.sendErrorToPlayer(playerId, 'wrong-regime', 'pickups require being on foot', source);
+      return { taken: 0, remaining: target.quantity ?? 0 };
+    }
+    if (target.kind !== 'groundItem' || !target.resourceId) {
+      this.sendErrorToPlayer(playerId, 'not-found', 'unknown ground item', source);
+      return { taken: 0, remaining: target.quantity ?? 0 };
+    }
+    if (vecLength(vecSub(target.ship.pos, character.ship.pos)) > INTERACT_RANGE_M) {
+      this.sendErrorToPlayer(playerId, 'out-of-range', 'the ground item is out of reach', source);
+      return { taken: 0, remaining: target.quantity ?? 0 };
+    }
+    if (!isResourceId(target.resourceId)) {
+      this.log.warn('dropped ground item with unknown resource', {
+        target: target.id,
+        resource: target.resourceId,
+      });
+      return { taken: 0, remaining: target.quantity ?? 0 };
+    }
+    const available = target.quantity ?? 0;
+    const player = this.playerEntities.get(playerId);
+    const res = pickupInto(player?.inventory ?? emptyInventory(), target.resourceId, available);
+    if (res.taken === 0) {
+      this.sendErrorToPlayer(playerId, 'inventory-full', 'not enough weight capacity', source);
+      return res;
+    }
+    if (player) player.inventory = res.stacks;
+    const left = available - res.taken;
+    if (left <= 0) this.entities.delete(target.id);
+    else target.quantity = left;
+    this.log.info('ground item picked up', {
+      playerId,
+      item: target.id,
+      resource: target.resourceId,
+      taken: res.taken,
+      left,
+    });
+    this.events.emit('pickup', {
+      playerId,
+      targetId: target.id,
+      resource: target.resourceId,
+      taken: res.taken,
+      remaining: left,
+      depleted: left <= 0,
+    });
+    return { taken: res.taken, remaining: left };
+  }
+
+  /**
+   * TASK-34: drop `amount` units of `resourceId` at the player's position.
+   * Validation (each failure → structured error to the requesting conn,
+   * stale-conn guarded): known resource, on foot (drops happen AT the
+   * character's location), amount ≤ owned. Success removes from the stacks
+   * (shared dropFrom math) and spawns a 'groundItem' entity — interactable
+   * ('Take' prompt), 300 s ttl (generic tick ttl sweep), in every snapshot
+   * (visible to all players).
+   */
+  handleDrop(
+    playerId: string,
+    resourceId: string,
+    amount: number,
+    source?: unknown,
+  ): 'ok' | 'invalid-resource' | 'invalid-amount' | 'not-owned' | 'wrong-regime' {
+    const character = this.entities.get(`char:${playerId}`);
+    if (!character) {
+      this.sendErrorToPlayer(playerId, 'wrong-regime', 'drops require being on foot', source);
+      return 'wrong-regime';
+    }
+    if (!isResourceId(resourceId)) {
+      this.sendErrorToPlayer(playerId, 'invalid-resource', `unknown resource ${resourceId}`, source);
+      return 'invalid-resource';
+    }
+    if (!Number.isInteger(amount) || amount <= 0) {
+      this.sendErrorToPlayer(playerId, 'invalid-amount', 'amount must be a positive integer', source);
+      return 'invalid-amount';
+    }
+    const player = this.playerEntities.get(playerId);
+    const stacks = player?.inventory ?? emptyInventory();
+    const owned = stacks[resourceId] ?? 0;
+    if (amount > owned) {
+      this.sendErrorToPlayer(
+        playerId,
+        'not-owned',
+        `you only have ${owned} ${resourceId}`,
+        source,
+      );
+      return 'not-owned';
+    }
+    const res = dropFrom(stacks, resourceId, amount);
+    if (player) player.inventory = res.stacks;
+    const id = `groundItem:${++this.groundItemSeq}`;
+    this.entities.set(id, {
+      id,
+      kind: 'groundItem',
+      playerId: null,
+      classId: 'groundItem',
+      ship: {
+        pos: { ...character.ship.pos },
+        vel: { x: 0, y: 0, z: 0 },
+        quat: quatIdentity(),
+        regime: 'surface',
+      },
+      hull: 1,
+      shields: 1,
+      targetId: null,
+      docked: false,
+      quantity: res.dropped,
+      resourceId,
+      ttl: this.groundItemTtlTicks,
+    });
+    this.log.info('items dropped', { playerId, item: id, resourceId, amount: res.dropped });
+    this.events.emit('drop', {
+      playerId,
+      targetId: id,
+      resource: resourceId,
+      amount: res.dropped,
+    });
+    return 'ok';
+  }
+
+  /**
+   * Dev/test hook (TASK-34 e2e): grant inventory units directly (the real
+   * earn path is pickup/mining — TASK-38). Merges into the existing stacks.
+   */
+  giveInventoryForTesting(playerId: string, stacks: Partial<Record<ResourceId, number>>): void {
+    const player = this.playerEntities.get(playerId);
+    if (!player) return;
+    const next = { ...(player.inventory ?? emptyInventory()) };
+    for (const [id, amount] of Object.entries(stacks)) {
+      if (isResourceId(id) && Number.isInteger(amount) && amount > 0) {
+        next[id] = (next[id] ?? 0) + amount;
+      }
+    }
+    player.inventory = next;
   }
 
   /**
@@ -1189,13 +1380,14 @@ export class SystemShard implements Shard {
    */
   async loadShips(load: ShipsLoad): Promise<{ ships: number; wrecks: number }> {
     const owners = [...new Set(load.ships.map((r) => r.ownerId))];
-    const callsigns = new Map(
-      (await this.repo.getPlayersByIds(owners)).map((p) => [p.id, p.callsign]),
-    );
+    const playerRows = new Map((await this.repo.getPlayersByIds(owners)).map((p) => [p.id, p]));
     let ships = 0;
     for (const row of load.ships) {
       if (this.playerEntities.has(row.ownerId)) continue; // already in-shard
-      const entity = this.entityFromShipRow(row, callsigns.get(row.ownerId));
+      const owner = playerRows.get(row.ownerId);
+      const entity = this.entityFromShipRow(row, owner?.callsign);
+      // TASK-34: restart rehydration includes the inventory (players.inventory).
+      if (owner) entity.inventory = sanitizeInventory(owner.inventory);
       this.entities.set(entity.id, entity);
       this.playerEntities.set(row.ownerId, entity);
       ships += 1;
@@ -1301,8 +1493,15 @@ export function entityToState(e: SimEntity): EntityState {
   // TASK-29: the docked landing pad id (entity_update.state = 'docked' {padId}).
   if (e.padId) state.padId = e.padId;
   // TASK-33: deposit remaining units — a pickup shows as a quantity change,
-  // or a removal at zero, in every client's next snapshot.
+  // or a removal at zero, in every client's next snapshot. TASK-34:
+  // ground items ride the same field (their units) + `resourceId`.
   if (e.quantity !== undefined) state.quantity = e.quantity;
+  if (e.resourceId !== undefined) state.resourceId = e.resourceId;
+  // TASK-34: player-owned entities (ship + character) carry the inventory
+  // so the client's weight bar updates within one snapshot of any change.
+  if (e.kind === 'ship' || e.kind === 'character') {
+    if (e.inventory !== undefined) state.inventory = toPlayerInventory(e.inventory);
+  }
   // TASK-31: character entities carry their owner + the on-foot flag so
   // clients route the control target / camera off the same shape.
   if (e.kind === 'character') {

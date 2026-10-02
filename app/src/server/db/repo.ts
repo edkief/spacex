@@ -112,6 +112,14 @@ export interface Repository {
   ): Promise<ShipRow>;
   getShip(shipId: string): Promise<ShipRow | undefined>;
   getShipByOwner(playerId: string): Promise<ShipRow | undefined>;
+  /**
+   * TASK-34: read the player's inventory as Parsed stacks ({} when empty or
+   * corrupt — the raw JSON is validated here, one definition for the read
+   * sites).
+   */
+  getPlayerInventory(playerId: string): Promise<Record<string, number>>;
+  /** TASK-34: persist the player's inventory stacks (shard flush cadence). */
+  updatePlayerInventory(playerId: string, stacks: Record<string, number>): Promise<void>;
   /** Insert a ship (used by dock purchases, TASK-20); caller sets class-full hull/shields. */
   createShip(input: {
     ownerId: string;
@@ -249,7 +257,7 @@ export function createRepo(db: Db, tables: Schema): Repository {
 
   const repo: Repository = {
     async createPlayer(input) {
-      const player: Omit<PlayerRow, 'id'> = {
+      const player: Omit<PlayerRow, 'id' | 'inventory'> = {
         callsign: input.callsign,
         credits: input.credits ?? 500,
         homeSystemId: input.homeSystemId,
@@ -306,6 +314,31 @@ export function createRepo(db: Db, tables: Schema): Repository {
     async getShipByOwner(playerId) {
       const rows = await d.select().from(t.ships).where(eq(t.ships.ownerId, playerId)).limit(1);
       return rows[0] as ShipRow | undefined;
+    },
+
+    async getPlayerInventory(playerId) {
+      const rows = await d
+        .select({ inventory: t.players.inventory })
+        .from(t.players)
+        .where(eq(t.players.id, playerId))
+        .limit(1);
+      const raw = rows[0]?.inventory;
+      if (typeof raw !== 'string' || raw === '') return {};
+      try {
+        const parsed: unknown = JSON.parse(raw);
+        return typeof parsed === 'object' && parsed !== null
+          ? (parsed as Record<string, number>)
+          : {};
+      } catch {
+        return {}; // corrupt row: treat as empty (shard sanitizes further)
+      }
+    },
+
+    async updatePlayerInventory(playerId, stacks) {
+      await d
+        .update(t.players)
+        .set({ inventory: JSON.stringify(stacks) })
+        .where(eq(t.players.id, playerId));
     },
 
     async createShip(input) {

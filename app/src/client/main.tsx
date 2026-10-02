@@ -15,6 +15,9 @@ import { ReentryTint } from '@client/ui/reentry-tint';
 import { DockedIndicator } from '@client/ui/docked-indicator';
 import { LeaveShipPrompt } from '@client/ui/leave-ship-prompt';
 import { InteractPrompt } from '@client/ui/interact-prompt';
+import { WeightBar } from '@client/ui/weight-bar';
+import { inventory, setInventory } from '@client/state/inventory';
+import { RESOURCE_IDS } from '@shared/inventory';
 import {
   createInteractableRegistry,
   interactableTargetsFrom,
@@ -208,6 +211,9 @@ function useGameSession(
           // TASK-29.3: DOCKED indicator — visible exactly while the wire
           // regime is 'docked' with a padId set (HUD stub; full HUD TASK-51).
           if (self) setDockedIndicator(isDocked(self.regime, self.padId));
+          // TASK-34: weight bar — the server's self entity carries the
+          // inventory (updates within one snapshot of any pickup/drop).
+          setInventory(self?.inventory ?? null);
           return;
         }
         if (msg.type !== 'presence') return;
@@ -244,6 +250,8 @@ function useGameSession(
         setReentryTint(0);
         // TASK-29.3: a warp must never carry a stale docked state either.
         setDockedIndicator(false);
+        // TASK-34: a warp must never carry a stale weight bar either.
+        setInventory(null);
         // TASK-33: a system snapshot rebuilds the interaction target list
         // from ground truth (and resets any stale prompt state).
         onSnapshotEntities?.(snapshot.entities);
@@ -535,6 +543,24 @@ function App() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [interactRegistry]);
+  // TASK-34: Q — DROP one unit of the first owned resource (catalog order:
+  // iron, copper, rare-earth, crystal). The server is the authority: it
+  // re-validates ownership + the on-foot regime ('wrong-regime' denial
+  // otherwise) and spawns the ground item at the character's position.
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'q' && e.key !== 'Q') return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+      const inv = inventory();
+      if (!inv) return;
+      const resourceId = RESOURCE_IDS.find((id) => (inv.stacks[id] ?? 0) > 0);
+      if (!resourceId) return;
+      clientRef.current?.send('drop', { resourceId, amount: 1 });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // TASK-32: on-foot key capture — the pressed set the prediction loop
   // maps to input frames (WASD + Shift run + Space jump). Typing in an
@@ -765,6 +791,7 @@ function App() {
       <DockedIndicator />
       <LeaveShipPrompt />
       <InteractPrompt text={interactPrompt} />
+      <WeightBar />
       {/* TASK-57: dev-only frame monitor (F3) — never shipped in prod. */}
       {import.meta.env.DEV && <FrameMonitorOverlay />}
       {connState === 'lost' && session && (

@@ -21,6 +21,7 @@ export const ENTITY_KINDS = [
   'wreck',
   'deposit',
   'terminal',
+  'groundItem',
 ] as const;
 export type EntityKind = (typeof ENTITY_KINDS)[number];
 
@@ -107,6 +108,24 @@ export const entityStateSchema = z
      * next 10 Hz snapshot for every client. Other kinds omit it.
      */
     quantity: z.number().int().finite().nonnegative().optional(),
+    /**
+     * TASK-34: the resource a kind 'groundItem' entity holds (dropped
+     * inventory, 300 s ttl). `quantity` is its unit count. Other kinds omit
+     * it. Wire contract addition (TASK-69 docs).
+     */
+    resourceId: z.string().min(1).optional(),
+    /**
+     * TASK-34: the owner's inventory, set on player-owned entities (ship +
+     * character) — {stacks: {resourceId: amount}, weightUsed}. The client
+     * renders the weight bar from its OWN entity within one snapshot.
+     */
+    inventory: z
+      .object({
+        stacks: z.record(z.string().min(1), z.number().int().finite().nonnegative()),
+        weightUsed: z.number().int().finite().nonnegative(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type EntityState = z.infer<typeof entityStateSchema>;
@@ -245,6 +264,17 @@ export const messageSchemas = {
     .strict(),
   buy_ship: z.object({ classId: z.string().min(1).max(32) }).strict(),
   set_livery: z.object({ livery: liverySchema }).strict(),
+  /**
+   * TASK-34: drop `amount` units of `resourceId` from the player's inventory
+   * at their position — the server spawns a 'groundItem' entity (300 s ttl,
+   * visible to all players, re-takeable via the interact 'pickup').
+   */
+  drop: z
+    .object({
+      resourceId: z.string().min(1).max(32),
+      amount: z.number().int().finite().positive(),
+    })
+    .strict(),
   exit_ship: z.object({ shipId: z.string().min(1) }).strict(),
   enter_ship: z.object({ shipId: z.string().min(1) }).strict(),
   repair: z.object({}).strict(),

@@ -57,9 +57,18 @@ export interface SimEntity {
    * 'deposit' / 'terminal' (TASK-33): static interactable world objects
    * (deposits carry a `quantity` — the v1 pickup decrements it and despawns
    * the entity at zero; seeded placement lands in TASK-37, terminals in
-   * TASK-40/53).
+   * TASK-40/53). 'groundItem' (TASK-34): dropped inventory — a static
+   * interactable at the dropper's position with a `quantity` + `resourceId`
+   * and a 300 s ttl (the generic tick ttl sweep despawns it).
    */
-  kind: 'ship' | 'ai-ship' | 'wreck' | 'character' | 'deposit' | 'terminal';
+  kind:
+    | 'ship'
+    | 'ai-ship'
+    | 'wreck'
+    | 'character'
+    | 'deposit'
+    | 'terminal'
+    | 'groundItem';
   /** Owner (null for AI ships and wrecks). One entity per player. */
   playerId: string | null;
   callsign?: string;
@@ -133,8 +142,21 @@ export interface SimEntity {
    * TASK-33: remaining units (deposit entities only). The v1 pickup
    * decrements it by one per interaction; at zero the deposit despawns.
    * TASK-38's channel flow replaces the per-tap decrement (same field).
+   * TASK-34: groundItem entities also carry it (units dropped by a player).
    */
   quantity?: number;
+  /**
+   * TASK-34: the resource a 'groundItem' entity holds (dropped inventory).
+   * Ground items only — the wire carries it as `resourceId`.
+   */
+  resourceId?: string;
+  /**
+   * TASK-34: the player's on-foot inventory — stacks of resource units,
+   * weight-capped (40 units, @shared/inventory). One inventory per player,
+   * kept on the PLAYER's ship entity (shared across ship and on-foot; the
+   * ship's cargo hold is separate, TASK-39). Persisted in players.inventory.
+   */
+  inventory?: import('@shared/inventory').InventoryStacks;
 }
 
 /** The shard the router (TASK-11) will instantiate per system. */

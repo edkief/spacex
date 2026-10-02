@@ -29,7 +29,7 @@ export const INTERACT_RANGE_M = 3;
 export const INTERACT_CONE_DEG = 30;
 
 /** Entity kinds a player can interact with (the registry's key space). */
-export const INTERACTABLE_KINDS = ['deposit', 'ship', 'terminal'] as const;
+export const INTERACTABLE_KINDS = ['deposit', 'ship', 'terminal', 'groundItem'] as const;
 export type InteractableKind = (typeof INTERACTABLE_KINDS)[number];
 
 export function isInteractableKind(kind: string): kind is InteractableKind {
@@ -43,6 +43,9 @@ export interface InteractableTarget {
   pos: Vec3;
   /** Callsign (ships) — lets a client pre-filter on ownership. */
   callsign?: string;
+  /** TASK-34: ground items — the resource + units ('[E] Take iron x3'). */
+  resourceId?: string;
+  quantity?: number;
 }
 
 /**

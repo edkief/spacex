@@ -34,6 +34,8 @@ export interface FlushSummary {
   saved: number;
   /** A destroyed entity was persisted (wreck record). */
   destroyed: number;
+  /** TASK-34: inventories written (one UPDATE per player that has one). */
+  inventories: number;
   ms: number;
 }
 
@@ -121,10 +123,10 @@ export function createShardPersist(deps: {
       const shipCount = [...shard.entities.values()].filter(
         (e) => e.kind === 'ship' && e.playerId,
       ).length;
-      if (shipCount === 0) return { saved: 0, destroyed: 0, ms: 0 };
+      if (shipCount === 0) return { saved: 0, destroyed: 0, inventories: 0, ms: 0 };
 
       const t0 = performance.now();
-      const { saved, destroyed } = await repo.withTransaction(async (r) => {
+      const { saved, destroyed, inventories } = await repo.withTransaction(async (r) => {
         const txRepo = txFactory(r);
         // ONE multi-row upsert statement for the WHOLE shard (the
         // uq_ships_owner key is the conflict target) in one small
@@ -139,11 +141,26 @@ export function createShardPersist(deps: {
           rows.push({ ownerId: e.playerId, classId: e.classId, state: entityToInput(e) });
         }
         const savedN = await txRepo.upsertShipStates(rows);
-        return { saved: savedN, destroyed: destroyedN };
+        // TASK-34: inventories ride the same transaction — one small
+        // UPDATE per player that HAS an inventory (undefined = untouched,
+        // never clobber a row with an empty write).
+        let inventoriesN = 0;
+        for (const e of shard.entities.values()) {
+          if (e.kind !== 'ship' || !e.playerId || e.inventory === undefined) continue;
+          await txRepo.updatePlayerInventory(e.playerId, e.inventory);
+          inventoriesN += 1;
+        }
+        return { saved: savedN, destroyed: destroyedN, inventories: inventoriesN };
       });
       const ms = performance.now() - t0;
-      log?.debug('shard flush', { systemId: shard.systemId, saved, destroyed, ms });
-      return { saved, destroyed, ms };
+      log?.debug('shard flush', {
+        systemId: shard.systemId,
+        saved,
+        destroyed,
+        inventories,
+        ms,
+      });
+      return { saved, destroyed, inventories, ms };
     },
 
     async loadShips() {

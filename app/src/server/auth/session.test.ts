@@ -58,6 +58,7 @@ const PLAYER: PlayerRow = {
   callsign: 'table-66',
   credits: 500,
   homeSystemId: 'a'.repeat(16),
+  inventory: '{}',
   createdAt: '2026-01-01T00:00:00.000Z',
 };
 

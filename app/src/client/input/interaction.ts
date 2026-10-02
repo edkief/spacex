@@ -92,6 +92,16 @@ export function createInteractableRegistry(): InteractableRegistry {
       onInteract: (target, send) => send('interact', { targetId: target.id, action: 'pickup' }),
     })
     .register({
+      kind: 'groundItem',
+      // TASK-34: dropped inventory — 'Take iron x3' (resource + units).
+      prompt: (target) =>
+        `[E] Take ${target.resourceId ?? 'items'} x${target.quantity ?? 1}`,
+      eligible: () => true,
+      // Partial pickup: the server takes what fits in the weight cap and
+      // leaves the remainder on the ground item (same 'interact' message).
+      onInteract: (target, send) => send('interact', { targetId: target.id, action: 'pickup' }),
+    })
+    .register({
       kind: 'ship',
       prompt: () => '[E] Enter ship',
       // v1: ONLY the player's own ship (no boarding others — TASK-35).
@@ -146,12 +156,16 @@ export function resolveInteract(
 export function interactableTargetsFrom(entities: readonly EntityState[]): InteractableTarget[] {
   const out: InteractableTarget[] = [];
   for (const e of entities) {
-    if (e.kind !== 'deposit' && e.kind !== 'ship' && e.kind !== 'terminal') continue;
+    if (e.kind !== 'deposit' && e.kind !== 'ship' && e.kind !== 'terminal' && e.kind !== 'groundItem')
+      continue;
     out.push({
       id: e.id,
       kind: e.kind,
       pos: e.pos,
       ...(e.callsign !== undefined ? { callsign: e.callsign } : {}),
+      // TASK-34: ground items carry resource + units for the prompt text.
+      ...(e.resourceId !== undefined ? { resourceId: e.resourceId } : {}),
+      ...(e.quantity !== undefined ? { quantity: e.quantity } : {}),
     });
   }
   return out;

@@ -41,6 +41,12 @@ export interface PlayerRow {
   credits: number;
   homeSystemId: string;
   createdAt: string;
+  /**
+   * TASK-34: the player's inventory as a raw JSON string
+   * ('{"iron":3}' — {} when empty). Parsed + sanitized at the read sites
+   * (@shared/inventory.sanitizeInventory), not in the row.
+   */
+  inventory: string;
 }
 
 export interface ShipRow {
@@ -107,6 +113,8 @@ export const players = sqliteTable('players', {
   credits: integer('credits').notNull().default(500),
   homeSystemId: text('home_system_id').notNull(),
   createdAt: text('created_at').notNull(),
+  // TASK-34: inventory JSON (raw text — parsed via sanitizeInventory).
+  inventory: text('inventory').notNull().default('{}'),
 });
 
 export const ships = sqliteTable(
@@ -198,6 +206,8 @@ export const pgPlayers = pgTable('players', {
   credits: pgInteger('credits').notNull().default(500),
   homeSystemId: pgText('home_system_id').notNull(),
   createdAt: timestamptz('created_at').notNull(),
+  // TASK-34: inventory JSON (raw text — parsed via sanitizeInventory).
+  inventory: pgText('inventory').notNull().default('{}'),
 });
 
 export const pgShips = pgTable(
