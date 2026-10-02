@@ -73,7 +73,7 @@ describe('flushShips (step 1)', () => {
       systemId: SYSTEM_ID,
       entities: new Map(),
     });
-    expect(summary).toEqual({ saved: 0, destroyed: 0, ms: 0 });
+    expect(summary).toEqual({ saved: 0, destroyed: 0, inventories: 0, ms: 0 });
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
   });
@@ -102,11 +102,17 @@ describe('flushShips (step 1)', () => {
       return original(fn);
     });
 
-    const summary = await persist.flushShips({
-      systemId: SYSTEM_ID,
-      entities: new Map([[ship.id, entity]]),
-    });
-    spy.mockRestore();
+    let summary!: Awaited<ReturnType<typeof persist.flushShips>>;
+    try {
+      summary = await persist.flushShips({
+        systemId: SYSTEM_ID,
+        entities: new Map([[ship.id, entity]]),
+      });
+    } finally {
+      // restore even on assertion failure — a leaked spy recurses into
+      // every later withTransaction call in this file
+      spy.mockRestore();
+    }
 
     expect(txCount).toBe(1); // one transaction for the whole flush
     expect(summary).toMatchObject({ saved: 1, destroyed: 0 });
@@ -275,7 +281,7 @@ describe('flushShips (step 1)', () => {
         ],
       ]),
     });
-    expect(summary).toEqual({ saved: 0, destroyed: 0, ms: 0 });
+    expect(summary).toEqual({ saved: 0, destroyed: 0, inventories: 0, ms: 0 });
   });
 
   it('a failing row rolls back the WHOLE transaction (single atomic flush)', async () => {
