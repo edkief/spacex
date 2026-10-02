@@ -5,7 +5,7 @@ defaults:
 
 builds:
   - name: drift
-    dockerfile: Dockerfile
-    context: .
+    dockerfile: app/Dockerfile
+    context: app
     aliases:
       - docker-registry.docker-registry:5000/drift
