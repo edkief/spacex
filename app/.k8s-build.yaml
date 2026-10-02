@@ -1,0 +1,11 @@
+version: 1
+
+defaults:
+  context: .
+
+builds:
+  - name: drift
+    dockerfile: Dockerfile
+    context: .
+    aliases:
+      - docker-registry.docker-registry:5000/drift
