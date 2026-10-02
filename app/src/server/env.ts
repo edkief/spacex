@@ -17,6 +17,8 @@ const schema = z.object({
   WS_PATH: z.string().min(2).startsWith('/').default('/ws'),
   /** TASK-24: shard flush period (30 s; a hard crash loses up to one period). */
   SHARD_FLUSH_INTERVAL_MS: z.coerce.number().int().positive().default(30_000),
+  /** Built client directory to serve (production image); unset in dev, where vite serves it. */
+  STATIC_DIR: z.string().min(1).optional(),
 });
 
 export type Env = z.infer<typeof schema>;

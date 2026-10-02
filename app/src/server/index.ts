@@ -10,6 +10,7 @@ import { registerApiRoutes } from '@server/routes';
 import { attachShipSwapBroadcast, createShipSwapBus, routeGameMessage } from '@server/shards';
 import { createGalaxyRouter } from '@server/galaxy/router';
 import { createRouterGateway } from '@server/galaxy/gateway';
+import { registerStaticClient } from '@server/static';
 
 const env = loadEnv();
 const app = buildServer(env);
@@ -67,6 +68,8 @@ async function main(): Promise<void> {
   });
   // TASK-20: dock purchases swap the ship entity in-place for any peer in-system.
   attachShipSwapBroadcast(shipSwapBus, wsHandle.connections, repo);
+  // Production image: the same process serves the built client (same origin).
+  if (env.STATIC_DIR) await registerStaticClient(app, env.STATIC_DIR);
 
   // Graceful shutdown (TASK-12): stop the reaper, stop + flush every active
   // shard (so a SIGTERM loses nothing), then close cleanly with exit code 0.

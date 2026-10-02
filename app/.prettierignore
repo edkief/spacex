@@ -1,4 +1,5 @@
 dist/
+dist-server/
 playwright-report/
 test-results/
 data/

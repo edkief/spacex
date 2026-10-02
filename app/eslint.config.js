@@ -8,6 +8,7 @@ module.exports = [
     ignores: [
       'node_modules/**',
       'dist/**',
+      'dist-server/**',
       'playwright-report/**',
       'test-results/**',
       'data/**',
