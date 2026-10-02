@@ -39,6 +39,7 @@ import { installAtmosphereDebug } from '@client/atmosphere-debug';
 import { RegimeWiring } from '@client/state/regime-wiring';
 import { CharacterPredictor, characterStateFromWire } from '@client/net/character-prediction';
 import { installCharDebug } from '@client/char-debug';
+import { installTransitionDebug } from '@client/test/transitionCycle';
 import type { ChatMessage, EntityState, InputPayload } from '@shared/protocol/schemas';
 import { inputToCharacterInput } from '@shared/protocol/inputs';
 import type { Regime } from '@shared/regime';
@@ -954,6 +955,8 @@ installStreamDebug();
 installCameraDebug();
 // TASK-28.3: dev-only atmosphere dome pixel-probe hook (no-op in prod).
 installAtmosphereDebug();
+// TASK-30: dev-only transition-cycle benchmark hook (no-op in production builds).
+installTransitionDebug();
 
 const root = document.getElementById('root');
 if (!root) throw new Error('missing #root element');
