@@ -11,6 +11,8 @@ import type { Regime } from '@shared/regime';
 import type { EntityState } from '@shared/protocol/schemas';
 import { padsForSystem, type PadInfo } from '@shared/world/pads';
 import { createBackground } from '@client/render/starfield';
+import { depositsFor } from '@shared/world/deposits';
+import { OreRockLayer, type OreRockView } from './ore-rocks';
 import { RemoteEntityLayer } from './remote-entities';
 import {
   buildCharacterMesh,
@@ -325,6 +327,12 @@ export class WorldManager {
    * via attachRemoteLabels.
    */
   private readonly remoteLayer = new RemoteEntityLayer();
+  /**
+   * TASK-37: ore rocks for the system's seeded deposits. The LIST is
+   * client-derived (same seed as the server); quantities come from the
+   * 10 Hz snapshot (the server streams the 500 m ring only).
+   */
+  private readonly oreLayer = new OreRockLayer();
   /** Scratch vector for projectToScreen (never escapes the manager). */
   private readonly projectVec = new THREE.Vector3();
   private lastFrameMs = performance.now();
@@ -371,6 +379,7 @@ export class WorldManager {
     this.scene.add(this.background.sky);
     this.scene.add(this.background.stars);
     this.scene.add(this.dome.mesh); // renderOrder 2: composites over sky + stars
+    this.oreLayer.attach(this.scene); // TASK-37: ore rocks live scene-level
 
     const frame = (): void => {
       if (this.disposed) return;
@@ -394,6 +403,9 @@ export class WorldManager {
       // TASK-36: drive the remotes 200 ms in the past (interpolated) before
       // the render — cheap (a handful of entities, direct transforms).
       this.remoteLayer.renderFrame(nowMs);
+      // TASK-37: stream the ore-rock 500 m ring + drive the near-depletion
+      // pulse (same player position as the pad-ring culling above).
+      this.oreLayer.update(this.selfPos, nowMs);
       this.renderer.render(this.scene, this.camera);
       // renderer.info.render resets per frame — capture it right after the
       // render, before the next frame (TASK-57 frame monitor).
@@ -420,6 +432,10 @@ export class WorldManager {
     this.pads = padsForSystem(this.seed, system);
     this.padRings = buildPadRings(this.seed, system);
     for (const ring of this.padRings) next.add(ring);
+    // TASK-37: the deposit list is derived from the SAME seed the server
+    // uses (cached per system — a warm cache makes this a no-op; the first
+    // cold derivation per system is the one-time ~100 ms placement pass).
+    this.oreLayer.setDeposits(depositsFor(this.seed, system));
     if (this.worldGroup) {
       this.scene.remove(this.worldGroup);
       disposeGroup(this.worldGroup);
@@ -448,6 +464,14 @@ export class WorldManager {
    */
   feedRemoteEntities(entities: EntityState[], selfCallsign: string): void {
     this.remoteLayer.addSnapshot(performance.now(), entities, selfCallsign);
+    // TASK-37: the same batch carries the 500 m ring's deposit quantities —
+    // the client-derived rocks apply the mined-unit deltas from it.
+    this.oreLayer.feedQuantities(entities);
+  }
+
+  /** TASK-37: the ore rocks currently known (dev probe / e2e assertions). */
+  oreRocks(): OreRockView[] {
+    return this.oreLayer.views();
   }
 
   /**

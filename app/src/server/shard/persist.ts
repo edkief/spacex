@@ -3,7 +3,7 @@ import { performance } from 'node:perf_hooks';
 import { shipStats, isLivery } from '@shared/ships';
 import type { Regime } from '@shared/physics/flight';
 import type { Repository, ShipStateInput } from '@server/db/repo';
-import type { ShipRegime, ShipRow } from '@server/db/schema';
+import type { DepositRow, ShipRegime, ShipRow } from '@server/db/schema';
 import { WRECK_TTL_MS } from './shard';
 import type { ShardLogger, SimEntity } from './types';
 
@@ -55,6 +55,12 @@ export interface ShipsLoad {
   wrecks: LoadedWreck[];
   /** Expired wreck rows deleted on load (no orphans). */
   deletedExpired: number;
+  /**
+   * TASK-37: the system's persisted deposit DELTAS (remaining/discovered).
+   * Rows exist only for mined (or depleted) deposits; unmined ones stay
+   * at their seed-derived initial amount.
+   */
+  deposits: DepositRow[];
 }
 
 export interface ShardPersistOptions {
@@ -184,7 +190,10 @@ export function createShardPersist(deps: {
           }
         }
         const deletedExpired = await txRepo.deleteShips(expired);
-        return { systemId, ships, wrecks, deletedExpired };
+        // TASK-37: deposit deltas ride the same load (rows exist only for
+        // mined/depleted deposits, so this stays tiny).
+        const deposits = await txRepo.listDeposits(systemId);
+        return { systemId, ships, wrecks, deletedExpired, deposits };
       });
     },
   };

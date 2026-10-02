@@ -27,6 +27,12 @@ import {
   type PadInfo,
 } from '@shared/world/pads';
 import {
+  DEPOSIT_DISCOVERY_RADIUS_M,
+  DEPOSIT_RENDER_RANGE_M,
+  depositsFor,
+  type Deposit,
+} from '@shared/world/deposits';
+import {
   characterSpawnPos,
   integrateCharacter,
   type CharacterState,
@@ -59,7 +65,7 @@ import {
 } from '@shared/galaxy/planets';
 import { regimeFor, type RegimePlanet } from '@shared/regime';
 import type { Repository } from '@server/db/repo';
-import type { ShipRow } from '@server/db/schema';
+import type { DepositRow, ShipRow } from '@server/db/schema';
 import { validRegime, type ShipsLoad } from './persist';
 import type { Conn } from '@server/ws';
 import type { ShipSwapBus } from '@server/shards';
@@ -117,7 +123,9 @@ export interface CreateSystemShardOptions {
   /** Player ship lookup (entity spawn on join). */
   repo: Pick<Repository, 'getShipByOwner' | 'getPlayersByIds'> &
     /** TASK-34: inventory load on join (optional — test stubs predate it). */
-    Partial<Pick<Repository, 'getPlayerInventory'>>;
+    Partial<Pick<Repository, 'getPlayerInventory'>> &
+    /** TASK-37: deposit delta upsert on mine (optional — test stubs predate it). */
+    Partial<Pick<Repository, 'upsertDeposit'>>;
   /** Keep in-shard entities in sync with dock purchases / livery changes. */
   shipSwapBus: ShipSwapBus;
   persist?: (entities: EntityState[]) => void;
@@ -202,6 +210,14 @@ export class SystemShard implements Shard {
     // index them by planet — the pad list is system-derived data.
     for (const pad of padsForSystem(options.galaxySeed, options.system)) {
       this.planetPads.set(pad.planetId, pad);
+    }
+    // TASK-37: derive the system's seeded deposits (same pure function the
+    // client uses — positions are NEVER stored, only the DB deltas) and
+    // spawn them as static interactable entities. A restarted shard gets
+    // the same entities, then loadShips overlays the persisted deltas
+    // (remaining / discovered / despawned-at-zero).
+    for (const deposit of depositsFor(options.galaxySeed, options.system)) {
+      this.spawnDepositEntity(deposit);
     }
     this.regimePlanets = systemRegimePlanets(options.system).map((planet) => ({
       ...planet,
@@ -610,10 +626,28 @@ export class SystemShard implements Shard {
     for (const conn of this.connections.values()) conn.send(buffer);
   }
 
-  /** Protocol snapshot of all entities (10 Hz broadcast payload, joined form). */
+  /**
+   * Protocol snapshot of all entities (10 Hz broadcast payload, joined form).
+   * TASK-37: SEED-derived deposits are streamed by distance — only deposits
+   * within DEPOSIT_RENDER_RANGE_M (500 m) of any player ride the snapshot
+   * (120 static entities per system would otherwise bloat every frame;
+   * the client derives the full list from the same seed and just applies
+   * the quantity/discovered deltas). Dev-hook deposits (no depositSeq)
+   * always ride (the e2e hooks place them anywhere).
+   */
   snapshot(): EntityState[] {
     const out: EntityState[] = [];
-    for (const entity of this.entities.values()) out.push(entityToState(entity));
+    let playerPos: Vec3[] | undefined;
+    for (const entity of this.entities.values()) {
+      if (entity.kind === 'deposit' && entity.depositSeq !== undefined) {
+        if (!playerPos) playerPos = this.playerPositions();
+        const near = playerPos.some(
+          (p) => vecLength(vecSub(entity.ship.pos, p)) <= DEPOSIT_RENDER_RANGE_M,
+        );
+        if (!near) continue;
+      }
+      out.push(entityToState(entity));
+    }
     return out;
   }
 
@@ -715,6 +749,9 @@ export class SystemShard implements Shard {
       // the character — so it mirrors the ship's stacks every tick).
       this.syncCharacterInventory(entity.playerId);
     }
+
+    // TASK-37: deposit discovery (any player within 50 m flips the flag).
+    this.sweepDiscovery();
 
     // 10 Hz snapshot: every 2nd tick, serialize ONCE, share the buffer.
     if (tick % SNAPSHOT_EVERY_TICKS === 0 && this.entities.size > 0 && this.connections.size > 0) {
@@ -892,6 +929,110 @@ export class SystemShard implements Shard {
     });
     this.log.debug('deposit placed (dev/test hook)', { deposit: id, pos });
     return id;
+  }
+
+  /**
+   * TASK-37: spawn the static entity for one SEED-derived deposit. Id is
+   * `deposit:<depositId>` where depositId = `${systemId}:${depositSeq}` —
+   * the stable seed-derived key the DB delta row maps back to.
+   */
+  private spawnDepositEntity(deposit: Deposit): void {
+    this.entities.set(`deposit:${deposit.depositId}`, {
+      id: `deposit:${deposit.depositId}`,
+      kind: 'deposit',
+      playerId: null,
+      classId: 'deposit',
+      ship: {
+        pos: { ...deposit.pos },
+        vel: { x: 0, y: 0, z: 0 },
+        quat: quatIdentity(),
+        regime: 'surface',
+      },
+      hull: 1,
+      shields: 1,
+      targetId: null,
+      docked: false,
+      quantity: deposit.amount,
+      resourceId: deposit.resourceId,
+      depositSeq: deposit.depositSeq,
+      depositDiscovered: deposit.discovered,
+      planetId: deposit.planetId,
+    });
+  }
+
+  /**
+   * TASK-37: the player positions a discovery/streaming check runs against
+   * — every player's ACTIVE entity (the on-foot character when disembarked,
+   * else the ship — including idle ships of disconnected players).
+   */
+  private playerPositions(): Vec3[] {
+    const out: Vec3[] = [];
+    for (const entity of this.playerEntities.values()) {
+      if (entity.disembarked) continue; // the character below carries them
+      out.push(entity.ship.pos);
+    }
+    for (const entity of this.entities.values()) {
+      if (entity.kind === 'character') out.push(entity.ship.pos);
+    }
+    return out;
+  }
+
+  /**
+   * TASK-37: the discovery sweep — a deposit flips `depositDiscovered`
+   * (server-side, persisted with the next mine) when ANY player's active
+   * entity comes within DEPOSIT_DISCOVERY_RADIUS_M. Runs every tick over
+   * UNDISCOVERED deposits only (bounded, 3D distance — a ship skimming the
+   * surface at 50 m also discovers).
+   */
+  private sweepDiscovery(): void {
+    const positions = this.playerPositions();
+    if (positions.length === 0) return;
+    for (const entity of this.entities.values()) {
+      if (entity.kind !== 'deposit' || entity.depositDiscovered) continue;
+      const near = positions.some(
+        (p) =>
+          vecLength(vecSub(entity.ship.pos, p)) <= DEPOSIT_DISCOVERY_RADIUS_M,
+      );
+      if (near) {
+        entity.depositDiscovered = true;
+        this.log.info('deposit discovered', { deposit: entity.id, depositSeq: entity.depositSeq });
+        this.events.emit('deposit-discovered', {
+          id: entity.id,
+          depositSeq: entity.depositSeq,
+        });
+      }
+    }
+  }
+
+  /**
+   * TASK-37: persist a seeded deposit's delta row. The row is created
+   * LAZILY on first mine (upsert with the remaining amount + discovered);
+   * later mines are full-state upserts of the same row (the shard is the
+   * single writer for a system's deposits, so a one-row upsert is the
+   * atomic decrement; the repo also offers an UPDATE-with-guard variant).
+   * Depleted deposits keep their row (remaining 0) — the entity despawns.
+   * Failures log and never throw (a DB blip must not kill the sim).
+   */
+  private persistDeposit(entity: SimEntity): void {
+    if (entity.depositSeq === undefined) return; // dev-hook deposit: no row
+    const upsert = this.repo.upsertDeposit;
+    if (!upsert) return; // test stub without the method: in-memory only
+    const row: DepositRow = {
+      systemId: this.systemId,
+      depositSeq: entity.depositSeq,
+      depositId: `${this.systemId}:${entity.depositSeq}`,
+      planetId: entity.planetId ?? '',
+      pos: { ...entity.ship.pos },
+      resourceId: entity.resourceId ?? '',
+      remaining: entity.quantity ?? 0,
+      discovered: entity.depositDiscovered ?? false,
+    };
+    void upsert.call(this.repo, row).catch((err: unknown) => {
+      this.log.warn('deposit persist failed', {
+        deposit: entity.id,
+        error: String(err),
+      });
+    });
   }
 
   /**
@@ -1136,10 +1277,26 @@ export class SystemShard implements Shard {
     action: string | undefined,
   ): InteractOutcome {
     const remaining = Math.max(0, (target.quantity ?? 1) - 1);
-    if (remaining === 0) {
-      this.entities.delete(target.id);
+    const depleted = remaining === 0;
+    if (depleted) {
+      // TASK-37: a depleted SEED deposit despawns (entity removed) but its
+      // DB row stays with remaining 0 — the mine is what persists it.
+      if (target.depositSeq !== undefined) {
+        target.quantity = 0;
+        target.depositDiscovered = true;
+        this.persistDeposit(target);
+        this.entities.delete(target.id);
+      } else {
+        this.entities.delete(target.id);
+      }
     } else {
       target.quantity = remaining;
+      // TASK-37: seed deposits persist on every mine (row created lazily on
+      // the FIRST mine; upsert after). Dev-hook deposits stay in-memory.
+      if (target.depositSeq !== undefined) {
+        target.depositDiscovered = true; // a mine happened at < 3 m
+        this.persistDeposit(target);
+      }
     }
     this.log.info('deposit picked up', {
       playerId,
@@ -1151,7 +1308,7 @@ export class SystemShard implements Shard {
       playerId,
       targetId: target.id,
       remaining,
-      depleted: remaining === 0,
+      depleted,
     });
     return 'ok';
   }
@@ -1482,13 +1639,35 @@ export class SystemShard implements Shard {
   }
 
   /**
+   * TASK-37: overlay the persisted deposit DELTAS onto the seeded entities
+   * (the seed is the source of truth for positions; the row wins for
+   * remaining/discovered). A row with remaining 0 despawns the entity
+   * (the row STAYS — re-mining a depleted deposit is impossible in v1).
+   */
+  private applyDepositDeltas(rows: DepositRow[]): number {
+    let applied = 0;
+    for (const row of rows) {
+      const entity = this.entities.get(`deposit:${row.depositId}`);
+      if (!entity) continue; // the derived list is the source of truth
+      if (row.remaining <= 0) {
+        this.entities.delete(entity.id);
+        continue;
+      }
+      entity.quantity = row.remaining;
+      entity.depositDiscovered = row.discovered;
+      applied += 1;
+    }
+    return applied;
+  }
+
+  /**
    * TASK-24: shard-spawn load — rebuild the sim from the persisted ships of
    * this system (the result of ShardPersist.loadShips). Flying/on-foot ships
    * come back with their saved state; docked ships at dock coords; unexpired
    * destroyed ships as static wrecks with their remaining ttl. Entities that
    * are already in the shard are never clobbered.
    */
-  async loadShips(load: ShipsLoad): Promise<{ ships: number; wrecks: number }> {
+  async loadShips(load: ShipsLoad): Promise<{ ships: number; wrecks: number; depositDeltas: number }> {
     const owners = [...new Set(load.ships.map((r) => r.ownerId))];
     const playerRows = new Map((await this.repo.getPlayersByIds(owners)).map((p) => [p.id, p]));
     let ships = 0;
@@ -1525,13 +1704,17 @@ export class SystemShard implements Shard {
       });
       wrecks += 1;
     }
+    // TASK-37: overlay the deposit deltas (remaining / discovered /
+    // despawned-at-zero) onto the seeded entities — positions stay derived.
+    const depositDeltas = this.applyDepositDeltas(load.deposits);
     this.log.info('shard loaded persisted state', {
       systemId: this.systemId,
       ships,
       wrecks,
       deletedExpired: load.deletedExpired,
+      depositDeltas,
     });
-    return { ships, wrecks };
+    return { ships, wrecks, depositDeltas };
   }
 
   /** Dock purchases / livery edits replace the in-shard entity in place. */

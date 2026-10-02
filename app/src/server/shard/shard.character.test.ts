@@ -201,8 +201,10 @@ describe('TASK-31 step 1: server disembark', () => {
     expect(shipState.regime).toBe('docked');
     expect(shipState.padId).toBe(PAD.padId);
 
-    // The 10 Hz snapshot carries BOTH entities (what every peer receives).
-    const snap = shard.snapshot();
+    // The 10 Hz snapshot carries BOTH entities (what every peer receives)
+    // — the player's own ones (TASK-37: the snapshot can also stream
+    // nearby deposits, so filter to the player's entities here).
+    const snap = shard.snapshot().filter((s) => s.playerId === 'p1');
     expect(snap.map((s) => s.kind).sort()).toEqual(['character', 'ship']);
 
     // Resting ticks (no input after the exit): the ship stays EXACTLY put

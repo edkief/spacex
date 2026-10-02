@@ -147,9 +147,23 @@ export interface SimEntity {
   quantity?: number;
   /**
    * TASK-34: the resource a 'groundItem' entity holds (dropped inventory).
-   * Ground items only — the wire carries it as `resourceId`.
+   * Ground items only — the wire carries it as `resourceId`. TASK-37:
+   * seeded deposit entities carry it too (their resource from the catalog).
    */
   resourceId?: string;
+  /**
+   * TASK-37: the SEED-derived identity of a deposit entity (the shard's dev
+   * hook deposits have none). `${systemId}:${depositSeq}` — the DB delta
+   * row's key, so mining can persist remaining/discovered.
+   */
+  depositSeq?: number;
+  /**
+   * TASK-37: a seeded deposit's discovered flag — flips true server-side
+   * when any player (ship OR on-foot character) comes within
+   * DEPOSIT_DISCOVERY_RADIUS_M (50 m). v1: kept for the future (gates the
+   * star-chart summary); the test asserts the server-side flip.
+   */
+  depositDiscovered?: boolean;
   /**
    * TASK-34: the player's on-foot inventory — stacks of resource units,
    * weight-capped (40 units, @shared/inventory). One inventory per player,

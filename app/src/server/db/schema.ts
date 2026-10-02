@@ -1,5 +1,13 @@
 import { sql } from 'drizzle-orm';
-import { check, integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import {
+  check,
+  integer,
+  primaryKey as sqlitePrimaryKey,
+  real,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from 'drizzle-orm/sqlite-core';
 import {
   boolean as pgBoolean,
   check as pgCheck,
@@ -89,6 +97,23 @@ export interface NodeStateRow {
   nodeId: string;
   quantityRemaining: number;
   respawnAt: string | null;
+}
+
+/**
+ * TASK-37: one deposit's persisted STATE (deltas only — position is
+ * seed-derived, never stored). Keyed by (systemId, depositSeq); the stable
+ * id is `${systemId}:${depositSeq}`. `remaining` 0 = depleted (entity
+ * despawned, row stays).
+ */
+export interface DepositRow {
+  systemId: string;
+  depositSeq: number;
+  depositId: string;
+  planetId: string;
+  pos: Vec3;
+  resourceId: string;
+  remaining: number;
+  discovered: boolean;
 }
 
 export interface SystemRow {
@@ -185,6 +210,22 @@ export const systemRegistry = sqliteTable('system_registry', {
   lastActiveAt: text('last_active_at'),
 });
 
+// TASK-37: deposit deltas (see migrations/000003_deposits.sql).
+export const deposits = sqliteTable(
+  'deposits',
+  {
+    systemId: text('system_id').notNull(),
+    depositSeq: integer('deposit_seq').notNull(),
+    depositId: text('deposit_id').notNull(),
+    planetId: text('planet_id').notNull(),
+    pos: text('pos', { mode: 'json' }).$type<Vec3>().notNull(),
+    resourceId: text('resource_id').notNull(),
+    remaining: integer('remaining').notNull(),
+    discovered: integer('discovered', { mode: 'boolean' }).notNull().default(false),
+  },
+  (t) => [sqlitePrimaryKey({ name: 'pk_deposits_system_seq', columns: [t.systemId, t.depositSeq] })],
+);
+
 export const sqliteTables = {
   players,
   ships,
@@ -192,6 +233,7 @@ export const sqliteTables = {
   sessions,
   resourceNodeState,
   systemRegistry,
+  deposits,
 };
 
 export type SqliteSchema = typeof sqliteTables;
@@ -276,6 +318,22 @@ export const pgSystemRegistry = pgTable('system_registry', {
   lastActiveAt: timestamptz('last_active_at'),
 });
 
+// TASK-37: deposit deltas (dual-driver; sqlite DDL in 000003_deposits.sql).
+export const pgDeposits = pgTable(
+  'deposits',
+  {
+    systemId: pgText('system_id').notNull(),
+    depositSeq: pgInteger('deposit_seq').notNull(),
+    depositId: pgText('deposit_id').notNull(),
+    planetId: pgText('planet_id').notNull(),
+    pos: jsonb('pos').$type<Vec3>().notNull(),
+    resourceId: pgText('resource_id').notNull(),
+    remaining: pgInteger('remaining').notNull(),
+    discovered: pgBoolean('discovered').notNull().default(false),
+  },
+  (t) => [pgUniqueIndex('pk_deposits_system_seq').on(t.systemId, t.depositSeq)],
+);
+
 export const pgTables = {
   players: pgPlayers,
   ships: pgShips,
@@ -283,10 +341,11 @@ export const pgTables = {
   sessions: pgSessions,
   resourceNodeState: pgResourceNodeState,
   systemRegistry: pgSystemRegistry,
+  deposits: pgDeposits,
 };
 
 export type PgSchema = typeof pgTables;
 
-/** Both dialect schemas expose the same six tables with the same column
+/** Both dialect schemas expose the same seven tables with the same column
  *  names; the repository layer is written once against this shape. */
 export type Schema = SqliteSchema | PgSchema;

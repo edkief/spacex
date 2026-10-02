@@ -1,4 +1,4 @@
-import { and, eq, inArray, like, lt, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, like, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { SHIP_CLASSES } from '@shared/ships';
@@ -16,6 +16,7 @@ import {
   SHIP_STATES,
   type CargoRow,
   type Livery,
+  type DepositRow,
   type NodeStateRow,
   type PlayerRow,
   type Quat,
@@ -175,6 +176,20 @@ export interface Repository {
    * embed the system id in node ids (e.g. `${systemId}:${hash}`).
    */
   listNodeStates(systemId: string, nodeIds?: string[]): Promise<NodeStateRow[]>;
+  /**
+   * TASK-37: upsert a deposit's delta row (created lazily on first mine;
+   * conflict on the (system_id, deposit_seq) key).
+   */
+  upsertDeposit(input: DepositRow): Promise<DepositRow>;
+  /** TASK-37: the system's persisted deposit deltas (empty before first mine). */
+  listDeposits(systemId: string): Promise<DepositRow[]>;
+  /**
+   * TASK-37: ATOMIC decrement of a deposit's remaining amount (single
+   * UPDATE, guarded by remaining >= amount — a concurrent over-mine can
+   * never drive the row below 0). Returns the updated row, or undefined
+   * when the row is missing (not yet mined) or already depleted.
+   */
+  decrementDeposit(systemId: string, depositSeq: number, amount: number): Promise<DepositRow | undefined>;
   upsertSystem(systemId: string, name: string, shardActive?: boolean): Promise<SystemRow>;
   findSystem(systemId: string): Promise<SystemRow | undefined>;
   createSession(input: SessionInput): Promise<SessionRow>;
@@ -552,6 +567,57 @@ export function createRepo(db: Db, tables: Schema): Repository {
           : like(t.resourceNodeState.nodeId, `${systemId}%`);
       const rows = await d.select().from(t.resourceNodeState).where(where);
       return rows as NodeStateRow[];
+    },
+
+    async upsertDeposit(input) {
+      if (!Number.isInteger(input.remaining) || input.remaining < 0) {
+        throw new Error(`invalid deposit remaining: ${input.remaining}`);
+      }
+      const upserted = await d
+        .insert(t.deposits)
+        .values(input)
+        .onConflictDoUpdate({
+          target: [t.deposits.systemId, t.deposits.depositSeq],
+          set: {
+            depositId: input.depositId,
+            planetId: input.planetId,
+            pos: input.pos,
+            resourceId: input.resourceId,
+            remaining: input.remaining,
+            discovered: input.discovered,
+          },
+        })
+        .returning();
+      return upserted[0] as DepositRow;
+    },
+
+    async listDeposits(systemId) {
+      const rows = await d
+        .select()
+        .from(t.deposits)
+        .where(eq(t.deposits.systemId, systemId));
+      return rows as DepositRow[];
+    },
+
+    async decrementDeposit(systemId, depositSeq, amount) {
+      if (!Number.isInteger(amount) || amount <= 0) {
+        throw new Error(`invalid deposit amount: ${amount}`);
+      }
+      const rows = await d
+        .update(t.deposits)
+        .set({
+          remaining: sql`${t.deposits.remaining} - ${amount}`,
+          discovered: true,
+        })
+        .where(
+          and(
+            eq(t.deposits.systemId, systemId),
+            eq(t.deposits.depositSeq, depositSeq),
+            gte(t.deposits.remaining, amount),
+          ),
+        )
+        .returning();
+      return (rows[0] as DepositRow | undefined) ?? undefined;
     },
 
     async upsertSystem(systemId, name, shardActive = false) {

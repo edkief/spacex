@@ -664,9 +664,11 @@ describe('SystemShard reconnect and idle continuation (TASK-17)', () => {
     vi.advanceTimersByTime(20 * TICK_DT_MS); // idle drift
 
     // The player reconnects: a NEW connection is registered for the same
-    // player — the entity map must stay at exactly one entity.
+    // player — the entity map must not grow (no duplicate entity; TASK-37:
+    // the map also holds the seeded deposits, so compare sizes, not a 1).
+    const sizeBeforeReconnect = shard.entities.size;
     addFakeConn(shard, 'p1', 'Alpha');
-    expect(shard.entities.size).toBe(1);
+    expect(shard.entities.size).toBe(sizeBeforeReconnect);
     expect(entity.idle).toBe(false);
     // The ship is where the sim left it (no reset), and the new conn drives it.
     expect(entity.ship.pos.z).toBeGreaterThan(posAtDrop.z);

@@ -130,14 +130,19 @@ describe('shard sim over live ws (TASK-13)', () => {
     await joinSystem(client, p.token, shard.systemId);
 
     // onJoinSystem spawns the entity asynchronously — wait for it.
-    for (let i = 0; i < 50 && shard.entities.size === 0; i++) {
+    for (
+      let i = 0;
+      i < 50 && ![...shard.entities.values()].some((e) => e.playerId === p.playerId);
+      i++
+    ) {
       await new Promise((r) => setTimeout(r, 20));
     }
-    // The joined player's ship is now a shard entity at the dock position.
-    expect(shard.entities.size).toBe(1);
-    const entity = [...shard.entities.values()][0];
-    expect(entity.playerId).toBe(p.playerId);
-    expect(entity.docked).toBe(true);
+    // The joined player's ship is now a shard entity at the dock position
+    // (TASK-37: the map also holds the 120 seeded deposits — look the
+    // player's entity up instead of counting).
+    const entity = [...shard.entities.values()].find((e) => e.playerId === p.playerId);
+    expect(entity).toBeDefined();
+    expect(entity!.docked).toBe(true);
 
     // Thrust for a moment; snapshots (10 Hz) must show the ship moving.
     for (let i = 1; i <= 10; i++) {

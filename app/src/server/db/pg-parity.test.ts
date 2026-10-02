@@ -35,7 +35,7 @@ describe('postgres schema parity (drizzle-kit generate)', () => {
     const sqlFiles = fs.readdirSync(outDir).filter((f) => f.endsWith('.sql'));
     expect(sqlFiles.length).toBeGreaterThan(0);
     const ddl = sqlFiles.map((f) => fs.readFileSync(path.join(outDir, f), 'utf8')).join('\n');
-    // all six tables make it into the generated DDL
+    // all seven tables make it into the generated DDL
     for (const table of [
       'players',
       'ships',
@@ -43,6 +43,7 @@ describe('postgres schema parity (drizzle-kit generate)', () => {
       'sessions',
       'resource_node_state',
       'system_registry',
+      'deposits',
     ]) {
       expect(ddl, `missing table ${table}`).toContain(table);
     }
