@@ -17,28 +17,32 @@
       "step": 1,
       "description": "Server mining state machine",
       "details": "shard.mining: Map<playerId, MiningState>; on 'interact' {targetId: deposit, action:'mine-start'} (extend the interact protocol): create state (range check); the sim tick advances it: if now - lastAward >= 1500 ms and deposit.remaining > 0 and inventory has space → award 1 (transaction: deposit.remaining -1, inventory +1), broadcast entity_update (inventory is private — send only to the owner; deposit remaining to all); cancel on 'mine-stop' or range loss (checked per tick).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Anti-spam guarantee",
       "details": "Awarding is tick-driven (server clock), not message-driven: 'mine-tick' client messages only (re)assert intent; the server's 1.5 s cadence is the truth. Test proves spam = no gain.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Client UI",
       "details": "Hold-E handling (input map: E down starts, E up stops — sends mine-start/mine-stop); RadialProgress component around the prompt (CSS conic-gradient, driven by the server's mining state in entity_update — the server echoes miningProgress every snapshot so the UI is server-timed); '+1 iron' float text (DOM, 1 s fade).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Tests + e2e",
       "details": "All listed; e2e mines 2 units with a mid-channel screenshot. Run full suite + e2e.",
-      "pass": false
+      "pass": true
     }
   ],
-  "dependencies": ["TASK-33", "TASK-37", "TASK-34"],
+  "dependencies": [
+    "TASK-33",
+    "TASK-37",
+    "TASK-34"
+  ],
   "estimatedComplexity": "medium",
   "technicalNotes": [
     "1.5 s/unit is a deliberate pace: a 20-unit deposit ≈ 30 s of mining — one trip ≈ one backpack (TASK-34's 40 units) of iron, closing the loop: mine → haul → sell (TASK-40).",

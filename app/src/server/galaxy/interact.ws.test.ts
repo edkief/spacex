@@ -24,11 +24,11 @@ import { createGalaxyRouter } from './router';
 import { createRouterGateway } from './gateway';
 
 /**
- * TASK-33 step 4: the interaction over LIVE ws (the warp.ws.test.ts pattern,
- * real server wiring). The AC: "two clients, one picks up, both see the
- * update" — a pickup is an entity mutation on the SHARD, so the 10 Hz shared
- * snapshot carries it to every peer within one snapshot: quantity −1, then
- * the removal at zero.
+ * TASK-38: the deposit interaction over LIVE ws (the warp.ws.test.ts pattern,
+ * real server wiring). The AC: "two clients, one mines, both see the update"
+ * — a mining award is an entity mutation on the SHARD, so the 10 Hz shared
+ * snapshot carries quantity −1 (then removal at zero) to every peer, while
+ * the 'mining' progress frames stay PRIVATE to the miner.
  */
 
 const GALAXY_SEED = 'DRIFT-SEED-0001';
@@ -199,8 +199,23 @@ async function onFoot(client: WsTestClient, player: Claimed): Promise<WireEntity
   )!;
 }
 
-describe('TASK-33: pickup over live ws — two clients, both see the update', () => {
-  it('one tap: quantity −1 for BOTH clients; a second tap removes the deposit for both', async () => {
+interface MiningActive {
+  phase: 'active';
+  depositId: string;
+  progress: number;
+  units: number;
+  status: string;
+}
+
+interface MiningEnd {
+  phase: 'ended';
+  depositId: string;
+  reason: string;
+  units: number;
+}
+
+describe('TASK-38: mining over live ws — two clients, both see the update', () => {
+  it('hold: the mining frame is private; quantity −1 for BOTH; stop ends it; second hold depletes', async () => {
     const a = await claim('ws-interact-a');
     const b = await claim('ws-interact-b');
     const ca = mkClient();
@@ -226,13 +241,27 @@ describe('TASK-33: pickup over live ws — two clients, both see the update', ()
     await ca.next((m) => hasDep(m, depositId), 'deposit visible (A)', 10_000);
     await cb.next((m) => hasDep(m, depositId), 'deposit visible (B)', 10_000);
 
-    // A picks up (the client's registry sends exactly this frame).
+    // A starts HOLDING E (the client's registry sends exactly this frame).
     ca.send({
       v: PROTOCOL_VERSION,
       type: 'interact',
-      payload: { targetId: depositId, action: 'pickup' },
+      payload: { targetId: depositId, action: 'mine-start' },
     });
 
+    // The 'mining' frame is PRIVATE: A gets the immediate progress-0 echo…
+    const startFrame = (await ca.next(
+      (m) => m.type === 'mining' && (m.payload as MiningActive).phase === 'active',
+      'mining active (A)',
+      10_000,
+    )) as WsEnvelope & { payload: MiningActive };
+    expect(startFrame.payload).toEqual(
+      expect.objectContaining({ phase: 'active', depositId, units: 0, status: 'mining' }),
+    );
+    // …and B's buffer must contain ZERO 'mining' frames.
+    expect(cb.messages.filter((m) => m.type === 'mining')).toHaveLength(0);
+
+    // The unit lands on the server's 1.5 s cadence: quantity 2 → 1 rides the
+    // SHARED snapshot to both clients (the 10 s window covers the cadence).
     const q1 = (m: WsEnvelope): boolean => {
       if (m.type !== 'entity_update') return false;
       const d = ((m.payload as { entities: WireEntity[] }).entities ?? []).find(
@@ -256,6 +285,22 @@ describe('TASK-33: pickup over live ws — two clients, both see the update', ()
     // The successful interact sends NO error to the requester.
     expect(ca.messages.filter((m) => m.type === 'error')).toHaveLength(0);
 
+    // A RELEASES E: the channel ends with reason 'stopped' (private to A;
+    // the in-flight unit is NOT awarded — quantity stays 1).
+    ca.send({
+      v: PROTOCOL_VERSION,
+      type: 'interact',
+      payload: { targetId: depositId, action: 'mine-stop' },
+    });
+    const stopFrame = (await ca.next(
+      (m) => m.type === 'mining' && (m.payload as MiningEnd).phase === 'ended',
+      'mining ended (A)',
+      10_000,
+    )) as WsEnvelope & { payload: MiningEnd };
+    expect(stopFrame.payload).toEqual(
+      expect.objectContaining({ phase: 'ended', depositId, reason: 'stopped', units: 1 }),
+    );
+
     // Drain the queues (next() scans the WHOLE buffer, so stale pre-deposit
     // snapshots would otherwise satisfy the "gone" predicate below).
     const drainQuiet = async (c: WsTestClient): Promise<void> => {
@@ -270,16 +315,30 @@ describe('TASK-33: pickup over live ws — two clients, both see the update', ()
     await drainQuiet(ca);
     await drainQuiet(cb);
 
-    // Second tap: 1 → 0 → the deposit is REMOVED. The removal rides the next
-    // snapshot: both clients get an entity_update that no longer contains it
-    // (the client prompt hides with it).
-    ca.send({ v: PROTOCOL_VERSION, type: 'interact', payload: { targetId: depositId } });
+    // Second hold: the last unit 1 → 0 → the deposit despawns for BOTH
+    // (entity_update without it) and the channel ends 'depleted'.
+    ca.send({
+      v: PROTOCOL_VERSION,
+      type: 'interact',
+      payload: { targetId: depositId, action: 'mine-start' },
+    });
     const gone = (m: WsEnvelope): boolean => {
       if (m.type !== 'entity_update') return false;
       return !(m.payload as { entities: WireEntity[] }).entities.some((e) => e.id === depositId);
     };
     await ca.next(gone, 'deposit removed (A)', 10_000);
     await cb.next(gone, 'deposit removed (B)', 10_000);
+    const depleteFrame = (await ca.next(
+      (m) =>
+        m.type === 'mining' &&
+        (m.payload as MiningEnd).phase === 'ended' &&
+        (m.payload as MiningEnd).reason === 'depleted',
+      'mining depleted (A)',
+      10_000,
+    )) as WsEnvelope & { payload: MiningEnd };
+    expect(depleteFrame.payload).toEqual(
+      expect.objectContaining({ phase: 'ended', depositId, reason: 'depleted', units: 1 }),
+    );
     expect(shard.entities.has(depositId)).toBe(false);
   });
 

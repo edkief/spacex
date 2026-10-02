@@ -56,11 +56,7 @@ import {
   type InventoryStacks,
   type ResourceId,
 } from '@shared/inventory';
-import {
-  MINING_UNIT_MS,
-  stepMiningChannel,
-  type MiningChannel,
-} from '@shared/mining';
+import { MINING_UNIT_MS, stepMiningChannel, type MiningChannel } from '@shared/mining';
 import { shipStats, HEX_COLOR } from '@shared/ships';
 import type { SystemGen } from '@shared/galaxy/types';
 import { homeDockPosition } from '@shared/galaxy/dock';
@@ -1334,7 +1330,12 @@ export class SystemShard implements Shard {
       }
       return 'ok';
     }
-    if (action !== 'mine-start' && action !== 'mine-tick' && action !== 'pickup') {
+    if (
+      action !== undefined &&
+      action !== 'mine-start' &&
+      action !== 'mine-tick' &&
+      action !== 'pickup'
+    ) {
       this.sendErrorToPlayer(
         playerId,
         'invalid-action',
@@ -1344,7 +1345,12 @@ export class SystemShard implements Shard {
       return 'invalid-action';
     }
     if (!target.resourceId || !isResourceId(target.resourceId)) {
-      this.sendErrorToPlayer(playerId, 'invalid-resource', 'the deposit has no known resource', source);
+      this.sendErrorToPlayer(
+        playerId,
+        'invalid-resource',
+        'the deposit has no known resource',
+        source,
+      );
       return 'invalid-resource';
     }
     const existing = this.mining.get(playerId);
@@ -1365,7 +1371,11 @@ export class SystemShard implements Shard {
         unitsSoFar: 0,
         lastAwardAt: this.now(),
       });
-      this.log.info('mining started', { playerId, deposit: target.id, resource: target.resourceId });
+      this.log.info('mining started', {
+        playerId,
+        deposit: target.id,
+        resource: target.resourceId,
+      });
       this.sendMiningActive(playerId, target.id, 0, 0, 'mining');
     }
     return 'ok';
@@ -1488,7 +1498,13 @@ export class SystemShard implements Shard {
       // 10 Hz progress echo to the miner (the client UI is server-timed).
       if (tick % SNAPSHOT_EVERY_TICKS === 0) {
         const progress = Math.min(1, (now - channel.lastAwardAt) / MINING_UNIT_MS);
-        this.sendMiningActive(playerId, deposit.id, progress, channel.unitsSoFar, full ? 'full' : 'mining');
+        this.sendMiningActive(
+          playerId,
+          deposit.id,
+          progress,
+          channel.unitsSoFar,
+          full ? 'full' : 'mining',
+        );
       }
     }
   }

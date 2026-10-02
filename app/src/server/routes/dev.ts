@@ -78,12 +78,10 @@ export function registerDevRoutes(app: FastifyInstance, deps: RouteDeps): void {
     if (!auth.ok) return reply.code(401).send({ code: 'unauthorized', reason: auth.reason });
     const parsed = teleportBody.safeParse(req.body);
     if (!parsed.success) {
-      return reply
-        .code(400)
-        .send({
-          code: 'invalid-teleport',
-          message: parsed.error.issues[0]?.message ?? 'invalid body',
-        });
+      return reply.code(400).send({
+        code: 'invalid-teleport',
+        message: parsed.error.issues[0]?.message ?? 'invalid body',
+      });
     }
     const ship = await deps.repo.getShipByOwner(auth.player.id);
     if (!ship) return reply.code(404).send({ code: 'no-ship', message: 'player has no ship' });
@@ -106,12 +104,10 @@ export function registerDevRoutes(app: FastifyInstance, deps: RouteDeps): void {
     if (!auth.ok) return reply.code(401).send({ code: 'unauthorized', reason: auth.reason });
     const parsed = depositBody.safeParse(req.body);
     if (!parsed.success) {
-      return reply
-        .code(400)
-        .send({
-          code: 'invalid-deposit',
-          message: parsed.error.issues[0]?.message ?? 'invalid body',
-        });
+      return reply.code(400).send({
+        code: 'invalid-deposit',
+        message: parsed.error.issues[0]?.message ?? 'invalid body',
+      });
     }
     const ship = await deps.repo.getShipByOwner(auth.player.id);
     if (!ship) return reply.code(404).send({ code: 'no-ship', message: 'player has no ship' });
@@ -136,12 +132,10 @@ export function registerDevRoutes(app: FastifyInstance, deps: RouteDeps): void {
     if (!auth.ok) return reply.code(401).send({ code: 'unauthorized', reason: auth.reason });
     const parsed = giveBody.safeParse(req.body);
     if (!parsed.success) {
-      return reply
-        .code(400)
-        .send({
-          code: 'invalid-give',
-          message: parsed.error.issues[0]?.message ?? 'invalid body',
-        });
+      return reply.code(400).send({
+        code: 'invalid-give',
+        message: parsed.error.issues[0]?.message ?? 'invalid body',
+      });
     }
     const ship = await deps.repo.getShipByOwner(auth.player.id);
     if (!ship) return reply.code(404).send({ code: 'no-ship', message: 'player has no ship' });

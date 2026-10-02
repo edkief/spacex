@@ -57,7 +57,10 @@ let gain: MiningGain | null = null;
  * when the echo's unit counter ADVANCES on the same deposit (exactly one
  * increment per awarded unit — the server cadence, not the frame rate).
  */
-export function setMiningActive(frame: MiningActiveFrame | null, gainResource: string | null = null): void {
+export function setMiningActive(
+  frame: MiningActiveFrame | null,
+  gainResource: string | null = null,
+): void {
   const prev = view.kind === 'active' ? view.frame : null;
   if (frame === null) {
     if (view.kind === 'active') {
@@ -82,7 +85,10 @@ export function setMiningActive(frame: MiningActiveFrame | null, gainResource: s
  * hides the HUD). A unit landing on the LAST (depleting) award still
  * triggers its gain float (the ended frame carries the final counter).
  */
-export function setMiningEnded(frame: MiningEndedFrame | null, gainResource: string | null = null): void {
+export function setMiningEnded(
+  frame: MiningEndedFrame | null,
+  gainResource: string | null = null,
+): void {
   const prev = view.kind === 'active' ? view.frame : null;
   if (frame && prev && prev.depositId === frame.depositId && frame.units > prev.units) {
     gain = { key: (gain?.key ?? 0) + 1, resource: gainResource ?? gain?.resource ?? 'ore' };

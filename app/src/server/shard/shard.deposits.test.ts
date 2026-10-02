@@ -10,7 +10,13 @@ import { generateSystem } from '@shared/galaxy/system';
 import { quatIdentity, type Vec3 } from '@shared/physics/vec';
 import type { Planet, SystemGen } from '@shared/galaxy/types';
 import { MINING_UNIT_MS } from '@shared/mining';
-import { depositsFor, DEPOSIT_DISCOVERY_RADIUS_M, DEPOSIT_RENDER_RANGE_M } from '@shared/world/deposits';
+import type { InputPayload } from '@shared/protocol/schemas';
+import {
+  depositsFor,
+  DEPOSIT_DISCOVERY_RADIUS_M,
+  DEPOSIT_RENDER_RANGE_M,
+} from '@shared/world/deposits';
+import { padsForSystem, type PadInfo } from '@shared/world/pads';
 import { SystemShard } from './shard';
 import { createShardPersist } from './persist';
 import type { SimEntity } from './types';
@@ -84,10 +90,21 @@ function makeShard(): SystemShard {
 function firstDeposit(shard: SystemShard): { id: string; pos: Vec3; seq: number; initial: number } {
   const deposit = depositsFor(SEED, SYSTEM)[0];
   const entity = shard.entities.get(`deposit:${deposit.depositId}`)!;
-  return { id: entity.id, pos: { ...entity.ship.pos }, seq: deposit.depositSeq, initial: deposit.amount };
+  return {
+    id: entity.id,
+    pos: { ...entity.ship.pos },
+    seq: deposit.depositSeq,
+    initial: deposit.amount,
+  };
 }
 
-/** A player on foot standing 1 m in front of `pos` (test teleport). */
+/**
+ * A player on foot standing 1 m in front of `pos` (test teleport). The
+ * character is created by the REAL dock → handleExitShip flow (not addEntity)
+ * so the sim integrates it as a grounded surface character.
+ */
+const PAD: PadInfo = padsForSystem(SEED, SYSTEM)[0];
+
 function onFootAt(shard: SystemShard, pos: Vec3): void {
   const ship: SimEntity = {
     id: 'ship-p1',
@@ -95,31 +112,35 @@ function onFootAt(shard: SystemShard, pos: Vec3): void {
     playerId: 'p1',
     callsign: 'miner',
     classId: 'scout',
-    ship: { pos: { ...pos }, vel: { x: 0, y: 0, z: 0 }, quat: quatIdentity(), regime: 'surface' },
-    hull: 1,
-    shields: 1,
-    targetId: null,
-    docked: true,
-    padId: 'pad-test',
-    planetId: PLANET.id,
-  };
-  shard.addEntity(ship);
-  shard.registerConnection('p1', 'miner', () => undefined);
-  const character: SimEntity = {
-    id: 'char:p1',
-    kind: 'character',
-    playerId: 'p1',
-    callsign: 'miner',
-    classId: 'scout',
-    ship: { pos: { x: pos.x, y: pos.y, z: pos.z + 1 }, vel: { x: 0, y: 0, z: 0 }, quat: quatIdentity(), regime: 'surface' },
+    ship: {
+      pos: { x: PAD.pos.x, y: PAD.pos.y + 20, z: PAD.pos.z },
+      vel: { x: 0, y: 0, z: 0 },
+      quat: quatIdentity(),
+      regime: 'surface',
+    },
     hull: 1,
     shields: 1,
     targetId: null,
     docked: false,
     planetId: PLANET.id,
-    charOnGround: true,
   };
-  shard.addEntity(character);
+  shard.addEntity(ship);
+  shard.registerConnection('p1', 'miner', () => undefined);
+  const frames = makeFrames();
+  let t = 25;
+  for (let i = 0; i < 4000 && ship.padId !== PAD.padId; i++) {
+    shard.enqueueInput('p1', frames());
+    t += 50;
+    shard.sim.step(t);
+  }
+  if (ship.padId !== PAD.padId) throw new Error('ship never docked');
+  expect(shard.handleExitShip('p1', 'ship-p1')).toBe('ok');
+  shard.entities.get('char:p1')!.ship.pos = { x: pos.x, y: pos.y, z: pos.z + 1 };
+}
+
+function makeFrames(): () => InputPayload {
+  let seq = 0;
+  return () => ({ seq: ++seq, thrust: 0, turn: 0, pitch: 0, yaw: 0, fire: false, lock: false });
 }
 
 /** Restart shape (TASK-24): a NEW shard over the SAME repo + persisted load. */
@@ -185,16 +206,22 @@ describe('TASK-37: deposit persistence (mine → restart → remaining)', () => 
   });
 
   it('a fully depleted deposit despawns (entity removed) but its row stays at 0', async () => {
+    // Test 1 left p1 carrying 5 iron in the shared repo — clear it so the
+    // deposit can be fully drained under the 40u weight cap (seq 2 is 13
+    // units: the 45-unit seq 1 would overfill the cap on its own).
+    await repo.updatePlayerInventory('p1', {});
     const shard = makeShard();
     // Use a DIFFERENT deposit (the previous test mined seq 0 to initial−5).
-    const deposit = depositsFor(SEED, SYSTEM)[1];
+    const deposit = depositsFor(SEED, SYSTEM)[2];
     const id = `deposit:${deposit.depositId}`;
     const pos = { ...shard.entities.get(id)!.ship.pos };
     onFootAt(shard, pos);
     mine(shard, id, deposit.amount); // drain it completely
 
     expect(shard.entities.has(id)).toBe(false); // despawned for everyone
-    const rows = (await repo.listDeposits(SYSTEM.systemId)).filter((r) => r.depositSeq === deposit.depositSeq);
+    const rows = (await repo.listDeposits(SYSTEM.systemId)).filter(
+      (r) => r.depositSeq === deposit.depositSeq,
+    );
     expect(rows).toHaveLength(1);
     expect(rows[0].remaining).toBe(0); // the row REMAINS
 
@@ -217,7 +244,12 @@ describe('TASK-37: discovery (server-side flag, 50 m)', () => {
       kind: 'ship',
       playerId: 'p2',
       classId: 'scout',
-      ship: { pos: { x: nearPos.x, y: nearPos.y, z: nearPos.z + 40 }, vel: { x: 0, y: 0, z: 0 }, quat: quatIdentity(), regime: 'atmosphere' },
+      ship: {
+        pos: { x: nearPos.x, y: nearPos.y, z: nearPos.z + 40 },
+        vel: { x: 0, y: 0, z: 0 },
+        quat: quatIdentity(),
+        regime: 'atmosphere',
+      },
       hull: 1,
       shields: 1,
       targetId: null,
@@ -245,7 +277,12 @@ describe('TASK-37: discovery (server-side flag, 50 m)', () => {
       kind: 'ship',
       playerId: id,
       classId: 'scout',
-      ship: { pos: { x: p.x + dist, y: p.y, z: p.z }, vel: { x: 0, y: 0, z: 0 }, quat: quatIdentity(), regime: 'surface' },
+      ship: {
+        pos: { x: p.x + dist, y: p.y, z: p.z },
+        vel: { x: 0, y: 0, z: 0 },
+        quat: quatIdentity(),
+        regime: 'surface',
+      },
       hull: 1,
       shields: 1,
       targetId: null,
@@ -272,7 +309,12 @@ describe('TASK-37: snapshot streaming (500 m ring keeps the wire lean)', () => {
       kind: 'ship',
       playerId: 'p5',
       classId: 'scout',
-      ship: { pos: { x: 0, y: 50, z: 0 }, vel: { x: 0, y: 0, z: 0 }, quat: quatIdentity(), regime: 'space' },
+      ship: {
+        pos: { x: 0, y: 50, z: 0 },
+        vel: { x: 0, y: 0, z: 0 },
+        quat: quatIdentity(),
+        regime: 'space',
+      },
       hull: 1,
       shields: 1,
       targetId: null,

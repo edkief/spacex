@@ -263,8 +263,13 @@ describe('TASK-33: server interact validation + effects', () => {
   it('deposit mine (TASK-38): hold-to-mine — the unit lands on the server tick, wire carries quantity', () => {
     const shard = makeShard();
     const { charPos } = onFootAtPad(shard);
-    const mines: { playerId: string; depositId: string; resource: string; remaining: number; units: number }[] =
-      [];
+    const mines: {
+      playerId: string;
+      depositId: string;
+      resource: string;
+      remaining: number;
+      units: number;
+    }[] = [];
     shard.events.on('mine', (e) => mines.push(e));
 
     const dep = shard.addDepositForTesting({ x: charPos.x + 1, y: charPos.y, z: charPos.z }, 2);

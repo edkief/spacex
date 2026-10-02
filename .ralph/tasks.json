@@ -408,7 +408,7 @@
     "title": "Mining: extract resources into inventory",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-38.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-39",

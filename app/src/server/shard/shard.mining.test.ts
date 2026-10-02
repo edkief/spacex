@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import { MINING_UNIT_MS } from '@shared/mining';
 import { quatIdentity, type Vec3 } from '@shared/physics/vec';
 import type { Planet, SystemGen } from '@shared/galaxy/types';
-import type { ResourceId } from '@shared/inventory';
 import { SystemShard } from './shard';
 import type { SimEntity } from './types';
 
@@ -163,9 +162,7 @@ function onFootAtListening(
 }
 
 const miningFrames = (sent: string[]): WireMsg[] =>
-  sent
-    .map((b) => JSON.parse(b) as WireMsg)
-    .filter((m) => m.type === 'mining');
+  sent.map((b) => JSON.parse(b) as WireMsg).filter((m) => m.type === 'mining');
 
 describe('TASK-38: the server mining channel (fake timers, real SimLoop)', () => {
   it('full channel: the FIRST unit lands exactly at the server 1.5 s tick (nothing before)', () => {
