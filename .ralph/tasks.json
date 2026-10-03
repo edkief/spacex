@@ -456,7 +456,7 @@
     "title": "Weapons: WS integration — A fires at B, B's shields drop, C sees the FX events",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-43.2.json",
-    "passes": false,
+    "passes": true,
     "splitFrom": "TASK-43",
     "splitDepth": 1
   },

@@ -1020,9 +1020,11 @@ export class SystemShard implements Shard {
   }
 
   /**
-   * Missile detonation: 25 damage to the target (when one was in contact),
-   * 12 splash to EVERYTHING else within 5 m (friendly fire applies — one
-   * pipeline, no teams), then the 'missile-impact' FX event and removal.
+   * Missile detonation: the 'missile-impact' FX event goes out FIRST (the
+   * impact leads the damage, like the laser — the AC order fired → impact →
+   * hit), then 25 damage to the target (when one was in contact), 12 splash
+   * to EVERYTHING else within 5 m (friendly fire applies — one pipeline, no
+   * teams), and removal.
    */
   private detonateMissile(
     id: string,
@@ -1035,6 +1037,8 @@ export class SystemShard implements Shard {
     const source = srcEntity?.playerId
       ? ({ kind: 'player', id: srcEntity.playerId } as const)
       : ({ kind: 'ai', id: st.sourceId } as const);
+    // The impact-FX event leads the damage (the AC order: fired → impact → hit).
+    this.broadcastCombatEvent({ kind: 'missile-impact', weapon: 'missile', projectile: id, point });
     if (direct) {
       this.applyHit(direct.id, WEAPON_BY_ID.missile.damage, source, 'missile');
     }
@@ -1046,7 +1050,6 @@ export class SystemShard implements Shard {
         this.applyHit(e.id, WEAPON_BY_ID.missile.splashDamage ?? 12, source, 'missile');
       }
     }
-    this.broadcastCombatEvent({ kind: 'missile-impact', weapon: 'missile', projectile: id, point });
     this.entities.delete(id);
   }
 
