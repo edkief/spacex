@@ -465,7 +465,7 @@
     "title": "Weapons e2e (laser flash in the browser + screenshot) + TASK-43 close-out",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-43.3.json",
-    "passes": false,
+    "passes": true,
     "splitFrom": "TASK-43",
     "splitDepth": 1
   },
