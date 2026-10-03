@@ -46,9 +46,30 @@ import {
 import {
   characterSpawnPos,
   integrateCharacter,
+  ZERO_CHARACTER_INPUT,
   type CharacterState,
 } from '@shared/physics/character';
 import { TERMINAL_RANGE_M, terminalsFor, type TerminalInfo } from '@shared/world/terminals';
+import {
+  DRONE_AGGRO_RADIUS_M,
+  DRONE_CHASE_SPEED,
+  DRONE_FIRE_INTERVAL_MS,
+  DRONE_FIRE_RADIUS_M,
+  DRONE_HIT_DAMAGE,
+  DRONE_HOVER_M,
+  DRONE_HULL,
+  DRONE_ORBIT_SPEED,
+  DRONE_RESPAWN_MS,
+  EXPOSURE_MAX,
+  FULL_EXPOSURE,
+  RECOVER_MS,
+  hazardAt,
+  hazardsFor,
+  tickExposure,
+  type DrainKind,
+  type ExposureState,
+  type Hazard,
+} from '@shared/world/hazards';
 import { ROGUE_RESPAWN_MS, rosterFor, type RogueRosterEntry } from '@shared/world/ai';
 import { sellFrom, type SellErrorCode, type SellSource } from '@shared/sell';
 import {
@@ -304,6 +325,39 @@ export class SystemShard implements Shard {
    * shard (and are re-derived on the next spawn).
    */
   readonly ai = new Map<string, AiState>();
+  /**
+   * TASK-48: the system's seeded hazard cells indexed by planet (the SAME
+   * pure derivation the client renders from — positions never stored).
+   */
+  private readonly hazardsByPlanet = new Map<string, Hazard[]>();
+  /**
+   * TASK-48: per-player hazard state (the exposure shield pool + the 5 s
+   * 'SHIELD BURN' knock-down deadline). Per-player and NON-persistent: it
+   * resets on respawn/warp (a tactical resource, not inventory).
+   */
+  private readonly hazardStates = new Map<string, ExposureState>();
+  /**
+   * TASK-48: the surface drone machines (entity id → state). Like rogues,
+   * drones are a RENEWABLE surface threat — never persisted; a killed drone
+   * holds its entity (destroyed, hull 0 on the wire) until the tick respawns
+   * it at its patrol start after DRONE_RESPAWN_MS.
+   */
+  readonly drones = new Map<
+    string,
+    {
+      hazardId: string;
+      cell: Vec3;
+      orbitRadius: number;
+      orbitAngle: number;
+      orbitDir: 1 | -1;
+      /** Absolute hull points (0..DRONE_HULL); the entity's `hull` is the 0..1 mirror. */
+      hullPoints: number;
+      nextFireAtMs: number;
+      respawnAtMs?: number;
+      /** Patrol start (the respawn position). */
+      spawnPos: Vec3;
+    }
+  >();
   private connSeq = 0;
   private offBus: (() => void) | undefined;
   private snapshotSizeWarned = false;
@@ -359,6 +413,24 @@ export class SystemShard implements Shard {
             makeWaypoints(rng, entry.patrolCenter, entry.patrolRadius),
           ),
         );
+      }
+    }
+    // TASK-48: derive the system's seeded hazard cells (the SAME pure
+    // function the client renders discs from) and index them by planet.
+    for (const hazard of hazardsFor(options.galaxySeed, options.system)) {
+      const list = this.hazardsByPlanet.get(hazard.planetId) ?? [];
+      list.push(hazard);
+      this.hazardsByPlanet.set(hazard.planetId, list);
+    }
+    // TASK-48: spawn the hostile drones (2-4 per seeded drone cell — their
+    // count/kind are deterministic per seed). Orbit phase/direction come from
+    // the per-tick shard RNG at tick 0 (draw order = spawn order, like the
+    // rogue waypoint seeds — deterministic per system).
+    const droneRng = tickRng(options.systemId, 0);
+    for (const hazard of hazardsFor(options.galaxySeed, options.system)) {
+      if (hazard.kind !== 'drones') continue;
+      for (let i = 0; i < hazard.droneCount; i++) {
+        this.spawnDroneEntity(hazard, i, droneRng);
       }
     }
     this.regimePlanets = systemRegimePlanets(options.system).map((planet) => ({
@@ -1614,6 +1686,11 @@ export class SystemShard implements Shard {
       entity.energy = regenEnergy(entity.energy ?? ENERGY_MAX, this.dt);
     }
 
+    // TASK-48: hazard exposure — drain (storm 2/s, rad 5/s) / regen (5/s
+    // outside) per on-foot player BEFORE the character integration, so a
+    // knock-down (exposure 0 → 5 s 'recovering') freezes THAT tick's input.
+    this.stepHazardExposure();
+
     // TASK-32: integrate the on-foot characters (one per disembarked
     // player). SAME input frames as ships — the owner's active entity kind
     // decides the integrator (the ship loop skips disembarked ships, so the
@@ -1640,9 +1717,15 @@ export class SystemShard implements Shard {
         quat: entity.ship.quat,
         onGround: entity.charOnGround ?? true,
       };
+      // TASK-48: a recovering player (SHIELD BURN knock-down) cannot move —
+      // the tick feeds zero input for the whole 5 s window.
+      const recovering =
+        (this.hazardStates.get(entity.playerId)?.recoveringUntilMs ?? 0) > this.now();
       const next = integrateCharacter(
         charState,
-        inputToCharacterInput(entity.heldInput ?? ZERO_INPUT),
+        recovering
+          ? ZERO_CHARACTER_INPUT
+          : inputToCharacterInput(entity.heldInput ?? ZERO_INPUT),
         this.dt,
         ctx.options.heightAt,
       );
@@ -1658,6 +1741,11 @@ export class SystemShard implements Shard {
       // the character — so it mirrors the ship's stacks every tick).
       this.syncCharacterInventory(entity.playerId);
     }
+
+    // TASK-48: hostile drones — patrol their seeded cells, aggro the nearest
+    // on-foot player (< 80 m), hit for 3 through the damage pipeline (2 s
+    // cadence, ≤ 30 m), respawn 180 s after a kill. Ships are never targets.
+    this.stepDrones();
 
     // TASK-38: advance the active mining channels (the server clock is the
     // award authority — awards, cancellations and the 10 Hz progress echo).
@@ -1687,6 +1775,9 @@ export class SystemShard implements Shard {
     }
     // 10 Hz acks: tell each connection the last input seq APPLIED (TASK-14).
     if (tick % SNAPSHOT_EVERY_TICKS === 0) this.sendAcks();
+    // TASK-48: 10 Hz per-connection hazard frames (exposure pool + knock-down
+    // deadline) for on-foot players — the client's exposure meter reads them.
+    if (tick % SNAPSHOT_EVERY_TICKS === 0) this.sendHazardFrames();
 
     const ms = performance.now() - t0;
     this.histogram.record(ms);
@@ -1778,6 +1869,257 @@ export class SystemShard implements Shard {
         conn.ackSentSeq = conn.appliedSeq;
       }
     }
+  }
+
+  // ---------------------------------------------------------------------
+  // TASK-48: surface hazards (exposure pool) + hostile drones
+  // ---------------------------------------------------------------------
+
+  /**
+   * The exposure-draining cell a character stands in, or null: drones-kind
+   * cells drain nothing (their threat is the drone machines themselves).
+   */
+  private hazardForCharacter(entity: SimEntity): DrainKind | null {
+    if (!entity.planetId) return null;
+    const cell = hazardAt(
+      this.hazardsByPlanet.get(entity.planetId) ?? [],
+      entity.ship.pos,
+      entity.planetId,
+    );
+    if (!cell || cell.kind === 'drones') return null;
+    return cell.kind;
+  }
+
+  /**
+   * One exposure step per on-foot player (AC step 1): drain inside a cell
+   * (storm 2/s, rad 5/s — the pure shared math), regen 5/s outside, and the
+   * knock-down transition (exposure 0 → 5 s 'recovering', 'SHIELD BURN').
+   * The state is per-player and NON-persistent (it resets on respawn/warp).
+   */
+  private stepHazardExposure(): void {
+    for (const entity of this.entities.values()) {
+      if (entity.kind !== 'character' || !entity.playerId) continue;
+      const prev = this.hazardStates.get(entity.playerId) ?? FULL_EXPOSURE;
+      const { state, knocked } = tickExposure(
+        prev,
+        this.hazardForCharacter(entity),
+        this.dt,
+        this.now(),
+      );
+      this.hazardStates.set(entity.playerId, state);
+      if (knocked) {
+        this.log.info('player knocked down (shield burn)', {
+          playerId: entity.playerId,
+          hazard: this.hazardForCharacter(entity),
+        });
+        this.events.emit('hazard-knockdown', { playerId: entity.playerId });
+      }
+    }
+  }
+
+  /**
+   * TASK-48 step 2: one drone step. A killed drone first re-checks its
+   * 180 s respawn timer (the tick is the timer — no setTimeout in the shard,
+   * the rogue pattern); then each live drone aggroes the NEAREST on-foot
+   * player within 80 m (ships/space traffic are never targets — the
+   * surface-only threat), chases it, and fires for 3 (2 s cadence, ≤ 30 m)
+   * through the shared damage pipeline with source {kind:'drone'}. With no
+   * target it patrols a seeded orbit around its cell center.
+   */
+  private stepDrones(): void {
+    const now = this.now();
+    for (const [id, drone] of this.drones) {
+      if (drone.respawnAtMs === undefined || now < drone.respawnAtMs) continue;
+      const entity = this.entities.get(id);
+      drone.respawnAtMs = undefined;
+      if (!entity || !entity.destroyed) continue;
+      entity.destroyed = false;
+      entity.hull = 1;
+      drone.hullPoints = DRONE_HULL;
+      entity.ship.pos = { ...drone.spawnPos };
+      entity.ship.vel = { x: 0, y: 0, z: 0 };
+      this.log.debug('drone respawn', { id });
+    }
+    for (const [id, drone] of this.drones) {
+      const entity = this.entities.get(id);
+      if (!entity || entity.destroyed) continue;
+      let target: SimEntity | undefined;
+      let targetD = DRONE_AGGRO_RADIUS_M;
+      for (const e of this.entities.values()) {
+        if (e.kind !== 'character' || e.destroyed) continue;
+        const d = vecLength(vecSub(entity.ship.pos, e.ship.pos));
+        if (d <= targetD) {
+          targetD = d;
+          target = e;
+        }
+      }
+      if (target) {
+        const to = vecSub(target.ship.pos, entity.ship.pos);
+        const d = vecLength(to);
+        if (d > 0.001) {
+          const step = Math.min(DRONE_CHASE_SPEED * this.dt, d);
+          entity.ship.pos = vecAdd(entity.ship.pos, vecScale(to, step / d));
+        }
+        entity.ship.vel = { x: 0, y: 0, z: 0 };
+        if (d <= DRONE_FIRE_RADIUS_M && now >= drone.nextFireAtMs) {
+          drone.nextFireAtMs = now + DRONE_FIRE_INTERVAL_MS;
+          this.droneFire(id, target);
+        }
+      } else {
+        // Patrol: circle the cell center, hovering just above its ground.
+        drone.orbitAngle += drone.orbitDir * DRONE_ORBIT_SPEED * this.dt;
+        entity.ship.pos = {
+          x: drone.cell.x + Math.cos(drone.orbitAngle) * drone.orbitRadius,
+          y: drone.cell.y + DRONE_HOVER_M,
+          z: drone.cell.z + Math.sin(drone.orbitAngle) * drone.orbitRadius,
+        };
+        entity.ship.vel = { x: 0, y: 0, z: 0 };
+      }
+    }
+  }
+
+  /**
+   * One drone attack (AC): 3 points through the SHARED damage pipeline with
+   * source {kind:'drone'}, applied to the target's exposure pool (the
+   * personal shield — the pool plays the shield slot of the pipeline). At 0
+   * the player is knocked to 'recovering' (v1: NO on-foot death — the pool
+   * is the entire on-foot risk; the ship is the stakes).
+   */
+  private droneFire(droneId: string, target: SimEntity): void {
+    const playerId = target.playerId;
+    if (!playerId) return;
+    const now = this.now();
+    const state = this.hazardStates.get(playerId) ?? FULL_EXPOSURE;
+    if (now < state.recoveringUntilMs) return; // already down: no re-trigger
+    const result = applyDamage(
+      { hull: EXPOSURE_MAX, shields: state.exposure },
+      DRONE_HIT_DAMAGE,
+      { kind: 'drone', id: droneId },
+    );
+    const consumed = result.shieldHit + result.hullHit;
+    const exposure = Math.max(0, state.exposure - consumed);
+    const knocked = consumed > 0 && exposure <= 0;
+    this.hazardStates.set(
+      playerId,
+      knocked
+        ? { exposure: 0, recoveringUntilMs: now + RECOVER_MS }
+        : { exposure, recoveringUntilMs: 0 },
+    );
+    this.broadcastCombatEvent({
+      kind: 'hit',
+      target: target.id,
+      source: { kind: 'drone', id: droneId },
+      weapon: 'drone-cannon',
+      damage: DRONE_HIT_DAMAGE,
+      shieldHit: result.shieldHit,
+      hullHit: result.hullHit,
+    });
+    if (knocked) this.log.info('drone knocked the player down', { playerId, drone: droneId });
+  }
+
+  /**
+   * Spawn one drone of a seeded drone cell at its patrol position (a seeded
+   * offset from the cell center — the SAME count the client derives, so a
+   * client always sees exactly the cell's drones in the 10 Hz snapshot).
+   * `rng` is the tick-0 shard RNG (draw order = spawn order, deterministic).
+   */
+  private spawnDroneEntity(hazard: Hazard, index: number, rng: () => number): void {
+    const id = `drone:${hazard.hazardId}:${index}`;
+    const orbitAngle = rng() * Math.PI * 2;
+    const orbitRadius = hazard.radius * (0.3 + rng() * 0.4);
+    const spawnPos: Vec3 = {
+      x: hazard.pos.x + Math.cos(orbitAngle) * orbitRadius,
+      y: hazard.pos.y + DRONE_HOVER_M,
+      z: hazard.pos.z + Math.sin(orbitAngle) * orbitRadius,
+    };
+    this.entities.set(id, {
+      id,
+      kind: 'drone',
+      playerId: null,
+      classId: 'drone',
+      ship: { pos: spawnPos, vel: { x: 0, y: 0, z: 0 }, quat: quatIdentity(), regime: 'surface' },
+      hull: 1,
+      shields: 0,
+      targetId: null,
+      docked: false,
+    });
+    this.drones.set(id, {
+      hazardId: hazard.hazardId,
+      cell: hazard.pos,
+      orbitRadius,
+      orbitAngle,
+      orbitDir: rng() < 0.5 ? 1 : -1,
+      hullPoints: DRONE_HULL,
+      nextFireAtMs: 0,
+      spawnPos,
+    });
+  }
+
+  /**
+   * TASK-48: the per-connection hazard frame (10 Hz, on-foot players only).
+   * The exposure pool is PRIVATE per-player state — like 'mining', it cannot
+   * ride the shared entity_update buffer (the encode-once design must stay
+   * byte-identical for every peer). The client's exposure meter reads it.
+   */
+  private sendHazardFrames(): void {
+    for (const conn of this.connections.values()) {
+      const character = this.entities.get(`char:${conn.playerId}`);
+      if (!character) continue; // in-ship: no pool, no frame
+      const state = this.hazardStates.get(conn.playerId) ?? FULL_EXPOSURE;
+      const recoveringUntil = state.recoveringUntilMs > this.now() ? state.recoveringUntilMs : undefined;
+      const payload = {
+        exposure: Math.round(state.exposure * 100) / 100,
+        inside: this.hazardForCharacter(character) ?? undefined,
+        recoveringUntil,
+      };
+      const check = messageSchemas.hazard.safeParse(payload);
+      if (!check.success) continue; // dev safety: never crash the dispatch
+      conn.send(encodeMessage('hazard', check.data));
+    }
+  }
+
+  /**
+   * TASK-48 test hook: damage a drone through the SHARED pipeline (v1 has
+   * no on-foot weapons, so the it/e2e damage it directly). A killing hit
+   * despawns the drone (destroyed, hull 0 on the wire) and arms its 180 s
+   * respawn timer.
+   */
+  damageDroneForTesting(entityId: string, amount: number): boolean {
+    const drone = this.drones.get(entityId);
+    const entity = this.entities.get(entityId);
+    if (!drone || !entity || entity.destroyed) return false;
+    const result = applyDamage(
+      { hull: drone.hullPoints, shields: 0 },
+      amount,
+      { kind: 'player', id: 'test' },
+    );
+    drone.hullPoints = Math.max(0, drone.hullPoints - result.hullHit);
+    entity.hull = drone.hullPoints / DRONE_HULL;
+    if (result.destroyed) {
+      entity.destroyed = true;
+      drone.respawnAtMs = this.now() + DRONE_RESPAWN_MS;
+      this.broadcastCombatEvent({
+        kind: 'destroyed',
+        target: entityId,
+        source: { kind: 'player', id: 'test' },
+        weapon: 'test',
+      });
+      this.log.info('drone destroyed (test hook)', { drone: entityId });
+    }
+    return true;
+  }
+
+  /** TASK-48 test hook: set the player's exposure pool (integration assist). */
+  setExposureForTesting(playerId: string, exposure: number): void {
+    this.hazardStates.set(playerId, {
+      exposure: Math.min(EXPOSURE_MAX, Math.max(0, exposure)),
+      recoveringUntilMs: 0,
+    });
+  }
+
+  /** TASK-48 test hook: read the player's hazard state (full when absent). */
+  getHazardStateForTesting(playerId: string): ExposureState {
+    return this.hazardStates.get(playerId) ?? FULL_EXPOSURE;
   }
 
   /**
@@ -2736,6 +3078,12 @@ export class SystemShard implements Shard {
         'interactions require being on foot',
         source,
       );
+      return 'wrong-regime';
+    }
+    // TASK-48: a recovering player (SHIELD BURN knock-down) cannot interact
+    // for the whole 5 s window — same freeze as the movement inputs.
+    if ((this.hazardStates.get(playerId)?.recoveringUntilMs ?? 0) > this.now()) {
+      this.sendErrorToPlayer(playerId, 'recovering', 'shield burn: recovering', source);
       return 'wrong-regime';
     }
     const target = this.entities.get(targetId);

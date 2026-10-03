@@ -19,8 +19,15 @@
 
 import { shipStats } from '../ships';
 
-/** Damage attribution for HUD display: who (or what) landed the hit. */
-export type DamageSource = { kind: 'player'; id: string } | { kind: 'ai'; id: string };
+/**
+ * Damage attribution for HUD display: who (or what) landed the hit.
+ * TASK-48: 'drone' — a hostile surface drone hitting the on-foot player's
+ * exposure pool through the same pipeline (the math ignores the source).
+ */
+export type DamageSource =
+  | { kind: 'player'; id: string }
+  | { kind: 'ai'; id: string }
+  | { kind: 'drone'; id: string };
 
 /**
  * The combat state the damage model needs: remaining hull and shield

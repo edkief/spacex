@@ -82,7 +82,12 @@ export interface SimEntity {
     | 'terminal'
     | 'groundItem'
     /** TASK-43: a missile in flight (a visible tracer entity, 5 s ttl). */
-    | 'projectile';
+    | 'projectile'
+    /**
+     * TASK-48: a hostile surface drone (patrol/aggro, 20 hull, 180 s
+     * respawn). Surface-only threat — it never targets ships.
+     */
+    | 'drone';
   /** Owner (null for AI ships and wrecks). One entity per player. */
   playerId: string | null;
   callsign?: string;

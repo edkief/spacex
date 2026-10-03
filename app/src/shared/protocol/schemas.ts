@@ -24,6 +24,8 @@ export const ENTITY_KINDS = [
   'groundItem',
   /** TASK-43: a missile in flight (a visible tracer for every client). */
   'projectile',
+  /** TASK-48: a hostile surface drone (the PvE threat on foot). */
+  'drone',
 ] as const;
 export type EntityKind = (typeof ENTITY_KINDS)[number];
 
@@ -222,10 +224,11 @@ export const presenceEntrySchema = z
   .strict();
 export type PresenceEntry = z.infer<typeof presenceEntrySchema>;
 
-/** Who landed a hit: player or AI (HUD attribution, TASK-23). */
+/** Who landed a hit: player, AI or drone (HUD attribution, TASK-23/48). */
 export const damageSourceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('player'), id: z.string().min(1) }).strict(),
   z.object({ kind: z.literal('ai'), id: z.string().min(1) }).strict(),
+  z.object({ kind: z.literal('drone'), id: z.string().min(1) }).strict(),
 ]);
 export type DamageSource = z.infer<typeof damageSourceSchema>;
 
@@ -456,6 +459,23 @@ export const messageSchemas = {
     .object({
       ui: z.string().min(1).max(32),
       payload: z.record(z.string(), z.unknown()).optional(),
+    })
+    .strict(),
+  /**
+   * TASK-48: server → ONE player — the per-player hazard frame (the exposure
+   * pool is private per-player state, like 'mining' — the shared
+   * entity_update buffer must stay byte-identical for every peer). Sent at
+   * snapshot cadence while the player is on foot. `exposure` is the personal
+   * shield pool 0..50, `inside` the hazard kind the player stands in (the
+   * HUD's radiation meter shows while accumulating), `recoveringUntil` the
+   * epoch-ms end of the 5 s 'SHIELD BURN' knock-down (omitted when clear).
+   * Server-originated only — clients never send it.
+   */
+  hazard: z
+    .object({
+      exposure: finite.min(0).max(50),
+      inside: z.enum(['storm', 'radzone']).optional(),
+      recoveringUntil: z.number().int().nonnegative().optional(),
     })
     .strict(),
   error: z.object({ code: z.string().min(1), message: z.string().max(512) }).strict(),
