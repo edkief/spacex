@@ -8,13 +8,13 @@
       "step": 1,
       "description": "Hover drones above local ground in the patrol branch",
       "details": "In `app/src/server/shard/shard.ts`, `stepDrones()` (starts ~line 1929), the patrol branch (~line 1973) sets `y: drone.cell.y + DRONE_HOVER_M` (cell-CENTER ground height). Replace with `y: planetHeightAt(this.galaxySeed, planet, x, z) + DRONE_HOVER_M` where x/z are the current orbit point. `planetHeightAt` is in `@shared/world/deposits` (exported at line 74) — the same pure O(1) height function `src/shared/world/hazards.ts` and the shard test already use. To resolve the planet: either set `entity.planetId = hazard.planetId` in `spawnDroneEntity` (~line 2026) and resolve it in `stepDrones`, or store `planetId` on the drone record at `this.drones.set(...)`. NOTE: `SimEntity` REQUIRES the `docked` field (already set `docked: false` on drone spawns — keep it).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Green the whole hazard slice and commit",
       "details": "Run `cd app && npx vitest run src/server/shard/shard.hazards.test.ts` → expect 4/4 (the failing one is `aggros the on-foot player, fires every 2 s ...`, currently `expected 0 to be greater than or equal to 2`). Then `npx vitest run src/shared/world/hazards.test.ts` (19/19, must stay green), `cd app && npx tsc --noEmit`, full `npm run test`, `eslint --fix` + `prettier --write` on touched files. Commit (conventional, mention TASK-48). Do NOT commit the pre-existing dirty files (many `.ralph/screenshots/*.png` mods, untracked `.ralph/split/TASK-46/`).",
-      "pass": false
+      "pass": true
     }
   ],
   "acceptanceCriteria": [

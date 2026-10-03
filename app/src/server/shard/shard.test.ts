@@ -256,7 +256,15 @@ describe('SystemShard snapshots (TASK-13 step 3)', () => {
     // TASK-14: orientation on the wire (reconciliation angle + remote slerp).
     expect(e.rot).toEqual({ x: 0, y: 0, z: 0, w: 1 }); // at rest → identity
     // Every frame is the same serialized buffer (serialize once, share).
-    expect(new Set(sends).size).toBe(1);
+    // TASK-48: hazard drones orbit their cell, so their wire positions change
+    // every tick — compare the buffer with the moving drone entities excluded.
+    const withoutDrones = (raw: string) =>
+      JSON.stringify(
+        (JSON.parse(raw) as { payload: { entities: EntityState[] } }).payload.entities.filter(
+          (x) => x.kind !== 'drone',
+        ),
+      );
+    expect(new Set(sends.map(withoutDrones)).size).toBe(1);
   });
 
   it('fan-out is per-system: only in-system connections receive snapshots', () => {

@@ -174,8 +174,7 @@ describe('TASK-47 code path audit: exactly ONE fire implementation', () => {
   const src = fs.readFileSync(path.join(here, 'shard.ts'), 'utf8');
   const combatSrc = fs.readFileSync(path.join(here, 'combat.ts'), 'utf8');
   const routingSrc = fs.readFileSync(path.join(here, '..', 'shards.ts'), 'utf8');
-  const count = (haystack: string, needle: string): number =>
-    haystack.split(needle).length - 1;
+  const count = (haystack: string, needle: string): number => haystack.split(needle).length - 1;
 
   /** The source between two method signatures (the first method's region). */
   function between(source: string, fromSig: string, toSig: string): string {
@@ -232,8 +231,7 @@ describe('TASK-47 code path audit: exactly ONE fire implementation', () => {
         if (entry.name === 'node_modules') continue;
         const full = path.join(dir, entry.name);
         if (entry.isDirectory()) walk(full);
-        else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts'))
-          files.push(full);
+        else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts')) files.push(full);
       }
     };
     walk(serverDir);

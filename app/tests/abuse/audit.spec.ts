@@ -204,9 +204,7 @@ const REST_MANIFEST: Record<string, ManifestEntry> = {
     invalid: { resourceId: 'iron', amount: 0 },
   },
   '/api/dev/dummy-target': {
-    schema: z
-      .object({ distance: z.number().finite().positive().max(450).optional() })
-      .strict(),
+    schema: z.object({ distance: z.number().finite().positive().max(450).optional() }).strict(),
     valid: { distance: 200 },
     invalid: { distance: 0 },
   },

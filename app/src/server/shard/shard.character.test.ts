@@ -203,11 +203,17 @@ describe('TASK-31 step 1: server disembark', () => {
 
     // The 10 Hz snapshot carries BOTH entities (what every peer receives)
     // (TASK-37: the snapshot can ALSO stream nearby seeded deposits,
-    // TASK-40 station terminals, TASK-45 rogue ai-ships — wire playerId
-    // rides on characters only, so filter by kind instead).
+    // TASK-40 station terminals, TASK-45 rogue ai-ships, TASK-48 hazard
+    // drones — wire playerId rides on characters only, so filter by kind).
     const snap = shard
       .snapshot()
-      .filter((s) => s.kind !== 'deposit' && s.kind !== 'terminal' && s.kind !== 'ai-ship');
+      .filter(
+        (s) =>
+          s.kind !== 'deposit' &&
+          s.kind !== 'terminal' &&
+          s.kind !== 'ai-ship' &&
+          s.kind !== 'drone',
+      );
     expect(snap.map((s) => s.kind).sort()).toEqual(['character', 'ship']);
 
     // Resting ticks (no input after the exit): the ship stays EXACTLY put

@@ -182,6 +182,8 @@ describe('galaxy router over live ws (TASK-11)', () => {
         if (e.id.startsWith('terminal:')) continue;
         // TASK-45: the seeded rogue roster is static world content too (ai:<systemId>:<seq>).
         if (e.id.startsWith('ai:')) continue;
+        // TASK-48: hazard drones are static world content too (drone:<systemId>:hz:<n>:<n>).
+        if (e.id.startsWith('drone:')) continue;
         const j = ownerOfShip.get(e.id);
         expect(j, `client in ${own} sees foreign entity ${e.id}`).toBeDefined();
         const home = homeSystemIdForPlayer(GALAXY_SEED, players[j!].playerId);
@@ -243,6 +245,8 @@ describe('galaxy router over live ws (TASK-11)', () => {
       if (e.id.startsWith('terminal:')) continue;
       // TASK-45: the seeded rogue roster is static world content too (ai:<systemId>:<seq>).
       if (e.id.startsWith('ai:')) continue;
+      // TASK-48: hazard drones are static world content too (drone:<systemId>:hz:<n>:<n>).
+      if (e.id.startsWith('drone:')) continue;
       const p = claimedPlayers.find((q) => q.shipId === e.id);
       expect(p, `unknown entity ${e.id} in quiet system`).toBeDefined();
       expect(

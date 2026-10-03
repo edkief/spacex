@@ -509,7 +509,7 @@
     "title": "Server: fix drone hover height, get shard hazard suite green",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-48.1.json",
-    "passes": false,
+    "passes": true,
     "splitFrom": "TASK-48",
     "splitDepth": 1
   },
