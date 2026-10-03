@@ -1,0 +1,38 @@
+{
+  "id": "TASK-48.3",
+  "title": "Client: 3D hazard discs and drone meshes in WorldManager",
+  "category": "functional",
+  "description": "TASK-48 step 3, part B — the 3D world rendering. Draw the hazard cells as visible ground markers and the hostile drones as small rotating octahedrons, both culled to 500 m around the player, using the existing pad-ring streaming pattern in WorldManager. Drones come from the already-streamed 10 Hz entity frames with kind 'drone'; the discs are derived from `hazardsFor(seed, system)` exactly like `padsForSystem` is used. The store/HUD/wiring from TASK-48.2 must be committed before starting.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Hazard discs: storm (8 rotating quads) + rad zone (green disc), 500 m cull",
+      "details": "In `app/src/client/world/WorldManager.ts`, follow the pad pattern exactly: `padRingsFor` (line ~153) wraps `padsForSystem(seed, system)`; `padRingVisible(pos, padPos)` (line ~171) is the 500 m cull applied per-frame at ~line 402; `this.pads = padsForSystem(this.seed, system)` on system change (~line 442). Add the same shape for hazards: derive `hazardsFor(seed, system)` (from `@shared/world/hazards`, the same function the server uses — client and server must derive identically). Per kind: 'storm' = a visible swirling particle disc — keep it cheap: 8 rotating quads around the cell center (no texture-heavy particles); 'radzone' = a green-glowing ground disc; 'drones' = no ground disc (the drones themselves are the marker). Disks sit at local ground height — use `planetHeightAt` from `@shared/world/deposits` if a height is needed (it is what hazards.ts itself used for cell positions — the cells already carry `pos` including y; use `cell.pos`/`cell.radius` as-is rather than re-measuring terrain). Cull each disc with the same 500 m visibility rule as pads.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Drone meshes from streamed entities + combat events",
+      "details": "The server already streams drone entities at 10 Hz with entity kind 'drone' (added in the committed server slice; see ENTITY_KINDS and the drone entity object in `src/shared/protocol/schemas.ts`). Render each as a SMALL rotating octahedron at its streamed position (the server patrols/hovers them — the client never moves them locally). When a drone fires at a player, the server emits the standard combat events (laser-fired style, source {kind:'drone'}) — the standard client handling should already surface them; verify the drone's shot reads through the same events other entities use and add nothing new if it does. Cull drones beyond the entity-streaming range like other entities.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Verify and commit",
+      "details": "`cd app && npx tsc --noEmit`, `npm run test` (full suite green), `eslint --fix` + `prettier --write` on touched files. Commit (conventional, mention TASK-48). Do NOT commit the pre-existing dirty `.ralph/screenshots/*.png` mods or `.ralph/split/TASK-46/`. Visual verification of the discs happens in the e2e of TASK-48.4 — if you cannot see the 3D here, type-check + suite is the gate.",
+      "pass": false
+    }
+  ],
+  "acceptanceCriteria": [
+    "WorldManager derives hazards via `hazardsFor(seed, system)` on system change (same call site shape as `padsForSystem`), with per-disc 500 m cull reusing/paralleling `padRingVisible`",
+    "Storm cells render as a cheap rotating disc (8 quads), rad zones as a green ground disc; neither allocates per-frame (build once, update transforms)",
+    "Drone entities (kind 'drone') render as small rotating octahedrons at their streamed positions; a drone shot reaches the player through the standard combat events (no new event type)",
+    "`npx tsc --noEmit` green; full `npm run test` green; one commit"
+  ],
+  "notes": [
+    "Depends on TASK-48.2 being committed. The hazard cells are deterministic per system seed: `hazardsFor` in `src/shared/world/hazards.ts` (committed at 45d0204) — {hazardId, kind: 'storm'|'radzone'|'drones', pos, radius (100-400 m), intensity, droneCount}. The server uses the same function, so the client discs will match server-side hazard positions exactly — do not re-derive or offset positions.",
+    "WorldManager conventions (read before writing): pad rings at lines ~153-190 and ~400-445 of `src/client/world/WorldManager.ts`; entity streaming for ships/chars/AI is already in the file — mirror how streamed entities get meshes and culling. Keep the visual cost low by design: hazards are a reason to route around, not spectacle. No new dependencies.",
+    "Drone wire shape: check `src/shared/protocol/schemas.ts` (drone entity kind ~line 231, combat events ~lines 500-570) for the exact streamed fields (position, and any state like destroyed). The 180 s drone respawn is server-side — when a drone respawns it simply streams again; no client-side timer needed.",
+    "If the existing entity-streaming path already handles arbitrary entity kinds generically, the drone mesh may need only a kind switch — check before adding new plumbing. Dead end to avoid: nothing in the server-side TerrainContext cache belongs on the client; the client height function is the shared `planetHeightAt`."
+  ]
+}

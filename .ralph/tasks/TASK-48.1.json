@@ -1,0 +1,33 @@
+{
+  "id": "TASK-48.1",
+  "title": "Server: fix drone hover height, get shard hazard suite green",
+  "category": "functional",
+  "description": "TASK-48 steps 1+2 are written and committed; exactly ONE integration test fails. Fix the drone patrol hover so drones hover above the LOCAL ground at their orbit point (not the cell-center ground height), making the 80 m aggro radius reachable on hilly terrain. The fix is fully diagnosed — this task is a targeted fix, a test run, and a commit. Do NOT touch client code.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Hover drones above local ground in the patrol branch",
+      "details": "In `app/src/server/shard/shard.ts`, `stepDrones()` (starts ~line 1929), the patrol branch (~line 1973) sets `y: drone.cell.y + DRONE_HOVER_M` (cell-CENTER ground height). Replace with `y: planetHeightAt(this.galaxySeed, planet, x, z) + DRONE_HOVER_M` where x/z are the current orbit point. `planetHeightAt` is in `@shared/world/deposits` (exported at line 74) — the same pure O(1) height function `src/shared/world/hazards.ts` and the shard test already use. To resolve the planet: either set `entity.planetId = hazard.planetId` in `spawnDroneEntity` (~line 2026) and resolve it in `stepDrones`, or store `planetId` on the drone record at `this.drones.set(...)`. NOTE: `SimEntity` REQUIRES the `docked` field (already set `docked: false` on drone spawns — keep it).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Green the whole hazard slice and commit",
+      "details": "Run `cd app && npx vitest run src/server/shard/shard.hazards.test.ts` → expect 4/4 (the failing one is `aggros the on-foot player, fires every 2 s ...`, currently `expected 0 to be greater than or equal to 2`). Then `npx vitest run src/shared/world/hazards.test.ts` (19/19, must stay green), `cd app && npx tsc --noEmit`, full `npm run test`, `eslint --fix` + `prettier --write` on touched files. Commit (conventional, mention TASK-48). Do NOT commit the pre-existing dirty files (many `.ralph/screenshots/*.png` mods, untracked `.ralph/split/TASK-46/`).",
+      "pass": false
+    }
+  ],
+  "acceptanceCriteria": [
+    "`cd app && npx vitest run src/server/shard/shard.hazards.test.ts` → 4/4 green, in a few seconds (not minutes — a crawl means you hit the TerrainContext dead end)",
+    "`cd app && npx vitest run src/shared/world/hazards.test.ts` → 19/19 green",
+    "`cd app && npx tsc --noEmit` green; full `npm run test` green",
+    "One commit; working tree clean of this task's files"
+  ],
+  "notes": [
+    "Context (from .ralph/handoff/TASK-48.md): TASK-48 = surface hazards (storms, rad zones, hostile drones). Committed & done: `app/src/shared/world/hazards.ts` + `hazards.test.ts` (commit 45d0204 — hazardsFor placement + pure exposure math); server slice (commit 267103f — shard exposure pool 2/s storm 5/s rad 5/s regen 5 s shield-burn knock-down, drone entities 2-4/cell patrol/80 m aggro on-foot-only/3 dmg per 2 s <30 m via damage pipeline source {kind:'drone'}/20 hull/180 s respawn, 10 Hz per-connection 'hazard' frame, drone wire kind in schemas.ts, drone source in damage.ts); shard integration suite (commit 4574163) with two test bugs already fixed (filter drone ids by prefix `drone:${cell.hazardId}:` (id.startsWith) — the field is `hazardId` NOT `id`; `drone.destroyed` is undefined not false → toBeFalsy). Working tree: `shard.ts` is at HEAD (all prior session edits were reverted); tsc is green; shard.hazards.test.ts = 3 pass / 1 fail.",
+    "DEAD END — do not attempt: computing drone hover via `this.resolveRegimeCtx(entity).options.heightAt(x,z)`. It shares the per-planet TerrainContext cache with ship + character and re-primes (evict + regenerate a 3×3 chunk neighborhood, each generateSurfaceChunk builds a 64×64 fbm heightmap) on every call from every entity at a different position → every sim tick costs hundreds of ms → the ~4700-tick test crawls to tick ~140 and looks like a hang (worker 99% CPU). `planetHeightAt` is O(1) and cache-free — use it.",
+    "Why the test fails as-is: it teleports the character to the drone's ORBIT point and clamps to local ground y≈260, while the drone hovers at cell-center ground y≈166 + hover → 3D distance ≈92 m > 80 m aggro radius → no aggro, no hits. (Alternative horizontal-distance aggro was considered and rejected as less faithful; do the local-ground hover fix.)",
+    "Other dead ends: knock-down timing unit tests run at 1 Hz (dt=0.1 at 10 Hz is off by one tick, 5×0.1≠0.5 in float) — do not change them; `tickRng` (shard/ai.ts) returns `() => number`, not an Rng class — `spawnDroneEntity` is written against the function form; vitest swallows console.error in the reporter — to log from shard code during a run, write to a file (appendFileSync).",
+    "Character `planetId` is NOT re-resolved after `teleportCharacterForTesting` — hazard lookups use the disembark planet, which is why the test builds a 1-planet system. Re-knock at the 5 s deadline while still inside a hazard is intentional (documented in hazards.ts); 'knocked fires once' asserts are scoped to one episode. These are all already-committed behavior — do not change them, only the hover y."
+  ]
+}

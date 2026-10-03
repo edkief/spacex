@@ -1,0 +1,24 @@
+{
+  "task": "TASK-48",
+  "splittable": true,
+  "reason": "The two failures came from the hard, undiscovered server work consuming the whole budget; what remains is small, pattern-following, and precisely scripted by the handoff, so four standalone-green slices each fit one iteration: (1) the single diagnosed drone hover fix to make the server suite 4/4 green and committed, (2) the 2D client slice (hazard store, exposure HUD, dev route, __HAZARD__ hook), (3) the 3D slice (WorldManager hazard discs + drone meshes, pad-pattern culling), (4) the storm-cell e2e with screenshot plus the parent-task close-out. Committed work (shared hazards module + 19 unit tests, full server sim, 3/4 shard tests) is left as done; together the four tasks cover every remaining acceptance criterion, each builds only on the ones before it, and each ends with a green suite and a commit.",
+  "tasks": [
+    {
+      "id": "TASK-48.1",
+      "title": "Server: fix drone hover height, get shard hazard suite green"
+    },
+    {
+      "id": "TASK-48.2",
+      "title": "Client: hazard state store, exposure HUD, dev route, debug hook"
+    },
+    {
+      "id": "TASK-48.3",
+      "title": "Client: 3D hazard discs and drone meshes in WorldManager"
+    },
+    {
+      "id": "TASK-48.4",
+      "title": "Hazards e2e (storm screenshot) + TASK-48 close-out"
+    }
+  ],
+  "appliedAt": "2026-10-03T21:39:44.575Z"
+}

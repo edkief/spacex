@@ -1,0 +1,45 @@
+{
+  "id": "TASK-48.2",
+  "title": "Client: hazard state store, exposure HUD, dev route, debug hook",
+  "category": "functional",
+  "description": "TASK-48 step 3, part A — the non-3D client slice. The server already emits a per-connection 10 Hz 'hazard' frame (schemas.ts: exposure 0..50, `inside` hazard kind, recovering flag). Build the client store, the exposure HUD with SHIELD BURN/RECOVERING prompts, wire the frame in main.tsx, add a dev route to find a storm cell, and a window.__HAZARD__ debug hook (needed by the e2e in TASK-48.4). No WorldManager/3D work in this task — that is TASK-48.3.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Client state store: src/client/state/hazards.ts",
+      "details": "New zustand-style store following the exact pattern of `src/client/state/cargo.ts` (read it first). State: `exposure: number` (0..50, start 50), `inside: 'storm' | 'radzone' | 'drones' | null`, `recovering: boolean` (or recoveringUntil). Action: `setHazardFrame(frame)` fed by the 'hazard' wire frame (shape in `src/shared/protocol/schemas.ts`, ~line 465 — `hazard:` entry). The store is display state only — all math lives server-side and in `src/shared/world/hazards.ts`; do not re-implement exposure math client-side.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Hazard HUD: src/client/ui/hazard-hud.tsx, mounted in main.tsx",
+      "details": "Component with `id=\"hazard-hud\"`: a bar + radiation icon showing exposure, pulsing red as exposure nears 0; text prompts 'SHIELD BURN' / 'RECOVERING' while `recovering` (the 5 s knock-down). Mount and wire in `src/client/main.tsx`: add a `msg.type === 'hazard'` handler next to the existing 'ui-open' (~line 224) and 'cargo' (~line 244) handlers, pushing the frame into the store; render the component where the other HUD panels live. Follow the conventions of `src/client/ui/cargo-panel.tsx` / `weight-bar.tsx`. Add a small test following `docked-indicator.test.tsx` conventions (store update + prompt visibility).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Dev route + debug hook",
+      "details": "(a) `app/src/server/routes/dev.ts`: add `GET /api/dev/hazard-target` following the `pad-target` handler (~line 64): scan systems with `hazardsFor(deps.galaxySeed, system)` (from `@shared/world/hazards`) and return the FIRST storm cell as {systemId, planetId, hazardId, pos, radius} (JSON 404 if none). `POST /api/dev/teleport-char` ALREADY EXISTS (~line 108) — do not re-add it. (b) `app/src/client/hazard-debug.ts`: `window.__HAZARD__` dev hook exposing the store state (exposure, inside, recovering), following the pattern of `src/client/char-debug.ts`; import it from main.tsx like the other debug hooks.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Verify and commit",
+      "details": "`cd app && npx tsc --noEmit`, `npm run test` (full suite green), `eslint --fix` + `prettier --write` on touched files. Commit (conventional, mention TASK-48). Do NOT commit the pre-existing dirty `.ralph/screenshots/*.png` mods or `.ralph/split/TASK-46/`.",
+      "pass": false
+    }
+  ],
+  "acceptanceCriteria": [
+    "`src/client/state/hazards.ts` stores the 'hazard' frame fields; a test covers the store update",
+    "`src/client/ui/hazard-hud.tsx` mounted with `id=\"hazard-hud\"`; bar reflects exposure, pulses red near 0; 'SHIELD BURN'/'RECOVERING' prompts show while recovering; wired from `msg.type === 'hazard'` in main.tsx",
+    "`GET /api/dev/hazard-target` returns the first storm cell {systemId, planetId, hazardId, pos, radius} (same scan style as `pad-target`); `window.__HAZARD__` exposes exposure/inside/recovering",
+    "`npx tsc --noEmit` green; full `npm run test` green; one commit"
+  ],
+  "notes": [
+    "Depends on TASK-48.1 (server slice committed green). The 'hazard' wire frame and drone wire kind are ALREADY in `src/shared/protocol/schemas.ts` (hazard frame ~line 465, entity kind 'drone' in ENTITY_KINDS ~line 82/231) — read them for exact shapes. Server shard code (exposure/drones in `app/src/server/shard/shard.ts`) is complete and committed — do not modify server sim code in this task, only add the dev route.",
+    "Client conventions: state stores live in `src/client/state/` (zustand stores — cargo.ts is the reference); HUD components in `src/client/ui/` with colocated `.test.tsx`; dev hooks in `src/client/*-debug.ts` (char-debug.ts reference) and imported from main.tsx; dev routes in `app/src/server/routes/dev.ts` (pad-target ~line 64, teleport-char ~line 108).",
+    "The HUD radiation meter slot is the one referenced by the spec as TASK-52 — this task fills it for hazards; keep the component self-contained so TASK-52 can reuse the slot later.",
+    "Exposure pool semantics (from spec): max 50, regens 5/s out of hazards, knock-down = 5 s recovering when it hits 0; players do NOT die on foot in v1 — the HUD should never show death/HP. E2E (TASK-48.4) will assert `exposure < 50` via `window.__HAZARD__`, so the hook must expose the raw number.",
+    "The dev route must be deterministic (hazardsFor is seeded per system) and cheap — same style as pad-target. Do NOT introduce a TerrainContext or heightmap generation here."
+  ]
+}

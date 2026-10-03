@@ -1,0 +1,39 @@
+{
+  "id": "TASK-48.4",
+  "title": "Hazards e2e (storm screenshot) + TASK-48 close-out",
+  "category": "functional",
+  "description": "TASK-48 step 4 — the e2e proof and the close-out of the parent task. E2E: a player disembarks, is teleported into a seeded storm cell, the hazard HUD appears, and exposure drains (the meter + drain IS the acceptance criterion — do NOT wait for the 25 s storm knock-down). Then flip TASK-48's flags, update the board/log/structure, and commit.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "E2E: tests/e2e/hazards.spec.ts — storm cell + exposure meter",
+      "details": "Create `app/tests/e2e/hazards.spec.ts` by copying the skeleton of `app/tests/e2e/walk.spec.ts` verbatim (inline RawWsClient — see `app/tests/e2e/raw-ws.ts`, claim → `dockAtPad` → browser → press E to disembark). Then: GET `/api/dev/hazard-target` (from TASK-48.2) to get the first storm cell {systemId, planetId, hazardId, pos, radius}; `POST /api/dev/teleport-char` (existing, dev.ts ~line 108) to put the character inside that storm cell; wait for `#hazard-hud` (from TASK-48.2) to be visible; wait a few seconds and assert `window.__HAZARD__` exposure < 50 (the drain is the AC); screenshot `.ralph/screenshots/TASK-48-1.png` (it should show the storm disc from TASK-48.3 + the exposure meter); `assertClean()` per the walk.spec.ts conventions. The harness follows `playwright.e2e.config.ts`; run `npx playwright test -c playwright.e2e.config.ts tests/e2e/hazards.spec.ts` from `app/`.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Full suite + e2e green",
+      "details": "Run `cd app && npx tsc --noEmit`, full `npm run test`, and the e2e spec (plus at least walk.spec.ts as a regression canary). Fix failures within this task's scope (e2e wiring, not server sim — if a SERVER behavior looks wrong, re-read .ralph/handoff/TASK-48.md before touching server code; the committed server suite is green and should be treated as the spec of record).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Close-out: flags, board, log, structure, commit",
+      "details": "(a) `.ralph/tasks/TASK-48.json`: set every step `pass: true` (all 4). (b) `.ralph/tasks.json`: TASK-48 entry (~line 512) → `passes: true`. (c) `.ralph/logs/LOG.md`: newest-at-top entry for TASK-48 completion, bump the 'Tasks Completed' counter. (d) `.ralph/STRUCTURE.md`: add the new files if it tracks them (`shared/world/hazards.ts`, `server/shard/shard.hazards.test.ts`, `client/state/hazards.ts`, `client/ui/hazard-hud.tsx`, `client/hazard-debug.ts`, `client/world/WorldManager.ts` hazard section, `server/routes/dev.ts` hazard-target, `tests/e2e/hazards.spec.ts`). (e) `eslint --fix` + `prettier --write` on touched files; final `npm run test`; commit everything for this task (spec flags, log, e2e, screenshot) — do NOT commit the pre-existing dirty `.ralph/screenshots/*.png` mods from OTHER tasks or untracked `.ralph/split/TASK-46/`.",
+      "pass": false
+    }
+  ],
+  "acceptanceCriteria": [
+    "`tests/e2e/hazards.spec.ts` passes: player disembarks, teleports into the first storm cell, `#hazard-hud` visible, `window.__HAZARD__` exposure < 50 after a few seconds, screenshot written to `.ralph/screenshots/TASK-48-1.png`, no console errors (assertClean)",
+    "Full `npm run test` green, `npx tsc --noEmit` green, e2e run green",
+    "`.ralph/tasks/TASK-48.json` all steps `pass: true`; `.ralph/tasks.json` TASK-48 `passes: true`; `.ralph/logs/LOG.md` entry added and counter bumped; STRUCTURE.md updated",
+    "Final commit made; no files from other tasks swept into it"
+  ],
+  "notes": [
+    "Depends on TASK-48.1 through TASK-48.3 all being committed. Everything this task needs already exists: the dev routes (hazard-target, teleport-char), the HUD (`id=\"hazard-hud\"`), the debug hook (`window.__HAZARD__`), the storm disc, and the e2e skeleton (walk.spec.ts). If any of those are missing, STOP — a dependency was not actually committed; say so instead of rebuilding it inline.",
+    "E2E timing: exposure is 50 max, storm drains 2/s, so after ~5 s in the cell exposure should be ~40 — assert `< 50` with a modest timeout, NOT an exact value. Do NOT wait for knock-down (25 s from full pool at 2/s, and the e2e budget is better spent on the meter). Do not assert on drone kills in the e2e — those are covered by the committed server integration suite.",
+    "Documented v1 behavior the e2e must NOT contradict: players never die on foot (worst case = 5 s 'RECOVERING'); storms never damage ship hulls; drones never aggro ships. If the spec text in TASK-48.json and observed behavior disagree, the committed shard suite + handoff are the spec of record.",
+    "Playwright: config is `playwright.e2e.config.ts` in `app/`; other hazard-adjacent e2e references: `walk.spec.ts` (disembark template), `landing.spec.ts` (pad flow), `deposits.spec.ts` (dev-route + teleport pattern if it uses one). Screenshots land in `.ralph/screenshots/` and are part of the commit for THIS task only (TASK-48-1.png).",
+    "Ralph close-out conventions: LOG.md entries newest at top; the 'Tasks Completed' counter at the top of `.ralph/logs/LOG.md`; `.ralph/tasks.json` holds the board (TASK-48 ~line 512); the split specs live in `.ralph/split/TASK-48/` and are applied by Ralph — do not delete or edit them."
+  ]
+}

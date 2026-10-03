@@ -505,11 +505,40 @@
     "passes": true
   },
   {
-    "id": "TASK-48",
-    "title": "Surface hazards with damage and respawn",
+    "id": "TASK-48.1",
+    "title": "Server: fix drone hover height, get shard hazard suite green",
     "category": "functional",
-    "specFilePath": ".ralph/tasks/TASK-48.json",
-    "passes": false
+    "specFilePath": ".ralph/tasks/TASK-48.1.json",
+    "passes": false,
+    "splitFrom": "TASK-48",
+    "splitDepth": 1
+  },
+  {
+    "id": "TASK-48.2",
+    "title": "Client: hazard state store, exposure HUD, dev route, debug hook",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-48.2.json",
+    "passes": false,
+    "splitFrom": "TASK-48",
+    "splitDepth": 1
+  },
+  {
+    "id": "TASK-48.3",
+    "title": "Client: 3D hazard discs and drone meshes in WorldManager",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-48.3.json",
+    "passes": false,
+    "splitFrom": "TASK-48",
+    "splitDepth": 1
+  },
+  {
+    "id": "TASK-48.4",
+    "title": "Hazards e2e (storm screenshot) + TASK-48 close-out",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-48.4.json",
+    "passes": false,
+    "splitFrom": "TASK-48",
+    "splitDepth": 1
   },
   {
     "id": "TASK-49",
