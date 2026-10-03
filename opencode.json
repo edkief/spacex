@@ -2,6 +2,20 @@
   "$schema": "https://opencode.ai/config.json",
   "model": "llama-cpp/local-150k",
   "provider": {
+    "gufo": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "gufo",
+      "options": {
+        "baseURL": "http://localhost:8888/v1"
+      },
+      "models": {
+        "Qwen3.8 Flash Next": { 
+          "name": "Local - 150k Context",
+          "tool_calling": true,
+          "context_length": 150000
+	}
+      }
+    },
     "llama-cpp": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "Llama-CPP-Local",
