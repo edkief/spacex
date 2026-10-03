@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Planet, SystemGen } from '@shared/galaxy/types';
+import { vecLength, vecSub } from '@shared/physics/vec';
 import { rosterFor } from '@shared/world/ai';
 
 import { SystemShard } from './shard';
@@ -105,14 +106,16 @@ describe('shard rogue AI (TASK-45 AC)', () => {
       expect(e!.classId).toBe(entry.classId);
       expect(e!.callsign).toBe(entry.callsign);
       callsigns.add(e!.callsign!);
-      // Full hull/shields (normalized), undocked, space regime, at spawnPos.
+      // Full hull/shields (normalized), undocked, space regime, spawned at
+      // spawnPos (TASK-46: the rogue PATROLS from there, so the warmup ticks
+      // drift it a few units — in-place spawn, no longer exact rest).
       expect(e!.hull).toBe(1);
       expect(e!.shields).toBe(1);
       expect(e!.docked).toBe(false);
       expect(e!.destroyed).toBeUndefined();
       expect(e!.ship.regime).toBe('space');
-      expect(e!.ship.pos).toEqual(entry.spawnPos);
-      expect(e!.ship.vel).toEqual({ x: 0, y: 0, z: 0 });
+      expect(vecLength(vecSub(e!.ship.pos, entry.spawnPos))).toBeLessThan(25);
+      expect(vecLength(e!.ship.vel)).toBeLessThan(100); // never above patrol speed
     }
     expect(callsigns.size).toBe(rogues.length);
 
@@ -147,14 +150,15 @@ describe('shard rogue AI (TASK-45 AC)', () => {
     expect(rogue.destroyed).toBe(true);
     expect(rogue.hull).toBe(0);
 
-    // Cross the 120 s boundary: respawned in place — same id, full, at
-    // spawnPos, zero velocity, energy full, flag back to the snapshot.
+    // Cross the 120 s boundary: respawned IN PLACE — same id, full, at
+    // spawnPos (TASK-46: the couple of live patrol ticks drift it a
+    // whisker), slow, energy full, flag back to the snapshot.
     advance(shard, 100);
     expect(rogue.destroyed).toBe(false);
     expect(rogue.hull).toBe(1);
     expect(rogue.shields).toBe(1);
-    expect(rogue.ship.pos).toEqual(entry.spawnPos);
-    expect(rogue.ship.vel).toEqual({ x: 0, y: 0, z: 0 });
+    expect(vecLength(vecSub(rogue.ship.pos, entry.spawnPos))).toBeLessThan(25);
+    expect(vecLength(rogue.ship.vel)).toBeLessThan(100); // never above patrol speed
     expect(rogue.energy).toBe(100);
     expect(lines.debug).toContain('rogue respawn');
     const [state] = shard.snapshot().filter((s) => s.id === entry.aiId);

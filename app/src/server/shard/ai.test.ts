@@ -21,7 +21,6 @@ import {
   resetAiState,
   stepAi,
   tickRng,
-  type AiState,
   type AiWorld,
 } from './ai';
 
@@ -41,9 +40,7 @@ function shipAt(pos: Vec3, quat = quatIdentity()): ShipState {
   return { pos, vel: { x: 0, y: 0, z: 0 }, quat, regime: 'space' };
 }
 
-function world(
-  over: Partial<AiWorld> & { nowMs: number },
-): AiWorld {
+function world(over: Partial<AiWorld> & { nowMs: number }): AiWorld {
   return {
     tick: 1,
     dt: 0.05,
@@ -56,7 +53,6 @@ function world(
 
 const scout = shipStats('scout');
 const interceptor = shipStats('interceptor');
-const freighter = shipStats('freighter');
 
 describe('shard RNG (TASK-46 determinism AC)', () => {
   it('mulberry32: same seed → identical sequences, different seeds diverge', () => {
@@ -64,7 +60,9 @@ describe('shard RNG (TASK-46 determinism AC)', () => {
     const b = mulberry32(0xdeadbeef);
     for (let i = 0; i < 100; i++) expect(a()).toBe(b());
     const c = mulberry32(0xdeadbeef + 1);
-    expect(Array.from({ length: 10 }, () => a())).not.toEqual(Array.from({ length: 10 }, () => c()));
+    expect(Array.from({ length: 10 }, () => a())).not.toEqual(
+      Array.from({ length: 10 }, () => c()),
+    );
   });
 
   it('tickRng: same (systemId, tick) → same stream; different tick or system → different', () => {
@@ -136,17 +134,32 @@ describe('the AC state cycle (patrol → aggro → engage → disengage → patr
     expect(post2.fire).toEqual({ weapon: 'laser', targetId: 'p1' });
 
     // Badly damaged (hull < 25%) → DISENGAGE with the 30 s timer, no fire.
-    const out = stepAi(state, ship, scout, world({ nowMs: t0 + 2_000, players: [player], hull: DISENGAGE_HULL_FRACTION - 0.01 }));
+    const out = stepAi(
+      state,
+      ship,
+      scout,
+      world({ nowMs: t0 + 2_000, players: [player], hull: DISENGAGE_HULL_FRACTION - 0.01 }),
+    );
     expect(state.mode).toBe('disengage');
     expect(out.fire).toBeUndefined();
     expect(state.disengageUntilMs).toBe(t0 + 2_000 + DISENGAGE_DURATION_MS);
 
     // Still broken off at 29.9 s…
-    const late = stepAi(state, ship, scout, world({ nowMs: t0 + 2_000 + 29_900, hull: 0.1, players: [] }));
+    const late = stepAi(
+      state,
+      ship,
+      scout,
+      world({ nowMs: t0 + 2_000 + 29_900, hull: 0.1, players: [] }),
+    );
     expect(state.mode).toBe('disengage');
     expect(late.fire).toBeUndefined();
     // …and re-PATROL at the boundary.
-    const done = stepAi(state, ship, scout, world({ nowMs: state.disengageUntilMs, hull: 0.1, players: [] }));
+    const done = stepAi(
+      state,
+      ship,
+      scout,
+      world({ nowMs: state.disengageUntilMs, hull: 0.1, players: [] }),
+    );
     expect(state.mode).toBe('patrol');
     expect(done.fire).toBeUndefined();
   });
@@ -166,7 +179,11 @@ describe('the AC state cycle (patrol → aggro → engage → disengage → patr
     // The cone half-angle is 60deg: 300 m at 55deg is IN, at 65deg is OUT.
     const atAngle = (deg: number) => {
       const a = (deg * Math.PI) / 180;
-      return { id: `p${deg}`, pos: { x: 300 * Math.sin(a), y: 0, z: 300 * Math.cos(a) }, vel: { x: 0, y: 0, z: 0 } };
+      return {
+        id: `p${deg}`,
+        pos: { x: 300 * Math.sin(a), y: 0, z: 300 * Math.cos(a) },
+        vel: { x: 0, y: 0, z: 0 },
+      };
     };
     expect(AGGRO_CONE_COS).toBeCloseTo(Math.cos(Math.PI / 3), 10);
     const outside = atAngle(65);
@@ -203,7 +220,11 @@ describe('the AC state cycle (patrol → aggro → engage → disengage → patr
   it('weapon choice: missiles only when the class carries them AND the target is > 300 m; lasers otherwise; never beyond range', () => {
     const t0 = 1_000_000;
     const mk = (classId: 'scout' | 'interceptor' | 'freighter') => {
-      const s = createAiState(`ai:${classId}`, t0, makeWaypoints(tickRng('sys', 0), CENTER, RADIUS));
+      const s = createAiState(
+        `ai:${classId}`,
+        t0,
+        makeWaypoints(tickRng('sys', 0), CENTER, RADIUS),
+      );
       s.mode = 'engage';
       s.targetId = 'p1';
       s.acquireStartedAtMs = t0 - 10_000; // fully acquired
@@ -213,16 +234,42 @@ describe('the AC state cycle (patrol → aggro → engage → disengage → patr
     const at = (d: number) => ({ id: 'p1', pos: { x: 0, y: 0, z: d }, vel: { x: 0, y: 0, z: 0 } });
 
     // Interceptor: > 300 m → missile; ≤ 300 m → laser.
-    expect(stepAi(mk('interceptor'), ship, interceptor, world({ nowMs: t0, players: [at(MISSILE_MIN_RANGE_M + 1)] })).fire).toEqual({ weapon: 'missile', targetId: 'p1' });
-    expect(stepAi(mk('interceptor'), ship, interceptor, world({ nowMs: t0, players: [at(MISSILE_MIN_RANGE_M)] })).fire).toEqual({ weapon: 'laser', targetId: 'p1' });
+    expect(
+      stepAi(
+        mk('interceptor'),
+        ship,
+        interceptor,
+        world({ nowMs: t0, players: [at(MISSILE_MIN_RANGE_M + 1)] }),
+      ).fire,
+    ).toEqual({ weapon: 'missile', targetId: 'p1' });
+    expect(
+      stepAi(
+        mk('interceptor'),
+        ship,
+        interceptor,
+        world({ nowMs: t0, players: [at(MISSILE_MIN_RANGE_M)] }),
+      ).fire,
+    ).toEqual({ weapon: 'laser', targetId: 'p1' });
     // Scout: no missiles at all (laser only), and nothing beyond laser range (400 m).
-    expect(stepAi(mk('scout'), ship, scout, world({ nowMs: t0, players: [at(MISSILE_MIN_RANGE_M + 1)] })).fire).toEqual({ weapon: 'laser', targetId: 'p1' });
-    expect(stepAi(mk('scout'), ship, scout, world({ nowMs: t0, players: [at(401)] })).fire).toBeUndefined();
+    expect(
+      stepAi(mk('scout'), ship, scout, world({ nowMs: t0, players: [at(MISSILE_MIN_RANGE_M + 1)] }))
+        .fire,
+    ).toEqual({ weapon: 'laser', targetId: 'p1' });
+    expect(
+      stepAi(mk('scout'), ship, scout, world({ nowMs: t0, players: [at(401)] })).fire,
+    ).toBeUndefined();
     // Interceptor beyond missile range (800 m) holds fire (the pipeline would refund it anyway).
-    expect(stepAi(mk('interceptor'), ship, interceptor, world({ nowMs: t0, players: [at(801)] })).fire).toBeUndefined();
+    expect(
+      stepAi(mk('interceptor'), ship, interceptor, world({ nowMs: t0, players: [at(801)] })).fire,
+    ).toBeUndefined();
     // The pipeline check is authoritative: canFire false → no fire (rate limit / energy).
     expect(
-      stepAi(mk('interceptor'), ship, interceptor, world({ nowMs: t0, players: [at(400)], canFire: () => false })).fire,
+      stepAi(
+        mk('interceptor'),
+        ship,
+        interceptor,
+        world({ nowMs: t0, players: [at(400)], canFire: () => false }),
+      ).fire,
     ).toBeUndefined();
   });
 
@@ -233,7 +280,11 @@ describe('the AC state cycle (patrol → aggro → engage → disengage → patr
     state.targetId = 'p1';
     state.acquireStartedAtMs = t0 - 10_000;
     const ship = shipAt(CENTER);
-    const far = { id: 'p1', pos: { x: 0, y: 0, z: LOST_TARGET_RANGE_M + 1 }, vel: { x: 0, y: 0, z: 0 } };
+    const far = {
+      id: 'p1',
+      pos: { x: 0, y: 0, z: LOST_TARGET_RANGE_M + 1 },
+      vel: { x: 0, y: 0, z: 0 },
+    };
     stepAi(state, ship, scout, world({ nowMs: t0, players: [far] }));
     expect(state.mode).toBe('patrol');
     expect(state.targetId).toBeNull();
@@ -301,7 +352,14 @@ describe('the AC state cycle (patrol → aggro → engage → disengage → patr
       const player = { id: 'p1', pos: target.pos, vel: targetVel };
       const r = stepAi(state, ai, scout, world({ nowMs: t, players: [player] }));
       ai = integrateShip(ai, r.input, 0.05, 'space', undefined, scout);
-      target = integrateShip(target, { thrust: 1, yaw: 0, pitch: 0, roll: 0, up: 0 }, 0.05, 'space', undefined, interceptor);
+      target = integrateShip(
+        target,
+        { thrust: 1, yaw: 0, pitch: 0, roll: 0, up: 0 },
+        0.05,
+        'space',
+        undefined,
+        interceptor,
+      );
       if (i === 0) gap0 = vecLength(vecSub(target.pos, ai.pos));
     }
     const gap = vecLength(vecSub(target.pos, ai.pos));
@@ -324,8 +382,17 @@ describe('the AC state cycle (patrol → aggro → engage → disengage → patr
     state.targetId = 'p1';
     state.acquireStartedAtMs = t0; // just acquired THIS tick
     const far = { id: 'p1', pos: { x: 0, y: 0, z: 500 }, vel: { x: 0, y: 0, z: 0 } };
-    expect(stepAi(state, shipAt(CENTER), interceptor, world({ nowMs: t0, players: [far] })).fire).toBeUndefined();
-    expect(stepAi(state, shipAt(CENTER), interceptor, world({ nowMs: t0 + ACQUIRE_DELAY_MS, players: [far] })).fire).toEqual({ weapon: 'missile', targetId: 'p1' });
+    expect(
+      stepAi(state, shipAt(CENTER), interceptor, world({ nowMs: t0, players: [far] })).fire,
+    ).toBeUndefined();
+    expect(
+      stepAi(
+        state,
+        shipAt(CENTER),
+        interceptor,
+        world({ nowMs: t0 + ACQUIRE_DELAY_MS, players: [far] }),
+      ).fire,
+    ).toEqual({ weapon: 'missile', targetId: 'p1' });
     // sanity: the forward cone constant is exactly 60deg
     expect(quatRotateVector(quatIdentity(), { x: 0, y: 0, z: 1 })).toEqual({ x: 0, y: 0, z: 1 });
   });

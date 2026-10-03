@@ -117,6 +117,8 @@ describe('TASK-67: economy property test (1000 seeded sequences vs a fresh shard
   it('no sequence of valid messages creates credits or resources from nothing', async () => {
     const t0 = Date.now();
     const ledger: Ledger = { credits: START_CREDITS, soldUnits: 0, earned: 0 };
+    // Declared BEFORE the shard: the constructor consults now() (AI state).
+    let fakeNow = 1_000_000;
     const shard = new SystemShard({
       systemId: SYSTEM.systemId,
       galaxySeed: GALAXY_SEED,
@@ -125,9 +127,10 @@ describe('TASK-67: economy property test (1000 seeded sequences vs a fresh shard
       shipSwapBus: noopBus,
       log: noopLog,
       now: () => fakeNow,
+      // TASK-46: economy invariant — the rogue AI is not "valid messages".
+      spawnRogues: false,
     });
 
-    let fakeNow = 1_000_000;
     /** Advance the fake clock `ms`, one sim tick per 50 ms (the real dt). */
     const advance = (ms: number): void => {
       const end = fakeNow + ms;

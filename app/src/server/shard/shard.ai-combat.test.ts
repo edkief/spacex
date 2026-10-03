@@ -77,7 +77,12 @@ function shipAt(
     playerId,
     callsign: playerId,
     classId,
-    ship: { pos: { ...pos }, vel: { x: 0, y: 0, z: 0 }, quat: { x: 0, y: 0, z: 0, w: 1 }, regime: 'space' },
+    ship: {
+      pos: { ...pos },
+      vel: { x: 0, y: 0, z: 0 },
+      quat: { x: 0, y: 0, z: 0, w: 1 },
+      regime: 'space',
+    },
     hull: 1,
     shields: 1,
     targetId: null,
@@ -129,7 +134,7 @@ describe('TASK-46 shard AI combat', () => {
     const shard = makeShard();
     const sent: string[] = [];
     const player = shipAt(shard, 'p1', { x: 0, y: 0, z: 0 }, 'scout', sent);
-    const rogue = placeRogue(shard, scoutRogue, { x: 0, y: 0, z: -400 }); // 400 m BEHIND its bow
+    placeRogue(shard, scoutRogue, { x: 0, y: 0, z: -400 }); // 400 m BEHIND its bow
     warmup(shard);
 
     // AGGRO on the first real tick: the player is inside 600 m + the 60deg cone.
@@ -149,8 +154,15 @@ describe('TASK-46 shard AI combat', () => {
     expect(shard.ai.get(scoutRogue.aiId)!.mode).toBe('engage');
     advance(shard, 1_500);
     events = combatEvents(sent);
-    expect(events.some((e) => e.kind === 'laser-fired' && e.source.kind === 'ai' && e.source.id === scoutRogue.aiId)).toBe(true);
-    expect(events.some((e) => e.kind === 'hit' && e.target === player.id && e.source.kind === 'ai')).toBe(true);
+    expect(
+      events.some(
+        (e) =>
+          e.kind === 'laser-fired' && e.source.kind === 'ai' && e.source.id === scoutRogue.aiId,
+      ),
+    ).toBe(true);
+    expect(
+      events.some((e) => e.kind === 'hit' && e.target === player.id && e.source.kind === 'ai'),
+    ).toBe(true);
     expect(player.shields < 1 || player.hull < 1).toBe(true); // the player took damage
 
     // DISENGAGE: bring the rogue below 25% hull → it breaks off (no more fire).
@@ -187,15 +199,17 @@ describe('TASK-46 shard AI combat', () => {
     expect(shard.ai.get(scoutRogue.aiId)!.mode).toBe('aggro');
     expect(shard.ai.get(scoutRogue.aiId)!.targetId).toBe(player.id);
 
-    // Move the player out of the cone's reach (test-only) and let the memory age.
+    // Move the player out of the cone's reach (test-only). While the 5 s
+    // memory is fresh the AI re-aggros from it (aggro → engage → out-ranged
+    // PATROL → re-aggro, ~1 s cycles); once the memory EXPIRES the player
+    // is behind the cone and PATROL is sticky.
     player.ship.pos = { x: 0, y: 0, z: -10_000 };
-    advance(shard, 100); // engage at ~1 s…
-    advance(shard, 100); // …out-ranged (10 km > 1200 m) → PATROL before the memory even expires
+    advance(shard, 6_500); // 5 s memory + one full aggro/engage/patrol cycle
     expect(shard.ai.get(scoutRogue.aiId)!.mode).toBe('patrol');
     shard.stop();
   });
 
-  it('outrun: a full-burn interceptor escapes an AGGRO\'d scout (the gap widens)', () => {
+  it("outrun: a full-burn interceptor escapes an AGGRO'd scout (the gap widens)", () => {
     fakeNow = 1_000_000;
     const shard = makeShard();
     const sent: string[] = [];
@@ -211,16 +225,18 @@ describe('TASK-46 shard AI combat', () => {
     shard.stop();
   });
 
-  it('evasion: a sharp turn within 200 m breaks the AI\'s missile lock (the missile expires, no hit)', () => {
+  it("evasion: a sharp turn within 200 m breaks the AI's missile lock (the missile expires, no hit)", () => {
     fakeNow = 1_000_000;
     const shard = makeShard();
     const sent: string[] = [];
-    const player = shipAt(shard, 'p1', { x: 0, y: 0, z: 450 }, 'interceptor', sent);
+    const player = shipAt(shard, 'p1', { x: 0, y: 0, z: 550 }, 'interceptor', sent);
     placeRogue(shard, interceptorRogue, { x: 0, y: 0, z: 0 });
+    // Full speed IMMEDIATELY (no acceleration phase to close on): the player
+    // flies a 150 m circle (180 u/s / 1.2 rad/s) around the rogue from the
+    // very first tick, faster than the missile's 120 u/s, while the target's
+    // bearing keeps swinging past the missile's 1.5 rad/s homing limit (AC).
+    player.ship.vel = { x: 0, y: 0, z: 180 };
     warmup(shard);
-    // Full burn + full turn: the player flies a ~150 m circle at 180 u/s,
-    // faster than the missile's 120 u/s, while the target's bearing keeps
-    // swinging past the missile's 1.5 rad/s homing limit (the AC).
     shard.enqueueInput('p1', input(1, { thrust: 1, yaw: 1 }));
 
     advance(shard, 12_000);
@@ -241,13 +257,17 @@ describe('TASK-46 shard AI combat', () => {
     shard.registerConnection('ghost', 'Ghost', (b) => sent.push(b)); // a conn with NO ship entity
     warmup(shard);
     advance(shard, 15_000);
-    const fired = combatEvents(sent).filter((e) => e.kind === 'laser-fired' || e.kind === 'missile-fired');
+    const fired = combatEvents(sent).filter(
+      (e) => e.kind === 'laser-fired' || e.kind === 'missile-fired',
+    );
     expect(fired).toEqual([]); // no players → no AI fire, ever (rogues don't hunt rogues)
 
     // With a player 5 km away (far outside aggro range) the answer is the same.
     shipAt(shard, 'p1', { x: 5_000, y: 0, z: 0 }, 'scout');
     advance(shard, 10_000);
-    expect(combatEvents(sent).filter((e) => e.kind === 'laser-fired' || e.kind === 'missile-fired')).toEqual([]);
+    expect(
+      combatEvents(sent).filter((e) => e.kind === 'laser-fired' || e.kind === 'missile-fired'),
+    ).toEqual([]);
     shard.stop();
   });
 
@@ -260,19 +280,26 @@ describe('TASK-46 shard AI combat', () => {
     warmup(shard);
     advance(shard, 1_500); // aggro + acquire…
     const startTick = shard.sim.tickNumber;
+    rogue.energy = 40; // known starting point for the sample window
+    const firedBefore = combatEvents(sent).filter(
+      (e) => e.kind === 'laser-fired' && e.source.kind === 'ai' && e.source.id === scoutRogue.aiId,
+    ).length;
     advance(shard, 1_000); // …and 1 s of firing
     const state = shard.ai.get(scoutRogue.aiId)!;
     expect(state.mode).toBe('engage');
     // Cooldown committed (the next laser no earlier than +2 ticks at 3/s)…
-    expect((rogue.fireCooldownUntil?.['laser'] ?? 0)).toBeGreaterThan(startTick + 2);
-    // …and energy spent (laser 2/shot, regen 10/s — 3 shots > the 1 s regen).
-    expect(rogue.energy).toBeLessThan(100);
-    // Rate: the wire shows at most the 3/s cadence (+1 slack for the window).
-    const fired = combatEvents(sent).filter(
-      (e) => e.kind === 'laser-fired' && e.source.kind === 'ai' && e.source.id === scoutRogue.aiId,
-    );
-    expect(fired.length).toBeGreaterThan(0);
-    expect(fired.length).toBeLessThanOrEqual(4);
+    expect(rogue.fireCooldownUntil?.['laser'] ?? 0).toBeGreaterThan(startTick + 2);
+    // …and energy spent (laser 2/shot at 3/s: 3+ shots > the 1 s regen of 10).
+    expect(rogue.energy).toBeLessThan(50); // 40 + 10 regen − 3×2 committed = 44
+    // Rate: in the 1 s sample window the wire shows at most the 3/s cadence
+    // (+1 slack for the window edges).
+    const fired =
+      combatEvents(sent).filter(
+        (e) =>
+          e.kind === 'laser-fired' && e.source.kind === 'ai' && e.source.id === scoutRogue.aiId,
+      ).length - firedBefore;
+    expect(fired).toBeGreaterThan(0);
+    expect(fired).toBeLessThanOrEqual(4);
     shard.stop();
   });
 

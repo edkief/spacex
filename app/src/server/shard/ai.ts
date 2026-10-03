@@ -142,7 +142,12 @@ export function tickRng(systemId: string, tick: number): () => number {
  * patrol center at a jittered radius (0.75..1.25 x patrolRadius, seeded
  * angles) — all in the y=0 plane (rogues are space-only, TASK-45).
  */
-export function makeWaypoints(rng: () => number, center: Vec3, radius: number, count = WAYPOINT_COUNT): Vec3[] {
+export function makeWaypoints(
+  rng: () => number,
+  center: Vec3,
+  radius: number,
+  count = WAYPOINT_COUNT,
+): Vec3[] {
   const pts: Vec3[] = [];
   for (let i = 0; i < count; i++) {
     const angle = (i / count) * Math.PI * 2 + rng() * (Math.PI / 2);
@@ -169,7 +174,13 @@ export function createAiState(id: string, nowMs: number, waypoints: Vec3[]): AiS
 }
 
 /** Reset a (re)spawned rogue to PATROL with a fresh seeded waypoint loop. */
-export function resetAiState(state: AiState, rng: () => number, center: Vec3, radius: number, nowMs: number): void {
+export function resetAiState(
+  state: AiState,
+  rng: () => number,
+  center: Vec3,
+  radius: number,
+  nowMs: number,
+): void {
   state.mode = 'patrol';
   state.targetId = null;
   state.acquireStartedAtMs = 0;
@@ -213,7 +224,12 @@ function steer(ship: ShipState, stats: ShipClass, desired: Vec3, desiredSpeed: n
 }
 
 /** The aggro test: in range + in the 60deg cone, OR the 5 s fire memory. */
-function aggroCandidate(state: AiState, ship: ShipState, players: AiPlayerView[], nowMs: number): AiPlayerView | undefined {
+function aggroCandidate(
+  state: AiState,
+  ship: ShipState,
+  players: AiPlayerView[],
+  nowMs: number,
+): AiPlayerView | undefined {
   const forward = quatRotateVector(ship.quat, { x: 0, y: 0, z: 1 });
   let best: AiPlayerView | undefined;
   let bestDist = Infinity;
@@ -221,7 +237,8 @@ function aggroCandidate(state: AiState, ship: ShipState, players: AiPlayerView[]
     const to = vecSub(p.pos, ship.pos);
     const dist = vecLength(to);
     // AC: within AGGRO_RANGE_M AND within 60deg of the bow (both required).
-    const inCone = dist > 0 && dist <= AGGRO_RANGE_M && vecDot(to, forward) / dist >= AGGRO_CONE_COS;
+    const inCone =
+      dist > 0 && dist <= AGGRO_RANGE_M && vecDot(to, forward) / dist >= AGGRO_CONE_COS;
     const firedOnMe =
       state.lastPlayerFireBy === p.id && nowMs - state.lastPlayerFireAtMs <= PLAYER_FIRE_MEMORY_MS;
     if (!inCone && !firedOnMe) continue;
@@ -265,7 +282,9 @@ function pursueStep(
   mayFire: boolean,
 ): AiStepResult {
   const lead = vecAdd(target.pos, vecScale(target.vel, 0.5));
-  const result: AiStepResult = { input: steer(ship, stats, vecSub(lead, ship.pos), stats.maxVelocity) };
+  const result: AiStepResult = {
+    input: steer(ship, stats, vecSub(lead, ship.pos), stats.maxVelocity),
+  };
   if (!mayFire || world.nowMs - state.acquireStartedAtMs < ACQUIRE_DELAY_MS) return result;
   const dist = vecLength(vecSub(target.pos, ship.pos));
   const hasMissiles = stats.weaponMounts.missiles > 0;
@@ -299,12 +318,17 @@ export function stepAi(
         state.targetId = cand.id;
         state.acquireStartedAtMs = nowMs;
         state.lastModeChangeAtMs = nowMs;
-        return { input: pursueStep(state, ship, stats, cand, world, false).input, acquiring: cand.id };
+        return {
+          input: pursueStep(state, ship, stats, cand, world, false).input,
+          acquiring: cand.id,
+        };
       }
       return { input: patrolStep(state, ship, stats) };
     }
     case 'aggro': {
-      const target = state.targetId ? world.players.find((p) => p.id === state.targetId) : undefined;
+      const target = state.targetId
+        ? world.players.find((p) => p.id === state.targetId)
+        : undefined;
       if (!target) return { input: (toPatrol(state, nowMs), patrolStep(state, ship, stats)) };
       if (nowMs - state.acquireStartedAtMs >= ACQUIRE_DELAY_MS) {
         state.mode = 'engage';
@@ -314,7 +338,9 @@ export function stepAi(
       return pursueStep(state, ship, stats, target, world, false);
     }
     case 'engage': {
-      const target = state.targetId ? world.players.find((p) => p.id === state.targetId) : undefined;
+      const target = state.targetId
+        ? world.players.find((p) => p.id === state.targetId)
+        : undefined;
       if (!target) return { input: (toPatrol(state, nowMs), patrolStep(state, ship, stats)) };
       if (world.hull < DISENGAGE_HULL_FRACTION) {
         state.mode = 'disengage';
@@ -324,7 +350,12 @@ export function stepAi(
         // Break off THIS tick already: nearest patrol waypoint at MAX speed,
         // no fire (AC: hull < 25% → disengage).
         return {
-          input: steer(ship, stats, vecSub(nearestWaypoint(state, ship.pos), ship.pos), stats.maxVelocity),
+          input: steer(
+            ship,
+            stats,
+            vecSub(nearestWaypoint(state, ship.pos), ship.pos),
+            stats.maxVelocity,
+          ),
         };
       }
       if (vecLength(vecSub(target.pos, ship.pos)) > LOST_TARGET_RANGE_M) {
@@ -337,7 +368,12 @@ export function stepAi(
       // the 30 s elapses and the machine re-PATROLS.
       if (nowMs < state.disengageUntilMs) {
         return {
-          input: steer(ship, stats, vecSub(nearestWaypoint(state, ship.pos), ship.pos), stats.maxVelocity),
+          input: steer(
+            ship,
+            stats,
+            vecSub(nearestWaypoint(state, ship.pos), ship.pos),
+            stats.maxVelocity,
+          ),
         };
       }
       toPatrol(state, nowMs);

@@ -60,6 +60,9 @@ function makeShard(system: SystemGen = testSystem()): SystemShard {
     systemId: system.systemId,
     galaxySeed: SEED,
     system,
+    // TASK-46: these tests predate the rogue AI — patroling rogues would
+    // dirty the entity buffer every tick and break the shared-buffer asserts.
+    spawnRogues: false,
     repo: { getShipByOwner: async () => undefined, getPlayersByIds: async () => [] },
     shipSwapBus: {
       emitSwap() {},

@@ -197,6 +197,21 @@ describe('message payload schemas', () => {
         weapon: 'laser',
       }).success,
     ).toBe(true);
+    // TASK-46: the acquire-delay toast {kind:'ai-acquiring', source, target}.
+    expect(
+      messageSchemas.combat_event.safeParse({
+        kind: 'ai-acquiring',
+        source: { kind: 'ai', id: 'rogue-1' },
+        target: 'ship-p1',
+      }).success,
+    ).toBe(true);
+    // …and a missing target is rejected (strict).
+    expect(
+      messageSchemas.combat_event.safeParse({
+        kind: 'ai-acquiring',
+        source: { kind: 'ai', id: 'rogue-1' },
+      }).success,
+    ).toBe(false);
     // Unknown/legacy field names are rejected (strict + discriminant).
     expect(
       messageSchemas.combat_event.safeParse({ kind: 'hit', attacker: 'a', target: 'b' }).success,

@@ -69,6 +69,9 @@ beforeAll(async () => {
     system,
     repo,
     shipSwapBus: bus,
+    // TASK-46: PvP weapons test — the rogue AI's broadcast events would
+    // pollute the "denied fire emits nothing" wire assertion.
+    spawnRogues: false,
   });
   shard.start();
 

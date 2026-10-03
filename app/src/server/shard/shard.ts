@@ -353,7 +353,11 @@ export class SystemShard implements Shard {
         this.spawnRogueShip(entry);
         this.ai.set(
           entry.aiId,
-          createAiState(entry.aiId, this.now(), makeWaypoints(rng, entry.patrolCenter, entry.patrolRadius)),
+          createAiState(
+            entry.aiId,
+            this.now(),
+            makeWaypoints(rng, entry.patrolCenter, entry.patrolRadius),
+          ),
         );
       }
     }
@@ -1138,8 +1142,10 @@ export class SystemShard implements Shard {
   private notePlayerFireAt(aiId: string, playerId: string): void {
     const state = this.ai.get(aiId);
     if (!state) return;
+    // Aggro candidates match on the player's ENTITY id (ai.ts), not the
+    // player id — remember the entity.
+    state.lastPlayerFireBy = this.playerEntities.get(playerId)?.id ?? playerId;
     state.lastPlayerFireAtMs = this.now();
-    state.lastPlayerFireBy = playerId;
   }
 
   /**
@@ -1339,7 +1345,8 @@ export class SystemShard implements Shard {
     );
     const forward = quatRotateVector(entity.ship.quat, { x: 0, y: 0, z: 1 });
     const source: DamageSource = { kind: 'ai', id: entity.id };
-    if (weapon.kind !== 'missile') this.fireLaser(entity, weapon, nose, forward, intent.targetId, source);
+    if (weapon.kind !== 'missile')
+      this.fireLaser(entity, weapon, nose, forward, intent.targetId, source);
     else this.fireMissile(entity, weapon, nose, forward, intent.targetId, source, tick);
   }
 
@@ -1390,7 +1397,12 @@ export class SystemShard implements Shard {
       const prev = state.mode;
       const result = stepAi(state, entity.ship, shipStats(entity.classId), world);
       if (state.mode !== prev) {
-        this.log.debug('ai mode change', { id, from: prev, to: state.mode, targetId: state.targetId });
+        this.log.debug('ai mode change', {
+          id,
+          from: prev,
+          to: state.mode,
+          targetId: state.targetId,
+        });
       }
       entity.ship = integrateShip(
         entity.ship,
