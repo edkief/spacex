@@ -233,6 +233,11 @@ export function routeGameMessage(
     // frame answers the requester.
     const p = payload as { resourceId: string; amount: number; from: 'inv' | 'hold' };
     shard.handleCargoTransfer(conn.playerId, p, conn);
+  } else if (type === 'fire') {
+    // TASK-43: the fire INTENT — the server re-derives everything (loadout,
+    // rate, energy, range, LOS, target); denied fires are silent drops.
+    const p = payload as { weapon: 'laser' | 'missile'; targetId?: string };
+    shard.handleFire(conn.playerId, p, conn);
   } else if (type === 'sell') {
     // TASK-40: the WS alias of POST /api/ships/sell — the SAME handler
     // (shard.handleSell) the route delegates to. Docked + source-specific

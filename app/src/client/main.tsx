@@ -56,6 +56,10 @@ import { installDriftDebug, reportServerSeed, reportWorldSwap } from '@client/dr
 import { installStreamDebug } from '@client/stream-debug';
 import { installCameraDebug } from '@client/camera/camera-debug';
 import { installAtmosphereDebug } from '@client/atmosphere-debug';
+import { WeaponHud } from '@client/ui/weapon-hud';
+import { playCombatFx, type CombatEvent } from '@client/fx';
+import { recordCombatEvent } from '@client/fx-debug';
+import type { WeaponId } from '@shared/weapons';
 import { RegimeWiring } from '@client/state/regime-wiring';
 import { CharacterPredictor, characterStateFromWire } from '@client/net/character-prediction';
 import { installCharDebug } from '@client/char-debug';
@@ -166,6 +170,10 @@ function useGameSession(
     status?: 'mining' | 'full';
     reason?: 'stopped' | 'cancelled' | 'depleted';
   }) => void,
+  // TASK-43: every combat_event (the FX entry point — server events only).
+  onCombatEvent?: (event: CombatEvent) => void,
+  // TASK-43: structured error frames (the weapon denial prompts).
+  onWsError?: (code: string) => void,
 ) {
   const systemParam = React.useMemo(
     () => new URLSearchParams(window.location.search).get('sys'),
@@ -297,6 +305,17 @@ function useGameSession(
           // TASK-34: weight bar — the server's self entity carries the
           // inventory (updates within one snapshot of any pickup/drop).
           setInventory(self?.inventory ?? null);
+          return;
+        }
+        if (msg.type === 'combat_event') {
+          // TASK-43: the ONE FX entry point — server events only (a denied
+          // fire never produced an event, so it never produces FX).
+          onCombatEvent?.(msg.payload as CombatEvent);
+          return;
+        }
+        if (msg.type === 'error') {
+          // TASK-43: the weapon denial prompts (transient, self-clearing).
+          onWsError?.((msg.payload as { code: string }).code);
           return;
         }
         if (msg.type !== 'presence') return;
@@ -511,6 +530,23 @@ function App() {
   // renders exactly while the self entity IS the ship (in flight or docked
   // in the cockpit) — on foot the prompt path (Open cargo) takes over.
   const [inShip, setInShip] = React.useState(false);
+  // TASK-43: the weapon HUD state — the active weapon (1/2 keys, client
+  // state), the SELF ship's classId + energy (10 Hz entity_update), and the
+  // two transient server denial prompts (error frames {code}).
+  const [weapon, setWeapon] = React.useState<WeaponId>('laser');
+  const [selfShip, setSelfShip] = React.useState<{ classId: string; energy: number | null } | null>(
+    null,
+  );
+  const [lowEnergy, setLowEnergy] = React.useState(false);
+  const [locked, setLocked] = React.useState(false);
+  // Refs (the fire handlers are captured once — no stale closures):
+  const weaponRef = React.useRef<WeaponId>('laser');
+  const selfShipRef = React.useRef(false);
+  const selfPosRef = React.useRef<{ x: number; y: number; z: number } | null>(null);
+  const remoteShipsRef = React.useRef<{ id: string; pos: { x: number; y: number; z: number } }[]>(
+    [],
+  );
+  const promptTimers = React.useRef<{ low: number; locked: number }>({ low: 0, locked: 0 });
   // TASK-38: the target dispatched by the CURRENT E hold (E down →
   // onInteract / mine-start; E up or blur → onRelease / mine-stop). Cleared
   // when the channel ends server-side, on a system swap, or when the player
@@ -560,6 +596,8 @@ function App() {
         // stop on-foot input entirely after the first snapshot).
         store.setSelfOnFoot(true); // TASK-36: PlayerList icon (self row)
         setInShip(false); // TASK-39: the HUD Cargo button is in-ship only
+        selfShipRef.current = false; // TASK-43: on foot = no weapons (v1)
+        setSelfShip(null); // TASK-43: hide the weapon HUD on foot
         world.setCharacterPos(self.pos);
         // TASK-32: the character is the local prediction target — seed the
         // predictor from the first snapshot (flat pad-plane terrain; the
@@ -587,9 +625,16 @@ function App() {
         // feed the pose), and clears all on-foot state otherwise.
         store.setSelfOnFoot(false); // TASK-36: PlayerList icon (self row)
         setInShip(self?.kind === 'ship'); // TASK-39: ship-HUD Cargo button
+        // TASK-43: the weapon HUD tracks the SELF ship (classId for the
+        // loadout, energy for the bar) + the fire handlers' ship refs.
         if (self && self.kind === 'ship') {
+          selfShipRef.current = true;
+          selfPosRef.current = { ...self.pos };
+          setSelfShip({ classId: self.classId, energy: self.energy ?? null });
           world.reEnterShip(self.pos, self.rot ?? { x: 0, y: 0, z: 0, w: 1 });
         } else {
+          selfShipRef.current = false;
+          setSelfShip(null);
           world.clearCharacter();
         }
         // No character → no prediction, and no interaction either (TASK-33:
@@ -615,6 +660,16 @@ function App() {
     // TASK-36: the same batch feeds the remote characters + ground items.
     (entities) => {
       interactTargetsRef.current = interactableTargetsFrom(entities);
+      // TASK-43: the fire intent's aim assist — the nearest OTHER ship the
+      // client can see (the server re-validates range/LOS; a claim is a
+      // suggestion, never a verdict).
+      remoteShipsRef.current = entities
+        .filter(
+          (e) =>
+            (e.kind === 'ship' || e.kind === 'ai-ship') &&
+            e.callsign !== sessionCallsignRef.current,
+        )
+        .map((e) => ({ id: e.id, pos: { ...e.pos } }));
       feedRemote(entities);
     },
     // TASK-33: a system snapshot rebuilds the list from ground truth and
@@ -623,6 +678,13 @@ function App() {
     // resync rebuilds the 200 ms buffers from it).
     (entities) => {
       interactTargetsRef.current = interactableTargetsFrom(entities);
+      remoteShipsRef.current = entities
+        .filter(
+          (e) =>
+            (e.kind === 'ship' || e.kind === 'ai-ship') &&
+            e.callsign !== sessionCallsignRef.current,
+        )
+        .map((e) => ({ id: e.id, pos: { ...e.pos } }));
       feedRemote(entities);
       promptStateRef.current = { kind: 'hidden' };
       setInteractPrompt(null);
@@ -647,6 +709,33 @@ function App() {
         // The channel died server-side (cancel / depleted / stopped): a
         // later keyup must not send a stale mine-stop for it.
         heldInteractRef.current = null;
+      }
+    },
+    // TASK-43: every combat_event → the FX dispatcher (server events only —
+    // a denied fire never produced an event, so it never produces FX).
+    (event) => {
+      recordCombatEvent(event);
+      const world = worldRef.current;
+      if (!world) return;
+      playCombatFx(
+        world.fx,
+        event,
+        (id) => {
+          if (id === selfShipIdRef.current) return selfPosRef.current;
+          return remoteShipsRef.current.find((t) => t.id === id)?.pos ?? null;
+        },
+      );
+    },
+    // TASK-43: the weapon denial prompts (transient, self-clearing).
+    (code) => {
+      if (code === 'low-energy') {
+        setLowEnergy(true);
+        window.clearTimeout(promptTimers.current.low);
+        promptTimers.current.low = window.setTimeout(() => setLowEnergy(false), 1500);
+      } else if (code === 'weapon-locked') {
+        setLocked(true);
+        window.clearTimeout(promptTimers.current.locked);
+        promptTimers.current.locked = window.setTimeout(() => setLocked(false), 3000);
       }
     },
   );
@@ -747,6 +836,63 @@ function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // TASK-43: weapon selection (1 = laser, 2 = missile) + LMB fire (the fire
+  // INTENT carries the client's aim assist — nearest visible ship; the
+  // server re-derives everything). Firing is in-ship ONLY (on-foot has no
+  // weapons in v1); the chart open and typing never fire.
+  React.useEffect(() => {
+    const isTyping = (e: KeyboardEvent): boolean => {
+      const t = e.target as HTMLElement | null;
+      return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA');
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (isTyping(e)) return;
+      if (e.key === '1') {
+        setWeapon('laser');
+        weaponRef.current = 'laser';
+      } else if (e.key === '2') {
+        setWeapon('missile');
+        weaponRef.current = 'missile';
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  React.useEffect(() => {
+    const canvas = document.getElementById('game-canvas') as HTMLCanvasElement | null;
+    if (!canvas) return;
+    const onDown = (e: MouseEvent): void => {
+      if (e.button !== 0) return;
+      if (chartOpenRef.current) return;
+      if (!selfShipRef.current) return; // on foot / before the first self ship
+      // Aim assist: the nearest other ship within the active weapon's max
+      // engagement (800 u covers both weapons; the server re-checks range).
+      const self = selfPosRef.current;
+      let targetId: string | undefined;
+      if (self) {
+        let bestD = Infinity;
+        for (const t of remoteShipsRef.current) {
+          const d = Math.hypot(
+            t.pos.x - self.x,
+            t.pos.y - self.y,
+            t.pos.z - self.z,
+          );
+          if (d < bestD) {
+            bestD = d;
+            targetId = t.id;
+          }
+        }
+        if (bestD > 800) targetId = undefined;
+      }
+      clientRef.current?.send('fire', {
+        weapon: weaponRef.current,
+        ...(targetId ? { targetId } : {}),
+      });
+    };
+    canvas.addEventListener('mousedown', onDown);
+    return () => canvas.removeEventListener('mousedown', onDown);
   }, []);
 
   // TASK-32: on-foot key capture — the pressed set the prediction loop
@@ -1015,6 +1161,19 @@ function App() {
       <LeaveShipPrompt />
       <InteractPrompt text={interactPrompt} />
       <WeightBar />
+      {/* TASK-43: the weapon HUD stub (active weapon 1/2 + energy bar +
+          denial prompts) — in-ship only (selfShip is null on foot). */}
+      <WeaponHud
+        classId={selfShip?.classId ?? null}
+        energy={selfShip?.energy ?? null}
+        weapon={weapon}
+        onWeapon={(w) => {
+          setWeapon(w);
+          weaponRef.current = w;
+        }}
+        lowEnergy={lowEnergy}
+        locked={locked}
+      />
       {/* TASK-39: the ship-HUD 'Cargo' button (stub until the full HUD,
           TASK-51) — in-ship (in flight or docked) it opens the cargo panel
           with the hold ONLY ('cargo_open' — no inventory side in flight). */}

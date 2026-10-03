@@ -33,6 +33,18 @@ export interface ConnState {
   /** Latest accepted input awaiting the next tick (latest-wins). */
   input?: InputPayload;
   /**
+   * TASK-43: queued fire INTENTS (the tick resolves them — single writer).
+   * Bounded (cap 4): overflow is dropped + logged (the weapon-lock spam
+   * guard below is the real anti-abuse layer).
+   */
+  fireQueue?: { weapon: 'laser' | 'missile'; targetId?: string }[];
+  /** TASK-43: epoch ms until which ALL of this conn's weapons are locked (30 fires/s). */
+  weaponLockedUntilMs?: number;
+  /** TASK-43: fire-message counter in the current 1 s window (anti-spam). */
+  fireSpamCount?: number;
+  /** TASK-43: epoch ms the current fire-spam window started. */
+  fireSpamWindowStartMs?: number;
+  /**
    * Deliver a serialized protocol frame (the 10 Hz snapshot buffer, encoded
    * ONCE per broadcast and shared by every in-system connection).
    */
@@ -61,7 +73,16 @@ export interface SimEntity {
    * interactable at the dropper's position with a `quantity` + `resourceId`
    * and a 300 s ttl (the generic tick ttl sweep despawns it).
    */
-  kind: 'ship' | 'ai-ship' | 'wreck' | 'character' | 'deposit' | 'terminal' | 'groundItem';
+  kind:
+    | 'ship'
+    | 'ai-ship'
+    | 'wreck'
+    | 'character'
+    | 'deposit'
+    | 'terminal'
+    | 'groundItem'
+    /** TASK-43: a missile in flight (a visible tracer entity, 5 s ttl). */
+    | 'projectile';
   /** Owner (null for AI ships and wrecks). One entity per player. */
   playerId: string | null;
   callsign?: string;
@@ -170,6 +191,30 @@ export interface SimEntity {
    * ship's cargo hold is separate, TASK-39). Persisted in players.inventory.
    */
   inventory?: import('@shared/inventory').InventoryStacks;
+  /**
+   * TASK-43: the ship's energy (ABSOLUTE 0..100). Undefined on pre-43
+   * entities and non-ship kinds — always treated as FULL (ENERGY_MAX) so
+   * test entities need no migration; the tick regenerates player ships.
+   */
+  energy?: number;
+  /**
+   * TASK-43: per-weapon fire cooldowns (weapon id → sim TICK the ship may
+   * next fire). Checked in the tick (single writer); denied fires (still
+   * in cooldown) spend no energy and emit no event.
+   */
+  fireCooldownUntil?: Record<string, number>;
+  /**
+   * TASK-43: missile flight state (kind 'projectile' entities only).
+   * `targetId` is the intended target (the homing reference); `sourceId`
+   * is the firing ship (attribution + splash friendly-fire); `spawnTick`
+   * orders the 16-projectile cap (oldest expires first).
+   */
+  projectile?: {
+    targetId: string;
+    sourceId: string;
+    weaponId: 'missile';
+    spawnTick: number;
+  };
   /**
    * TASK-39: the ship's cargo hold (ships.cargo JSON). Lives ON THE SHIP
    * entity — it persists with the ship (TASK-24 flush/load), survives

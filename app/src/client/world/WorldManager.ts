@@ -11,6 +11,7 @@ import type { Regime } from '@shared/regime';
 import type { EntityState } from '@shared/protocol/schemas';
 import { padsForSystem, type PadInfo } from '@shared/world/pads';
 import { createBackground } from '@client/render/starfield';
+import { CombatFx } from '@client/world/combat-fx';
 import { depositsFor } from '@shared/world/deposits';
 import { OreRockLayer, type OreRockView } from './ore-rocks';
 import { RemoteEntityLayer } from './remote-entities';
@@ -406,7 +407,16 @@ export class WorldManager {
       // TASK-37: stream the ore-rock 500 m ring + drive the near-depletion
       // pulse (same player position as the pad-ring culling above).
       this.oreLayer.update(this.selfPos, nowMs);
+      // TASK-43: age the combat FX (flashes self-cull) and apply the
+      // decaying 2 px screen shake as a camera nudge around the render.
+      const shake = this.combatFx.frame(nowMs);
+      if (shake.lengthSq() > 0) {
+        this.camera.position.add(shake);
+      }
       this.renderer.render(this.scene, this.camera);
+      if (shake.lengthSq() > 0) {
+        this.camera.position.sub(shake);
+      }
       // renderer.info.render resets per frame — capture it right after the
       // render, before the next frame (TASK-57 frame monitor).
       frameMonitor.endFrame({
@@ -467,7 +477,28 @@ export class WorldManager {
     // TASK-37: the same batch carries the 500 m ring's deposit quantities —
     // the client-derived rocks apply the mined-unit deltas from it.
     this.oreLayer.feedQuantities(entities);
+    // TASK-43: missile tracers ride the 10 Hz snapshots (visible to every
+    // client) — the FX layer creates/updates/removes them from the batch.
+    this.combatFx.updateProjectiles(entities);
   }
+
+  /**
+   * TASK-43: combat FX (scene-level, survives world swaps):
+   * - `addLaserFlash`: a 60 ms additive line nose→hit + a muzzle spark;
+   * - `addImpactFlash`: a small expanding flash quad at the impact point;
+   * - `screenShake`: a 2 px camera nudge decaying over 100 ms (cosmetic);
+   * - `updateProjectiles`: the missile tracer pool (≤ 16, recycled).
+   * Dev-only: `__FX__.slow = true` stretches the flash lifetimes so the e2e
+   * can screenshot a flash deterministically (never ships).
+   */
+  get fx(): CombatFx {
+    return this.combatFx;
+  }
+
+  private readonly combatFx: CombatFx = new CombatFx((scene) => {
+    this.scene.add(scene);
+    return this.camera;
+  });
 
   /** TASK-37: the ore rocks currently known (dev probe / e2e assertions). */
   oreRocks(): OreRockView[] {

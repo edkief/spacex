@@ -15,7 +15,17 @@ import {
 import { CHAT_HISTORY_MAX } from '@shared/chat';
 import { applyDamage, type ApplyDamageResult, type DamageSource } from '@shared/physics/damage';
 import { integrateShip, type FlightOptions, type PlanetAtmo } from '@shared/physics/flight';
-import { quatIdentity, vecLength, vecSub, type Quat, type Vec3 } from '@shared/physics/vec';
+import {
+  quatIdentity,
+  quatRotateVector,
+  vecAdd,
+  vecDot,
+  vecLength,
+  vecScale,
+  vecSub,
+  type Quat,
+  type Vec3,
+} from '@shared/physics/vec';
 import {
   applyVtolAssist,
   DOCK_VERTICAL_SPEED_MAX_M_S,
@@ -67,7 +77,17 @@ import {
 } from '@shared/cargo';
 import { MINING_UNIT_MS, stepMiningChannel, type MiningChannel } from '@shared/mining';
 import { shipStats, HEX_COLOR } from '@shared/ships';
-import type { WeaponSpec } from '@shared/weapons';
+import {
+  ENERGY_MAX,
+  canFire,
+  loadoutFor,
+  regenEnergy,
+  spendEnergy,
+  stepMissile,
+  WEAPON_BY_ID,
+  type WeaponId,
+  type WeaponSpec,
+} from '@shared/weapons';
 import type { SystemGen } from '@shared/galaxy/types';
 import { homeDockPosition } from '@shared/galaxy/dock';
 import {
@@ -84,7 +104,7 @@ import type { ShipSwapBus } from '@server/shards';
 import { SimLoop } from './sim';
 import { TickHistogram } from './histogram';
 import { TerrainContext } from './terrain';
-import { resolveHit, type ResolveHitOutcome } from './combat';
+import { lineOfSight, resolveHit, type ResolveHitOutcome } from './combat';
 import {
   defaultLogger,
   type ConnState,
@@ -108,6 +128,20 @@ export const SNAPSHOT_WARN_BYTES = 32 * 1024;
 export const WRECK_TTL_MS = 600_000;
 /** TASK-34: dropped ground items persist 300 s, then despawn. */
 export const GROUND_ITEM_TTL_MS = 300_000;
+
+// --- TASK-43: weapons (the server is the ONLY authority; all re-derived) ---
+/** Queued fire intents per conn, resolved in the tick (single writer). */
+export const FIRE_QUEUE_MAX = 4;
+/** Anti-spam: this many fire MESSAGES per 1 s window locks the weapons… */
+export const FIRE_SPAM_LIMIT = 30;
+/** …for this long ({code:'weapon-locked'} to the connection). */
+export const WEAPON_LOCK_MS = 5_000;
+/** Missile entity budget per shard (the oldest expires first when hit). */
+export const PROJECTILE_CAP = 16;
+/** Laser ray vs a ship: the perpendicular hit radius (m, ship half-size). */
+export const LASER_HIT_RADIUS_M = 5;
+/** The nose: the laser/missile origin offset along the ship's forward (m). */
+export const NOSE_OFFSET_M = 3;
 
 /** Zero control frame for players with nothing queued (coast). */
 const ZERO_INPUT: InputPayload = {
@@ -215,6 +249,8 @@ export class SystemShard implements Shard {
   readonly mining = new Map<string, MiningChannel>();
   /** TASK-34: ground item ids stay unique per shard (handleDrop). */
   private groundItemSeq = 0;
+  /** TASK-43: missile ids stay unique per shard (spawn ordering for the cap). */
+  private projectileSeq = 0;
   /** TASK-34: ground item ttl in TICKS (300 s at the shard's dt). */
   private readonly groundItemTtlTicks: number;
   private connSeq = 0;
@@ -443,6 +479,12 @@ export class SystemShard implements Shard {
       // The held input belongs to the connection: without a pilot the ship
       // coasts on zero input instead of thrusting forever (TASK-14 hold
       // semantics). A re-join re-adopts the entity with a clean slate.
+      // TASK-43: queued fires + the weapon lock belong to the CONNECTION —
+      // a reconnect starts clean (no stale shot fires after the drop).
+      state.fireQueue = undefined;
+      state.weaponLockedUntilMs = undefined;
+      state.fireSpamCount = undefined;
+      state.fireSpamWindowStartMs = undefined;
       const entity = this.playerEntities.get(state.playerId);
       if (entity) {
         entity.heldInput = undefined;
@@ -650,6 +692,346 @@ export class SystemShard implements Shard {
   }
 
   /**
+   * TASK-43: the ONLY inbound combat traffic — a fire INTENT from a conn
+   * (WS 'fire' {weapon, targetId?}). The server re-derives everything:
+   * stale-conn guard → weapon-lock check → anti-spam counter (30 fires/s →
+   * 5 s lock, {code:'weapon-locked'}) → loadout (the class's hardpoints) →
+   * per-weapon cooldown → energy (a denied fire emits NO event, spends NO
+   * energy — the client sees no FX). Accepted intents are ENQUEUED (the
+   * tick resolves them: single writer); energy + cooldown are committed at
+   * ACCEPTANCE time so a queued fire is exactly one shot.
+   */
+  handleFire(playerId: string, payload: { weapon: string; targetId?: string }, source?: unknown): void {
+    const connId = this.playerConns.get(playerId);
+    const conn = connId ? this.connections.get(connId) : undefined;
+    if (!conn) return;
+    if (source !== undefined && conn.source !== source) {
+      this.log.debug('dropped fire from stale conn', { playerId, connId });
+      return;
+    }
+    const now = this.now();
+    // Weapon lock (30 fires/s from this conn): everything is rejected.
+    if ((conn.weaponLockedUntilMs ?? 0) > now) {
+      this.sendErrorToPlayer(playerId, 'weapon-locked', 'WEAPONS LOCKED (spam)', source);
+      return;
+    }
+    // Anti-spam window: 1 s sliding-ish (fixed 1 s windows are good enough
+    // for a lockout — the spec's 30 fires/s trigger).
+    if (conn.fireSpamWindowStartMs === undefined || now - conn.fireSpamWindowStartMs >= 1000) {
+      conn.fireSpamWindowStartMs = now;
+      conn.fireSpamCount = 0;
+    }
+    conn.fireSpamCount = (conn.fireSpamCount ?? 0) + 1;
+    if (conn.fireSpamCount >= FIRE_SPAM_LIMIT) {
+      conn.weaponLockedUntilMs = now + WEAPON_LOCK_MS;
+      this.log.warn('weapon lock: fire spam', { playerId, connId, count: conn.fireSpamCount });
+      this.sendErrorToPlayer(playerId, 'weapon-locked', 'WEAPONS LOCKED (spam)', source);
+      return;
+    }
+    const weapon = WEAPON_BY_ID[payload.weapon as WeaponId];
+    if (!weapon) {
+      this.log.debug('dropped fire: unknown weapon', { playerId, weapon: payload.weapon });
+      return;
+    }
+    const entity = this.playerEntities.get(playerId);
+    // No ship (or destroyed / on foot): on-foot has no weapons in v1.
+    if (!entity || entity.destroyed || entity.disembarked) {
+      this.log.debug('dropped fire: no live ship', { playerId, weapon: weapon.id });
+      return;
+    }
+    if (!loadoutFor(entity.classId).some((w) => w.id === weapon.id)) {
+      this.log.debug('dropped fire: not in loadout', { playerId, classId: entity.classId, weapon: weapon.id });
+      return;
+    }
+    if ((entity.fireCooldownUntil?.[weapon.id] ?? 0) > this.sim.tickNumber) {
+      // Rate-limited drop: logged, no energy spent, no event (spec).
+      this.log.debug('dropped fire: rate limited', { playerId, weapon: weapon.id, tick: this.sim.tickNumber });
+      return;
+    }
+    if (!canFire(entity.energy ?? ENERGY_MAX, weapon)) {
+      // 'LOW ENERGY' prompt for the client; the fire is denied, no FX.
+      this.sendErrorToPlayer(playerId, 'low-energy', 'LOW ENERGY', source);
+      return;
+    }
+    // ACCEPTED: commit energy + cooldown now (a queued fire is one shot),
+    // enqueue for the tick (cap: overflow drops + logs).
+    entity.energy = spendEnergy(entity.energy ?? ENERGY_MAX, weapon);
+    const cooldownTicks = Math.max(1, Math.ceil(1 / ((weapon.fireRate ?? 1) * this.dt)));
+    entity.fireCooldownUntil = {
+      ...(entity.fireCooldownUntil ?? {}),
+      [weapon.id]: this.sim.tickNumber + cooldownTicks,
+    };
+    const queue = conn.fireQueue ?? (conn.fireQueue = []);
+    if (queue.length >= FIRE_QUEUE_MAX) {
+      this.log.debug('dropped fire: queue full', { playerId, weapon: weapon.id });
+      return;
+    }
+    queue.push({ weapon: weapon.id, targetId: payload.targetId });
+  }
+
+  /** True when the source → point ray is clear (space regime skips LOS). */
+  private losClear(source: SimEntity, point: Vec3): boolean {
+    if (source.ship.regime === 'space' || !source.planetId) return true;
+    const planetId = source.planetId;
+    return lineOfSight(source.ship.pos, point, (x, z) => this.terrainHeightAt(planetId, x, z));
+  }
+
+  /** TASK-43: resolve every conn's queued fire intents (single writer). */
+  private processFireIntents(tick: number): void {
+    for (const conn of this.connections.values()) {
+      const queue = conn.fireQueue;
+      if (!queue || queue.length === 0) continue;
+      conn.fireQueue = [];
+      for (const intent of queue) this.resolveFireIntent(conn, intent, tick);
+    }
+  }
+
+  /** One queued fire intent, resolved in the tick (single writer). */
+  private resolveFireIntent(conn: ConnState, intent: { weapon: WeaponId; targetId?: string }, tick: number): void {
+    const entity = this.playerEntities.get(conn.playerId);
+    if (!entity || entity.destroyed || entity.disembarked) return;
+    const weapon = WEAPON_BY_ID[intent.weapon];
+    if (!weapon) return;
+    // The cooldown + energy were committed at ACCEPTANCE (handleFire) — a
+    // second accepted fire cannot be queued behind it (its handleFire
+    // cooldown check failed). Only the loadout is re-checked here (a ship
+    // swap between enqueue and tick is the race this guards).
+    if (!loadoutFor(entity.classId).some((w) => w.id === weapon.id)) return;
+    const nose = vecAdd(entity.ship.pos, vecScale(quatRotateVector(entity.ship.quat, { x: 0, y: 0, z: 1 }), NOSE_OFFSET_M));
+    const forward = quatRotateVector(entity.ship.quat, { x: 0, y: 0, z: 1 });
+    const source: { kind: 'player'; id: string } = { kind: 'player', id: conn.playerId };
+    if (weapon.kind !== 'missile') {
+      this.fireLaser(entity, weapon, nose, forward, intent.targetId, source);
+    } else {
+      this.fireMissile(entity, weapon, nose, forward, intent.targetId, source, tick);
+    }
+  }
+
+  /**
+   * Laser: instant ray nose → first valid target (within range + LOS) or
+   * the terrain-occlusion point or max range. The chosen damage point goes
+   * through the TASK-42 resolveHit pipeline; the 'laser-fired' FX event is
+   * broadcast for EVERY accepted fire (hit or not).
+   */
+  private fireLaser(
+    entity: SimEntity,
+    weapon: WeaponSpec,
+    nose: Vec3,
+    forward: Vec3,
+    targetId: string | undefined,
+    source: { kind: 'player'; id: string },
+  ): void {
+    let target: SimEntity | undefined;
+    if (targetId && targetId !== entity.id) {
+      const t = this.entities.get(targetId);
+      if (t && (t.kind === 'ship' || t.kind === 'ai-ship') && !t.destroyed) {
+        if (
+          vecLength(vecSub(t.ship.pos, nose)) <= weapon.range &&
+          this.losClear(entity, t.ship.pos)
+        ) {
+          target = t;
+        }
+      }
+    }
+    // No (valid) client target: raycast the first entity along the ray.
+    let hitT: number | undefined;
+    if (!target) {
+      let best: { entity: SimEntity; t: number } | undefined;
+      for (const e of this.entities.values()) {
+        if (e.id === entity.id || e.kind === 'wreck' || e.destroyed) continue;
+        if (e.kind !== 'ship' && e.kind !== 'ai-ship') continue;
+        const to = vecSub(e.ship.pos, nose);
+        const t = vecDot(to, forward);
+        if (t <= 0 || t > weapon.range) continue;
+        const perp = vecLength(vecSub(to, vecScale(forward, t)));
+        if (perp <= LASER_HIT_RADIUS_M && (!best || t < best.t)) best = { entity: e, t };
+      }
+      if (best) {
+        target = best.entity;
+        hitT = best.t;
+      }
+    }
+    // Terrain occlusion (surface regime): the first subsample below terrain.
+    let endT = weapon.range;
+    if (target) {
+      endT = hitT ?? Math.min(weapon.range, vecLength(vecSub(target.ship.pos, nose)));
+    }
+    if (entity.planetId && entity.ship.regime !== 'space') {
+      const stepM = weapon.range / 20;
+      for (let d = stepM; d < endT; d += stepM) {
+        const p = vecAdd(nose, vecScale(forward, d));
+        if (p.y < this.terrainHeightAt(entity.planetId, p.x, p.z)) {
+          endT = d;
+          target = undefined;
+          break;
+        }
+      }
+    }
+    const damagePoint = vecAdd(nose, vecScale(forward, endT));
+    if (target) {
+      this.handleWeaponContact(weapon, entity.id, target.id, target.ship.pos);
+    }
+    this.broadcastCombatEvent({
+      kind: 'laser-fired',
+      source,
+      weapon: weapon.id,
+      from: nose,
+      to: target ? target.ship.pos : damagePoint,
+    });
+  }
+
+  /**
+   * Missile: needs a VALID client target (alive, in range, LOS) — otherwise
+   * the fire is a denied drop (no FX). Spawns a projectile ENTITY (visible
+   * in snapshots for every client), enforcing the 16-per-shard cap (the
+   * OLDEST expires first, logged).
+   */
+  private fireMissile(
+    entity: SimEntity,
+    weapon: WeaponSpec,
+    nose: Vec3,
+    forward: Vec3,
+    targetId: string | undefined,
+    source: { kind: 'player'; id: string },
+    tick: number,
+  ): void {
+    let target: SimEntity | undefined;
+    if (targetId && targetId !== entity.id) {
+      const t = this.entities.get(targetId);
+      if (
+        t &&
+        (t.kind === 'ship' || t.kind === 'ai-ship') &&
+        !t.destroyed &&
+        vecLength(vecSub(t.ship.pos, nose)) <= weapon.range &&
+        this.losClear(entity, t.ship.pos)
+      ) {
+        target = t;
+      }
+    }
+    if (!target) {
+      this.log.debug('dropped missile: no valid target', { playerId: entity.playerId ?? null, tick });
+      return;
+    }
+    // Entity budget: the oldest projectile expires first when the cap is hit.
+    const projectiles: SimEntity[] = [];
+    for (const e of this.entities.values()) {
+      if (e.kind === 'projectile') projectiles.push(e);
+    }
+    if (projectiles.length >= PROJECTILE_CAP) {
+      projectiles.sort((a, b) => (a.projectile?.spawnTick ?? 0) - (b.projectile?.spawnTick ?? 0));
+      const oldest = projectiles[0];
+      this.entities.delete(oldest.id);
+      this.log.warn('missile cap hit: oldest expired', { projectId: oldest.id, cap: PROJECTILE_CAP });
+    }
+    const seq = ++this.projectileSeq;
+    const id = `proj:${seq}`;
+    this.entities.set(id, {
+      id,
+      kind: 'projectile',
+      playerId: null,
+      classId: 'missile',
+      ship: {
+        pos: nose,
+        vel: vecScale(forward, weapon.speed ?? 120),
+        quat: entity.ship.quat,
+        regime: entity.ship.regime,
+      },
+      hull: 0,
+      shields: 0,
+      targetId: target.id,
+      docked: false,
+      ttl: Math.max(1, Math.round((weapon.ttl ?? 5) / this.dt)),
+      planetId: entity.planetId,
+      projectile: { targetId: target.id, sourceId: entity.id, weaponId: 'missile', spawnTick: seq },
+    });
+    this.broadcastCombatEvent({
+      kind: 'missile-fired',
+      source,
+      weapon: weapon.id,
+      projectile: id,
+      from: nose,
+    });
+  }
+
+  /**
+   * One tick of missile flight: home (turn-rate capped) toward the target,
+   * advance at constant speed, decrement the ttl (expiry = a miss, no hit),
+   * detonate on contact (splash radius) or terrain impact.
+   */
+  private updateProjectiles(): void {
+    for (const [id, proj] of this.entities) {
+      if (proj.kind !== 'projectile' || !proj.projectile) continue;
+      const spec = WEAPON_BY_ID.missile;
+      if (proj.ttl !== undefined && --proj.ttl <= 0) {
+        // Expired: the target outran the turn rate — no hit (spec).
+        this.entities.delete(id);
+        this.log.debug('missile expired (no hit)', { projectId: id });
+        continue;
+      }
+      const st = proj.projectile;
+      const target = this.entities.get(st.targetId);
+      const targetAlive =
+        !!target &&
+        (target.kind === 'ship' || target.kind === 'ai-ship') &&
+        !target.destroyed;
+      if (targetAlive && target) {
+        const step = stepMissile(
+          proj.ship.pos,
+          proj.ship.vel,
+          target.ship.pos,
+          this.dt,
+          spec.speed ?? 120,
+          spec.turnRate ?? 1.5,
+        );
+        proj.ship.pos = step.pos;
+        proj.ship.vel = step.vel;
+        if (vecLength(vecSub(target.ship.pos, proj.ship.pos)) <= (spec.splashRadius ?? 5)) {
+          this.detonateMissile(id, proj, proj.ship.pos, target);
+          continue;
+        }
+      } else {
+        // Dead/lost target: fly straight to the ttl (a guaranteed miss).
+        proj.ship.pos = vecAdd(proj.ship.pos, vecScale(proj.ship.vel, this.dt));
+      }
+      // Terrain impact (atmosphere/surface only): splash at the ground.
+      if (proj.planetId && proj.ship.pos.y <= this.terrainHeightAt(proj.planetId, proj.ship.pos.x, proj.ship.pos.z)) {
+        this.detonateMissile(id, proj, proj.ship.pos, undefined);
+      }
+    }
+  }
+
+  /**
+   * Missile detonation: 25 damage to the target (when one was in contact),
+   * 12 splash to EVERYTHING else within 5 m (friendly fire applies — one
+   * pipeline, no teams), then the 'missile-impact' FX event and removal.
+   */
+  private detonateMissile(
+    id: string,
+    proj: SimEntity,
+    point: Vec3,
+    direct: SimEntity | undefined,
+  ): void {
+    const st = proj.projectile!;
+    const srcEntity = this.entities.get(st.sourceId);
+    const source = srcEntity?.playerId
+      ? ({ kind: 'player', id: srcEntity.playerId } as const)
+      : ({ kind: 'ai', id: st.sourceId } as const);
+    if (direct) {
+      this.applyHit(direct.id, WEAPON_BY_ID.missile.damage, source, 'missile');
+    }
+    for (const e of this.entities.values()) {
+      if (direct && e.id === direct.id) continue;
+      if (e.kind !== 'ship' && e.kind !== 'ai-ship') continue;
+      if (e.destroyed) continue;
+      if (vecLength(vecSub(e.ship.pos, point)) <= (WEAPON_BY_ID.missile.splashRadius ?? 5)) {
+        this.applyHit(e.id, WEAPON_BY_ID.missile.splashDamage ?? 12, source, 'missile');
+      }
+    }
+    this.broadcastCombatEvent({ kind: 'missile-impact', weapon: 'missile', projectile: id, point });
+    this.entities.delete(id);
+  }
+
+  /**
    * Destroy a ship (the killing step of applyHit): freeze it (hull/shields 0,
    * no held input, no target) and spawn a static wreck at its final position
    * with the 600 s ttl. The wreck is a NEW entity (id `wreck:<shipId>`) so
@@ -753,7 +1135,10 @@ export class SystemShard implements Shard {
     const t0 = performance.now();
 
     // TASK-23: expire static wrecks (600 s ttl) — bounds the entity count.
+    // TASK-43: projectiles manage their OWN ttl (updateProjectiles decrements
+    // AND detonates on contact — the sweep must not double-decrement them).
     for (const [id, entity] of this.entities) {
+      if (entity.kind === 'projectile') continue;
       if (entity.ttl !== undefined && --entity.ttl === 0) this.entities.delete(id);
     }
 
@@ -800,6 +1185,9 @@ export class SystemShard implements Shard {
       // TASK-29: landing-pad state machine + VTOL drift assist (both run on
       // the integrated state, so takeoff clears 'docked' within one tick).
       this.updatePadState(entity, shipInput.up);
+      // TASK-43: energy regen (10/s, max 100) — including while docked or
+      // disembarked (the idle tick keeps regenerating, spec note).
+      entity.energy = regenEnergy(entity.energy ?? ENERGY_MAX, this.dt);
     }
 
     // TASK-32: integrate the on-foot characters (one per disembarked
@@ -850,6 +1238,12 @@ export class SystemShard implements Shard {
     // TASK-38: advance the active mining channels (the server clock is the
     // award authority — awards, cancellations and the 10 Hz progress echo).
     this.updateMining(tick);
+
+    // TASK-43: resolve queued fire intents (laser: instant ray through the
+    // TASK-42 resolver; missile: spawn a homing projectile entity) — the
+    // tick is the ONLY fire path (single writer). Then fly the missiles.
+    this.processFireIntents(tick);
+    this.updateProjectiles();
 
     // TASK-37: deposit discovery (any player within 50 m flips the flag).
     this.sweepDiscovery();
@@ -2673,6 +3067,15 @@ export function entityToState(e: SimEntity): EntityState {
   // TASK-42: the wreck's killer id — TASK-49 renders the skull marker
   // from it until the wreck despawns.
   if (e.kind === 'wreck' && e.killerId) state.killerId = e.killerId;
+  // TASK-43: the ship's energy (the weapon HUD's bar reads it from the
+  // SELF entity_update); undefined on pre-43 entities — omitted.
+  if (e.kind === 'ship' && e.playerId && e.energy !== undefined) state.energy = e.energy;
+  // TASK-43: a missile tracer — hull 0 (it takes no damage), targetId is
+  // the homing target (the client renders it as a small tracer).
+  if (e.kind === 'projectile') {
+    state.hull = 0;
+    state.shields = 0;
+  }
   // TASK-34: player-owned entities (ship + character) carry the inventory
   // so the client's weight bar updates within one snapshot of any change.
   if (e.kind === 'ship' || e.kind === 'character') {

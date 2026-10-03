@@ -22,6 +22,8 @@ export const ENTITY_KINDS = [
   'deposit',
   'terminal',
   'groundItem',
+  /** TASK-43: a missile in flight (a visible tracer for every client). */
+  'projectile',
 ] as const;
 export type EntityKind = (typeof ENTITY_KINDS)[number];
 
@@ -43,7 +45,16 @@ export type FlightRegime = (typeof FLIGHT_REGIMES)[number];
  * the wreck skull marker (TASK-49) read these. Wire contract change
  * noted for TASK-69).
  */
-export const COMBAT_EVENT_KINDS = ['hit', 'destroyed', 'kill'] as const;
+export const COMBAT_EVENT_KINDS = [
+  'hit',
+  'destroyed',
+  'kill',
+  // TASK-43: fire FX (client effects are driven from these, NEVER from the
+  // local fire intent — a denied fire produces no event and no FX).
+  'laser-fired',
+  'missile-fired',
+  'missile-impact',
+] as const;
 export type CombatEventKind = (typeof COMBAT_EVENT_KINDS)[number];
 
 export const PRESENCE_EVENTS = ['join', 'leave'] as const;
@@ -121,6 +132,12 @@ export const entityStateSchema = z
      * marker TASK-49 renders until the wreck despawns. Other kinds omit it.
      */
     killerId: z.string().min(1).optional(),
+    /**
+     * TASK-43: the ship's energy (ABSOLUTE 0..100), set on player-owned
+     * ship entities — the weapon HUD's energy bar reads it from the SELF
+     * entity_update (10 Hz). Other kinds omit it.
+     */
+    energy: finite.min(0).max(100).optional(),
     /**
      * TASK-34: the owner's inventory, set on player-owned entities (ship +
      * character) — {stacks: {resourceId: amount}, weightUsed}. The client
@@ -475,7 +492,52 @@ export const messageSchemas = {
         weapon: z.string().min(1).max(32),
       })
       .strict(),
+    // TASK-43: FX events (broadcast to the WHOLE shard on every ACCEPTED
+    // fire / impact — a denied fire produces no event at all, which is
+    // exactly the "no FX on a denied fire" contract).
+    z
+      .object({
+        kind: z.literal('laser-fired'),
+        source: damageSourceSchema,
+        weapon: z.string().min(1).max(32),
+        /** The ray's endpoints (world units): nose → first hit/occlusion/max range. */
+        from: vec3Schema,
+        to: vec3Schema,
+      })
+      .strict(),
+    z
+      .object({
+        kind: z.literal('missile-fired'),
+        source: damageSourceSchema,
+        weapon: z.string().min(1).max(32),
+        /** The spawned projectile entity id (the tracer's identity). */
+        projectile: z.string().min(1),
+        from: vec3Schema,
+      })
+      .strict(),
+    z
+      .object({
+        kind: z.literal('missile-impact'),
+        weapon: z.string().min(1).max(32),
+        projectile: z.string().min(1),
+        /** The impact point (world units) — the splash FX + screen shake. */
+        point: vec3Schema,
+      })
+      .strict(),
   ]),
+  /**
+   * TASK-43: the ONLY inbound combat traffic — a fire INTENT. The server
+   * re-derives everything (loadout, rate, energy, range, LOS, target
+   * validity); a client never claims a hit (TASK-67). `targetId` is the
+   * client's aim assist (nearest ship it can see); the server re-validates
+   * it and a missing/invalid target is simply a denied (FX-less) fire.
+   */
+  fire: z
+    .object({
+      weapon: z.enum(['laser', 'missile']),
+      targetId: z.string().min(1).optional(),
+    })
+    .strict(),
 } as const;
 
 export type MessageType = keyof typeof messageSchemas;
