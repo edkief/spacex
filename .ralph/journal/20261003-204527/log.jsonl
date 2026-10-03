@@ -1,0 +1,3 @@
+{"time":"2026-10-03T10:45:27.721Z","level":"warn","message":"model call failed","fields":{"error":"model 'local-150k' is not served by this process"}}
+{"time":"2026-10-03T10:45:29.835Z","level":"warn","message":"model call failed","fields":{"error":"model 'local-150k' is not served by this process"}}
+{"time":"2026-10-03T10:45:31.475Z","level":"warn","message":"shutting down the daemon"}
