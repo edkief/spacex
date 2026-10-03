@@ -34,13 +34,23 @@ export interface Pose {
   look: Vec3;
 }
 
-/** The two regimes the single camera serves (TASK-27). */
-export type CameraMode = 'cockpit' | 'onfoot';
+/** The three regimes the single camera serves (TASK-27, TASK-72). */
+export type CameraMode = 'cockpit' | 'chase' | 'onfoot';
 
 /** Cockpit offset in ship-local space (spec: (0, 0.5, 1.2)). */
 export const COCKPIT_OFFSET: Vec3 = { x: 0, y: 0.5, z: 1.2 };
 /** Look-ahead along the ship forward (local +Z) for the cockpit pose. */
 export const COCKPIT_LOOK_AHEAD = 20;
+
+/**
+ * TASK-72: chase-cam offsets in ship-local space. The flight model's
+ * forward is +Z (SPAWN_GATE_QUAT, COCKPIT_OFFSET), so BEHIND is -Z. Tuned
+ * for the scout hull (~4.2 long, ~7.8 wide — ship-mesh.ts): 14 u back puts
+ * the widest wingtip well inside the 75° FOV.
+ */
+export const CHASE_BEHIND = 14;
+export const CHASE_HEIGHT = 4;
+export const CHASE_LOOK_AHEAD = 20;
 
 /** On-foot (spec): 4 m behind the character, 1.6 m up. */
 export const ON_FOOT_BEHIND = 4;
@@ -90,6 +100,21 @@ export function cockpitPose(ship: ShipState): Pose {
   const ahead: Vec3 = { x: 0, y: COCKPIT_OFFSET.y, z: COCKPIT_LOOK_AHEAD };
   return {
     position: vecAdd(ship.pos, quatRotateVector(ship.quat, COCKPIT_OFFSET)),
+    look: vecAdd(ship.pos, quatRotateVector(ship.quat, ahead)),
+  };
+}
+
+/**
+ * TASK-72: chase pose — the default in-ship view. The camera sits
+ * ship-local (0, CHASE_HEIGHT, -CHASE_BEHIND) rotated by the ship quat
+ * (behind + above), looking at a point CHASE_LOOK_AHEAD ahead of the ship
+ * along its forward (+Z). Pure and deterministic, like the other poses.
+ */
+export function chasePose(ship: ShipState): Pose {
+  const offset: Vec3 = { x: 0, y: CHASE_HEIGHT, z: -CHASE_BEHIND };
+  const ahead: Vec3 = { x: 0, y: 0, z: CHASE_LOOK_AHEAD };
+  return {
+    position: vecAdd(ship.pos, quatRotateVector(ship.quat, offset)),
     look: vecAdd(ship.pos, quatRotateVector(ship.quat, ahead)),
   };
 }

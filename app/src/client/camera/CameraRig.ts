@@ -5,6 +5,11 @@
  *  - 'cockpit' — ship-local offset (0, 0.5, 1.2) rotated by the ship quat,
  *    looking along the ship forward; the smoothed state chases the target
  *    pose exponentially (k = 8/s → the ~100 ms follow lag, spec).
+ *    (TASK-72: kept available but unused by default — the in-ship view is
+ *    'chase'.)
+ *  - 'chase'   — TASK-72: third person behind the ship: ship-local
+ *    (0, 4, -14) rotated by the ship quat, looking 20 u ahead. The default
+ *    in-ship view.
  *  - 'onfoot'  — third person: 4 m behind the character, 1.6 m up,
  *    mouse-look yaw/pitch (pitch clamped ±80°).
  *
@@ -22,6 +27,7 @@
 import * as THREE from 'three';
 
 import {
+  chasePose,
   cockpitPose,
   computeHandoffPath,
   easeInOutCubic,
@@ -226,7 +232,20 @@ export class CameraRig {
         pitch: this.lookPitch,
       });
     }
+    if (mode === 'chase') {
+      return chasePose(this.ship);
+    }
     return cockpitPose(this.ship);
+  }
+
+  /**
+   * Forget the smoothed state: the NEXT update() snaps to the mode's target
+   * pose instead of chasing from where the camera is (the boot path — a
+   * handoff animation from the manager's spectator vantage is not wanted
+   * there; TASK-72). No-op until the next frame runs.
+   */
+  resetPrime(): void {
+    this.primed = false;
   }
 
   /** Snap the smoothed state (and the camera) to an exact pose. */

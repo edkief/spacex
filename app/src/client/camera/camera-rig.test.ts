@@ -16,6 +16,7 @@ import { quatFromEuler } from '@shared/physics/vec';
 
 import { CameraRig, CAMERA_FOV, SMOOTH_K } from './CameraRig';
 import {
+  chasePose,
   cockpitPose,
   HANDOFF_DURATION_MS,
   onFootPose,
@@ -214,6 +215,85 @@ describe('CameraRig handoff', () => {
     settle(h);
     expect(h.rig.handoff('cockpit')).toBe(false);
     expect(h.rig.handoffStarts).toBe(0);
+  });
+});
+
+describe('CameraRig chase mode (TASK-72)', () => {
+  it('first frame snaps to the chase pose (no animation from the camera spawn pose)', () => {
+    const h = makeRig();
+    h.rig.mode = 'chase';
+    h.step(); // prime: snap
+    const dest = chasePose({ pos: SHIP_POS, quat: IDENTITY_QUAT });
+    expect(h.rig.camera.position.x).toBeCloseTo(dest.position.x, 6);
+    expect(h.rig.camera.position.y).toBeCloseTo(dest.position.y, 6);
+    expect(h.rig.camera.position.z).toBeCloseTo(dest.position.z, 6);
+    expect(h.starts).toHaveLength(0); // snap, not a handoff
+  });
+
+  it('steady state: the camera sits behind + above the ship and follows yaw', () => {
+    const h = makeRig();
+    h.rig.mode = 'chase';
+    h.step();
+    settle(h);
+    const dest0 = chasePose({ pos: SHIP_POS, quat: IDENTITY_QUAT });
+    expect(h.rig.camera.position.x).toBeCloseTo(dest0.position.x, 3);
+    expect(h.rig.camera.position.y).toBeCloseTo(dest0.position.y, 3);
+    expect(h.rig.camera.position.z).toBeCloseTo(dest0.position.z, 3);
+
+    // The ship yaws 90°: the camera orbits to the new -Z (world -X) side.
+    const yaw = quatFromEuler(Math.PI / 2, 0, 0);
+    h.rig.setShip(SHIP_POS, yaw);
+    settle(h);
+    const dest1 = chasePose({ pos: SHIP_POS, quat: yaw });
+    expect(h.rig.camera.position.x).toBeCloseTo(dest1.position.x, 3);
+    expect(h.rig.camera.position.z).toBeCloseTo(dest1.position.z, 3);
+  });
+
+  it('handoff cockpit → chase: one 600 ms animation landing on the chase pose', () => {
+    const h = makeRig();
+    settle(h); // settled cockpit
+    const t0 = h.nowMs.t;
+    expect(h.rig.handoff('chase')).toBe(true);
+    while (h.nowMs.t - t0 < HANDOFF_DURATION_MS) h.step();
+    expect(h.rig.mode).toBe('chase');
+    expect(h.starts).toEqual(['chase']);
+    expect(h.ends).toEqual(['chase']);
+    const dest = chasePose({ pos: SHIP_POS, quat: IDENTITY_QUAT });
+    expect(h.rig.camera.position.x).toBeCloseTo(dest.position.x, 6);
+    expect(h.rig.camera.position.y).toBeCloseTo(dest.position.y, 6);
+    expect(h.rig.camera.position.z).toBeCloseTo(dest.position.z, 6);
+  });
+
+  it('handoff onfoot → chase (re-entry): one animation, ends chasing the ship', () => {
+    const h = makeRig();
+    settle(h);
+    const t1 = h.nowMs.t;
+    h.rig.handoff('onfoot');
+    while (h.nowMs.t - t1 < HANDOFF_DURATION_MS) h.step();
+    expect(h.rig.mode).toBe('onfoot');
+
+    const t2 = h.nowMs.t;
+    expect(h.rig.handoff('chase')).toBe(true);
+    while (h.nowMs.t - t2 < HANDOFF_DURATION_MS) h.step();
+    expect(h.starts).toEqual(['onfoot', 'chase']);
+    expect(h.ends).toEqual(['onfoot', 'chase']);
+    expect(h.rig.mode).toBe('chase');
+    const dest = chasePose({ pos: SHIP_POS, quat: IDENTITY_QUAT });
+    expect(h.rig.camera.position.x).toBeCloseTo(dest.position.x, 6);
+    expect(h.rig.camera.position.y).toBeCloseTo(dest.position.y, 6);
+    expect(h.rig.camera.position.z).toBeCloseTo(dest.position.z, 6);
+  });
+
+  it('resetPrime makes the next update snap (the boot path)', () => {
+    const h = makeRig();
+    settle(h); // settled cockpit at the ship
+    h.rig.mode = 'chase';
+    h.rig.resetPrime();
+    h.step(); // snaps, does not chase from the cockpit pose
+    const dest = chasePose({ pos: SHIP_POS, quat: IDENTITY_QUAT });
+    expect(h.rig.camera.position.x).toBeCloseTo(dest.position.x, 6);
+    expect(h.rig.camera.position.y).toBeCloseTo(dest.position.y, 6);
+    expect(h.rig.camera.position.z).toBeCloseTo(dest.position.z, 6);
   });
 });
 

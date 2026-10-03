@@ -6,9 +6,14 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { quatFromEuler, quatIdentity, type Vec3 } from '@shared/physics/vec';
+import { quatFromEuler, quatIdentity, quatRotateVector, type Vec3 } from '@shared/physics/vec';
+import { SPAWN_GATE_QUAT } from '@shared/galaxy/spawn';
 
 import {
+  CHASE_BEHIND,
+  CHASE_HEIGHT,
+  CHASE_LOOK_AHEAD,
+  chasePose,
   clampPitchDeg,
   clampPitchRad,
   cockpitPose,
@@ -55,6 +60,39 @@ describe('pose construction', () => {
     expect(p.position.z).toBeCloseTo(2);
     // Look keeps tracking the rotated forward.
     expect(p.look.x).toBeGreaterThan(p.position.x + 10);
+  });
+
+  it('chase: behind + above the ship for an identity-quat ship', () => {
+    const p = chasePose({ pos: { x: 3, y: 1, z: -2 }, quat: quatIdentity() });
+    // Forward is +Z, so behind is -Z: (3, 1+4, -2-14).
+    expect(p.position).toEqual({ x: 3, y: 1 + CHASE_HEIGHT, z: -2 - CHASE_BEHIND });
+    // Looking CHASE_LOOK_AHEAD ahead along the ship forward (+Z).
+    expect(p.look).toEqual({ x: 3, y: 1, z: -2 + CHASE_LOOK_AHEAD });
+  });
+
+  it('chase: offset + look rotate with the ship quat (SPAWN_GATE_QUAT)', () => {
+    const pos = { x: 100, y: 0, z: 50 };
+    const q = SPAWN_GATE_QUAT;
+    const p = chasePose({ pos, quat: q });
+    const rotOffset = quatRotateVector(q, { x: 0, y: CHASE_HEIGHT, z: -CHASE_BEHIND });
+    const rotAhead = quatRotateVector(q, { x: 0, y: 0, z: CHASE_LOOK_AHEAD });
+    expect(p.position.x).toBeCloseTo(pos.x + rotOffset.x, 10);
+    expect(p.position.y).toBeCloseTo(pos.y + rotOffset.y, 10);
+    expect(p.position.z).toBeCloseTo(pos.z + rotOffset.z, 10);
+    expect(p.look.x).toBeCloseTo(pos.x + rotAhead.x, 10);
+    expect(p.look.y).toBeCloseTo(pos.y + rotAhead.y, 10);
+    expect(p.look.z).toBeCloseTo(pos.z + rotAhead.z, 10);
+  });
+
+  it('chase: follows yaw (90° → the camera orbits to the -X side of the ship)', () => {
+    const q = quatFromEuler(Math.PI / 2, 0, 0);
+    const p = chasePose({ pos: { x: 0, y: 0, z: 0 }, quat: q });
+    // +Z forward becomes +X under 90° yaw: behind (-Z local) becomes -X world.
+    expect(p.position.x).toBeCloseTo(-CHASE_BEHIND);
+    expect(p.position.y).toBeCloseTo(CHASE_HEIGHT);
+    expect(p.position.z).toBeCloseTo(0);
+    expect(p.look.x).toBeCloseTo(CHASE_LOOK_AHEAD);
+    expect(p.look.z).toBeCloseTo(0);
   });
 
   it('on-foot: 4 m behind the character, 1.6 m up, looking at the head', () => {

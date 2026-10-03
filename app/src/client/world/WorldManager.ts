@@ -38,6 +38,7 @@ import {
 import { frameMonitor } from '@client/perf/frameMonitor';
 import { CameraRig } from '@client/camera/CameraRig';
 import { atmosphereViewFor } from './atmosphere-view';
+import { SelfShip, type SelfShipInput } from './self-ship';
 
 /**
  * The in-system world (TASK-8). Owns the three.js scene on the game canvas
@@ -305,8 +306,19 @@ export class WorldManager {
    * the manager's spectator camera stays exactly as before.
    */
   private readonly cameraRig: CameraRig;
-  /** True from the first setCharacterPos until clearCharacter (rig runs). */
+  /**
+   * True from the first self SHIP update (TASK-72: the chase camera arms on
+   * boot, not on the first disembark) until clearCharacter. While true the
+   * frame loop drives the rig.
+   */
   private rigActive = false;
+  /**
+   * TASK-72: the player's own ship (scene-level — the remote layer drops the
+   * self callsign, so this is where the player's ship renders). Created on
+   * the first self ship update, kept while the player is on foot (the ship
+   * sits docked), disposed only on a null update / dispose().
+   */
+  private readonly selfShip = new SelfShip();
   /**
    * TASK-32: the placeholder character model (capsule body + head, lit-free)
    * standing at the character's feet; null = on ship. Driven per frame by
@@ -381,6 +393,14 @@ export class WorldManager {
     this.scene.add(this.background.stars);
     this.scene.add(this.dome.mesh); // renderOrder 2: composites over sky + stars
     this.oreLayer.attach(this.scene); // TASK-37: ore rocks live scene-level
+    // TASK-72: scene lighting for the self-ship's MeshStandardMaterial paint
+    // zones. Everything else in this scene (star, planets, gate, dome,
+    // character capsule) is Basic/Shader-lit and ignores lights, so this
+    // only ever affects the ship.
+    this.scene.add(new THREE.AmbientLight('#9fb2d0', 1.4));
+    const keyLight = new THREE.DirectionalLight('#ffffff', 2.4);
+    keyLight.position.set(0.35, 1, 0.25); // fixed key direction (ship-facing)
+    this.scene.add(keyLight);
 
     const frame = (): void => {
       if (this.disposed) return;
@@ -633,25 +653,78 @@ export class WorldManager {
     this.cameraRig.setShip(pos, quat);
     if (this.characterMesh) {
       this.disposeCharacterMesh();
-      this.cameraRig.handoff('cockpit');
+      // TASK-72: re-entry animates onfoot → CHASE (the default in-ship view),
+      // not cockpit — the same 600 ms TASK-27 handoff, same rig.
+      this.cameraRig.handoff('chase');
     }
   }
 
   /**
+   * TASK-72: the player's own ship, from the self entity_update bridge.
+   * First call spawns the scene-level mesh (it survives swapWorld), arms
+   * the rig in 'chase' mode and primes the rig's first-frame snap (NO
+   * handoff animation from the manager's boot spectator vantage). A
+   * classId change (ship purchase) rebuilds the mesh; a livery change
+   * re-tints it in place; position/quaternion track the 10 Hz snapshot.
+   * The mesh STAYS while the player is on foot (the ship sits docked — the
+   * object the character walks back to); only a `null` update or dispose()
+   * removes it.
+   */
+  setSelfShip(state: SelfShipInput | null): void {
+    const currentGroup = this.selfShip.mesh?.group ?? null;
+    const result = this.selfShip.set(state);
+    if (result.created || result.rebuilt) {
+      this.scene.add(this.selfShip.mesh!.group); // scene-level: survives swapWorld
+    } else if (result.disposed) {
+      // disposeShipMesh clears the group but it stays attached — detach it.
+      if (currentGroup) this.scene.remove(currentGroup);
+    }
+    if (!this.selfShip.mesh || !state) return;
+    // The rig: the FIRST self ship update arms the chase camera; later
+    // updates just feed the pose (while on foot the mode is 'onfoot' and
+    // the ship pose is only used as the re-entry handoff's destination).
+    this.cameraRig.setShip(state.pos, state.rot);
+    if (!this.rigActive) {
+      this.rigActive = true;
+      this.cameraRig.mode = 'chase';
+      this.cameraRig.resetPrime(); // snap on the next frame — no boot animation
+    }
+  }
+
+  /**
+   * TASK-73 hook: per-frame drive of the self ship mesh + chase pose
+   * (client prediction will call this at 60 fps; until then the 10 Hz
+   * setSelfShip updates are the only feed).
+   */
+  setSelfShipTransform(pos: Vec3, quat: { x: number; y: number; z: number; w: number }): void {
+    this.selfShip.transform(pos, quat);
+    this.cameraRig.setShip(pos, quat);
+  }
+
+  /**
+   * The rendered self ship (dev probe / e2e assertions). Null until the
+   * first setSelfShip.
+   */
+  selfShipView(): { classId: string; pos: Vec3 } | null {
+    if (!this.selfShip.mesh) return null;
+    return { classId: this.selfShip.mesh.classId, pos: this.selfShip.position()! };
+  }
+
+  /**
    * TASK-31: full on-foot teardown (warp / boot / snapshot reset — NOT the
-   * seamless re-entry, which is reEnterShip). Removes the capsule and hands
-   * the camera back to its pre-disembark pose (the manager's spectator
-   * vantage) so a system swap never inherits an on-foot camera.
+   * seamless re-entry, which is reEnterShip). Removes the capsule.
+   * TASK-72: the chase camera is RE-ARMED for the next self ship update
+   * (snap, no animation) — a warp / boot reset never snaps the camera
+   * back to the (150, 40, 150) spectator vantage; the ship is where the
+   * player is, so the camera stays with it.
    */
   clearCharacter(): void {
     if (this.characterMesh) {
       this.disposeCharacterMesh();
     }
     if (this.rigActive) {
-      this.rigActive = false;
-      this.cameraRig.mode = 'cockpit'; // re-arm: the next handoff re-animates
-      this.camera.position.set(150, 40, 150);
-      this.camera.lookAt(0, 0, 0);
+      this.cameraRig.mode = 'chase';
+      this.cameraRig.resetPrime(); // the next self ship update snaps onto it
     }
   }
 
@@ -728,6 +801,8 @@ export class WorldManager {
       disposeGroup(this.worldGroup);
       this.worldGroup = null;
     }
+    if (this.selfShip.mesh) this.scene.remove(this.selfShip.mesh.group);
+    this.selfShip.dispose();
     this.disposeCharacterMesh();
     this.remoteLayer.dispose();
     this.pads = [];

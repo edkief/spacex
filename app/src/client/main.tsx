@@ -15,6 +15,7 @@ import {
 import { ChatLog } from '@client/hud/chat-log';
 import { createStarfield } from '@client/render/starfield';
 import { WorldManager } from '@client/world/WorldManager';
+import type { SelfShipInput } from '@client/world/self-ship';
 import { StarChart } from '@client/ui/star-chart';
 import { WarpOverlay } from '@client/ui/warp-overlay';
 import { ReentryTint } from '@client/ui/reentry-tint';
@@ -77,6 +78,7 @@ import { RegimeWiring } from '@client/state/regime-wiring';
 import { CharacterPredictor, characterStateFromWire } from '@client/net/character-prediction';
 import { installCharDebug } from '@client/char-debug';
 import { bindDepositsDebug, installDepositsDebug } from '@client/deposits-debug';
+import { bindSelfShipDebug, installSelfShipDebug } from '@client/self-ship-debug';
 import { installTransitionDebug } from '@client/test/transitionCycle';
 import type { ChatMessage, EntityState, InputPayload } from '@shared/protocol/schemas';
 import { inputToCharacterInput } from '@shared/protocol/inputs';
@@ -132,6 +134,20 @@ function wsUrl(): string {
 }
 
 /**
+ * TASK-72: the self-ship mesh state from a wire ship entity (a missing rot
+ * is identity — the shared-schema default; the livery is wire-optional).
+ */
+const IDENTITY_ROT = { x: 0, y: 0, z: 0, w: 1 };
+function selfShipStateFrom(e: EntityState): SelfShipInput {
+  return {
+    classId: e.classId,
+    pos: e.pos,
+    rot: e.rot ?? IDENTITY_ROT,
+    livery: e.livery ?? null,
+  };
+}
+
+/**
  * TASK-15: boot the game session (WS → join home system) and keep the
  * PresenceStore fed from the snapshot + presence events. A `?sys=` URL
  * param overrides the join target (used by e2e + dev to meet a peer in a
@@ -160,9 +176,10 @@ function useGameSession(
   onAtmosphereView?: (pos: Vec3, regime: Regime) => void,
   // TASK-31: the resolved SELF entity (character FIRST — once disembarked
   // both the frozen ship and the character carry the player's callsign) +
-  // the player's ship entity id (the exit_ship payload). Null when the
-  // snapshot batch carries no own entity.
-  onSelfEntity?: (self: EntityState | null, shipId: string | null) => void,
+  // the player's ship ENTITY (its id is the exit_ship payload; TASK-72: the
+  // full entity drives the self-ship mesh, which keeps rendering while the
+  // player is on foot). Null when the snapshot batch carries no own entity.
+  onSelfEntity?: (self: EntityState | null, ship: EntityState | null) => void,
   // TASK-32: the last input seq the server APPLIED (10 Hz 'ack' frames) —
   // the character predictor reconciles against it.
   onAck?: (seq: number) => void,
@@ -297,7 +314,7 @@ function useGameSession(
           const shipSelf = entities.find(
             (e) => e.kind === 'ship' && e.callsign === session.callsign,
           );
-          onSelfEntity?.(self ?? null, shipSelf?.id ?? null);
+          onSelfEntity?.(self ?? null, shipSelf ?? null);
           // TASK-25.2: route our OWN 10 Hz snapshot into the regime tracker
           // (server flightRegime authority + last-known-state prediction).
           if (self) regimeWiring.onSelfUpdate(self, Date.now());
@@ -383,7 +400,7 @@ function useGameSession(
               (e) => e.kind !== 'character' && e.callsign === session.callsign,
             ) ??
             null,
-          snapshot.entities.find((e) => e.kind === 'ship' && e.callsign === session.callsign)?.id ??
+          snapshot.entities.find((e) => e.kind === 'ship' && e.callsign === session.callsign) ??
             null,
         );
       },
@@ -614,13 +631,15 @@ function App() {
       world.setShipPos(pos);
       world.setAtmosphereView(pos, regime);
     },
-    // TASK-31/35: the self-entity bridge — on foot: the capsule follows the
-    // character (first call spawns it + runs the camera handoff); back in
-    // the ship (re-entry): the world runs the REVERSE handoff (onfoot →
-    // cockpit) once per transition and the rig tracks the ship pose; a
-    // missing self entity (system swap / boot) clears all on-foot state.
-    (self, shipId) => {
-      selfShipIdRef.current = shipId;
+    // TASK-31/35/72: the self-entity bridge — on foot: the capsule follows
+    // the character (first call spawns it + runs the camera handoff) and the
+    // docked ship mesh keeps updating from the ship entity; back in the ship
+    // (re-entry): the world runs the REVERSE handoff (onfoot → chase) once
+    // per transition and the rig tracks the ship pose; a missing self
+    // entity (system swap / boot) clears all on-foot state. The FIRST self
+    // ship update (boot) arms the chase camera behind the player's ship.
+    (self, ship) => {
+      selfShipIdRef.current = ship?.id ?? null;
       const world = worldRef.current;
       if (!world) return;
       if (self && self.kind === 'character' && self.onFoot) {
@@ -632,6 +651,10 @@ function App() {
         selfShipRef.current = false; // TASK-43: on foot = no weapons (v1)
         setSelfShip(null); // TASK-43: hide the weapon HUD on foot
         world.setCharacterPos(self.pos);
+        // TASK-72: the ship stays rendered while on foot — it sits docked
+        // (frozen, but still in every batch) and is the object the character
+        // walks back to. Update the mesh from the ship entity every batch.
+        world.setSelfShip(ship ? selfShipStateFrom(ship) : null);
         // TASK-32: the character is the local prediction target — seed the
         // predictor from the first snapshot (flat pad-plane terrain; the
         // 10 Hz snapshot corrects any off-pad drift) and reconcile every
@@ -664,10 +687,15 @@ function App() {
           selfShipRef.current = true;
           selfPosRef.current = { ...self.pos };
           setSelfShip({ classId: self.classId, energy: self.energy ?? null });
+          // TASK-72: drive the self-ship mesh (first call spawns it + arms
+          // the chase camera) and run the re-entry handoff when a capsule
+          // exists (onfoot → chase).
+          world.setSelfShip(selfShipStateFrom(self));
           world.reEnterShip(self.pos, self.rot ?? { x: 0, y: 0, z: 0, w: 1 });
         } else {
           selfShipRef.current = false;
           setSelfShip(null);
+          world.setSelfShip(ship ? selfShipStateFrom(ship) : null);
           world.clearCharacter();
         }
         // No character → no prediction, and no interaction either (TASK-33:
@@ -1143,6 +1171,15 @@ function App() {
       labelsHost.style.cssText = 'position:absolute;inset:0;overflow:hidden;pointer-events:none;';
       canvas.parentElement?.insertBefore(labelsHost, canvas.nextSibling);
       worldRef.current.attachRemoteLabels(labelsHost);
+      // TASK-72: dev-only self-ship probe — the getter reads the live
+      // manager lazily (a seed-corrected re-creation stays bound through
+      // the ref), so the projection tracks the chase camera at read time.
+      bindSelfShipDebug(selfShipDebug, () => {
+        const world = worldRef.current;
+        const v = world?.selfShipView() ?? null;
+        if (!world || !v) return null;
+        return { classId: v.classId, pos: v.pos, screen: world.projectToScreen(v.pos) };
+      });
     }
     // The world is the pure function (seed, systemId) — boot join and warp
     // arrival (warp_arrived snapshot) take the same swapWorld path.
@@ -1433,6 +1470,8 @@ installDriftDebug();
 const charDebug = installCharDebug();
 // TASK-37: dev-only ore-rock probe hook (no-op in production builds).
 const depositsDebug = installDepositsDebug();
+// TASK-72: dev-only self-ship probe hook (no-op in production builds).
+const selfShipDebug = installSelfShipDebug();
 // TASK-26.2: dev-only draw-distance budget benchmark hook (no-op in prod).
 installStreamDebug();
 // TASK-27: dev-only camera handoff probe hook (no-op in production builds).
