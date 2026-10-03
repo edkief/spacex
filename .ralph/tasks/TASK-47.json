@@ -17,25 +17,25 @@
       "step": 1,
       "description": "Parity property test",
       "details": "Generate 100 random fire sequences (weapon, timing, target positions); replay against a shard with an AI ship and an identical player ship (same class, same start); assert hull/shield trajectories match exactly (determinism + shared pipeline proof).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "PvP kill scenario",
       "details": "Integration test: A and B join, test hooks position them, A locks + fires (scripted), assert B's destruction, kill event payload, wreck killer attribution, C (a third client) receives everything.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Kill feed",
       "details": "KillFeed React component (top-center, 5 entries, 10 s TTL, player-vs-player white / vs-AI grey) fed by kill events; part of the HUD stack (TASK-50's layout slot).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Tests + e2e",
       "details": "All listed; e2e two-context kill with kill-feed screenshot. Run full suite + e2e.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-46", "TASK-15"],

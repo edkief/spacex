@@ -4,10 +4,13 @@
  * (player source destroyed a ship — player-vs-player AND player-vs-AI).
  *
  * The kill event carries ids (killer = player id, victim = ship id); this
- * store indexes the ship entities from every snapshot batch so both sides
- * resolve to CALLSIGNS at push time (an unresolvable id falls back to the
- * raw id). `pvp` is derived from the victim's entity kind: player-vs-player
- * kills render white, player-vs-AI grey.
+ * store indexes two lookups so both sides resolve to CALLSIGNS at push time
+ * (an unresolvable id falls back to the raw id):
+ * - VICTIM (ship id → callsign/kind) from the entity batches — ship entities
+ *   carry their callsign; `pvp` derives from the victim's kind.
+ * - KILLER (player id → callsign) from the PRESENCE store — player id is NOT
+ *   on ship entities (wire contract: character entities only), so the
+ *   in-system player roster is the only id→callsign source.
  *
  * Follows the subscribe/emit idiom of src/client/state/*.ts (emit on
  * change, late subscribers catch up). UI-only, transient.
@@ -35,12 +38,17 @@ export interface KillFeedEntry {
   at: number;
 }
 
-/** The wire fields the callsign resolver needs from an entity batch. */
+/** The wire fields the VICTIM resolver needs from an entity batch. */
 export interface KillFeedEntity {
   id: string;
   kind: string;
   callsign?: string;
-  playerId?: string;
+}
+
+/** The presence fields the KILLER resolver needs (player roster). */
+export interface KillFeedPlayer {
+  playerId: string;
+  callsign: string;
 }
 
 type Listener = (entries: KillFeedEntry[]) => void;
@@ -51,8 +59,8 @@ let currentJson = canonicalJson(current);
 let nextId = 1;
 /** ship/entity id → entity (the victim lookup). */
 const byId = new Map<string, KillFeedEntity>();
-/** player id → entity (the killer lookup). */
-const byPlayer = new Map<string, KillFeedEntity>();
+/** player id → callsign (the killer lookup, fed from presence). */
+const byPlayer = new Map<string, string>();
 
 function emit(next: KillFeedEntry[]): void {
   const json = canonicalJson(next);
@@ -69,8 +77,15 @@ function emit(next: KillFeedEntry[]): void {
 export function indexKillFeedEntities(entities: KillFeedEntity[]): void {
   for (const e of entities) {
     byId.set(e.id, e);
-    if (e.playerId) byPlayer.set(e.playerId, e);
   }
+}
+
+/**
+ * Index the in-system player roster (self + peers, from the presence store).
+ * No emit — the killer lookup only arms later resolution.
+ */
+export function indexKillFeedPlayers(players: KillFeedPlayer[]): void {
+  for (const p of players) byPlayer.set(p.playerId, p.callsign);
 }
 
 /**
@@ -87,7 +102,7 @@ export function pushKillEvent(
   const victim = byId.get(victimShipId);
   next.push({
     id: nextId++,
-    killer: byPlayer.get(killerPlayerId)?.callsign ?? killerPlayerId,
+    killer: byPlayer.get(killerPlayerId) ?? killerPlayerId,
     victim: victim?.callsign ?? victimShipId,
     weapon,
     // An unindexed victim defaults to pvp (white) — the snapshot index

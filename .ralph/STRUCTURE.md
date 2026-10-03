@@ -41,7 +41,8 @@ Excludes dotfiles, tests, and config.
 │       │   │   ├── cargo.ts        # TASK-39: cargo-panel store — openCargoPanel(hold, inventory|null) / closeCargoPanel / cargoPanelSubscribe (emit-on-change, immediate catch-up); driven ONLY by the server's per-connection 'cargo' frame (main.tsx), inventory null = in-ship hold-only view
 │       │   │   ├── dock.ts         # TASK-40: dock-panel store — openDockPanel(payload) from the server's 'ui-open' {ui:'dock'} frame (hold + inventory ride the payload — no round trip), applySellResult (re-render stacks from the 'sell' result frame), closeDockPanel, emit-on-change + immediate catch-up
 │       │   │   ├── credits.ts      # TASK-40: credits store — setCredits (boot-seeded from GET /api/players/me, updated by the 'sell' result frame) + creditsSubscribe emit-on-change
-│       │   │   └── credit-float.ts # TASK-40: '+N cr' float store — pushCreditFloat / removeCreditFloat (self-expiring) + creditFloatsSubscribe
+│       │   │   ├── credit-float.ts # TASK-40: '+N cr' float store — pushCreditFloat / removeCreditFloat (self-expiring) + creditFloatsSubscribe
+│       │   │   └── kill-feed.ts    # TASK-47: kill-feed store — pushKillEvent (prunes TTL, caps last 5, resolves callsigns, pvp = victim kind ≠ 'ai-ship'), indexKillFeedEntities (victims from entity batches) + indexKillFeedPlayers (killers from the presence roster — ship entities carry no playerId on the wire), removeKillFeedEntry, emit-on-change subscribe
 │       │   ├── input/
 │       │   │   ├── controls.ts   # TASK-25: ControlsRemapper — one ControlScheme per regime (space flight, atmosphere + VTOL key, surface walk/look/interact stub for TASK-31), instant setRegime swap + debug log, pure readInput/readCharacterInput
  │           ├─── targeting.ts  # TASK-44: pure lock-on math - LOCK_RANGE_M (500, inclusive) / LOCK_CONE_RAD (30 deg half-angle) / LOCK_RELEASE_RANGE_M (1500) / LOCK_TTL_MS (30 s) / MISSILE_CONE (30 deg, 800 m) / THREAT_PING_FADE_MS (3 s) / THREAT_WINDOW_MS (5 s), forwardOf/coneContains (boundaries inclusive, zero-distance false)/pickNearestInCone (id tie-break)/relativeBearing (signed XZ yaw, + = right)/pickStrongestThreat (windowed damage totals, recency tie) - server lock validation AND client T-key selection share these
@@ -70,7 +71,8 @@ Excludes dotfiles, tests, and config.
 │       │   ├── hud/
 │       │   │   ├── player-list.tsx # TASK-15: bottom-left monospace callsign list + status dots, presence-event re-renders only
 │       │   │   ├── toast-stack.tsx # TASK-15: top-right join/leave toasts, 3 s fade, 3 visible + queue
-│       │   │   └── chat-log.tsx    # TASK-16: top-left chat column — '[HH:MM] CALLSIGN: text', text-only (no innerHTML), Enter-toggled input, bottom-pinned scroll
+│       │   │   ├── chat-log.tsx    # TASK-16: top-left chat column — '[HH:MM] CALLSIGN: text', text-only (no innerHTML), Enter-toggled input, bottom-pinned scroll
+│       │   │   └── kill-feed.tsx   # TASK-47: #kill-feed top-center feed — 'killer ▸ weapon ▸ victim' lines (z 85, pointer-events none, aria-live polite), pvp white / vs-AI grey, per-entry 10 s TTL timer (kill-feed-life fade in the last 2 s)
 │       │   ├── camera/
 │       │   │   ├── CameraRig.ts     # TASK-27: the ONE PerspectiveCamera (FOV 75) for all regimes — cockpit (ship-local (0,0.5,1.2) offset, k=8/s exponential follow ≈100 ms) + on-foot (4 m behind, 1.6 m up, yaw/pitch ±80° clamp); handoff() = 600 ms ease-in-out along a 5-sample terrain-nudged path, input-locked mid-anim, cancellable only by a second handoff; injectable clock/heightAt/lifecycle
 │       │   │   ├── pose-math.ts     # TASK-27: pure DOM-free handoff math on @shared/physics/vec — cockpitPose/onFootPose, lerpPose, slerpVec (short-arc), easeInOutCubic, clampPitch, nudgeOutOfTerrain + computeHandoffPath (5 samples, never enters geometry), samplePath

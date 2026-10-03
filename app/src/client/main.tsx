@@ -6,6 +6,12 @@ import { PresenceStore } from '@client/net/presence';
 import { ChatStore } from '@client/net/chat';
 import { PlayerList } from '@client/hud/player-list';
 import { ToastStack } from '@client/hud/toast-stack';
+import { KillFeed } from '@client/hud/kill-feed';
+import {
+  indexKillFeedEntities,
+  indexKillFeedPlayers,
+  pushKillEvent,
+} from '@client/state/kill-feed';
 import { ChatLog } from '@client/hud/chat-log';
 import { createStarfield } from '@client/render/starfield';
 import { WorldManager } from '@client/world/WorldManager';
@@ -504,6 +510,9 @@ function App() {
     store.applyAiEntities(entities);
     // TASK-44: the targeting store rides the same batch (target box).
     ingestTargetingEntities(entities, sessionCallsignRef.current, Date.now());
+    // TASK-47: the kill feed indexes every batch so kill events resolve
+    // killer (playerId) and victim (ship id) to callsigns.
+    indexKillFeedEntities(entities);
   };
   const clientRef = React.useRef<ClientSession | null>(null);
   // TASK-31: the player's ship entity id (latest self entity_update) — the
@@ -570,6 +579,19 @@ function App() {
   // the "N aboard" occupancy below stays live.
   const [, bumpPresence] = React.useReducer((n: number) => n + 1, 0);
   React.useEffect(() => store.subscribe(bumpPresence), [store]);
+  // TASK-47: the kill feed's KILLER lookup (player id → callsign) rides the
+  // presence roster — ship entities carry no playerId on the wire. Self is
+  // included (a kill YOU land still shows YOUR callsign, not a raw id).
+  React.useEffect(
+    () =>
+      store.subscribe(() => {
+        indexKillFeedPlayers([
+          ...store.otherPlayers,
+          ...(store.selfPlayer ? [store.selfPlayer] : []),
+        ]);
+      }),
+    [store],
+  );
   const { systemId, connState } = useGameSession(
     session,
     store,
@@ -726,6 +748,10 @@ function App() {
     // a denied fire never produced an event, so it never produces FX).
     (event) => {
       recordCombatEvent(event);
+      // TASK-47: the persistent kill feed (top-center, last 5, 10 s fade).
+      if (event.kind === 'kill') {
+        pushKillEvent(event.killer, event.victim, event.weapon, Date.now());
+      }
       // TASK-44: the threat ping feed (hit/destroyed on OUR ship).
       ingestCombatEvent(event, session?.playerId ?? null, Date.now());
       // TASK-46: the AI began acquiring OUR ship — the 'ACQUIRING' toast IS
@@ -1185,6 +1211,8 @@ function App() {
       )}
       <PlayerList store={store} />
       <ToastStack store={store} />
+      {/* TASK-47: the kill feed (top-center, fed by kill combat_events). */}
+      <KillFeed />
       {chartOpen && session && systemId && (
         <StarChart
           token={session.token}
