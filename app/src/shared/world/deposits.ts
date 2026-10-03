@@ -81,6 +81,20 @@ export function planetHeightAt(
 }
 
 /**
+ * A PERSISTENT planet height sampler (the same field as `planetHeightAt`).
+ * Unlike `planetHeightAt` — which builds a fresh per-call cell cache — this
+ * keeps ONE cache alive for the life of the caller, so repeated samples near
+ * a spot (a drone circling its orbit) hit the memo and cost ~nothing. The
+ * shard holds one per planet for the drone hover (per tick, per drone).
+ */
+export function planetHeightSampler(
+  seed: string,
+  planet: Pick<Planet, 'id' | 'radiusKm'>,
+): (x: number, z: number) => number {
+  return planetField(seed, planet).hAt;
+}
+
+/**
  * One planet's height field with a memoized integer cell cache + bilinear
  * `hAt` (matches TerrainContext.heightAt) and a cached two-cell slope. The
  * cache is per placement pass, so a whole system derives in one shot.

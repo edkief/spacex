@@ -41,6 +41,7 @@ import {
   DEPOSIT_ENTITY_PREFIX,
   DEPOSIT_RENDER_RANGE_M,
   depositsFor,
+  planetHeightSampler,
   type Deposit,
 } from '@shared/world/deposits';
 import {
@@ -120,7 +121,7 @@ import {
   type WeaponId,
   type WeaponSpec,
 } from '@shared/weapons';
-import type { SystemGen } from '@shared/galaxy/types';
+import type { Planet, SystemGen } from '@shared/galaxy/types';
 import { homeDockPosition } from '@shared/galaxy/dock';
 import {
   planetAtmosphereDensity,
@@ -276,6 +277,16 @@ export class SystemShard implements Shard {
   private readonly chatLog: ChatMessage[] = [];
   private lastChatTs = 0;
   private readonly terrain = new Map<string, TerrainContext>();
+  /**
+   * TASK-48: the drone-hover height sampler, per planet (persistent memo).
+   * The drones' orbit circles re-sample the same handful of cells every tick,
+   * so a PERSISTENT field keeps the hover O(1)-ish per tick — a fresh
+   * `planetHeightAt` call would rebuild the noise channels + a per-call cache
+   * every drone, every tick (the measured ~30 µs × drone stall), and the
+   * shared `TerrainContext` re-primes (evicts) on every position, which is
+   * the dead end the handoff warns about.
+   */
+  private readonly heightSamplers = new Map<string, (x: number, z: number) => number>();
   /** TASK-29: the system's seeded pad list, per planet (one pad each). */
   private readonly planetPads = new Map<string, PadInfo>();
   /**
@@ -346,6 +357,8 @@ export class SystemShard implements Shard {
     string,
     {
       hazardId: string;
+      /** The hazard's planet (for the local-ground hover in the patrol step). */
+      planetId: string;
       cell: Vec3;
       orbitRadius: number;
       orbitAngle: number;
@@ -1723,9 +1736,7 @@ export class SystemShard implements Shard {
         (this.hazardStates.get(entity.playerId)?.recoveringUntilMs ?? 0) > this.now();
       const next = integrateCharacter(
         charState,
-        recovering
-          ? ZERO_CHARACTER_INPUT
-          : inputToCharacterInput(entity.heldInput ?? ZERO_INPUT),
+        recovering ? ZERO_CHARACTER_INPUT : inputToCharacterInput(entity.heldInput ?? ZERO_INPUT),
         this.dt,
         ctx.options.heightAt,
       );
@@ -1966,13 +1977,19 @@ export class SystemShard implements Shard {
           this.droneFire(id, target);
         }
       } else {
-        // Patrol: circle the cell center, hovering just above its ground.
+        // Patrol: circle the cell center, hovering above the LOCAL ground at
+        // the orbit point — the cell-CENTER height would sit the drone tens
+        // of metres below a hilly orbit and out of the 80 m aggro radius.
+        // planetHeightAt is the pure O(1) field (cache-free per call), so it
+        // costs nothing per tick (the TerrainContext heightAt would re-prime
+        // its 3×3 chunk cache and stall the sim).
         drone.orbitAngle += drone.orbitDir * DRONE_ORBIT_SPEED * this.dt;
-        entity.ship.pos = {
-          x: drone.cell.x + Math.cos(drone.orbitAngle) * drone.orbitRadius,
-          y: drone.cell.y + DRONE_HOVER_M,
-          z: drone.cell.z + Math.sin(drone.orbitAngle) * drone.orbitRadius,
-        };
+        const ox = drone.cell.x + Math.cos(drone.orbitAngle) * drone.orbitRadius;
+        const oz = drone.cell.z + Math.sin(drone.orbitAngle) * drone.orbitRadius;
+        const planet = this.system.planets.find((p) => p.id === drone.planetId);
+        const heightAt = planet ? this.localHeightAt(planet) : undefined;
+        const y = (heightAt ? heightAt(ox, oz) : drone.cell.y) + DRONE_HOVER_M;
+        entity.ship.pos = { x: ox, y, z: oz };
         entity.ship.vel = { x: 0, y: 0, z: 0 };
       }
     }
@@ -1991,11 +2008,10 @@ export class SystemShard implements Shard {
     const now = this.now();
     const state = this.hazardStates.get(playerId) ?? FULL_EXPOSURE;
     if (now < state.recoveringUntilMs) return; // already down: no re-trigger
-    const result = applyDamage(
-      { hull: EXPOSURE_MAX, shields: state.exposure },
-      DRONE_HIT_DAMAGE,
-      { kind: 'drone', id: droneId },
-    );
+    const result = applyDamage({ hull: EXPOSURE_MAX, shields: state.exposure }, DRONE_HIT_DAMAGE, {
+      kind: 'drone',
+      id: droneId,
+    });
     const consumed = result.shieldHit + result.hullHit;
     const exposure = Math.max(0, state.exposure - consumed);
     const knocked = consumed > 0 && exposure <= 0;
@@ -2045,6 +2061,7 @@ export class SystemShard implements Shard {
     });
     this.drones.set(id, {
       hazardId: hazard.hazardId,
+      planetId: hazard.planetId,
       cell: hazard.pos,
       orbitRadius,
       orbitAngle,
@@ -2066,7 +2083,8 @@ export class SystemShard implements Shard {
       const character = this.entities.get(`char:${conn.playerId}`);
       if (!character) continue; // in-ship: no pool, no frame
       const state = this.hazardStates.get(conn.playerId) ?? FULL_EXPOSURE;
-      const recoveringUntil = state.recoveringUntilMs > this.now() ? state.recoveringUntilMs : undefined;
+      const recoveringUntil =
+        state.recoveringUntilMs > this.now() ? state.recoveringUntilMs : undefined;
       const payload = {
         exposure: Math.round(state.exposure * 100) / 100,
         inside: this.hazardForCharacter(character) ?? undefined,
@@ -2088,11 +2106,10 @@ export class SystemShard implements Shard {
     const drone = this.drones.get(entityId);
     const entity = this.entities.get(entityId);
     if (!drone || !entity || entity.destroyed) return false;
-    const result = applyDamage(
-      { hull: drone.hullPoints, shields: 0 },
-      amount,
-      { kind: 'player', id: 'test' },
-    );
+    const result = applyDamage({ hull: drone.hullPoints, shields: 0 }, amount, {
+      kind: 'player',
+      id: 'test',
+    });
     drone.hullPoints = Math.max(0, drone.hullPoints - result.hullHit);
     entity.hull = drone.hullPoints / DRONE_HULL;
     if (result.destroyed) {
@@ -3677,6 +3694,21 @@ export class SystemShard implements Shard {
       this.terrain.set(planetId, ctx);
     }
     return ctx;
+  }
+
+  /**
+   * TASK-48: a persistent, memoized heightAt for one planet (the drone-hover
+   * path). Lazily built once per planet and cached for the shard's life —
+   * see the `heightSamplers` field note for why it can't be the TerrainContext
+   * or a per-call `planetHeightAt`.
+   */
+  private localHeightAt(planet: Planet): (x: number, z: number) => number {
+    let h = this.heightSamplers.get(planet.id);
+    if (!h) {
+      h = planetHeightSampler(this.galaxySeed, planet);
+      this.heightSamplers.set(planet.id, h);
+    }
+    return h;
   }
 
   /**

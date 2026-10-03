@@ -8,6 +8,8 @@ import {
   DRONE_HIT_DAMAGE,
   DRONE_RESPAWN_MS,
   EXPOSURE_MAX,
+  EXPOSURE_REGEN_PER_S,
+  RECOVER_MS,
   hazardsFor,
   type Hazard,
 } from '@shared/world/hazards';
@@ -273,7 +275,9 @@ describe('TASK-48: drones — aggro, 2 s fire cadence, pipeline source, ship imm
     expect(myHits.length).toBeGreaterThanOrEqual(2);
     // Every hit carries the pipeline source 'drone' (the AC's attribution).
     for (const m of env.sent.filter((m) => m.type === 'combat_event' && m.payload.kind === 'hit')) {
-      expect((m.payload as { source: { kind: string } }).source.kind).toBe('drone');
+      const p = m.payload as { source: { kind: string }; damage: number };
+      expect(p.source.kind).toBe('drone');
+      expect(p.damage).toBe(DRONE_HIT_DAMAGE); // exactly 3 per hit (the AC)
     }
     // Each DRONE fires at most once per 2 s window (the 2 s cadence, exact
     // on the fake clock: consecutive hits from one drone ≥ 2000 ms apart).
@@ -288,9 +292,31 @@ describe('TASK-48: drones — aggro, 2 s fire cadence, pipeline source, ship imm
         expect(stamps[i] - stamps[i - 1], `drone ${id} fire cadence`).toBeGreaterThanOrEqual(1950);
       }
     }
-    // The pool drained by EXACTLY 3 per hit (drones cells drain nothing else).
+    // The pool moves by the committed pure math ONLY: 5/s regen (a drones
+    // cell drains nothing, so the player is 'outside' — regen applies) minus
+    // exactly 3 per landed hit, with a hit to 0 opening the 5 s SHIELD BURN
+    // window (no regen, no further hits land while it runs). Replay the sim's
+    // per-tick order (regen FIRST, then hits — stepHazardExposure precedes
+    // stepDrones) over the captured fire stamps; every term is exact in
+    // quarter units (5/s * 0.05 s = 0.25).
+    const DT_MS = 50; // one step = one 20 Hz tick
+    const hitsPerTick = new Map<number, number>();
+    for (const h of myHits) hitsPerTick.set(h.atMs, (hitsPerTick.get(h.atMs) ?? 0) + 1);
+    let expected = EXPOSURE_MAX;
+    let recoveringUntil = 0;
+    for (let t = DT_MS; t <= env.clock(); t += DT_MS) {
+      if (t < recoveringUntil) continue;
+      expected = Math.min(EXPOSURE_MAX, expected + EXPOSURE_REGEN_PER_S * (DT_MS / 1000));
+      const hits = hitsPerTick.get(t) ?? 0;
+      if (hits === 0) continue;
+      expected -= DRONE_HIT_DAMAGE * hits;
+      if (expected <= 0) {
+        expected = 0;
+        recoveringUntil = t + RECOVER_MS;
+      }
+    }
     const state = env.shard.getHazardStateForTesting('p1');
-    expect(state.exposure).toBe(Math.max(0, EXPOSURE_MAX - myHits.length * DRONE_HIT_DAMAGE));
+    expect(state.exposure).toBe(expected);
     void cell;
   });
 
@@ -329,9 +355,7 @@ describe('TASK-48: drones — aggro, 2 s fire cadence, pipeline source, ship imm
     const destroyed = env.sent.filter(
       (m) => m.type === 'combat_event' && m.payload.kind === 'destroyed',
     );
-    expect(
-      destroyed.some((m) => (m.payload as { target: string }).target === droneId),
-    ).toBe(true);
+    expect(destroyed.some((m) => (m.payload as { target: string }).target === droneId)).toBe(true);
 
     // Fast-forward past the 180 s respawn through the real tick (burst steps).
     env.advance(env.clock() + DRONE_RESPAWN_MS + 100);
