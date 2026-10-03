@@ -2,140 +2,158 @@
 
 ## Status
 
-Full implementation (shared weapon defs, server fire pipeline + missile sim, client FX + HUD) is
-WRITTEN, type-checks clean, lints clean, and does NOT regress existing tests — but there are ZERO
-new tests, no e2e, no screenshots, and no bookkeeping. The next session's job is: write the
-tests (step 4), e2e + screenshot, full suite, bookkeeping, commit.
+Implementation + unit tests are written and committed; `src/shared/weapons.test.ts` (all 18 tests)
+and `src/server/shard/shard.weapons.test.ts` (14 of 15 tests) pass, and this session FIXED TWO REAL
+BUGS in the previous session's code (broken `turnToward` Rodrigues math, energy spent on denied
+missile fires). Remaining: 1 failing LOS unit test (debugged — see Dead ends), the WS integration
+test, the e2e + screenshot, full suite, and bookkeeping.
 
 ## Done
 
-All in this uncommitted work (build verified: `npx tsc --noEmit` clean, eslint clean on touched
-files, `shard.combat.test.ts` + `shard.damage.test.ts` + `protocol.test.ts` all green, 33 tests):
+This session's work is in commit `2547175` (on top of `47d41bc`, which has the full implementation):
 
-1. `app/src/shared/weapons.ts` — extended the TASK-42 WeaponSpec (new OPTIONAL fields
-   `kind/fireRate/energy/splashDamage/splashRadius/speed/turnRate/ttl` — optional because the
-   TASK-42 tests build minimal `{id,damage,range}` specs). Added: `LASER` (8 dmg, 400 m, 3/s,
-   2 energy), `MISSILE` (25 dmg, splash 12/5 m, 800 m, 0.5/s, 10 energy, speed 120, turn 1.5,
-   ttl 5 s), `WEAPON_BY_ID`, `isWeaponId`, `loadoutFor(classId)` (scout [laser], interceptor
-   [laser,missile], freighter [laser]), `hasWeapon`, energy model (`ENERGY_MAX=100`,
-   `ENERGY_REGEN_PER_S=10`, `regenEnergy`, `canFire`, `spendEnergy`), and pure missile flight
-   (`turnToward` — Rodrigues rotation with magnitude pinned — and `stepMissile`).
-2. `app/src/shared/protocol/schemas.ts` — ENTITY_KINDS + 'projectile'; entityStateSchema +
-   optional `energy` (0..100); COMBAT_EVENT_KINDS + 'laser-fired'/'missile-fired'/'missile-impact';
-   new messageSchemas entries: `fire {weapon:'laser'|'missile', targetId?}` and the three new
-   combat_event union branches (laser-fired {source, weapon, from, to}, missile-fired
-   {source, weapon, projectile, from}, missile-impact {weapon, projectile, point}).
-3. `app/src/server/shard/types.ts` — SimEntity.kind + 'projectile'; new SimEntity fields
-   `energy?`, `fireCooldownUntil?` (weapon id → sim tick), `projectile?` {targetId, sourceId,
-   weaponId, spawnTick}; ConnState fields `fireQueue?`, `weaponLockedUntilMs?`,
-   `fireSpamCount?`, `fireSpamWindowStartMs?`.
-4. `app/src/server/shard/shard.ts` — the core:
-   - `handleFire(playerId, {weapon, targetId?}, source?)` — stale-conn guard → lock check
-     ({code:'weapon-locked'}) → spam counter (30 fires/s → 5 s lock, log) → loadout → cooldown →
-     energy ({code:'low-energy'}); ACCEPTED fires commit energy + cooldown (`FIRE_QUEUE_MAX=4`,
-     cooldown = ceil(1/(rate·dt)) ticks) and enqueue for the tick.
-   - tick(): energy regen for player ships (`regenEnergy(entity.energy ?? ENERGY_MAX, dt)`),
-     `processFireIntents(tick)` then `updateProjectiles()`; the ttl sweep now SKIPS
-     `kind==='projectile'` (updateProjectiles owns projectile ttl — double-decrement bug avoided).
-   - `fireLaser` — client target re-validated (range 400 + `losClear`), else raycasts first ship
-     within `LASER_HIT_RADIUS_M=5` perpendicular, then terrain occlusion (20 subsamples); damage
-     via existing `handleWeaponContact`/resolveHit; ALWAYS broadcasts 'laser-fired' on accepted fire.
-   - `fireMissile` — requires a valid target (else silent drop); `PROJECTILE_CAP=16` (oldest
-     expires, logged); spawns `proj:<seq>` entity (classId 'missile', ttl 5 s in ticks,
-     `projectile` meta, planetId for terrain); broadcasts 'missile-fired'.
-   - `updateProjectiles` — homing via `stepMissile` (dead/lost target → fly straight), ttl
-     expiry = miss (no hit, logged), contact at splash radius → `detonateMissile`, terrain impact
-     → `detonateMissile` with no direct target.
-   - `detonateMissile` — 25 to target via `applyHit`, 12 splash to every other alive ship/ai-ship
-     within 5 m (friendly fire incl. self), 'missile-impact' event, remove.
-   - `entityToState` — ships carry `energy` (when set); projectiles render hull/shields 0.
-   - `unregisterConnection` — clears the conn's fireQueue + lock + spam state.
-5. `app/src/server/shards.ts` — `routeGameMessage` + 'fire' → `shard.handleFire`.
-6. Client: `app/src/client/world/combat-fx.ts` (NEW — `CombatFx`: 60 ms additive laser line +
-   muzzle spark, 120 ms impact flash, 2 px screen shake decaying 100 ms, tracer pool ≤16 with
-   cone mesh + ≤8-point trail, driven from snapshot batches; dev stretch via
-   `document.body.dataset.fxSlow='1'` → 500 ms flashes for screenshots);
-   `app/src/client/fx.ts` (NEW — `playCombatFx` event→effect map);
-   `app/src/client/fx-debug.ts` (NEW — `window.__FX__` {events, laserFlashes, impacts} DEV-only,
-   `recordCombatEvent`); `app/src/client/ui/weapon-hud.tsx` (NEW — #weapon-hud: 1/2 weapon buttons,
-   name, energy bar 0..100, LOW ENERGY / WEAPON LOCKED prompts);
-   `WorldManager.ts` — `get fx()`, tracers fed in `feedRemoteEntities`, shake nudge around
-   `renderer.render` in the frame loop; `main.tsx` — `weapon`/`selfShip`/`lowEnergy`/`locked`
-   state + refs (`weaponRef`, `selfShipRef`, `selfPosRef`, `remoteShipsRef`, `promptTimers`),
-   two NEW `useGameSession` callbacks (`onCombatEvent` → recordCombatEvent + playCombatFx,
-   `onWsError` → denial prompts), 1/2 key handler, LMB mousedown on #game-canvas → `send('fire',
-   {weapon, targetId: nearest other ship ≤800 m})`, `remoteShipsRef` built in both entity
-   callbacks, `<WeaponHud/>` mounted after `<WeightBar/>`.
+1. **`app/src/shared/weapons.test.ts` (NEW, 18 tests, ALL PASS)** — weapon def values,
+   `loadoutFor`/`hasWeapon` per class (scout [laser], interceptor [laser,missile], freighter
+   [laser]), energy model (regen 10/s clamp 100, `canFire` boundary at exactly the cost,
+   `spendEnergy`), `turnToward` numerics (aligned / capped 30° / full angle / zero-distance /
+   zero-velocity, magnitude pinned), `stepMissile` homing: straight 300 m target → contact
+   (< 5 m) at ~2.5 s < 5 s ttl; target fleeing straight at 60 u/s → hit < ttl; evading target
+   (circle, 3 rad/s > 1.5 cap, 240 u/s) → never within 5 m in 100 steps.
+2. **`app/src/server/shard/shard.weapons.test.ts` (NEW, 15 tests, 14 PASS)** — follows
+   `shard.mining.test.ts` conventions exactly: fake `now` closure + `advance(shard, ms)` running
+   `shard.sim.step(fakeNow)` per 50 ms, `warmup(shard)` (one `advance(250)`) to burn the
+   SimLoop's initial 5-tick catch-up burst so each later `advance(50)` = exactly 1 tick. Ships
+   placed in OPEN SPACE near the origin (planet anchor is 10 km away at `planetAnchor(0)` =
+   (10000, 0), outside the 1 km atmosphere, so the regime stays 'space' under the tick).
+   Covers: laser hit (8 dmg → shields `1 - 8/50`, laser-fired + hit events, energy 98 at
+   acceptance), fire-rate silent drop (no energy, no 2nd event; re-accepted after cooldown),
+   energy gate (`low-energy` error, 0 spent, idle regen only), regen 10/s + clamp,
+   out-of-range laser (beam runs to max range, `to: z=403`, no hit), no-target raycast (ship
+   2 m off the nose ray is hit), loadout gate (scout firing missile = silent drop), missile
+   straight-target hit (25 dmg, `missile-fired` + `missile-impact` + `hit`, projectile entity
+   `kind:'projectile'` ttl 99 after one tick), evading target → expiry (no impact, no hit,
+   projectile gone after 5.2 s — target teleported each 100 ms, like mining's range-loss test),
+   splash (p3 at (2,0,298) takes 12, shooter 300 m away untouched, exactly one impact),
+   16-cap (16 pre-seeded `proj:101..116` with `spawnTick 100+i`; 17th fire expires `proj:101`,
+   fresh shot lands as `proj:1` — the shard's own seq starts at 1!), out-of-range/no-target
+   missile = refused BEFORE acceptance (energy stays 100), 30-fires-in-1-s → `weapon-locked`
+   (exactly 1 error at the 30th, locked fire at +1 s refused, unlocked and firing again at +5.1 s),
+   destroyed ship ignores fire.
+3. **BUG FIX — `app/src/shared/weapons.ts` `turnToward` was WRONG** (the previous handoff
+   warned to verify it; it failed): (a) the Rodrigues term added `k̂·sinθ` (a vector of length
+   sinθ) instead of `(k̂×v)·sinθ`; (b) the aligned branch returned `vecScale(vel, magnitude)` —
+   MULTIPLYING by magnitude instead of re-normalizing — so a missile's velocity exploded to
+   120×120 = 14400 u/s and NaN'd on overshoot (this broke missile flight in the sim). Rewritten:
+   `v' = v·cosθ + (k̂×v)·sinθ` (the `k(k·v)(1−cosθ)` term vanishes: the axis `v×toward` is
+   perpendicular to v), aligned/zero-distance branches now `vecScale(vel, magnitude / curLen)`.
+   Verified numerically by the new tests (30° turn → exactly `42·sin30`/`42·cos30`).
+4. **BUG FIX — `app/src/server/shard/shard.ts`: denied missile fires no longer spend energy.**
+   New private helper `validMissileTarget(entity, targetId)` (alive ship/ai-ship, within
+   `MISSILE.range` of the NOSE, `losClear`). `handleFire` now rejects a missile fire with no
+   valid target BEFORE committing energy (silent drop, spec: "energy not spent on denied fires").
+   `fireMissile` re-validates in the tick and, if the target was lost between acceptance and
+   tick, REFUNDS `weapon.energy` (`Math.min(ENERGY_MAX, energy + cost)`).
+5. **Ordering fix — `fireLaser` now broadcasts `laser-fired` BEFORE `handleWeaponContact`**
+   (the beam leads the damage; the hit event follows in the same tick). Test expectations use
+   the `[laser-fired, hit]` order.
 
 ## Working tree
 
-- Committed: only `ad21a71 chore(ralph): TASK-42 close-out` (previous task's bookkeeping; the
-  flaky `surface.test.ts` was re-verified green in isolation).
-- Uncommitted: EVERYTHING in "Done" above (12 files touched/created under app/src + nothing else).
-- Builds: `npx tsc --noEmit` clean; eslint clean on all touched files; prettier NOT yet run.
-- No new tests exist yet (that is the main remaining work).
+- Clean (everything committed). History: `2547175` (this session's tests + fixes) on
+  `47d41bc` (previous session's full implementation: shared weapons.ts, protocol schemas,
+  shard fire pipeline + missile sim, client FX + HUD) on `601d66f` (TASK-42).
+- Builds: `npx tsc --noEmit` exit 0 (verified this session). eslint/prettier NOT re-run this
+  session on the new/edited files — run `npx prettier --check` / `npm run lint` on:
+  `app/src/shared/weapons.ts`, `app/src/shared/weapons.test.ts`,
+  `app/src/server/shard/shard.ts`, `app/src/server/shard/shard.weapons.test.ts`.
+- Test state: `npx vitest run src/shared/weapons.test.ts src/server/shard/shard.weapons.test.ts`
+  → 32 passed / 1 failed (the LOS test, below). The rest of the suite was last fully green in
+  TASK-42's close-out; `turnToward` is shared but only exercised by the new tests.
 
 ## Next steps
 
-1. `cd app && npx prettier --write` on the touched files (or `npm run lint`).
-2. Unit tests (spec AC "Unit tests: …"):
-   - `src/shared/weapons.test.ts` — loadoutFor per class, energy regen/canFire/spendEnergy, and
-     `stepMissile` homing: straight target → converges (dist < 5 m) in < 5 s at dt 0.05;
-     evading target (circular motion with turn rate > 1.5 rad/s) → never converges → expiry.
-     Verify `turnToward` numerically first — it was rewritten mid-session (Rodrigues form).
-   - `src/server/shard/shard.weapons.test.ts` — follow `shard.mining.test.ts` conventions EXACTLY:
-     fake `now` closure + `shard.sim.step(fakeNow)` per 50 ms (see the `advance()` helper there),
-     `makeEntity`-style SimEntity stubs (note: ships need `classId: 'scout'`/'interceptor' for
-     loadouts; energy is `?? ENERGY_MAX` so unstated = full). Cover: laser hit (B's shields −8,
-     'laser-fired' event), fire-rate (2nd fire within cooldown → silent drop, energy intact),
-     energy gate (drain to <2 → {code:'low-energy'}, no event), regen 10/s, out-of-range target
-     denied, LOS ridge denial (reuse shard.combat.test.ts `findRidge`), missile straight-target
-     hit <5 s (25 dmg + 'missile-impact'), evading → expire no hit, splash (third ship within 5 m
-     takes 12), 16-cap oldest-first, weapon lock (30 fires in 1 s fake-time → {code:'weapon-locked'},
-     denied for 5 s), not-in-loadout (scout 'missile' dropped).
-   - Integration: extend the `shard.combat.ws.test.ts` pattern (real ws clients) — A fires at B,
-     B's shields drop, C observes the 'laser-fired' + 'hit' combat_events.
-3. e2e `tests/e2e/weapons.spec.ts` (model on `multiplayer.spec.ts` / `raw-ws.ts`): claim in the
-   browser, `page.evaluate(() => { document.body.dataset.fxSlow = '1' })`, wait for self ship
-   entity (HUD #weapon-hud appears), `page.mouse.click` on #game-canvas, assert
-   `window.__FX__.laserFlashes >= 1` (and/or a second raw-WS client sees 'laser-fired'),
-   `page.screenshot` → `.ralph/screenshots/TASK-43-1.png`. Remember `npm run dev` (app dir)
-   must be running; kill it after.
-4. Full suite `npm run test` (≈3.5 min) + `npx tsc --noEmit`. If `surface.test.ts` times out,
-   re-run it alone — it flakes under full-suite load (verified green standalone this session).
-5. Bookkeeping: step flags in `.ralph/tasks/TASK-43.json`, `passes: true` in `.ralph/tasks.json`,
-   LOG.md entry (top) + Tasks Completed 56 → 57, STRUCTURE.md (new files: client/fx.ts,
-   client/fx-debug.ts, client/world/combat-fx.ts, client/ui/weapon-hud.tsx; weapons.ts line
-   update), delete this handoff, commit (Conventional Commit, e.g.
-   `feat(weapons): TASK-43 — lasers + homing missiles, server-authoritative fire, FX + HUD`),
-   output the promise.
+1. **Fix the one failing test**: `shard.weapons.test.ts > LOS against the seeded analytic
+   terrain > a ship behind the ridge is NOT hit…` — assertion `ship-p2 shields toBe(1)` receives
+   `0.84` (the hit lands). Root cause: the tick's `resolveRegime` re-resolves the manually-added
+   'surface' ships to **'space'** when their 3D distance to the planet anchor (10000, 0) exceeds
+   the exit radius (1050 m) — space ships skip terrain/LOS entirely, so the shot always lands.
+   `findRidge` in the test already scans a ±550 m window around `planetAnchor(0)` (verified a
+   sweep-occluding ridge exists there: px 9450, pz −550 for seed `shard-weapons-los-seed`,
+   drop 12, occlusion `h(sample) > hA + 8`). The ships (px±100, y ≈ hA+5 ≈ 250) are then ~900 m
+   from the anchor — should stay in atmosphere. It STILL fails, so the next step is to debug
+   empirically: write a throwaway tsx script (like `/tmp/los-debug3.ts` from last session —
+   same file was committed? NO, it lived in /tmp and is gone — recreate it) that mirrors the
+   test exactly (warmup 250 ms, place ships, log `entity.ship.regime` + `entity.planetId`
+   AFTER warmup, replicate the 20 m sweep against `shard.terrainHeightAt`, fire, check).
+   If the regime still flips to space: shrink the scan window (±350 or ±300) or verify the
+   ship's y doesn't change under the integrator. If the regime holds but the hit still lands:
+   check whether the explicit-target path's `losClear` (5-sample `lineOfSight`) passes and the
+   sweep's `endT` boundary (`d < endT`) skips the occluding sample — the sweep starts at
+   d = stepM = 20, so a sample at d < 20 (impossible: min d = 20) is fine, but a ridge
+   occluder between d=180 and endT=197+ would be MISSED if endT = 197 and the last sample is
+   d=180 — widen the occlusion check in `findRidge` to also require `h(px-97+190) > hA+8`-ish
+   coverage, or place the ridge so an occluding sample lands < 190.
+2. **Integration test** (AC: "ship A fires at B, B's shields drop, C sees the FX events"):
+   new `app/src/server/shard/shard.weapons.ws.test.ts` modeled on
+   `shard.combat.ws.test.ts` (real fastify + ws + `WsTestClient`/`joinSystem` from
+   `@server/ws-test-client`; `teleportForTesting` both ships 60 km out → space regime;
+   wait 400 ms for regime re-resolve). The only wiring difference: pass
+   `onGameMessage: (conn, type, payload) => { if (type === 'fire' && conn.systemId === system.systemId) shard.handleFire(conn.playerId!, payload as { weapon: string; targetId?: string }, conn); }`
+   to `attachWebSocket`. A sends `{ v: PROTOCOL_VERSION, type: 'fire', payload: { weapon: 'laser', targetId: b.shipId } }`;
+   assert B's entity shields drop to `1 - 8/50` (shard state + eventually the 10 Hz
+   `entity_update`), and C (observer, fires nothing) receives `laser-fired` then `hit`
+   combat_events. Note: the ship spawned at join docks at a pad with energy undefined →
+   treated as full (100); classId is 'scout' (loadout has laser).
+3. **e2e `app/tests/e2e/weapons.spec.ts`** (model on `multiplayer.spec.ts` + `raw-ws.ts`):
+   start `npm run dev` in `app` (background; kill after). Claim in the browser,
+   `page.evaluate(() => { document.body.dataset.fxSlow = '1' })` (500 ms flashes for the
+   screenshot), wait for `#weapon-hud` (appears with the self ship), `page.mouse.click` on
+   `#game-canvas`, assert `window.__FX__.laserFlashes >= 1` (from `app/src/client/fx-debug.ts`,
+   DEV-only) and/or a second raw-WS client sees `laser-fired`,
+   `page.screenshot()` → `.ralph/screenshots/TASK-43-1.png`.
+4. **Full suite + build**: `npm run test` (≈3.5 min), `npx tsc --noEmit`,
+   `npx prettier --write` + eslint on touched files.
+5. **Bookkeeping** (only after all of the above is green): set steps 1–4 `pass: true` in
+   `.ralph/tasks/TASK-43.json`, `passes: true` for TASK-43 in `.ralph/tasks.json`, LOG.md entry
+   at top (date, summary, screenshot path), update `.ralph/STRUCTURE.md` if dirs changed (new
+   dirs this task: `app/src/client/world/combat-fx.ts`, `app/src/client/fx.ts`,
+   `app/src/client/fx-debug.ts`, `app/src/client/ui/weapon-hud.tsx` — check STRUCTURE.md's
+   granularity convention), DELETE `.ralph/handoff/TASK-43.md`, Conventional Commit.
 
 ## Dead ends
 
-- Putting the combat_event/error dispatch directly in `useGameSession`'s onMessage referencing
-  App scope — the hook is a separate function and captured `worldRef`/`setLowEnergy` (TS2304).
-  Fixed by adding two optional hook params (`onCombatEvent`, `onWsError`) like the existing
-  `onMining` pattern. NOTE: `useGameSession`'s effect deps are
-  `[session, store, chatStore, clientRef, systemParam]` — the callbacks are captured ONCE, so
-  they must only use refs + stable setters (the new code does).
-- Double-decrementing projectile ttl: the generic ttl sweep at the top of tick() would have halved
-  missile lifetimes; the sweep now skips `kind==='projectile'`.
-- Re-checking the fire cooldown inside `resolveFireIntent` would have dropped every accepted fire
-  (cooldown is set to `tick + cooldownTicks` at acceptance) — removed; only the loadout is
-  re-checked (ship-swap race).
-- A first draft of `turnToward` had a garbled magnitude-pinning expression — rewritten as a clean
-  Rodrigues rotate + normalize + scale. Unverified by a test yet (see Next steps).
-- e2e screenshot of a 60 ms flash is unreliable in headless SwiftShader — hence the
-  `document.body.dataset.fxSlow='1'` dev stretch (500 ms) instead of retry loops.
+- **findRidge window [2000, 4200] (copied from shard.combat.test.ts): DOES NOT WORK for a test
+  that runs sim ticks.** Ships 6–8 km from the planet anchor get re-resolved to 'space' by
+  `resolveRegime` every tick; space skips terrain/LOS, so the laser always hits.
+  `shard.combat.test.ts` only works because it never calls `shard.sim.step` (it invokes
+  `resolveHit` directly).
+- **±850 m window around the anchor: NOT ENOUGH.** Ridge found at (9150, −800) is 1.25 km from
+  the anchor → beyond the 1050 m exit radius → ships still flipped to 'space' (verified with a
+  debug script: `p1 … regime space planetId undefined`, yet the manual sweep showed
+  `d=20 point y=154 terrain=188 -> OCCLUDED` — the shard's own sweep is skipped for space).
+- **Energy assertions must account for tick regen**: the tick adds 0.5 u per 50 ms (10/s × dt)
+  and MATERIALIZES `energy` (undefined → 100) on the very first tick — so "energy stays
+  undefined" assertions are wrong after any `advance`; assert exact post-regen values
+  (e.g. 98.5 one tick after a laser fire) or check immediately after `handleFire`.
+- **Projectile-cap ids collide with the shard's own counter**: `projectileSeq` starts at 0, so
+  the shard's first real missile is `proj:1` — pre-seeded test projectiles must use ids
+  `proj:101+` (the cap sorts by `projectile.spawnTick`, not the id).
+- **Pure `stepMissile` at a stationary target OVERSHOOTS**: the pure function flies straight
+  through the target (the shard detonates on the first tick with gap ≤ 5). Fixed-step-count
+  tests get a final gap of ~5700 m or NaN — the test must loop until gap < 5 and record the
+  contact step.
+- **`turnToward` "rewritten mid-session (Rodrigues form)" in the previous handoff was BROKEN** —
+  do not trust any pre-`2547175` missile flight behavior; the fixed version is the committed one.
+- `proj.ttl` after one tick is 99, not 100 — `updateProjectiles` decrements in the same tick
+  that spawns it (`processFireIntents` runs before `updateProjectiles`).
 
 ## How to verify
 
-- `cd app && npx tsc --noEmit` (clean now).
-- `cd app && npx vitest run src/server/shard/shard.combat.test.ts src/shared/protocol.test.ts`
-  (green now — the shared-schemas changes don't regress the wire contract).
-- After Next steps 2–4: `cd app && npm run test` full suite green + `npx playwright test
-  tests/e2e/weapons.spec.ts` green + screenshot exists at `.ralph/screenshots/TASK-43-1.png`.
-- Manual smoke (optional, `npm run dev` in `app/`): claim, join, 1/2 keys switch the HUD weapon,
-  LMB fires a laser line flash (energy bar ticks down 2, regens 10/s), a second player's ship
-  takes 8 shield damage per hit; interceptor (buy at dock) can fire missiles (tracer + trail,
-  splash on impact, 2 px shake).
+- `cd app && npx vitest run src/shared/weapons.test.ts src/server/shard/shard.weapons.test.ts`
+  → currently 32 pass / 1 fail (the LOS test).
+- `npx tsc --noEmit` → exit 0 (verified this session).
+- Full suite: `cd app && npm run test` (≈3.5 min).
+- e2e: dev server (`npm run dev` in `app`, http://localhost:3000) + Playwright; see Next steps.
+- The client-side FX/HUD (combat-fx.ts, fx.ts, fx-debug.ts, weapon-hud.tsx, WorldManager/main.tsx
+  wiring) is UNCHANGED this session and was type-checked clean in `47d41bc`; only the e2e
+  exercise of it remains.
