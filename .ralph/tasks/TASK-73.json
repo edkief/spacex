@@ -1,0 +1,48 @@
+{
+  "id": "TASK-73",
+  "title": "Flight controls: client ship input loop + prediction",
+  "category": "functional",
+  "description": "HIGH PRIORITY GAP. The player cannot fly. The key maps exist (`CONTROL_SCHEMES` in src/client/input/controls.ts: W/S thrust, D/A yaw, R/F pitch, Q/E roll, Space VTOL in atmosphere) and RegimeWiring owns a ControlsRemapper, but `readInput` is never called; the only 'input' sender in main.tsx is the on-foot rAF loop (~line 1000), which returns early unless a CharacterPredictor exists. `ClientShipPredictor` (src/client/net/prediction.ts) is never instantiated. The server already accepts ship input (shard.enqueueInput → tick → `inputToShipInput`, and the first input takes a docked ship off, shard.ts ~line 1677). This task wires client flight end to end and drives the TASK-72 ship mesh + chase camera from the prediction.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Pure input mapping: ShipInput → wire InputPayload",
+      "details": "Add the inverse of `inputToShipInput` (src/shared/protocol/inputs.ts) — e.g. `shipInputToPayload(seq, input): InputPayload`. Wire mapping (must round-trip through inputToShipInput exactly): thrust → `thrust`, yaw → `yaw`, pitch → `pitch`, ROLL → `turn`, VTOL `up > 0` → `action: 'vtol'`; `fire: false`, `lock: false`. Unit test the round trip for every channel.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "One shared input seq + key handling",
+      "details": "The server drops any frame with `seq <= conn.lastSeq` PER CONNECTION (shard.enqueueInput), and the same 'input' message drives the ship or the character. So the ship loop and the on-foot loop MUST share ONE monotonically increasing seq counter (today `charSeqRef` in main.tsx) — rename/generalise it (e.g. `inputSeqRef`) rather than adding a second counter, and route acks to whichever predictor is active. Key conflicts with existing global handlers in main.tsx: Q currently sends 'drop' (~line 871) and E sends 'exit_ship' when docked / interacts on foot (~line 820). Make Q-drop fire ON FOOT only (the server would answer 'wrong-regime' anyway — don't send it), and keep E = Leave ship ONLY while the DOCKED indicator is up (otherwise in-ship E is roll). Typing in an input (chat) and the open star chart must not fly the ship; window blur clears held keys (same rules as the on-foot capture).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Ship prediction loop",
+      "details": "While the self entity is the player's ship (in flight or docked, not on foot, not destroyed): each rAF frame read `regimeWiring.remapper.readInput(pressed)` (RegimeWiring.remapper in src/client/state/regime-wiring.ts follows the regime tracker; the RegimeWiring instance is currently created inside `useGameSession` via useMemo and not returned — expose it), send a frame on change or at 20 Hz (same cadence rule as the on-foot loop), and step a `ClientShipPredictor` (seeded from the first self ship snapshot; `setContext` with the tracker regime + ship classId; reconcile on each self ship entity_update against the last acked seq, following the usage block on the class). Drive `world.setSelfShipTransform(pos, quat)` (TASK-72) and the rig's `setShip` from `predictor.getState()` every frame so the mesh + chase camera are smooth at 60 fps, not 10 Hz. Disembark / destroy / system swap drops the predictor (mirror how charPredictorRef is cleared); re-entry re-seeds it. Keep the loop out of React state (refs only). If main.tsx grows further, extract the loop into a hook/module under src/client/input or src/client/net (AGENTS.md: keep files small) — the existing on-foot loop is a good candidate to move alongside it.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests, e2e, screenshot, commit",
+      "details": "Unit: payload mapping round trip; seq stays monotonic across ship → on-foot → ship transitions; Q/E gating; the loop sends nothing while typing / chart open. E2E (new `tests/e2e/flight.spec.ts`): fresh callsign, hold W for ~2 s, assert the ship's server position (existing dev routes or the debug hook from TASK-72) moved forward along its facing and the docked state cleared; screenshot `.ralph/screenshots/TASK-73-1.png` mid-flight showing the ship from the chase camera. Then `cd app && npx tsc --noEmit`, full `npm run test`, affected e2e specs (landing, enter-ship, disembark, walk, inventory must stay green), `eslint --fix` + `prettier --write`. Commit (conventional, mention TASK-73).",
+      "pass": false
+    }
+  ],
+  "acceptanceCriteria": [
+    "In a ship, W/S thrust, A/D yaw, R/F pitch, Q/E roll and Space (VTOL, atmosphere only) fly the ship: 'input' frames reach the server and the server-authoritative position changes",
+    "The ship mesh and chase camera move smoothly at render rate from ClientShipPredictor and reconcile against the 10 Hz snapshot + ack without visible snapping in steady flight",
+    "One input seq counter is shared by ship and on-foot input; no frames are dropped as stale across disembark / re-entry",
+    "Q drops only on foot; E leaves the ship only while docked; neither key fires its old action mid-flight; chat typing and the open star chart never fly the ship",
+    "E2E: holding W from spawn moves the ship off the dock; screenshot `.ralph/screenshots/TASK-73-1.png`",
+    "`npx tsc --noEmit` green; full `npm run test` green; touched e2e specs green; one commit"
+  ],
+  "dependencies": ["TASK-72", "TASK-14", "TASK-22", "TASK-25.2"],
+  "estimatedComplexity": "medium",
+  "notes": [
+    "The server is already complete for ship flight (input routing, take-off on first input, regime resolution, pad state machine) — do NOT modify server sim code; if a server bug blocks the e2e, raise DECIDE rather than reworking the sim.",
+    "Firing (LMB) and target lock (T) are separate one-shot messages today ('fire' / 'target_lock') — leave them as they are; the input payload's `fire`/`lock` stay false.",
+    "Mouse steering, key remapping and a controls hint are out of scope (TASK-55 settings/remap, TASK-56 onboarding).",
+    "Do NOT commit `app/src/client/state/hazards.ts` (uncommitted TASK-48.2 work-in-progress), the pre-existing dirty `.ralph/screenshots/*.png` mods, or staged `.ralph/journal/` files."
+  ]
+}

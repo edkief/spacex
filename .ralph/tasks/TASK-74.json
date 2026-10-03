@@ -1,0 +1,41 @@
+{
+  "id": "TASK-74",
+  "title": "Render remote player ships and rogue AI ships",
+  "category": "functional",
+  "description": "HIGH PRIORITY GAP. Other players' ships and rogue AI ships are invisible: the remote-entity layer only renders 'character' and 'groundItem' (src/client/world/remote-entities.ts ~lines 202-203), so combat (TASK-42..47) shows laser flashes and missile tracers aimed at empty space, and the target box (TASK-44) frames nothing. This task renders 'ship' and 'ai-ship' entities through the same 200 ms interpolation buffer, using the TASK-21 ShipMeshBuilder.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Ship rendering in the remote layer",
+      "details": "Extend `RemoteEntityLayer` so `kind === 'ship' || kind === 'ai-ship'` renders a `buildShipMesh(classId)` (src/client/render/ship-mesh.ts) at the interpolated pos/quat, tinted via `applyLivery` only when the wire livery changes (dedup like the character tint), rebuilt if classId changes, disposed with `disposeShipMesh` when the entity leaves / on clear(). Carry `classId` through `RemoteInfo` (it is on the wire EntityState). AI ships with no livery use the class default (applyLivery already falls back); give AI ships a distinguishable accent (e.g. a hostile red trim) so players can tell them apart — keep it a single constant. Apply the stale/dimmed opacity rule the characters use (materials need `transparent = true`). Call `registerEntity(id, ...)` like the character path so targeting/lookup stays consistent. remote-entities.ts is already ~360 lines: put the ship render path in its own module (e.g. `src/client/world/remote-ships.ts`) and keep the layer as the dispatcher (AGENTS.md file-size rule).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Callsign labels for ships",
+      "details": "Remote player ships show their callsign label like remote characters do (same overlay, same MAX_CALLSIGN_LABELS nearest-first cap); AI ships show their AI name (callsign field). Docked ships of on-foot players: the character already carries the label — do not double-label the same player (label the active entity: character if one exists for that callsign, else the ship).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Tests, e2e, screenshot, commit",
+      "details": "Unit (follow `remote-entities.test.ts`): a ship + an ai-ship snapshot create one mesh each; livery change re-tints without rebuild; classId change rebuilds; leaving the snapshot disposes; the self callsign is still excluded. E2E: extend an existing two-client spec (`tests/e2e/multiplayer.spec.ts` or `targeting.spec.ts` + fixtures) — client A sees client B's ship projected on screen when B is in front of A's chase camera (use the dev routes / debug hooks that exist for positioning), and a rogue AI ship is visible in `rogue-ai.spec.ts`'s scenario. Screenshot `.ralph/screenshots/TASK-74-1.png` showing a remote ship. Then `cd app && npx tsc --noEmit`, full `npm run test`, affected e2e specs, `eslint --fix` + `prettier --write`. Commit (conventional, mention TASK-74).",
+      "pass": false
+    }
+  ],
+  "acceptanceCriteria": [
+    "Remote player ships render with their class silhouette + livery, interpolated 200 ms behind like remote characters",
+    "Rogue AI ships render and are visually distinguishable from player ships",
+    "Meshes are created once per entity, re-tinted in place, rebuilt on class change, disposed on leave / world swap — no per-frame material churn",
+    "Remote player ships carry callsign labels (no double label for an on-foot player's docked ship)",
+    "E2E: one client sees another client's ship and an AI ship on screen; screenshot `.ralph/screenshots/TASK-74-1.png`",
+    "`npx tsc --noEmit` green; full `npm run test` green; touched e2e specs green; one commit"
+  ],
+  "dependencies": ["TASK-72", "TASK-21", "TASK-36", "TASK-45"],
+  "estimatedComplexity": "low",
+  "notes": [
+    "Wrecks (`kind: 'wreck'`) are TASK-49's impostor and drones are TASK-48.3 — out of scope here, but TASK-48.3 should follow the per-kind module pattern this task establishes.",
+    "Missile tracers stay in CombatFx (`updateProjectiles`) — do not move them into the remote layer.",
+    "Do NOT commit `app/src/client/state/hazards.ts` (uncommitted TASK-48.2 work-in-progress), the pre-existing dirty `.ralph/screenshots/*.png` mods, or staged `.ralph/journal/` files."
+  ]
+}

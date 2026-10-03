@@ -514,6 +514,27 @@
     "splitDepth": 1
   },
   {
+    "id": "TASK-72",
+    "title": "See your own ship at spawn: self ship mesh + chase camera",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-72.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-73",
+    "title": "Flight controls: client ship input loop + prediction",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-73.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-74",
+    "title": "Render remote player ships and rogue AI ships",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-74.json",
+    "passes": false
+  },
+  {
     "id": "TASK-48.2",
     "title": "Client: hazard state store, exposure HUD, dev route, debug hook",
     "category": "functional",

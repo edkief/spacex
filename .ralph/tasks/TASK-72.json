@@ -1,0 +1,48 @@
+{
+  "id": "TASK-72",
+  "title": "See your own ship at spawn: self ship mesh + chase camera",
+  "category": "functional",
+  "description": "HIGH PRIORITY GAP. On game start the player sees only the star, planets and spawn gate: the client never renders the player's own ship, and the camera is a fixed spectator vantage (WorldManager.ts ~line 356, `camera.position.set(150, 40, 150)`) until the player has disembarked once (`rigActive` only flips in setCharacterPos; `reEnterShip` returns early while it is false). New ships spawn docked at `homeDockPosition` (src/shared/galaxy/dock.ts — seeded x/z in [-100, 100], y = 0), which is nowhere near that vantage. This task makes the player's ship visible from the first self entity_update with a third-person CHASE camera behind it. Flight input is TASK-73; remote/AI ships are TASK-74.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Chase pose in pose-math + CameraRig mode",
+      "details": "`src/client/camera/pose-math.ts`: add `'chase'` to `CameraMode` and a pure `chasePose(ship: ShipState): Pose` — camera at ship-local (0, CHASE_HEIGHT, -CHASE_BEHIND) rotated by the ship quat (the flight model's forward is +Z, see SPAWN_GATE_QUAT in @shared/galaxy/spawn and COCKPIT_OFFSET which is +Z forward), looking at a point CHASE_LOOK_AHEAD ahead of the ship. Start with CHASE_BEHIND ≈ 14, CHASE_HEIGHT ≈ 4, CHASE_LOOK_AHEAD ≈ 20 (the scout hull is ~4.2 long, wings ~7.8 wide — see src/client/render/ship-mesh.ts) and export the constants. `CameraRig.targetPose` returns chasePose for 'chase'. The rig's default `mode` stays settable; handoff/update/smoothing work unchanged for the new mode. Unit tests in `pose-math.test.ts` / `camera-rig.test.ts`: chase pose sits behind + above the ship for identity and SPAWN_GATE_QUAT, and follows yaw.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Self ship mesh in WorldManager",
+      "details": "`src/client/world/WorldManager.ts`: own a `selfShip: ShipMesh | null` built with `buildShipMesh(classId)` + `applyLivery` (src/client/render/ship-mesh.ts — currently only used by its test). New method e.g. `setSelfShip(state: { classId: string; pos: Vec3; rot: Quat; livery?: Livery | null } | null)`: creates the mesh on first call (scene-level, like the character mesh — it must survive swapWorld), re-creates it if classId changes (ship purchase), re-applies livery only when it changed, and sets position/quaternion. `null` disposes (disposeShipMesh). Also expose `setSelfShipTransform(pos, quat)` for the per-frame drive TASK-73 will add. The ship stays visible while the player is on foot (it is the object the character walks back to) — only dispose on null / dispose(). The remote layer drops EVERY entity carrying the self callsign (remote-entities.ts ~line 174, `e.callsign !== selfCallsign`), so this mesh is the only place the player's ship renders.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Activate the rig in chase mode from the first self ship update",
+      "details": "In main.tsx the self-entity bridge (the `(self, shipId) => { ... }` callback passed to useGameSession, ~line 630 — the `self.kind === 'ship'` branch currently calls `world.reEnterShip`) must call the new WorldManager API with the ship's classId/pos/rot/livery on every self ship update. WorldManager: the first self ship update sets `rigActive = true`, `cameraRig.mode = 'chase'`, feeds `cameraRig.setShip` and lets the rig's first-frame snap prime it (no handoff animation from the spectator vantage on boot). Update `reEnterShip` so re-entry hands off onfoot → 'chase' (not 'cockpit'), and `clearCharacter` so a warp/boot reset re-arms the chase camera on the next ship update instead of snapping back to the (150, 40, 150) spectator pose. Disembark (setCharacterPos → handoff('onfoot')) must still animate from wherever the camera is. Keep 'cockpit' mode available in the rig (unused by default) — do not delete it.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests, e2e, screenshot, commit",
+      "details": "Unit: WorldManager/self-ship test (mesh created once, livery re-tint without rebuild, classId change rebuilds, null disposes, survives swapWorld). E2E (new `tests/e2e/self-ship.spec.ts`, using the existing fixtures/helpers/pages): claim a fresh callsign, wait for `#sys-id`, assert the ship is on screen — e.g. a dev-only probe (follow `src/client/camera/camera-debug.ts` / `char-debug.ts`) exposing the self-ship world pos + its projected screen position, asserting it is inside the viewport and near the center. Screenshot `.ralph/screenshots/TASK-72-1.png` and verify visually that a ship is clearly visible in front of the camera. Then `cd app && npx tsc --noEmit`, `npm run test` (full suite green), the affected e2e specs, `eslint --fix` + `prettier --write` on touched files. Commit (conventional, mention TASK-72).",
+      "pass": false
+    }
+  ],
+  "acceptanceCriteria": [
+    "A freshly claimed player sees their own ship (correct class silhouette + livery) centred in the view within one snapshot of joining — no fixed spectator vantage in normal play",
+    "CameraRig has a 'chase' mode (pure `chasePose` in pose-math, unit tested); it is the default in-ship view; disembark animates chase → onfoot and re-entry animates onfoot → chase (TASK-27 handoff, 600 ms)",
+    "A warp / system swap keeps the chase camera on the ship (no snap to (150, 40, 150))",
+    "The self ship mesh is scene-level, created once, re-tinted in place on livery change, rebuilt on classId change, disposed on null/dispose",
+    "E2E asserts the self ship projects inside the viewport near the center; screenshot `.ralph/screenshots/TASK-72-1.png` shows the ship",
+    "`npx tsc --noEmit` green; full `npm run test` green; touched e2e specs green; one commit"
+  ],
+  "dependencies": ["TASK-21", "TASK-27", "TASK-31", "TASK-35"],
+  "estimatedComplexity": "medium",
+  "notes": [
+    "Several existing specs/tests were written against the fixed spectator camera and may break once the in-ship camera follows the ship: the atmosphere dome pixel probe (TASK-28.3, `tests/e2e/atmosphere*.spec.ts`, `src/client/atmosphere-debug.ts`), `tests/e2e/camera-handoff.spec.ts`, the laser-flash screenshot in `tests/e2e/weapons.spec.ts`, and the transition benchmark (`src/client/test/transitionCycle.ts`). UPDATE those tests to the new camera behaviour (e.g. position the ship via the existing dev routes, or let a debug hook pin the camera) — do not keep the spectator camera alive just to satisfy them.",
+    "The self entity resolution already exists in main.tsx: the CHARACTER is self while on foot, the ship otherwise; the player's ship is always `entities.find(e => e.kind === 'ship' && e.callsign === session.callsign)`. While on foot, keep updating the ship mesh from that ship entity (it is frozen/docked) so the player can see and walk back to it.",
+    "Rendering only in this task: do NOT send flight input or wire ClientShipPredictor here (TASK-73). Until TASK-73 lands the mesh moves at snapshot rate (10 Hz) — acceptable since the ship cannot be flown from the client yet.",
+    "Do NOT commit `app/src/client/state/hazards.ts` (uncommitted TASK-48.2 work-in-progress from an interrupted run), the pre-existing dirty `.ralph/screenshots/*.png` mods, or staged `.ralph/journal/` files — leave them exactly as they are."
+  ]
+}
