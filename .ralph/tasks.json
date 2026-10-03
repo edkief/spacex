@@ -495,7 +495,7 @@
     "title": "AI combat state machine (patrol/aggro/engage/retreat)",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-46.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-47",

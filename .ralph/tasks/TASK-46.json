@@ -17,25 +17,25 @@
       "step": 1,
       "description": "AI state machine",
       "details": "src/server/shard/ai.ts: per-AI state {mode, targetId, acquireStartedAt, waypointIdx, disengageUntil}; updated each tick (AI 'inputs' are computed here and fed to the same integrateShip — the AI is just another ship whose inputs come from the machine, not a ws client); shard RNG for waypoint jitter + target selection among multiple players (nearest).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Engagement logic",
       "details": "Lead-point pursuit (steering: desired heading → turn toward it at turnRate, thrust proportional to heading error); weapon choice per spec; fire via the shared handleFire path (source = AI id); acquire delay 1 s; disengage at hull < 25%.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Determinism + benchmark",
       "details": "Shard RNG: mulberry32 seeded (systemId ^ tickCount) — consumed only by AI decisions; the determinism test runs two shards in lockstep; re-run the TASK-13 benchmark with 10 AI + 6 players (16 total) asserting p95 < 30 ms.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Tests",
       "details": "All listed; run full suite + typecheck.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-45", "TASK-43", "TASK-44"],

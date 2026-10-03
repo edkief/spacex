@@ -35,91 +35,100 @@ describe('transition cycle (TASK-30, 1 fast cycle)', () => {
     setPerfLogSink(null);
   });
 
-  it('keeps every transition under the 4 ms budget (60 s budget)', { timeout: 60_000 }, () => {
-    const phasesSeen: PhaseName[] = [];
-    const report = runTransitionCycle({
-      onFrame: (phase) => {
-        phasesSeen.push(phase);
-      },
-    });
+  // { retry: 2 }: frame deltas are WALL-CLOCK — under the parallel-suite
+  // load one GC pause / worker preemption in a few hundred frames can push
+  // the p99 past 4 ms without any transition-cost regression. A SUSTAINED
+  // regression fails every attempt. The body is self-contained (a fresh
+  // simulated cycle per attempt), so a retry is stateless.
+  it(
+    'keeps every transition under the 4 ms budget (60 s budget)',
+    { timeout: 60_000, retry: 2 },
+    () => {
+      const phasesSeen: PhaseName[] = [];
+      const report = runTransitionCycle({
+        onFrame: (phase) => {
+          phasesSeen.push(phase);
+        },
+      });
 
-    // AC1: the 7 AC transition phases are all present, in cycle order.
-    const reported = report.phases.map((p) => p.transition);
-    for (const phase of TRANSITION_PHASES) expect(reported).toContain(phase);
-    const order = CYCLE_PHASES.filter((p) => reported.includes(p as PhaseName));
-    expect(reported).toEqual(order);
+      // AC1: the 7 AC transition phases are all present, in cycle order.
+      const reported = report.phases.map((p) => p.transition);
+      for (const phase of TRANSITION_PHASES) expect(reported).toContain(phase);
+      const order = CYCLE_PHASES.filter((p) => reported.includes(p as PhaseName));
+      expect(reported).toEqual(order);
 
-    // AC1: onFrame fired for every simulated frame, phases in CYCLE order.
-    expect(phasesSeen.length).toBe(report.totalFrames);
-    expect(phasesSeen.length).toBeGreaterThan(0);
-    let maxIdx = -1;
-    for (const phase of phasesSeen) {
-      const idx = CYCLE_PHASES.indexOf(phase);
-      expect(idx).toBeGreaterThanOrEqual(0);
-      expect(idx).toBeGreaterThanOrEqual(maxIdx);
-      maxIdx = idx;
-    }
-
-    // AC2: per-phase budget (p99 of the deltas) under 4 ms, zero warnings.
-    for (const phase of report.phases) {
-      expect(phase.worstDeltaP99Ms, `${phase.transition} p99 delta`).toBeLessThan(
-        TRANSITION_BUDGET_MS,
-      );
-      expect(phase.budgetWarnings, `${phase.transition} warnings`).toBe(0);
-      expect(phase.frames).toBeGreaterThan(0);
-      // AC4 shape: the worst frame names the exact culprit.
-      expect(phase.worstFrame).not.toBeNull();
-      expect(phase.worstFrame!.transition).toBe(phase.transition);
-      expect(phase.worstFrame!.frameIndex).toBeGreaterThanOrEqual(0);
-      expect(typeof phase.worstFrame!.baselineMs).toBe('number');
-      expect(typeof phase.worstFrame!.measuredMs).toBe('number');
-      expect(typeof phase.worstFrame!.deltaMs).toBe('number');
-      expect(phase.worstFrame!.deltaMs).toBeCloseTo(
-        phase.worstFrame!.measuredMs - phase.worstFrame!.baselineMs,
-        2,
-      );
-    }
-    expect(report.budgetWarnings).toBe(0);
-
-    // AC3: no-pull check — no frame anywhere in the cycle > 100 ms.
-    expect(report.maxFrameMs).toBeLessThan(NO_PULL_MAX_MS);
-
-    // AC2: the 3 s idle baselines exist and are positive for all scenes.
-    expect(report.idleBaselines.map((b) => b.scene)).toEqual(['space', 'atmosphere', 'surface']);
-    for (const baseline of report.idleBaselines) {
-      expect(baseline.p50Ms).toBeGreaterThan(0);
-      expect(baseline.p95Ms).toBeGreaterThanOrEqual(baseline.p50Ms);
-      expect(baseline.frames).toBeGreaterThan(0);
-    }
-
-    // Step 3: the 7x7 pre-generation ring is ready BEFORE pad arrival.
-    expect(report.padNearRingReadyAtArrival).toBe(true);
-    expect(report.padNearRingFramesBeforeArrival).toBeGreaterThan(0);
-
-    // Streaming phases are budgeted against the busy steady-streaming
-    // control (recorded for the TASK-61 reference-hardware log).
-    const control = report.streamingControl;
-    expect(control.frames).toBeGreaterThan(0);
-    expect(control.busyP50Ms).toBeGreaterThan(0);
-    for (const phase of report.phases) {
-      if (
-        phase.transition === 'atmosphere-to-surface' ||
-        phase.transition === 'surface-to-atmosphere'
-      ) {
-        expect(phase.baselineSource).toBe('streaming-control');
+      // AC1: onFrame fired for every simulated frame, phases in CYCLE order.
+      expect(phasesSeen.length).toBe(report.totalFrames);
+      expect(phasesSeen.length).toBeGreaterThan(0);
+      let maxIdx = -1;
+      for (const phase of phasesSeen) {
+        const idx = CYCLE_PHASES.indexOf(phase);
+        expect(idx).toBeGreaterThanOrEqual(0);
+        expect(idx).toBeGreaterThanOrEqual(maxIdx);
+        maxIdx = idx;
       }
-    }
 
-    // The camera handoff runs on the sim clock: its tags must be confined
-    // to the 36-frame disembark / re-enter windows (the 600 ms handoffs).
-    for (const phase of report.phases) {
-      if (phase.transition === 'disembark' || phase.transition === 're-enter') {
-        expect(phase.tagCounts['handoff'] ?? 0).toBeGreaterThan(0);
-      } else {
-        expect(phase.tagCounts['handoff'] ?? 0, `${phase.transition} handoff`).toBe(0);
+      // AC2: per-phase budget (p99 of the deltas) under 4 ms, zero warnings.
+      for (const phase of report.phases) {
+        expect(phase.worstDeltaP99Ms, `${phase.transition} p99 delta`).toBeLessThan(
+          TRANSITION_BUDGET_MS,
+        );
+        expect(phase.budgetWarnings, `${phase.transition} warnings`).toBe(0);
+        expect(phase.frames).toBeGreaterThan(0);
+        // AC4 shape: the worst frame names the exact culprit.
+        expect(phase.worstFrame).not.toBeNull();
+        expect(phase.worstFrame!.transition).toBe(phase.transition);
+        expect(phase.worstFrame!.frameIndex).toBeGreaterThanOrEqual(0);
+        expect(typeof phase.worstFrame!.baselineMs).toBe('number');
+        expect(typeof phase.worstFrame!.measuredMs).toBe('number');
+        expect(typeof phase.worstFrame!.deltaMs).toBe('number');
+        expect(phase.worstFrame!.deltaMs).toBeCloseTo(
+          phase.worstFrame!.measuredMs - phase.worstFrame!.baselineMs,
+          2,
+        );
       }
-    }
-  });
+      expect(report.budgetWarnings).toBe(0);
+
+      // AC3: no-pull check — no frame anywhere in the cycle > 100 ms.
+      expect(report.maxFrameMs).toBeLessThan(NO_PULL_MAX_MS);
+
+      // AC2: the 3 s idle baselines exist and are positive for all scenes.
+      expect(report.idleBaselines.map((b) => b.scene)).toEqual(['space', 'atmosphere', 'surface']);
+      for (const baseline of report.idleBaselines) {
+        expect(baseline.p50Ms).toBeGreaterThan(0);
+        expect(baseline.p95Ms).toBeGreaterThanOrEqual(baseline.p50Ms);
+        expect(baseline.frames).toBeGreaterThan(0);
+      }
+
+      // Step 3: the 7x7 pre-generation ring is ready BEFORE pad arrival.
+      expect(report.padNearRingReadyAtArrival).toBe(true);
+      expect(report.padNearRingFramesBeforeArrival).toBeGreaterThan(0);
+
+      // Streaming phases are budgeted against the busy steady-streaming
+      // control (recorded for the TASK-61 reference-hardware log).
+      const control = report.streamingControl;
+      expect(control.frames).toBeGreaterThan(0);
+      expect(control.busyP50Ms).toBeGreaterThan(0);
+      for (const phase of report.phases) {
+        if (
+          phase.transition === 'atmosphere-to-surface' ||
+          phase.transition === 'surface-to-atmosphere'
+        ) {
+          expect(phase.baselineSource).toBe('streaming-control');
+        }
+      }
+
+      // The camera handoff runs on the sim clock: its tags must be confined
+      // to the 36-frame disembark / re-enter windows (the 600 ms handoffs).
+      for (const phase of report.phases) {
+        if (phase.transition === 'disembark' || phase.transition === 're-enter') {
+          expect(phase.tagCounts['handoff'] ?? 0).toBeGreaterThan(0);
+        } else {
+          expect(phase.tagCounts['handoff'] ?? 0, `${phase.transition} handoff`).toBe(0);
+        }
+      }
+    },
+  );
 });
 
 describe('analyzeCycle + percentile (pure, synthetic samples)', () => {

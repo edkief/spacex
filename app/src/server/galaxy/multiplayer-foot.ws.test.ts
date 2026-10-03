@@ -54,6 +54,9 @@ function findPadTarget(): {
 }
 const PAD = findPadTarget();
 
+/** Scale-test attempt counter: each (re)run claims unique callsigns. */
+let scaleAttempt = 0;
+
 const env: Env = {
   PORT: 3002,
   SESSION_SECRET: 'multiplayer-foot-secret',
@@ -402,68 +405,116 @@ describe('TASK-36: on-foot multiplayer over live ws', () => {
     expect(cb.messages.filter((m) => m.type === 'error')).toHaveLength(0);
   });
 
-  it('scale: 4 on foot + 4 in ships — tick p95 stays within baseline + 4 ms, all four walk', async () => {
-    const walkers = Array.from({ length: 4 }, (_, i) => `scale-w${i}`);
-    const flyers = Array.from({ length: 4 }, (_, i) => `scale-s${i}`);
-    const wPlayers: Claimed[] = [];
-    const fPlayers: Claimed[] = [];
-    const wClients: WsTestClient[] = [];
-    const fClients: WsTestClient[] = [];
-    for (const cs of walkers) wPlayers.push(await claim(cs));
-    for (const cs of flyers) fPlayers.push(await claim(cs));
-    for (let i = 0; i < wPlayers.length; i++) wClients.push(mkClient());
-    for (let i = 0; i < fPlayers.length; i++) fClients.push(mkClient());
-    await Promise.all(
-      [...wPlayers, ...fPlayers].map((p, i) =>
-        arriveAtPad(i < 4 ? wClients[i] : fClients[i - 4], p),
-      ),
-    );
-    const charStarts = new Map<string, { x: number; y: number; z: number }>();
-    for (let i = 0; i < 4; i++) {
-      const ch = await onFoot(wClients[i], wPlayers[i]);
-      charStarts.set(ch.id, { ...ch.pos });
-    }
-    // The four ships hover near the pad (outside the dock disc, in atmosphere).
-    const s = shard();
-    fPlayers.forEach((p, i) => {
-      expect(
-        s.teleportForTesting(p.playerId, {
-          x: PAD.pad.pos.x + 80 + i * 10,
-          y: PAD.pad.pos.y + 20 + i * 5,
-          z: PAD.pad.pos.z,
-        }),
-      ).toBe(true);
-    });
+  // { retry: 2 }: the p95-vs-baseline comparison is WALL-CLOCK — on this
+  // 4-core box the 31-file parallel suite preempts the tick loop (baseline
+  // p95 idles at ~48 ms against a 0.3 ms in-process 16-ship benchmark), so a
+  // contention burst spanning the two windows can breach the 4 ms budget
+  // without any walking cost. A SUSTAINED regression fails every attempt.
+  it(
+    'scale: 4 on foot + 4 in ships — tick p95 stays within baseline + 4 ms, all four walk',
+    { retry: 2, timeout: 60_000 },
+    async () => {
+      scaleAttempt += 1; // a retry re-claims: keep every attempt's callsigns unique
+      const walkers = Array.from({ length: 4 }, (_, i) => `scale-w${i}-a${scaleAttempt}`);
+      const flyers = Array.from({ length: 4 }, (_, i) => `scale-s${i}-a${scaleAttempt}`);
+      const wPlayers: Claimed[] = [];
+      const fPlayers: Claimed[] = [];
+      const wClients: WsTestClient[] = [];
+      const fClients: WsTestClient[] = [];
+      try {
+        for (const cs of walkers) wPlayers.push(await claim(cs));
+        for (const cs of flyers) fPlayers.push(await claim(cs));
+        for (let i = 0; i < wPlayers.length; i++) wClients.push(mkClient());
+        for (let i = 0; i < fPlayers.length; i++) fClients.push(mkClient());
+        await Promise.all(
+          [...wPlayers, ...fPlayers].map((p, i) =>
+            arriveAtPad(i < 4 ? wClients[i] : fClients[i - 4], p),
+          ),
+        );
+        const charStarts = new Map<string, { x: number; y: number; z: number }>();
+        for (let i = 0; i < 4; i++) {
+          const ch = await onFoot(wClients[i], wPlayers[i]);
+          charStarts.set(ch.id, { ...ch.pos });
+        }
+        // The four ships hover near the pad (outside the dock disc, in atmosphere).
+        const s = shard();
+        fPlayers.forEach((p, i) => {
+          expect(
+            s.teleportForTesting(p.playerId, {
+              x: PAD.pad.pos.x + 80 + i * 10,
+              y: PAD.pad.pos.y + 20 + i * 5,
+              z: PAD.pad.pos.z,
+            }),
+          ).toBe(true);
+        });
 
-    // Baseline: 1.5 s idle with all 8 entities in the shard.
-    s.histogram.reset();
-    await sleep(1_500);
-    const baseline = s.histogram.percentile(0.95);
-    expect(s.histogram.sampleCount).toBeGreaterThan(5);
-
-    // Load: all four characters walk on held frames. The server holds the last
-    // frame, but enqueueInput DROPS frames that land while the tick loop owes
-    // more than maxCatchUpTicks (TASK-13 anti-spiral, sim.inputDrops) — under
-    // full-suite machine load a single-shot send can be lost entirely and the
-    // walkers never move. Stream at ~7/s per connection (well inside the 20/s
-    // inbound bucket) so the window always has a live held frame.
-    s.histogram.reset();
-    const walkUntil = Date.now() + 5_000;
-    let seq = 0;
-    while (Date.now() < walkUntil) {
-      seq += 1;
-      for (const c of wClients) {
-        c.send({ v: PROTOCOL_VERSION, type: 'input', payload: walkFrame(seq) });
+        // INTERLEAVED idle/walk rounds: the tick cost is WALL-CLOCK, and the
+        // parallel suite preempts the tick loop on this box (idle baseline
+        // p95 ~50 ms vs the 0.3 ms in-process 16-ship benchmark). Measuring
+        // the two windows sequentially lets a machine-wide load TREND across
+        // the 6.5 s span leak into the delta (observed: +16..23 ms with zero
+        // walking cost — the later window always samples the heavier load).
+        // Alternating ~1.25 s idle / walk rounds samples both conditions in
+        // the same load epoch, so the trend cancels in the difference; a
+        // real sustained walking cost shifts every sample and still shows.
+        // Per-round p95 trims the worst tick (one GC pause), and the
+        // comparison is the MEDIAN over 4 rounds (absorbs ≤2 bad rounds).
+        const stopFrame = (seq: number) => ({ ...walkFrame(seq), thrust: 0 });
+        const idleP95s: number[] = [];
+        const walkP95s: number[] = [];
+        let seq = 0;
+        for (let round = 0; round < 4; round += 1) {
+          // Inputs are HELD: send a zero-thrust frame so the previous round's
+          // walk frame is not still being applied during the "idle" round.
+          for (const c of wClients)
+            c.send({ v: PROTOCOL_VERSION, type: 'input', payload: stopFrame(++seq) });
+          s.histogram.reset();
+          await sleep(1_250);
+          idleP95s.push(s.histogram.trimmedPercentile(0.95, 1));
+          s.histogram.reset();
+          // Stream held frames at ~7/s per connection (well inside the 20/s
+          // inbound bucket): enqueueInput DROPS frames that land while the
+          // tick loop owes more than maxCatchUpTicks (TASK-13 anti-spiral),
+          // so a single-shot send can be lost under full-suite load and the
+          // walkers would never move.
+          const until = Date.now() + 1_250;
+          while (Date.now() < until) {
+            seq += 1;
+            for (const c of wClients) {
+              c.send({ v: PROTOCOL_VERSION, type: 'input', payload: walkFrame(seq) });
+            }
+            await sleep(150);
+          }
+          walkP95s.push(s.histogram.trimmedPercentile(0.95, 1));
+        }
+        // Vacuous-pass guard: a stopped tick loop would make every p95 zero.
+        for (const v of [...idleP95s, ...walkP95s]) expect(v).toBeGreaterThan(0);
+        const median = (a: number[]): number =>
+          [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
+        const baseline = median(idleP95s);
+        const loaded = median(walkP95s);
+        expect(
+          loaded - baseline,
+          `p95 (4 interleaved rounds) ${loaded} ms vs baseline ${baseline} ms`,
+        ).toBeLessThanOrEqual(4);
+        // All four characters actually moved (held thrust walks them).
+        for (const ch of wPlayers) {
+          const id = `char:${ch.playerId}`;
+          const now = s.entities.get(id)!.ship.pos;
+          expect(dist3(now, charStarts.get(id)!)).toBeGreaterThan(1);
+        }
+      } finally {
+        // A retry (or afterAll) must start from an idle shard: a plain
+        // disconnect only makes the players IDLE (TASK-17) — all 8 entities
+        // would ride along in the next attempt's windows. Remove fully,
+        // characters included (removePlayer only drops the ship entity).
+        const s = router.active(PAD.systemId)?.shard;
+        for (const p of [...wPlayers, ...fPlayers]) {
+          s?.removePlayer(p.playerId);
+          s?.entities.delete(`char:${p.playerId}`);
+        }
+        for (const c of [...wClients, ...fClients]) c.close();
       }
-      await sleep(150);
-    }
-    const loaded = s.histogram.percentile(0.95);
-    expect(loaded - baseline, `p95 ${loaded} ms vs baseline ${baseline} ms`).toBeLessThanOrEqual(4);
-    // All four characters actually moved (held thrust walks them).
-    for (const ch of wPlayers) {
-      const id = `char:${ch.playerId}`;
-      const now = s.entities.get(id)!.ship.pos;
-      expect(dist3(now, charStarts.get(id)!)).toBeGreaterThan(1);
-    }
-  }, 60_000);
+    },
+  );
 });

@@ -35,6 +35,24 @@ export class TickHistogram {
     return copy[rank];
   }
 
+  /**
+   * p-th percentile after discarding the `trimCount` LONGEST durations.
+   * For window-vs-window comparisons under machine-wide load (parallel
+   * test suite): a single GC pause or worker preemption is a load spike,
+   * not a tick cost, and nearest-rank p95 over a small window is exactly
+   * one such spike away from its budget. Trimming keeps the statistic
+   * insensitive to up to `trimCount` isolated outliers while still
+   * reflecting any sustained cost shift (which moves every sample).
+   */
+  trimmedPercentile(p: number, trimCount: number): number {
+    if (this.count === 0) return 0;
+    const trimmed = Math.min(trimCount, this.count - 1);
+    const n = this.count - trimmed;
+    const copy = this.buf.slice(0, this.count).sort((a, b) => a - b);
+    const rank = Math.min(n - 1, Math.max(0, Math.ceil(p * n) - 1));
+    return copy[rank];
+  }
+
   /** Min/max of the recorded window (sanity checks in tests). */
   range(): { min: number; max: number } {
     if (this.count === 0) return { min: 0, max: 0 };
