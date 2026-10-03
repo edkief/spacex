@@ -422,7 +422,7 @@
     "title": "Dock sell e2e: sell cargo in the browser at a station terminal (counter 500 to 525)",
     "category": "api-endpoint",
     "specFilePath": ".ralph/tasks/TASK-40.1.json",
-    "passes": false,
+    "passes": true,
     "splitFrom": "TASK-40",
     "splitDepth": 1
   },

@@ -8,19 +8,19 @@
       "step": 1,
       "description": "Write app/tests/e2e/sell.spec.ts",
       "details": "Mirror tests/e2e/cargo.spec.ts exactly: `import { expect, test } from './fixtures'`, `collectErrors`/`uniqueCallsign` from './helpers', `RawWsClient` from './raw-ws', `const PROTOCOL_VERSION = 1`, `test.setTimeout(150_000)`, one test with `{ browser, e2eServer }` and `const { baseURL, apiPort } = e2eServer`. Flow — (1) server-side raw REST+WS: POST /api/callsigns (claim) -> GET /api/dev/pad-target AND GET /api/dev/terminal-target -> over RawWsClient (ws://127.0.0.1:${apiPort}/ws): hello/auth/join home system + warp to the pad's system -> POST /api/dev/teleport to pad.pos (the pad machine docks the ship) -> POST /api/dev/give 5 iron -> close the raw client. (2) browser: new context, `page.evaluate` localStorage.setItem('drift.session.v1', JSON.stringify(session)) (exact key as cargo.spec.ts line ~121), page.goto(`${baseURL}/?sys=${target.systemId}`); wait for #ship-hud-cargo visible (in-ship); press 'e' (disembark); wait for #weight-bar text matching /5\\/40u/ (on-foot carrying 5 iron). (3) server: POST /api/dev/teleport-char with the Bearer token to {x: term.pos.x + 1.5, y: term.pos.y, z: term.pos.z} — the disembark spawn is ~15.5 m from the terminal, past both the 3 m interact and the 10 m sell range, so the walk must be teleported. (4) browser: spin to face the terminal — hold 'd' until #interact-prompt contains '[E] Dock terminal' (timeout 30_000; if the direction misses, also try holding 'a'), release, press 'e' -> #dock-panel opens (the 'ui-open' dock payload now carries hold+inventory, so it opens fully populated — do not expect a cargo_open flow). (5) assert #credits-counter shows '500 cr' (boot-seeded from GET /api/players/me); click #dock-panel button[aria-label=\"sell all iron inv\"]; assert #credits-counter updates to '525 cr' (500 + 5*5 — iron base price 5, TASK-37 catalog) within one snapshot and the panel's iron row drops to 0 (source stack decreased); page.screenshot({ path: '.ralph/screenshots/TASK-40-1.png' }); console-clean assert via the collectErrors pattern. Note: the local CharacterPredictor reconciles to the server teleport on the next 10 Hz snapshot (~100 ms), so the spin must start only after that — the 30 s prompt timeout absorbs it.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Fix client bugs the e2e exposes (if any)",
       "details": "The client dock-sell code was built in 3122ad1 without ever running in a browser: src/client/state/dock.ts (openDockPanel(terminalId, hold, inventory) / applySellResult / closeDockPanel), state/credits.ts, state/credit-float.ts, ui/dock-panel.tsx, ui/credits-hud.tsx, and the main.tsx handlers (ui-open -> openDockPanel, 'sell' result frame -> applySellResult + setCredits + pushCreditFloat, boot fetch of GET /api/players/me). If the e2e fails, root-cause in the client (ui-open payload parsing, onSell dispatch to the WS 'sell' frame, counter seeding, result-frame handling, float rendering) and fix under app/src/client/; the server handler is already covered by shard.sell.test.ts + sell.ws.test.ts and should be left untouched unless the evidence is unambiguous. Re-run the spec until green.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Verify + commit",
       "details": "cd app && npx tsc --noEmit (green); npx eslint --fix + npx prettier --write on every touched file (the new spec + any client fixes); re-run npm run test:e2e sell.spec.ts one final time (green — the fixture boots the real dev server itself, do NOT also run npm run dev); confirm the screenshot shows the dock panel + updated counter and is not a black/empty frame (desktop browser if available, else a pixel-stat check like the TASK-37 iteration did); commit with a Conventional Commit message (e.g. 'test(sell): TASK-40.1 dock-sell e2e ...'). Do NOT run the full npm run test suite here — it is TASK-40.2's job. If time runs short, leave an updated .ralph/handoff/TASK-40.md naming exactly what is left (the TASK-40.2 close-out).",
-      "pass": false
+      "pass": true
     }
   ],
   "acceptanceCriteria": [

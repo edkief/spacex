@@ -82,6 +82,17 @@ const SHIP_ROW: ShipRowStub = {
 
 const fakeNow = 1_000_000;
 
+/** The repo surface the sell path touches (named so `withTransaction` can
+ * reference it WITHOUT a circular `typeof repo` self-initializer). */
+interface SellRepoStub {
+  getShipByOwner: (ownerId: string) => Promise<unknown>;
+  getPlayersByIds: () => Promise<unknown[]>;
+  addCredits: (playerId: string, amount: number) => Promise<{ credits: number }>;
+  updateShipCargo: (shipId: string, stacks: Record<string, number>) => Promise<void>;
+  updatePlayerInventory: (playerId: string, stacks: Record<string, number>) => Promise<void>;
+  withTransaction: <T>(fn: (r: SellRepoStub) => Promise<T>) => Promise<T>;
+}
+
 /** A repo stub with the sell path's transaction methods + observable state. */
 function makeRepo(throwOnCredits = false) {
   const state = {
@@ -90,7 +101,7 @@ function makeRepo(throwOnCredits = false) {
     inv: null as Record<string, number> | null,
     creditCalls: 0,
   };
-  const repo = {
+  const repo: SellRepoStub = {
     getShipByOwner: async (ownerId: string) => (ownerId === 'p1' ? (SHIP_ROW as never) : undefined),
     getPlayersByIds: async () => [],
     addCredits: async (_playerId: string, amount: number) => {
@@ -105,7 +116,7 @@ function makeRepo(throwOnCredits = false) {
     updatePlayerInventory: async (_playerId: string, stacks: Record<string, number>) => {
       state.inv = { ...stacks };
     },
-    withTransaction: async <T>(fn: (r: typeof repo) => Promise<T>): Promise<T> => {
+    withTransaction: async <T>(fn: (r: SellRepoStub) => Promise<T>): Promise<T> => {
       const before = {
         credits: state.credits,
         shipCargo: state.shipCargo,
@@ -213,7 +224,10 @@ function sellFrames(sent: string[]): Array<{
   hold: { stacks: Record<string, number>; weightUsed: number; capacity: number };
   inventory: { stacks: Record<string, number>; weightUsed: number };
 }> {
-  return sent.map((b) => JSON.parse(b)).filter((m) => m.type === 'sell').map((m) => m.payload);
+  return sent
+    .map((b) => JSON.parse(b))
+    .filter((m) => m.type === 'sell')
+    .map((m) => m.payload);
 }
 
 describe('TASK-40: dock sell — station check + validation ladder', () => {
