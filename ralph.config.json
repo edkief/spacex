@@ -27,6 +27,7 @@
     "remote": "origin"
   },
   "ui": {
-    "actions": "open"
+    "actions": "open",
+    "host": "0.0.0.0"
   }
 }
