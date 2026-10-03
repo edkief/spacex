@@ -443,11 +443,31 @@
     "passes": true
   },
   {
-    "id": "TASK-43",
-    "title": "Weapons: laser (instant) and missiles (homing)",
+    "id": "TASK-43.1",
+    "title": "Weapons: fix the failing ridge-LOS unit test — all 33 weapon tests green",
     "category": "functional",
-    "specFilePath": ".ralph/tasks/TASK-43.json",
-    "passes": false
+    "specFilePath": ".ralph/tasks/TASK-43.1.json",
+    "passes": false,
+    "splitFrom": "TASK-43",
+    "splitDepth": 1
+  },
+  {
+    "id": "TASK-43.2",
+    "title": "Weapons: WS integration — A fires at B, B's shields drop, C sees the FX events",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-43.2.json",
+    "passes": false,
+    "splitFrom": "TASK-43",
+    "splitDepth": 1
+  },
+  {
+    "id": "TASK-43.3",
+    "title": "Weapons e2e (laser flash in the browser + screenshot) + TASK-43 close-out",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-43.3.json",
+    "passes": false,
+    "splitFrom": "TASK-43",
+    "splitDepth": 1
   },
   {
     "id": "TASK-67",
