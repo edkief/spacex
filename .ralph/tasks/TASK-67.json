@@ -16,25 +16,25 @@
       "step": 1,
       "description": "Abuse client harness",
       "details": "tests/abuse/rawClient.ts: a minimal ws client that sends arbitrary message objects (no game logic); each abuse test is one scenario: connect, claim a test callsign, attempt, assert neutralization (state unchanged + correct error).",
-      "pass": true
+      "pass": false
     },
     {
       "step": 2,
       "description": "Cheat scenarios",
       "details": "Implement the 8 scenarios per acceptance; assert final server state (credits, resources, positions, entity counts) matches the honest baseline exactly.",
-      "pass": true
+      "pass": false
     },
     {
       "step": 3,
       "description": "Property test",
       "details": "Random valid-sequence generator (seeded): pick random actions from the validated message set, apply to a fresh shard (in-memory sqlite), after 1000 sequences assert the invariants (credits bounded by sales, resources bounded by deposits, no negative balances, entity counts within caps).",
-      "pass": true
+      "pass": false
     },
     {
       "step": 4,
       "description": "Audit tests",
       "details": "Schema-coverage test (enumerate routes + ws handlers, assert zod schema presence via a registry \u2014 TASK-64's schemas are registered at module load); limiter-coverage test (same pattern for TASK-65). Run full suite.",
-      "pass": true
+      "pass": false
     }
   ],
   "dependencies": [

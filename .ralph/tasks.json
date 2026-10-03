@@ -474,7 +474,7 @@
     "title": "Cheat resistance: server-side movement/weapon validation",
     "category": "security",
     "specFilePath": ".ralph/tasks/TASK-67.json",
-    "passes": true
+    "passes": false
   },
   {
     "id": "TASK-44",

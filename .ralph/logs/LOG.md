@@ -3,10 +3,10 @@
 `Current Status`
 =================
 **Last Updated:** 2026-10-03
-**Tasks Completed:** 60
+**Tasks Completed:** 59
 **Current Task:** —
 
-### 2026-10-03 — TASK-67: Cheat resistance — server-authority audit + abuse tests
+### 2026-10-03 — TASK-67 (WIP — full suite not green yet): Cheat resistance — server-authority audit + abuse tests
 The scripted-cheater pass over the whole gameplay pipeline: four deliverables in `app/tests/abuse/` (added to `vitest.config.ts` `include`) plus one new production module. **The suite found two real holes and both are fixed in the owning modules** (the task rule: change production only when an abuse test proves a hole).
 - **Hole 1 — credit duplication on concurrent sells (`shard.handleSell`).** The in-memory stack decrement was applied AFTER `await repo.withTransaction(...)`, so N sells in flight on one socket all read the SAME pre-sell stacks and each got paid: 10 granted iron + 100 rapid sells → **+200 credits for 4 units actually removed** (iron 5 cr/unit → 40 units paid for 10). Fix: apply `ship.cargo`/`ship.inventory` (+ the character mirror) SYNCHRONOUSLY before the commit is awaited, restoring the captured pre-image if the commit throws — the atomicity AC is unchanged. Guards: the new 20-concurrent-sell `Promise.all` case in `shard.sell.test.ts` (exactly 10 sold, credits `500 + 10 × 5`, the other 10 `insufficient`) and abuse scenario 5 over the real wire.
 - **Hole 2 — overlapping `BEGIN` on the shared connection (`db/repo.ts`).** `withTransaction` held a manual BEGIN/COMMIT open across its callback's awaits, so a second caller (another sell, or a sell racing the shard flush) got `DrizzleError: Failed to run the query 'BEGIN'` and an honest sale died as `sell-failed` (20 of them in the burst). Fix: a per-repo **transaction lane** (`txLane`) — every transaction queues behind the previous one.
