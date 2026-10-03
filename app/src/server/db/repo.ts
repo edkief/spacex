@@ -236,6 +236,16 @@ export function createRepo(db: Db, tables: Schema): Repository {
     return (rows[0] as T | undefined) ?? undefined;
   }
 
+  /**
+   * TASK-67: the transaction lane. BEGIN/COMMIT ride ONE shared connection,
+   * so two callers that await inside their callback (a sell burst on one
+   * socket, a sell racing the shard flush) used to interleave: the second
+   * BEGIN threw 'cannot start a transaction within a transaction' and the
+   * honest sale was lost. Every transaction now queues behind the previous
+   * one — the isolation the manual BEGIN/COMMIT pair implies anyway.
+   */
+  let txLane: Promise<unknown> = Promise.resolve();
+
   async function balanceOf(playerId: string): Promise<number> {
     const rows = await d
       .select({ credits: t.players.credits })
@@ -563,14 +573,27 @@ export function createRepo(db: Db, tables: Schema): Repository {
       // identically on both dialects. The callback gets this same instance
       // (one connection under both drivers), so every write lands inside
       // the transaction; any throw rolls them all back.
-      await d.run(sql`BEGIN`);
+      //
+      // The lane (see txLane) keeps concurrent callers from interleaving
+      // inside the awaits — without it a second BEGIN fails mid-transaction.
+      const waitForTurn = txLane.catch(() => undefined);
+      let release!: () => void;
+      txLane = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await waitForTurn;
       try {
-        const value = await fn(repo);
-        await d.run(sql`COMMIT`);
-        return value;
-      } catch (err) {
-        await d.run(sql`ROLLBACK`);
-        throw err;
+        await d.run(sql`BEGIN`);
+        try {
+          const value = await fn(repo);
+          await d.run(sql`COMMIT`);
+          return value;
+        } catch (err) {
+          await d.run(sql`ROLLBACK`);
+          throw err;
+        }
+      } finally {
+        release();
       }
     },
 

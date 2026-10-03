@@ -2114,6 +2114,16 @@ export class SystemShard implements Shard {
       );
       return { ok: false, code: 'sell-failed' };
     }
+    // TASK-67 (abuse finding): the in-memory step is applied SYNCHRONOUSLY,
+    // BEFORE the commit is awaited. Applying AFTER the await let a second sell
+    // on the same socket read the PRE-SELL stacks while the first commit was
+    // still in flight, so 100 sells paid out units that were only removed once
+    // (credits duplicated). Apply first, restore on a failed commit.
+    const prevCargo = ship.cargo;
+    const prevInventory = ship.inventory;
+    ship.cargo = res.hold;
+    ship.inventory = res.inv;
+    this.syncCharacterInventory(playerId);
     let balance: number;
     try {
       balance = await repo.withTransaction(async (tx) => {
@@ -2133,7 +2143,11 @@ export class SystemShard implements Shard {
       });
     } catch (err) {
       // A failed commit rolled EVERYTHING back (stacks AND credits) — the
-      // in-memory entity is untouched and the denial answers the requester.
+      // in-memory stacks are restored to exactly what they were and the
+      // denial answers the requester.
+      ship.cargo = prevCargo;
+      ship.inventory = prevInventory;
+      this.syncCharacterInventory(playerId);
       this.log.warn('sell transaction failed', {
         playerId,
         resource: payload.resourceId,
@@ -2147,12 +2161,8 @@ export class SystemShard implements Shard {
       );
       return { ok: false, code: 'sell-failed' };
     }
-    // Atomic in-memory apply: both stacks replaced (never mutated), the
-    // character mirror follows the inventory (weight bar updates within one
-    // snapshot), the 'sell' result frame answers the requester.
-    ship.cargo = res.hold;
-    ship.inventory = res.inv;
-    this.syncCharacterInventory(playerId);
+    // Committed: the stacks were already applied synchronously above (the
+    // pre-image is dropped), the 'sell' result frame answers the requester.
     this.log.info('cargo sold to the dock', {
       playerId,
       resource: payload.resourceId,

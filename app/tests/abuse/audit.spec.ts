@@ -17,20 +17,10 @@ import { createGalaxyRouter } from '@server/galaxy/router';
 import { messageSchemas } from '@shared/protocol/schemas';
 import { RESOURCE_IDS } from '@shared/inventory';
 import { callsignSchema } from '@shared/callsign';
-import {
-  CHAT_MAX_CHARS,
-  CHAT_WINDOW_MAX,
-  CHAT_WINDOW_MS,
-} from '@shared/chat';
+import { CHAT_MAX_CHARS, CHAT_WINDOW_MAX, CHAT_WINDOW_MS } from '@shared/chat';
 import { MINING_UNIT_MS } from '@shared/mining';
-import {
-  FIRE_SPAM_LIMIT,
-  WEAPON_LOCK_MS,
-} from '@server/shard/shard';
-import {
-  MESSAGE_BURST,
-  MESSAGE_RATE,
-} from '@server/ratelimit';
+import { FIRE_SPAM_LIMIT, WEAPON_LOCK_MS } from '@server/shard/shard';
+import { MESSAGE_BURST, MESSAGE_RATE } from '@server/ratelimit';
 import { LIMITER_KINDS, LIMITER_REGISTRY, STATEFUL_HANDLERS } from '@server/limiter-registry';
 
 /**
@@ -106,13 +96,11 @@ describe('audit: WS schema coverage (TASK-64)', () => {
   });
 
   it('the registry has no orphans: inbound ∪ server-only == the registry', () => {
-    const union = new Set([...INBOUND, ...OUTBOUND_ONLY]);
-    const registry = new Set(SCHEMA_KEYS);
+    const union: Set<string> = new Set([...INBOUND, ...OUTBOUND_ONLY]);
+    const registry = new Set<string>(SCHEMA_KEYS);
     const missingFromUnion = [...registry].filter((k) => !union.has(k));
     const undocumented = [...union].filter((k) => !registry.has(k));
-    expect(missingFromUnion, 'registry types that are neither inbound nor server-only').toEqual(
-      [],
-    );
+    expect(missingFromUnion, 'registry types that are neither inbound nor server-only').toEqual([]);
     expect(undocumented, 'entry points with no schema entry').toEqual([]);
   });
 
@@ -174,12 +162,16 @@ const REST_MANIFEST: Record<string, ManifestEntry> = {
     invalid: { resourceId: 'iron', amount: 5, source: 'vault' },
   },
   '/api/dev/teleport': {
-    schema: z.object({ x: z.number().finite(), y: z.number().finite(), z: z.number().finite() }).strict(),
+    schema: z
+      .object({ x: z.number().finite(), y: z.number().finite(), z: z.number().finite() })
+      .strict(),
     valid: { x: 1, y: 2, z: 3 },
     invalid: { x: 1, y: 2 },
   },
   '/api/dev/teleport-char': {
-    schema: z.object({ x: z.number().finite(), y: z.number().finite(), z: z.number().finite() }).strict(),
+    schema: z
+      .object({ x: z.number().finite(), y: z.number().finite(), z: z.number().finite() })
+      .strict(),
     valid: { x: 1, y: 2, z: 3 },
     invalid: { x: '1', y: 2, z: 3 },
   },
@@ -239,6 +231,13 @@ describe('audit: REST schema coverage (every body route is in the manifest)', ()
       shipSwapBus: createShipSwapBus(),
     });
     const app = buildServer(env);
+    // Fastify has no routes() lookup: capture every registered route via
+    // the onRoute hook installed BEFORE registerApiRoutes.
+    const captured: Array<{ method: string; url: string }> = [];
+    app.addHook('onRoute', (r) => {
+      const methods: string[] = Array.isArray(r.method) ? r.method : [r.method];
+      for (const m of methods) captured.push({ method: m, url: r.url });
+    });
     registerApiRoutes(app, {
       repo,
       sessions,
@@ -246,15 +245,16 @@ describe('audit: REST schema coverage (every body route is in the manifest)', ()
       shipSwapBus: createShipSwapBus(),
       galaxyRouter: router,
     });
-    // No listen needed: the route table is complete at registration time.
-    await app.ready();
-    bodyRoutes = app
-      .routes()
-      .filter((r) => r.method === 'POST' && r.url.startsWith('/api/'))
-      .map((r) => r.url);
     closeApp = async () => {
       await app.close();
     };
+    // No listen needed: the route table is complete at registration time.
+    await app.ready();
+    const BODYLESS_POSTS = new Set(['/api/session/logout', '/api/ships/repair']);
+    bodyRoutes = captured
+      .filter((r) => r.method === 'POST' && r.url.startsWith('/api/'))
+      .map((r) => r.url)
+      .filter((url) => !BODYLESS_POSTS.has(url));
   });
 
   afterAll(async () => {
@@ -264,9 +264,10 @@ describe('audit: REST schema coverage (every body route is in the manifest)', ()
 
   it('every registered body route has a manifest entry (no undocumented entry points)', () => {
     const undocumented = bodyRoutes.filter((url) => !(url in REST_MANIFEST));
-    expect(undocumented, `registered body routes missing from the manifest: ${undocumented}`).toEqual(
-      [],
-    );
+    expect(
+      undocumented,
+      `registered body routes missing from the manifest: ${undocumented}`,
+    ).toEqual([]);
   });
 
   it('the manifest has no stale entries (every listed route is registered)', () => {
@@ -274,10 +275,13 @@ describe('audit: REST schema coverage (every body route is in the manifest)', ()
     expect(stale, `manifest entries with no registered route: ${stale}`).toEqual([]);
   });
 
-  it.each(Object.entries(REST_MANIFEST))('%s: schema accepts the valid body and rejects a bad one', (url, { schema, valid, invalid }) => {
-    expect(schema.safeParse(valid).success, `${url} valid body`).toBe(true);
-    expect(schema.safeParse(invalid).success, `${url} invalid body`).toBe(false);
-  });
+  it.each(Object.entries(REST_MANIFEST))(
+    '%s: schema accepts the valid body and rejects a bad one',
+    (url, { schema, valid, invalid }) => {
+      expect(schema.safeParse(valid).success, `${url} valid body`).toBe(true);
+      expect(schema.safeParse(invalid).success, `${url} invalid body`).toBe(false);
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -286,9 +290,15 @@ describe('audit: REST schema coverage (every body route is in the manifest)', ()
 
 describe('audit: rate-limit coverage (every stateful handler has an explicit limiter)', () => {
   it('the registry covers exactly the required stateful handler list', () => {
-    expect([...STATEFUL_HANDLERS].sort()).toEqual(
-      ['chat', 'fire', 'interact', 'join', 'mine', 'sell', 'warp'],
-    );
+    expect([...STATEFUL_HANDLERS].sort()).toEqual([
+      'chat',
+      'fire',
+      'interact',
+      'join',
+      'mine',
+      'sell',
+      'warp',
+    ]);
     for (const handler of STATEFUL_HANDLERS) {
       const entry = LIMITER_REGISTRY[handler];
       expect(entry, `registry entry for ${handler}`).toBeDefined();

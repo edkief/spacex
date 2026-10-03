@@ -2,13 +2,13 @@
   "id": "TASK-67",
   "title": "Cheat resistance: server authority audit and abuse tests",
   "category": "security",
-  "description": "A dedicated abuse pass over the whole gameplay pipeline: every player-influenced value is server-validated, and a scripted 'cheater' client gets nothing — no speed hacks, no hit claims, no economy duplication, no protocol abuse.",
+  "description": "A dedicated abuse pass over the whole gameplay pipeline: every player-influenced value is server-validated, and a scripted 'cheater' client gets nothing \u2014 no speed hacks, no hit claims, no economy duplication, no protocol abuse.",
   "acceptanceCriteria": [
-    "Abuse test suite (tests/abuse/): a scripted client (raw ws, no game client) attempts each cheat class and gains nothing: (1) position teleport (sends position claims — ignored, the sim integrates from inputs only), (2) hit claims (sends 'I hit' — no such message exists; firing off-rate gains nothing), (3) fire spam (30/s → weapon lock, no damage beyond the rate limit), (4) mine spam (20 mine-ticks/s → server-cadence awards only), (5) sell spam (100 sells/s → rate-limited + idempotent, no credit duplication), (6) warp spam (rapid warp requests → one in flight, queue dropped), (7) message flood (1000 junk messages/s → conn rate-limited, then kicked with a reconnect-required close code), (8) payload abuse (oversized messages > 64 KB rejected, non-JSON rejected, deep nesting > 32 levels rejected)",
-    "Economy audit: no sequence of valid messages can create credits or resources from nothing — the only credit sources are sales (TASK-40) and the only resource sources are deposits (TASK-37, bounded); a property test: run 1000 random valid message sequences against a fresh shard, total credits issued ≤ expected from sales, total resources mined ≤ deposit totals",
-    "Input sanitization audit: every WS/REST entry point has a zod schema (TASK-64) — a test enumerates all routes/handlers and asserts each has a schema (no undocumented entry points)",
-    "Rate-limit audit: every stateful handler (fire, mine, sell, interact, chat, warp, join) has an explicit limiter (TASK-65) — a test asserts the limiter registry covers the handler list",
-    "All abuse tests green: every cheat attempt is neutralized with the correct rejection (no crashes, no log spam — rejections logged at debug, kicks at info)",
+    "Abuse test suite (tests/abuse/): a scripted client (raw ws, no game client) attempts each cheat class and gains nothing: (1) position teleport (sends position claims \u2014 ignored, the sim integrates from inputs only), (2) hit claims (sends 'I hit' \u2014 no such message exists; firing off-rate gains nothing), (3) fire spam (30/s \u2192 weapon lock, no damage beyond the rate limit), (4) mine spam (20 mine-ticks/s \u2192 server-cadence awards only), (5) sell spam (100 sells/s \u2192 rate-limited + idempotent, no credit duplication), (6) warp spam (rapid warp requests \u2192 one in flight, queue dropped), (7) message flood (1000 junk messages/s \u2192 conn rate-limited, then kicked with a reconnect-required close code), (8) payload abuse (oversized messages > 64 KB rejected, non-JSON rejected, deep nesting > 32 levels rejected)",
+    "Economy audit: no sequence of valid messages can create credits or resources from nothing \u2014 the only credit sources are sales (TASK-40) and the only resource sources are deposits (TASK-37, bounded); a property test: run 1000 random valid message sequences against a fresh shard, total credits issued \u2264 expected from sales, total resources mined \u2264 deposit totals",
+    "Input sanitization audit: every WS/REST entry point has a zod schema (TASK-64) \u2014 a test enumerates all routes/handlers and asserts each has a schema (no undocumented entry points)",
+    "Rate-limit audit: every stateful handler (fire, mine, sell, interact, chat, warp, join) has an explicit limiter (TASK-65) \u2014 a test asserts the limiter registry covers the handler list",
+    "All abuse tests green: every cheat attempt is neutralized with the correct rejection (no crashes, no log spam \u2014 rejections logged at debug, kicks at info)",
     "npm run test green including the property test (1000 sequences, < 60 s runtime)"
   ],
   "steps": [
@@ -16,31 +16,37 @@
       "step": 1,
       "description": "Abuse client harness",
       "details": "tests/abuse/rawClient.ts: a minimal ws client that sends arbitrary message objects (no game logic); each abuse test is one scenario: connect, claim a test callsign, attempt, assert neutralization (state unchanged + correct error).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Cheat scenarios",
       "details": "Implement the 8 scenarios per acceptance; assert final server state (credits, resources, positions, entity counts) matches the honest baseline exactly.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Property test",
       "details": "Random valid-sequence generator (seeded): pick random actions from the validated message set, apply to a fresh shard (in-memory sqlite), after 1000 sequences assert the invariants (credits bounded by sales, resources bounded by deposits, no negative balances, entity counts within caps).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Audit tests",
-      "details": "Schema-coverage test (enumerate routes + ws handlers, assert zod schema presence via a registry — TASK-64's schemas are registered at module load); limiter-coverage test (same pattern for TASK-65). Run full suite.",
-      "pass": false
+      "details": "Schema-coverage test (enumerate routes + ws handlers, assert zod schema presence via a registry \u2014 TASK-64's schemas are registered at module load); limiter-coverage test (same pattern for TASK-65). Run full suite.",
+      "pass": true
     }
   ],
-  "dependencies": ["TASK-13", "TASK-43", "TASK-33", "TASK-64", "TASK-65"],
+  "dependencies": [
+    "TASK-13",
+    "TASK-43",
+    "TASK-33",
+    "TASK-64",
+    "TASK-65"
+  ],
   "estimatedComplexity": "high",
   "technicalNotes": [
-    "This task changes no production code unless an abuse test finds a hole — if it does, fix the hole in the owning module and keep the abuse test as the regression guard.",
+    "This task changes no production code unless an abuse test finds a hole \u2014 if it does, fix the hole in the owning module and keep the abuse test as the regression guard.",
     "The property test is the long-term guard: it runs in CI and would catch a future economy bug that creates value from nothing.",
     "Kick close code: 4001 'rate-limited-kick' (documented in the protocol, TASK-69)."
   ]

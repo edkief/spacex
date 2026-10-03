@@ -111,6 +111,7 @@ Excludes dotfiles, tests, and config.
 │       │   │   └── (tests) persist.test.ts (flush/load + p95 < 8 ms bench), crash-restart.test.ts (SIGKILL restart integration, real child server)
 │       │   ├── persist.ts               # TASK-63 save-point service: dock/damage-milestone/5s-interval/shutdown, crash-load
 │       │   ├── persist-crash-child.ts   # TASK-63 test helper: child process that saves state, then gets SIGKILL'd
+│       │   ├── limiter-registry.ts      # TASK-67 audit surface: STATEFUL_HANDLERS + LIMITER_REGISTRY (handler → limiter kind + bound, derived from the shipped constants)
 │       │   ├── ratelimit.ts             # TASK-65 per-conn token bucket (20/s, burst 40), ChatLimiter (option rules; TASK-16 = 200 chars / 5 per 10 s), 3-in-10 s escalation
 │       │   └── db/
 │       │       ├── schema.ts          # dual-driver Drizzle schema (sqlite + pg), 6 tables + row types

@@ -80,7 +80,7 @@ export class RawClient {
             .join(',')})`,
         );
       }
-      await new Promise((resolve) => {
+      await new Promise<void>((resolve) => {
         this.wake.push(resolve);
         setTimeout(resolve, 10);
       });
@@ -108,10 +108,12 @@ export class RawClient {
     return this.messages.filter((m) => m.type === type).length;
   }
 
-  /** Inbound error frames with a given code (non-destructive). */
-  errors(code: string): AbuseEnvelope[] {
+  /** Inbound error frames (all, or only one code) — non-destructive. */
+  errors(code?: string): AbuseEnvelope[] {
     return this.messages.filter(
-      (m) => m.type === 'error' && (m.payload as { code?: string }).code === code,
+      (m) =>
+        m.type === 'error' &&
+        (code === undefined || (m.payload as { code?: string }).code === code),
     );
   }
 

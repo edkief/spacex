@@ -6,12 +6,12 @@ import { generateSystem } from '@shared/galaxy/system';
 import { padsForSystem } from '@shared/world/pads';
 import { terminalsFor } from '@shared/world/terminals';
 import { quatIdentity } from '@shared/physics/vec';
-import type { Vec3 } from '@shared/physics/vec';
 import { sellUnitPrice } from '@shared/sell';
 import { emptyInventory } from '@shared/inventory';
 import { SystemShard } from '@server/shard/shard';
 import type { SimEntity } from '@server/shard/types';
 import type { Repository } from '@server/db/repo';
+import type { PlayerRow } from '@server/db/schema';
 
 /**
  * TASK-67 step 3: the economy property test — the long-term guard.
@@ -64,38 +64,28 @@ interface Ledger {
  * In-memory repo stub: the real sell commit shape (withTransaction +
  * addCredits + the two stack writers) with no disk. The stub is the source
  * of truth for CREDITS; the shard entity is the source of truth for IRON.
+ * Production hands the SAME repo instance to withTransaction, so the stub
+ * does the same (only the methods the sell/mining paths use are real).
  */
 function makeRepo(ledger: Ledger) {
-  const repo: Pick<
-    Repository,
-    'getShipByOwner' | 'getPlayersByIds'
-  > &
-    Partial<
-      Pick<
-        Repository,
-        'withTransaction' | 'addCredits' | 'updatePlayerInventory' | 'updateShipCargo'
-      >
-    > = {
+  const addCredits = async (_pid: string, amount: number): Promise<PlayerRow> => {
+    if (!Number.isInteger(amount) || amount <= 0) {
+      throw new Error(`invalid credit amount ${amount}`);
+    }
+    ledger.credits += amount;
+    // Only `credits` is ever read back off the row: the shape is cast away.
+    return { credits: ledger.credits } as unknown as PlayerRow;
+  };
+  const stub = {
     getShipByOwner: async () => undefined,
     getPlayersByIds: async () => [],
-    withTransaction: async (fn) =>
-      fn({
-        addCredits: async (pid: string, amount: number) => {
-          if (!Number.isInteger(amount) || amount <= 0) {
-            throw new Error(`invalid credit amount ${amount}`);
-          }
-          ledger.credits += amount;
-          return { credits: ledger.credits };
-        },
-      }),
-    addCredits: async (pid: string, amount: number) => {
-      ledger.credits += amount;
-      return { credits: ledger.credits };
-    },
+    withTransaction: async <T>(fn: (repo: Repository) => Promise<T>): Promise<T> =>
+      fn(stub as unknown as Repository),
+    addCredits,
     updatePlayerInventory: async () => undefined,
     updateShipCargo: async () => undefined,
   };
-  return repo;
+  return stub as unknown as Repository;
 }
 
 const noopLog = { debug() {}, warn() {}, info() {} };
@@ -116,9 +106,10 @@ function worldIron(shard: SystemShard, ship: SimEntity): number {
   }
   const hold = ship.cargo ?? { stacks: {} as Record<string, number> };
   total += hold.stacks.iron ?? 0;
+  // The player's inventory lives on the SHIP entity; the on-foot character
+  // mirrors the SAME stacks reference (syncCharacterInventory), so counting
+  // both would double-count. Character covered by the ship count.
   total += (ship.inventory ?? emptyInventory()).iron ?? 0;
-  const character = shard.entities.get(`char:${PLAYER_ID}`);
-  total += (character?.inventory ?? emptyInventory()).iron ?? 0;
   return total;
 }
 
@@ -155,7 +146,12 @@ describe('TASK-67: economy property test (1000 seeded sequences vs a fresh shard
       playerId: PLAYER_ID,
       callsign: 'prop-test',
       classId: 'scout',
-      ship: { pos: { ...pad.pos }, vel: { x: 0, y: 0, z: 0 }, quat: quatIdentity(), regime: 'surface' },
+      ship: {
+        pos: { ...pad.pos },
+        vel: { x: 0, y: 0, z: 0 },
+        quat: quatIdentity(),
+        regime: 'surface',
+      },
       hull: 1,
       shields: 1,
       targetId: null,
@@ -166,7 +162,9 @@ describe('TASK-67: economy property test (1000 seeded sequences vs a fresh shard
     };
     shard.addEntity(ship);
     const terminal = terminalsFor(GALAXY_SEED, SYSTEM).find((t) => t.padId === pad.padId)!;
-    shard.addEntity({
+    // Character bypasses addEntity: it would overwrite playerEntities'
+    // ship entry (production creates it via entities.set in handleExitShip).
+    shard.entities.set(`char:${PLAYER_ID}`, {
       id: `char:${PLAYER_ID}`,
       kind: 'character',
       playerId: PLAYER_ID,
@@ -240,10 +238,11 @@ describe('TASK-67: economy property test (1000 seeded sequences vs a fresh shard
       shard.handleDrop(PLAYER_ID, 'iron', 1 + rng.nextInt(3));
     };
     const cargoTransfer = (): void => {
-      shard.handleCargoTransfer(
-        PLAYER_ID,
-        { resourceId: 'iron', amount: 1 + rng.nextInt(3), from: rng.pick(['inv', 'hold']) },
-      );
+      shard.handleCargoTransfer(PLAYER_ID, {
+        resourceId: 'iron',
+        amount: 1 + rng.nextInt(3),
+        from: rng.pick(['inv', 'hold']),
+      });
     };
     const sell = async (): Promise<void> => {
       const res = await shard.handleSell(PLAYER_ID, {
@@ -297,23 +296,23 @@ describe('TASK-67: economy property test (1000 seeded sequences vs a fresh shard
         world,
         `sequence ${sequence}: iron conservation (world ${world} != initial ${initialWorldIron} - sold ${ledger.soldUnits})`,
       ).toBe(initialWorldIron - ledger.soldUnits);
-      expect(
-        ledger.credits,
-        `sequence ${sequence}: credits issued`,
-      ).toBe(START_CREDITS + ledger.earned);
+      expect(ledger.credits, `sequence ${sequence}: credits issued`).toBe(
+        START_CREDITS + ledger.earned,
+      );
       expect(ledger.credits, `sequence ${sequence}: credits bounded by sales`).toBeLessThanOrEqual(
         START_CREDITS + ledger.soldUnits * sellUnitPrice('iron'),
       );
       expect(ledger.credits).toBeGreaterThanOrEqual(0);
       // No negative balances anywhere.
       for (const e of shard.entities.values()) {
-        for (const [id, amount] of Object.entries(e.inventory?.stacks ?? {})) {
+        for (const [id, amount] of Object.entries(e.inventory ?? {})) {
           expect(amount, `sequence ${sequence}: stack ${id} on ${e.id}`).toBeGreaterThanOrEqual(0);
         }
         if (e.kind === 'deposit' || e.kind === 'groundItem') {
-          expect(e.quantity ?? 0, `sequence ${sequence}: quantity on ${e.id}`).toBeGreaterThanOrEqual(
-            0,
-          );
+          expect(
+            e.quantity ?? 0,
+            `sequence ${sequence}: quantity on ${e.id}`,
+          ).toBeGreaterThanOrEqual(0);
         }
       }
       // Entity counts within the documented caps.

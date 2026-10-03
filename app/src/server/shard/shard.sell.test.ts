@@ -387,4 +387,32 @@ describe('TASK-40: dock sell — transaction atomicity (rollback)', () => {
     await shard.handleSell('p1', { resourceId: 'iron', amount: 10, source: 'hold' });
     expect(events).toEqual([{ playerId: 'p1', sold: 10, earned: 50, balance: 550 }]);
   });
+
+  it('TASK-67: concurrent sells pay each unit exactly ONCE (no double-spend across the commit await)', async () => {
+    const { repo, state } = makeRepo();
+    const shard = makeShard(repo);
+    const toP1: string[] = [];
+    const entity = makeEntity({ x: PAD.pos.x, y: PAD.pos.y + 20, z: PAD.pos.z });
+    shard.addEntity(entity);
+    shard.registerConnection('p1', 'pilot', (b) => toP1.push(b));
+    const frames = makeFrames();
+    const step = makeStepper(shard);
+    for (let i = 0; i < 4000 && entity.padId !== PAD.padId; i++) {
+      shard.enqueueInput('p1', frames());
+      step();
+    }
+    entity.cargo = { stacks: { iron: 10 }, weightUsed: 10, capacity: 40 };
+
+    // The burst a cheater sends: 20 sells in flight AT ONCE for 10 units.
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () =>
+        shard.handleSell('p1', { resourceId: 'iron', amount: 1, source: 'hold' }),
+      ),
+    );
+    const sold = results.filter((r) => r.ok).reduce((n, r) => n + (r as { sold: number }).sold, 0);
+    expect(sold, 'never more than the 10 units that existed').toBe(10);
+    expect(state.credits, 'credits == units sold x price, once each').toBe(500 + 10 * 5);
+    expect(entity.cargo!.stacks.iron ?? 0, 'the hold drained exactly once').toBe(0);
+    expect(results.filter((r) => !r.ok)).toHaveLength(10);
+  });
 });
