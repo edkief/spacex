@@ -175,7 +175,7 @@ describe('stepMissile homing (constant speed, turn-rate capped)', () => {
     let target: Vec3 = { x: 0, y: 0, z: 200 };
     let pos: Vec3 = { x: 0, y: 0, z: 0 };
     let vel: Vec3 = { x: 0, y: 0, z: SPEED };
-    let gap = Infinity;
+    let gap: number;
     let hitAtStep = -1;
     for (let i = 0; i < TTL_STEPS; i++) {
       const s = stepMissile(pos, vel, target, DT, SPEED, TURN);
@@ -198,7 +198,7 @@ describe('stepMissile homing (constant speed, turn-rate capped)', () => {
     const center: Vec3 = { x: 0, y: 0, z: 300 };
     const radius = 100;
     const omega = 3;
-    let target: Vec3 = { x: 0, y: 0, z: center.z - radius };
+    let target: Vec3; // assigned at the top of every step (below)
     let pos: Vec3 = { x: 0, y: 0, z: 0 };
     let vel: Vec3 = { x: 0, y: 0, z: SPEED };
     let closest = Infinity;

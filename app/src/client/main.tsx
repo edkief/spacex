@@ -717,14 +717,10 @@ function App() {
       recordCombatEvent(event);
       const world = worldRef.current;
       if (!world) return;
-      playCombatFx(
-        world.fx,
-        event,
-        (id) => {
-          if (id === selfShipIdRef.current) return selfPosRef.current;
-          return remoteShipsRef.current.find((t) => t.id === id)?.pos ?? null;
-        },
-      );
+      playCombatFx(world.fx, event, (id) => {
+        if (id === selfShipIdRef.current) return selfPosRef.current;
+        return remoteShipsRef.current.find((t) => t.id === id)?.pos ?? null;
+      });
     },
     // TASK-43: the weapon denial prompts (transient, self-clearing).
     (code) => {
@@ -874,11 +870,7 @@ function App() {
       if (self) {
         let bestD = Infinity;
         for (const t of remoteShipsRef.current) {
-          const d = Math.hypot(
-            t.pos.x - self.x,
-            t.pos.y - self.y,
-            t.pos.z - self.z,
-          );
+          const d = Math.hypot(t.pos.x - self.x, t.pos.y - self.y, t.pos.z - self.z);
           if (d < bestD) {
             bestD = d;
             targetId = t.id;

@@ -106,6 +106,14 @@ afterAll(async () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+/**
+ * Every player claimed in this file. The router rehydrates a freshly created
+ * shard from the DB: ANY claimed player whose seed-derived home system IS the
+ * shard's system has their starter ship dock there — including earlier
+ * tests' players (random-UUID homes hash across the whole galaxy).
+ */
+const claimedPlayers: Array<{ playerId: string; shipId: string }> = [];
+
 async function claim(
   callsign: string,
 ): Promise<{ token: string; playerId: string; shipId: string }> {
@@ -115,7 +123,9 @@ async function claim(
     body: JSON.stringify({ callsign }),
   });
   expect(res.status).toBe(201);
-  return (await res.json()) as { token: string; playerId: string; shipId: string };
+  const p = (await res.json()) as { token: string; playerId: string; shipId: string };
+  claimedPlayers.push({ playerId: p.playerId, shipId: p.shipId });
+  return p;
 }
 
 function mkClient(): WsTestClient {
@@ -192,11 +202,10 @@ describe('galaxy router over live ws (TASK-11)', () => {
     const fullSystem = systemIds[3];
     const quietSystem = systemIds[4];
 
-    // Fill the target system to the cap.
-    const fullClaimants: Array<{ playerId: string; shipId: string }> = [];
+    // Fill the target system to the cap (claim() records every player in
+    // `claimedPlayers` — the quiet-snapshot assertion below needs them).
     for (let i = 0; i < MAX_PLAYERS_PER_SYSTEM; i++) {
       const p = await claim(`Full-${i}`);
-      fullClaimants.push({ playerId: p.playerId, shipId: p.shipId });
       await join(mkClient(), p.token, fullSystem);
     }
     expect(router.active(fullSystem)!.shard.connections.size).toBe(MAX_PLAYERS_PER_SYSTEM);
@@ -220,15 +229,17 @@ describe('galaxy router over live ws (TASK-11)', () => {
     const entities = (upd.payload as { entities: Array<{ id: string }> }).entities;
     expect(entities.some((e) => e.id === late.shipId)).toBe(true);
     // Every entity in the quiet snapshot must be the late player's own ship,
-    // or a Full-* claimant's starter ship whose seed-derived home system is
-    // the quiet system (those dock there, so the shard loads them from the DB
-    // even while their owner sits in the full system).
-    const fullByShip = new Map(fullClaimants.map((p) => [p.shipId, p]));
+    // or a starter ship whose seed-derived home system IS the quiet system:
+    // the freshly created quiet shard rehydrates from the DB every player
+    // claimed in this file (the Full-* batch AND earlier tests' Swarm-*
+    // players — random-UUID homes hash across the whole galaxy) whose home
+    // is the quiet system, docked while their owner sits elsewhere. A ship
+    // whose owner's home is anywhere else would be cross-system bleed.
     for (const e of entities) {
       if (e.id === late.shipId) continue;
       // TASK-40: station terminals are static world content, not player-owned entities.
       if (e.id.startsWith('terminal:')) continue;
-      const p = fullByShip.get(e.id);
+      const p = claimedPlayers.find((q) => q.shipId === e.id);
       expect(p, `unknown entity ${e.id} in quiet system`).toBeDefined();
       expect(
         homeSystemIdForPlayer(GALAXY_SEED, p!.playerId),

@@ -68,7 +68,7 @@ export class CombatFx {
     return this.slow ? 500 : LASER_FLASH_MS;
   }
 
-  /** The stretched-lifetime switch (e2e: `document.body.dataset.fxSlow`). */
+  /** The stretched-lifetime switch (e2e: `documentElement.dataset.fxSlow`). */
   private stretched(): boolean {
     return this.slow || document?.documentElement?.dataset.fxSlow === '1';
   }
@@ -76,7 +76,13 @@ export class CombatFx {
   /** One laser shot: additive line nose→to (60 ms) + a muzzle spark. */
   addLaserFlash(from: Vec3, to: Vec3): void {
     const now = performance.now();
-    const life = this.stretched() ? 500 : LASER_FLASH_MS;
+    const slow = this.stretched();
+    const life = slow ? 500 : LASER_FLASH_MS;
+    // In the dev slow-mo (screenshot) mode the flash HOLDS full opacity for
+    // most of the stretched window and only fades over its last 25 %: the
+    // e2e capture lands ~200-400 ms after the event, which a whole-window
+    // linear fade would already have dimmed to nothing.
+    const fade = (age: number) => (slow ? Math.max(0, 1 - (age - 0.75) / 0.25) : 1 - age);
     const lineGeo = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(from.x, from.y, from.z),
       new THREE.Vector3(to.x, to.y, to.z),
@@ -93,9 +99,9 @@ export class CombatFx {
         blending: THREE.AdditiveBlending,
         depthWrite: false,
         depthTest: false,
-        renderOrder: FLASH_RENDER_ORDER,
       }),
     );
+    line.renderOrder = FLASH_RENDER_ORDER;
     const spark = new THREE.Mesh(
       new THREE.SphereGeometry(1.2, 8, 8),
       new THREE.MeshBasicMaterial({
@@ -105,13 +111,13 @@ export class CombatFx {
         blending: THREE.AdditiveBlending,
         depthWrite: false,
         depthTest: false,
-        renderOrder: FLASH_RENDER_ORDER,
       }),
     );
+    spark.renderOrder = FLASH_RENDER_ORDER;
     spark.position.set(from.x, from.y, from.z);
     // In the dev slow-mo (screenshot) mode the muzzle glow is scaled up so a
     // single frame clearly shows the flash from the far orbit vantage.
-    if (this.stretched()) spark.scale.setScalar(SLOW_SPARK_SCALE);
+    if (slow) spark.scale.setScalar(SLOW_SPARK_SCALE);
     this.group.add(line, spark);
     this.flashes.push({
       obj: line,
@@ -119,9 +125,9 @@ export class CombatFx {
       life,
       update: (age, obj) => {
         const m = (obj as THREE.Line).material as THREE.LineBasicMaterial;
-        m.opacity = 1 - age;
-        const s = (spark.material as THREE.MeshBasicMaterial);
-        s.opacity = Math.max(0, 1 - age * 1.5);
+        m.opacity = fade(age);
+        const s = spark.material as THREE.MeshBasicMaterial;
+        s.opacity = slow ? fade(age) : Math.max(0, 1 - age * 1.5);
       },
     });
     this.flashes.push({ obj: spark, born: now, life: life * 0.8 });
@@ -139,9 +145,9 @@ export class CombatFx {
         blending: THREE.AdditiveBlending,
         depthWrite: false,
         depthTest: false,
-        renderOrder: FLASH_RENDER_ORDER,
       }),
     );
+    flash.renderOrder = FLASH_RENDER_ORDER;
     flash.position.set(point.x, point.y, point.z);
     this.group.add(flash);
     const life = this.stretched() ? 400 : IMPACT_FLASH_MS;
@@ -271,9 +277,7 @@ class Tracer {
     if (speed > 0.001) {
       // Face the velocity: lookAt points +Z at the target (the cone is
       // pre-rotated +X→+Y so its tip leads along +Z).
-      this.pivot.lookAt(
-        new THREE.Vector3(pos.x + vel.x, pos.y + vel.y, pos.z + vel.z),
-      );
+      this.pivot.lookAt(new THREE.Vector3(pos.x + vel.x, pos.y + vel.y, pos.z + vel.z));
     }
     this.trailPts.unshift(new THREE.Vector3(pos.x, pos.y, pos.z));
     if (this.trailPts.length > TRAIL_MAX) this.trailPts.pop();

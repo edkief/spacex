@@ -701,7 +701,11 @@ export class SystemShard implements Shard {
    * tick resolves them: single writer); energy + cooldown are committed at
    * ACCEPTANCE time so a queued fire is exactly one shot.
    */
-  handleFire(playerId: string, payload: { weapon: string; targetId?: string }, source?: unknown): void {
+  handleFire(
+    playerId: string,
+    payload: { weapon: string; targetId?: string },
+    source?: unknown,
+  ): void {
     const connId = this.playerConns.get(playerId);
     const conn = connId ? this.connections.get(connId) : undefined;
     if (!conn) return;
@@ -740,12 +744,20 @@ export class SystemShard implements Shard {
       return;
     }
     if (!loadoutFor(entity.classId).some((w) => w.id === weapon.id)) {
-      this.log.debug('dropped fire: not in loadout', { playerId, classId: entity.classId, weapon: weapon.id });
+      this.log.debug('dropped fire: not in loadout', {
+        playerId,
+        classId: entity.classId,
+        weapon: weapon.id,
+      });
       return;
     }
     if ((entity.fireCooldownUntil?.[weapon.id] ?? 0) > this.sim.tickNumber) {
       // Rate-limited drop: logged, no energy spent, no event (spec).
-      this.log.debug('dropped fire: rate limited', { playerId, weapon: weapon.id, tick: this.sim.tickNumber });
+      this.log.debug('dropped fire: rate limited', {
+        playerId,
+        weapon: weapon.id,
+        tick: this.sim.tickNumber,
+      });
       return;
     }
     if (!canFire(entity.energy ?? ENERGY_MAX, weapon)) {
@@ -794,7 +806,11 @@ export class SystemShard implements Shard {
   }
 
   /** One queued fire intent, resolved in the tick (single writer). */
-  private resolveFireIntent(conn: ConnState, intent: { weapon: WeaponId; targetId?: string }, tick: number): void {
+  private resolveFireIntent(
+    conn: ConnState,
+    intent: { weapon: WeaponId; targetId?: string },
+    tick: number,
+  ): void {
     const entity = this.playerEntities.get(conn.playerId);
     if (!entity || entity.destroyed || entity.disembarked) return;
     const weapon = WEAPON_BY_ID[intent.weapon];
@@ -804,7 +820,10 @@ export class SystemShard implements Shard {
     // cooldown check failed). Only the loadout is re-checked here (a ship
     // swap between enqueue and tick is the race this guards).
     if (!loadoutFor(entity.classId).some((w) => w.id === weapon.id)) return;
-    const nose = vecAdd(entity.ship.pos, vecScale(quatRotateVector(entity.ship.quat, { x: 0, y: 0, z: 1 }), NOSE_OFFSET_M));
+    const nose = vecAdd(
+      entity.ship.pos,
+      vecScale(quatRotateVector(entity.ship.quat, { x: 0, y: 0, z: 1 }), NOSE_OFFSET_M),
+    );
     const forward = quatRotateVector(entity.ship.quat, { x: 0, y: 0, z: 1 });
     const source: { kind: 'player'; id: string } = { kind: 'player', id: conn.playerId };
     if (weapon.kind !== 'missile') {
@@ -894,7 +913,10 @@ export class SystemShard implements Shard {
    * or undefined when the fire cannot resolve (a denied drop: silent, and a
    * fire already accepted at handleFire has its energy REFUNDED).
    */
-  private validMissileTarget(entity: SimEntity, targetId: string | undefined): SimEntity | undefined {
+  private validMissileTarget(
+    entity: SimEntity,
+    targetId: string | undefined,
+  ): SimEntity | undefined {
     if (!targetId || targetId === entity.id) return undefined;
     const t = this.entities.get(targetId);
     if (!t || (t.kind !== 'ship' && t.kind !== 'ai-ship') || t.destroyed) return undefined;
@@ -928,7 +950,10 @@ export class SystemShard implements Shard {
       // The energy was committed at ACCEPTANCE (handleFire): give it back —
       // a denied fire spends nothing (spec).
       entity.energy = Math.min(ENERGY_MAX, (entity.energy ?? ENERGY_MAX) + (weapon.energy ?? 0));
-      this.log.debug('dropped missile: no valid target', { playerId: entity.playerId ?? null, tick });
+      this.log.debug('dropped missile: no valid target', {
+        playerId: entity.playerId ?? null,
+        tick,
+      });
       return;
     }
     // Entity budget: the oldest projectile expires first when the cap is hit.
@@ -940,7 +965,10 @@ export class SystemShard implements Shard {
       projectiles.sort((a, b) => (a.projectile?.spawnTick ?? 0) - (b.projectile?.spawnTick ?? 0));
       const oldest = projectiles[0];
       this.entities.delete(oldest.id);
-      this.log.warn('missile cap hit: oldest expired', { projectId: oldest.id, cap: PROJECTILE_CAP });
+      this.log.warn('missile cap hit: oldest expired', {
+        projectId: oldest.id,
+        cap: PROJECTILE_CAP,
+      });
     }
     const seq = ++this.projectileSeq;
     const id = `proj:${seq}`;
@@ -990,9 +1018,7 @@ export class SystemShard implements Shard {
       const st = proj.projectile;
       const target = this.entities.get(st.targetId);
       const targetAlive =
-        !!target &&
-        (target.kind === 'ship' || target.kind === 'ai-ship') &&
-        !target.destroyed;
+        !!target && (target.kind === 'ship' || target.kind === 'ai-ship') && !target.destroyed;
       if (targetAlive && target) {
         const step = stepMissile(
           proj.ship.pos,
@@ -1013,7 +1039,10 @@ export class SystemShard implements Shard {
         proj.ship.pos = vecAdd(proj.ship.pos, vecScale(proj.ship.vel, this.dt));
       }
       // Terrain impact (atmosphere/surface only): splash at the ground.
-      if (proj.planetId && proj.ship.pos.y <= this.terrainHeightAt(proj.planetId, proj.ship.pos.x, proj.ship.pos.z)) {
+      if (
+        proj.planetId &&
+        proj.ship.pos.y <= this.terrainHeightAt(proj.planetId, proj.ship.pos.x, proj.ship.pos.z)
+      ) {
         this.detonateMissile(id, proj, proj.ship.pos, undefined);
       }
     }

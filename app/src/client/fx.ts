@@ -25,11 +25,7 @@ export interface FxWorld {
 export type ResolvePos = (entityId: string) => Vec3 | null;
 
 /** Dispatch one combat event to the FX world (no-op for unknown kinds). */
-export function playCombatFx(
-  world: FxWorld,
-  event: CombatEvent,
-  resolvePos: ResolvePos,
-): void {
+export function playCombatFx(world: FxWorld, event: CombatEvent, resolvePos: ResolvePos): void {
   switch (event.kind) {
     case 'laser-fired':
       world.addLaserFlash(event.from, event.to);

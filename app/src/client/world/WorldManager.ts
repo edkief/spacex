@@ -737,5 +737,3 @@ export class WorldManager {
     this.renderer.dispose();
   }
 }
-
-

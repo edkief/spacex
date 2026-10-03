@@ -20,7 +20,14 @@ export interface WeaponHudProps {
   locked: boolean;
 }
 
-export function WeaponHud({ classId, energy, weapon, onWeapon, lowEnergy, locked }: WeaponHudProps) {
+export function WeaponHud({
+  classId,
+  energy,
+  weapon,
+  onWeapon,
+  lowEnergy,
+  locked,
+}: WeaponHudProps) {
   const loadout = React.useMemo(() => (classId ? loadoutFor(classId) : []), [classId]);
   if (!classId) return null;
   const e = energy ?? ENERGY_MAX;

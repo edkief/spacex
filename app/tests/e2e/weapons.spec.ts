@@ -1,3 +1,4 @@
+import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { expect, test } from './fixtures';
 import { collectErrors, uniqueCallsign } from './helpers';
@@ -55,11 +56,11 @@ test('LMB fire: the laser flash arrives as a server combat event', async ({
   // (5) Poll the DEV hook: only server combat_event frames count. If the
   // first shot was swallowed (e.g. energy still materializing), re-fire
   // ONCE — the 333 ms cooldown allows it; do not over-engineer retries.
-  const flashes = () => page.waitForFunction(
-    () => (window.__FX__?.laserFlashes ?? 0) >= 1,
-    undefined,
-    { timeout: 5_000, polling: 50 },
-  );
+  const flashes = () =>
+    page.waitForFunction(() => (window.__FX__?.laserFlashes ?? 0) >= 1, undefined, {
+      timeout: 5_000,
+      polling: 50,
+    });
   try {
     await flashes();
   } catch {
@@ -67,10 +68,51 @@ test('LMB fire: the laser flash arrives as a server combat event', async ({
     await flashes();
   }
 
-  // (6) The stretched (~500 ms) flash is in the frame.
-  await page.screenshot({
-    path: path.join(__dirname, '../../../.ralph/screenshots/TASK-43-1.png'),
-  });
+  // (6) The stretched (~500 ms) flash is in the frame — capture it, and
+  // verify the PNG really contains the warm muzzle glow (content check, not
+  // just existence).
+  const png = await page.screenshot();
+  await fs.writeFile(path.join(__dirname, '../../../.ralph/screenshots/TASK-43-1.png'), png);
+
+  // Decode the captured PNG in the browser (Image -> 2d canvas) and count
+  // warm pixels: the 0xffb060 glow passes (r>150, r-g>40, g-b>20); white
+  // stars, the cream planet and the cyan ship ring all fail (small r-g gap).
+  // The four HUD corners are excluded so the red LASER text never counts.
+  const warm = await page.evaluate(async (b64: string) => {
+    const img = new Image();
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('png decode failed'));
+      img.src = `data:image/png;base64,${b64}`;
+    });
+    const W = img.naturalWidth;
+    const H = img.naturalHeight;
+    const canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('no 2d canvas context');
+    ctx.drawImage(img, 0, 0);
+    const { data } = ctx.getImageData(0, 0, W, H);
+    const inHud = (x: number, y: number) =>
+      (x < 360 && y < 170) || // DRIFT panel (top-left)
+      (x > W - 130 && y < 70) || // credits (top-right)
+      (x < 260 && y > H - 60) || // callsign (bottom-left)
+      (x > W - 260 && y > H - 90); // weapon HUD (bottom-right)
+    let count = 0;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        if (inHud(x, y)) continue;
+        const i = (y * W + x) * 4;
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        if (r > 150 && r - g > 40 && g - b > 20) count++;
+      }
+    }
+    return count;
+  }, png.toString('base64'));
+  expect(warm).toBeGreaterThan(0);
 
   assertClean();
   await context.close();
