@@ -1,0 +1,3 @@
+{"time":"2026-10-03T10:44:48.139Z","level":"warn","message":"provider retry scheduled","fields":{"attempt":2,"error":"getaddrinfo ENOTFOUND llama-chat.llama"}}
+{"time":"2026-10-03T10:44:50.108Z","level":"warn","message":"provider retry scheduled","fields":{"attempt":3,"error":"getaddrinfo ENOTFOUND llama-chat.llama"}}
+{"time":"2026-10-03T10:44:52.913Z","level":"warn","message":"shutting down the daemon"}
