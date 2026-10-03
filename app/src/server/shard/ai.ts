@@ -200,10 +200,13 @@ function steer(ship: ShipState, stats: ShipClass, desired: Vec3, desiredSpeed: n
   const d = len > 1e-6 ? vecScale(desired, 1 / len) : forward;
   const align = Math.max(0, vecDot(forward, d));
   const throttle = clampUnit(((desiredSpeed - vecLength(ship.vel)) / stats.maxVelocity) * 2);
+  // Gain on the turn demands: pure dot-proportional steering decays too fast
+  // near the target and ORBITS it; x3 saturates the class turn rate beyond
+  // ~20deg off-axis, so the AI actually converges (then trims in softly).
   return {
     thrust: throttle > 0 ? throttle * align : throttle,
-    yaw: clampUnit(vecDot(d, right)),
-    pitch: clampUnit(-vecDot(d, up)),
+    yaw: clampUnit(vecDot(d, right) * 3),
+    pitch: clampUnit(-vecDot(d, up) * 3),
     roll: 0,
     up: 0,
   };
@@ -217,7 +220,8 @@ function aggroCandidate(state: AiState, ship: ShipState, players: AiPlayerView[]
   for (const p of players) {
     const to = vecSub(p.pos, ship.pos);
     const dist = vecLength(to);
-    const inCone = dist > 0 && vecDot(to, forward) / dist >= AGGRO_CONE_COS;
+    // AC: within AGGRO_RANGE_M AND within 60deg of the bow (both required).
+    const inCone = dist > 0 && dist <= AGGRO_RANGE_M && vecDot(to, forward) / dist >= AGGRO_CONE_COS;
     const firedOnMe =
       state.lastPlayerFireBy === p.id && nowMs - state.lastPlayerFireAtMs <= PLAYER_FIRE_MEMORY_MS;
     if (!inCone && !firedOnMe) continue;
