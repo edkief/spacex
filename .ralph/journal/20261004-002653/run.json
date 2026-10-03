@@ -1,0 +1,9 @@
+{
+  "status": "interrupted",
+  "iterations": 1,
+  "runId": "20261004-002653",
+  "historyDir": "/home/ekieffer/Dev/spacex/.ralph/history/20261004-002653",
+  "tasksPassed": 64,
+  "tasksTotal": 82,
+  "message": "Interrupted"
+}
