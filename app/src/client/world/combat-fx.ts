@@ -26,6 +26,10 @@ export const SHAKE_DECAY_MS = 100;
 export const TRACER_CAP = 16;
 /** Trail ribbon length (spec: ≤ 8 points). */
 export const TRAIL_MAX = 8;
+/** Flash render order: on top of sky/planets/dome so glows are never occluded. */
+export const FLASH_RENDER_ORDER = 20;
+/** Muzzle-glow scale in dev slow-mo (screenshot) mode. */
+export const SLOW_SPARK_SCALE = 6;
 
 interface Flash {
   obj: THREE.Object3D;
@@ -77,6 +81,9 @@ export class CombatFx {
       new THREE.Vector3(from.x, from.y, from.z),
       new THREE.Vector3(to.x, to.y, to.z),
     ]);
+    // The flash is a GLOW, not world geometry: render it on top (no depth
+    // test) so a beam fired toward a planet/star is never occluded into
+    // invisibility (the e2e screenshots the flash from the far orbit view).
     const line = new THREE.Line(
       lineGeo,
       new THREE.LineBasicMaterial({
@@ -85,6 +92,8 @@ export class CombatFx {
         opacity: 1,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
+        depthTest: false,
+        renderOrder: FLASH_RENDER_ORDER,
       }),
     );
     const spark = new THREE.Mesh(
@@ -95,9 +104,14 @@ export class CombatFx {
         opacity: 1,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
+        depthTest: false,
+        renderOrder: FLASH_RENDER_ORDER,
       }),
     );
     spark.position.set(from.x, from.y, from.z);
+    // In the dev slow-mo (screenshot) mode the muzzle glow is scaled up so a
+    // single frame clearly shows the flash from the far orbit vantage.
+    if (this.stretched()) spark.scale.setScalar(SLOW_SPARK_SCALE);
     this.group.add(line, spark);
     this.flashes.push({
       obj: line,
@@ -124,6 +138,8 @@ export class CombatFx {
         opacity: 1,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
+        depthTest: false,
+        renderOrder: FLASH_RENDER_ORDER,
       }),
     );
     flash.position.set(point.x, point.y, point.z);
