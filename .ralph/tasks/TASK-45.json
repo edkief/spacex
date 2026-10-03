@@ -17,25 +17,25 @@
       "step": 1,
       "description": "Roster derivation",
       "details": "rosterFor(systemId) per spec; names from a shared list (src/shared/ai/names.ts, 40 pirate callsigns); spawn positions seeded with rejection (station proximity, atmosphere); patrol parameters seeded.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Shard integration",
       "details": "Shard spawn: create AI ship entities from the roster (full hull/shields, docked=false, state 'patrolling' — the behavior is TASK-46; this task gives them the entities + respawn timers); reap: AI state discarded (ships are re-derived on next spawn); respawn timer per destroyed rogue (120 s).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Client rendering",
       "details": "AI ships render like player ships (same mesh builder, default pirate livery); the presence list shows them with an 'AI' tag (they are in the snapshot entity list, not the presence list — the PlayerList gets an AI section from the entity list: callsigns with ai:true); targetable/lockable like players (TASK-44 works on them).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Tests",
       "details": "All listed; run full suite + typecheck.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-4", "TASK-42", "TASK-13"],

@@ -49,6 +49,7 @@ import {
   type CharacterState,
 } from '@shared/physics/character';
 import { TERMINAL_RANGE_M, terminalsFor, type TerminalInfo } from '@shared/world/terminals';
+import { ROGUE_RESPAWN_MS, rosterFor, type RogueRosterEntry } from '@shared/world/ai';
 import { sellFrom, type SellErrorCode, type SellSource } from '@shared/sell';
 import {
   ENTER_SHIP_MAX_SPEED,
@@ -270,6 +271,16 @@ export class SystemShard implements Shard {
   private projectileSeq = 0;
   /** TASK-34: ground item ttl in TICKS (300 s at the shard's dt). */
   private readonly groundItemTtlTicks: number;
+  /**
+   * TASK-45: the system's seeded rogue roster (rosterFor — the SAME pure
+   * derivation the client reads). Rogues are a RENEWABLE threat: their
+   * hull/damage state lives only while the shard does — NEVER persisted
+   * (persist.ts skips kind 'ai-ship') — and on shard reap the next spawn
+   * re-derives the roster to full. `respawnAtMs` = epoch ms a destroyed
+   * rogue comes back; the tick (single writer) resets it in place at its
+   * spawnPos — there is no setTimeout anywhere in the shard.
+   */
+  private readonly rogues = new Map<string, RogueRosterEntry & { respawnAtMs?: number }>();
   private connSeq = 0;
   private offBus: (() => void) | undefined;
   private snapshotSizeWarned = false;
@@ -306,6 +317,13 @@ export class SystemShard implements Shard {
     // flow's on-foot proximity check runs against these entities.
     for (const terminal of terminalsFor(options.galaxySeed, options.system)) {
       this.spawnTerminalEntity(terminal);
+    }
+    // TASK-45: the seeded rogue AI roster (6-10 ships, 500..3000 u from the
+    // star, full hull, space regime). Rogues are a renewable threat — their
+    // state resets to full on reap (the shard is dropped; the next spawn
+    // re-derives the same roster) — so no persistence row ever exists.
+    for (const entry of rosterFor(options.galaxySeed, options.system)) {
+      this.spawnRogueShip(entry);
     }
     this.regimePlanets = systemRegimePlanets(options.system).map((planet) => ({
       ...planet,
@@ -1276,6 +1294,12 @@ export class SystemShard implements Shard {
         weapon: weaponId,
       });
     }
+    if (entity.kind === 'ai-ship') {
+      // TASK-45: the rogue comes back at its spawnPos ROGUE_RESPAWN_MS
+      // later — the tick is the timer (single writer, no setTimeout).
+      const rogue = this.rogues.get(entity.id);
+      if (rogue) rogue.respawnAtMs = this.now() + ROGUE_RESPAWN_MS;
+    }
     this.log.info('ship destroyed', {
       target: entity.id,
       source: source.id,
@@ -1338,6 +1362,26 @@ export class SystemShard implements Shard {
     for (const [id, entity] of this.entities) {
       if (entity.kind === 'projectile') continue;
       if (entity.ttl !== undefined && --entity.ttl === 0) this.entities.delete(id);
+    }
+
+    // TASK-45: rogue respawns — a destroyed ai-ship resets IN PLACE at its
+    // spawnPos once now() reaches its respawnAtMs (the tick is the timer —
+    // no setTimeout in the shard). Same wire id: clients keep the entity,
+    // no join event; stale target locks auto-release via tickTargetLocks.
+    const now = this.now();
+    for (const [id, rogue] of this.rogues) {
+      if (rogue.respawnAtMs === undefined || now < rogue.respawnAtMs) continue;
+      const entity = this.entities.get(id);
+      rogue.respawnAtMs = undefined;
+      if (!entity || !entity.destroyed) continue;
+      entity.destroyed = false;
+      entity.destroyedAtMs = undefined;
+      entity.hull = 1;
+      entity.shields = 1;
+      entity.ship.pos = { ...rogue.spawnPos };
+      entity.ship.vel = { x: 0, y: 0, z: 0 };
+      entity.energy = ENERGY_MAX;
+      this.log.debug('rogue respawn', { id, classId: entity.classId });
     }
 
     // Integrate EVERY player ship — connected or not. A ship whose owner
@@ -1730,6 +1774,36 @@ export class SystemShard implements Shard {
       docked: false,
       planetId: terminal.planetId,
     });
+  }
+
+  /**
+   * TASK-45: spawn one rogue AI ship from its seeded roster entry — full
+   * hull/shields (normalized 1: applyHit scales by the class caps), space
+   * regime, velocity zero, at the spawnPos, with the seeded pirate livery.
+   * The wire id IS the roster aiId (stable per system), and the roster
+   * record is what the tick's respawn sweep resets in place.
+   */
+  private spawnRogueShip(entry: RogueRosterEntry): void {
+    this.entities.set(entry.aiId, {
+      id: entry.aiId,
+      kind: 'ai-ship',
+      playerId: null,
+      callsign: entry.callsign,
+      classId: entry.classId,
+      ship: {
+        pos: { ...entry.spawnPos },
+        vel: { x: 0, y: 0, z: 0 },
+        quat: quatIdentity(),
+        regime: 'space',
+      },
+      hull: 1,
+      shields: 1,
+      targetId: null,
+      livery: { ...entry.livery },
+      docked: false,
+      energy: ENERGY_MAX,
+    });
+    this.rogues.set(entry.aiId, { ...entry, respawnAtMs: undefined });
   }
 
   /**
@@ -3315,6 +3389,9 @@ export function entityToState(e: SimEntity, targetedBy?: string[]): EntityState 
   };
   if (e.callsign) state.callsign = e.callsign;
   if (e.livery) state.livery = e.livery;
+  // TASK-45: the rogue AI flag — the client marks these callsigns 'AI' in
+  // the presence list (the presence ENTRY list stays player-only).
+  if (e.kind === 'ai-ship') state.ai = true;
   // TASK-29: the docked landing pad id (entity_update.state = 'docked' {padId}).
   if (e.padId) state.padId = e.padId;
   // TASK-33: deposit remaining units — a pickup shows as a quantity change,

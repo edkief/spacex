@@ -16,6 +16,7 @@ export function PlayerList({ store }: { store: PresenceStore }) {
 
   const self = store.selfPlayer;
   const others = store.otherPlayers;
+  const ais = store.aiPlayers;
   if (!self) return null;
 
   const rows: Array<{ key: string; label: string; onFoot?: boolean; you?: boolean }> = [
@@ -34,6 +35,18 @@ export function PlayerList({ store }: { store: PresenceStore }) {
           <span style={{ color: row.you ? '#d6deeb' : '#a8b3c5' }}>{row.label}</span>
         </div>
       ))}
+      {ais.length > 0 && (
+        // TASK-45: the in-system rogues (derived from the entity list's
+        // ai:true flag) — callsigns that look like players, tagged 'AI'.
+        <div id="player-list-ai" style={styles.aiSection} data-ai-count={ais.length}>
+          {ais.map((a) => (
+            <div key={a.aiId} style={styles.row} data-ai={a.aiId}>
+              <span style={styles.aiTag}>AI</span>
+              <span style={{ color: '#8a93a6' }}>{a.callsign}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -84,6 +97,17 @@ const styles: Record<string, React.CSSProperties> = {
     userSelect: 'none',
   },
   row: { display: 'flex', alignItems: 'center', gap: '0.5rem' },
+  aiSection: { marginTop: '0.35rem' },
+  aiTag: {
+    display: 'inline-block',
+    width: 12,
+    textAlign: 'center',
+    fontSize: '0.6rem',
+    fontWeight: 700,
+    letterSpacing: '0.05em',
+    color: '#c8845a',
+    flexShrink: 0,
+  },
   icon: {
     display: 'inline-flex',
     alignItems: 'center',

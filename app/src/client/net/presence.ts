@@ -20,6 +20,18 @@ export interface PlayerPresence {
   lastSeen: number;
 }
 
+/**
+ * One rogue AI ship in the system (TASK-45), DERIVED client-side from the
+ * entity list (kind 'ai-ship' + the `ai` wire flag) — the rosters ride the
+ * ENTITY list, never the presence entry list (which stays player-only).
+ */
+export interface AiPresence {
+  /** The wire entity id (the roster aiId, stable per system). */
+  aiId: string;
+  /** The pirate callsign (looks like a player callsign — hence the tag). */
+  callsign: string;
+}
+
 export interface PresenceToast {
   /**
    * 'reconnected' (TASK-17) is a local connection event, not a presence
@@ -63,8 +75,19 @@ function sameSet(a: Map<string, PlayerPresence>, b: Map<string, PlayerPresence>)
  * snapshot does not re-emit, so the HUD never re-renders on the 10 Hz
  * entity cadence, only on join/leave.
  */
+function sameAiSet(a: Map<string, AiPresence>, b: Map<string, AiPresence>): boolean {
+  if (a.size !== b.size) return false;
+  for (const [id, v] of a) {
+    const w = b.get(id);
+    if (!w || w.callsign !== v.callsign) return false;
+  }
+  return true;
+}
+
 export class PresenceStore {
   private readonly others = new Map<string, PlayerPresence>();
+  /** TASK-45: in-system rogues, derived from the entity list (ai: true). */
+  private readonly ais = new Map<string, AiPresence>();
   private self: PlayerPresence | null = null;
   private readonly changeListeners = new Set<ChangeListener>();
   private readonly toastListeners = new Set<ToastListener>();
@@ -135,6 +158,28 @@ export class PresenceStore {
     if (changed) this.emitChange();
   }
 
+  /**
+   * TASK-45: derive the in-system rogue AI list from the entity list — an
+   * entity with `ai: true` (kind 'ai-ship') is a rogue. Fed from every 10 Hz
+   * entity batch + system snapshot, like applyActiveEntities; emits ONLY
+   * when the set actually changes (a destroyed rogue keeps its wire id and
+   * flag through the 120 s respawn, so the list never churns on the
+   * snapshot cadence).
+   */
+  applyAiEntities(
+    entities: Array<{ id: string; kind: string; callsign?: string; ai?: true }>,
+  ): void {
+    const next = new Map<string, AiPresence>();
+    for (const e of entities) {
+      if (e.ai !== true || e.kind !== 'ai-ship' || !e.callsign) continue;
+      next.set(e.id, { aiId: e.id, callsign: e.callsign });
+    }
+    if (sameAiSet(this.ais, next)) return;
+    this.ais.clear();
+    for (const [id, v] of next) this.ais.set(id, v);
+    this.emitChange();
+  }
+
   /** TASK-36: the LOCAL player's onFoot flag (from the self-entity bridge). */
   setSelfOnFoot(onFoot: boolean): void {
     if (!this.self) return;
@@ -162,9 +207,15 @@ export class PresenceStore {
 
   /** The player switched systems: everyone is gone until the next snapshot. */
   leaveAll(): void {
-    if (this.others.size === 0) return;
+    if (this.others.size === 0 && this.ais.size === 0) return;
     this.others.clear();
+    this.ais.clear();
     this.emitChange();
+  }
+
+  /** Rogue AI ships in the system (TASK-45), sorted by callsign. */
+  get aiPlayers(): AiPresence[] {
+    return [...this.ais.values()].sort((a, b) => a.callsign.localeCompare(b.callsign));
   }
 
   /** Remote players only (self excluded), sorted by callsign. */

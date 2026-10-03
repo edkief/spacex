@@ -139,6 +139,14 @@ export const entityStateSchema = z
      */
     energy: finite.min(0).max(100).optional(),
     /**
+     * TASK-45: true for kind 'ai-ship' — the rogue AI roster ships. Their
+     * callsigns look like player callsigns (pirate list, 3-16 chars); the
+     * client marks them 'AI' in the presence list from THIS flag (the
+     * presence ENTRY list stays player-only — rogues ride the entity list).
+     * Other kinds omit it.
+     */
+    ai: z.literal(true).optional(),
+    /**
      * TASK-44: the player ids whose TARGET LOCK currently points at this
      * ship (the lock icon above the targeted ship — PvP readability
      * without a radar). Omitted when nobody is locking it; rides the

@@ -500,6 +500,8 @@ function App() {
   const feedRemote = (entities: EntityState[]): void => {
     worldRef.current?.feedRemoteEntities(entities, sessionCallsignRef.current);
     store.applyActiveEntities(entities);
+    // TASK-45: the PlayerList AI section (rogues ride the entity list).
+    store.applyAiEntities(entities);
     // TASK-44: the targeting store rides the same batch (target box).
     ingestTargetingEntities(entities, sessionCallsignRef.current, Date.now());
   };

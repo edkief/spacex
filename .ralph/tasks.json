@@ -488,7 +488,7 @@
     "title": "Rogue AI ship placement (deterministic per system)",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-45.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-46",
