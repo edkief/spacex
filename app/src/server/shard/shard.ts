@@ -67,6 +67,7 @@ import {
 } from '@shared/cargo';
 import { MINING_UNIT_MS, stepMiningChannel, type MiningChannel } from '@shared/mining';
 import { shipStats, HEX_COLOR } from '@shared/ships';
+import type { WeaponSpec } from '@shared/weapons';
 import type { SystemGen } from '@shared/galaxy/types';
 import { homeDockPosition } from '@shared/galaxy/dock';
 import {
@@ -83,6 +84,7 @@ import type { ShipSwapBus } from '@server/shards';
 import { SimLoop } from './sim';
 import { TickHistogram } from './histogram';
 import { TerrainContext } from './terrain';
+import { resolveHit, type ResolveHitOutcome } from './combat';
 import {
   defaultLogger,
   type ConnState,
@@ -563,10 +565,13 @@ export class SystemShard implements Shard {
   }
 
   /**
-   * TASK-23: a weapon hit lands on the target (the sim-side hook; real
-   * weapons wire in TASK-43). Applies the shared damage model — shields
-   * absorb first, overflow reaches the hull — and broadcasts a combat_event
-   * to the WHOLE shard: 'damaged' per hit, or 'destroyed' on the killing hit.
+   * TASK-23 (extended TASK-42): a weapon hit lands on the target (the
+   * sim-side damage hook — resolved, validated contacts arrive via
+   * resolveHit / handleWeaponContact). Applies the shared damage model —
+   * shields absorb first, overflow reaches the hull — and broadcasts a
+   * combat_event to the WHOLE shard: 'hit' per hit (with the firing
+   * weapon id), or 'destroyed' (+ 'kill' for a player source) on the
+   * killing hit.
    *
    * A killing hit destroys the ship: it stops integrating, ignores inputs,
    * becomes non-targetable, and a static wreck (kind 'wreck', 600 s ttl)
@@ -577,7 +582,12 @@ export class SystemShard implements Shard {
    * wreck, or already destroyed (the double-destroy guard: no second
    * destroyed event, no second wreck).
    */
-  applyHit(targetId: string, amount: number, source: DamageSource): ApplyDamageResult | undefined {
+  applyHit(
+    targetId: string,
+    amount: number,
+    source: DamageSource,
+    weaponId: string,
+  ): ApplyDamageResult | undefined {
     const entity = this.entities.get(targetId);
     if (!entity || entity.kind === 'wreck' || entity.destroyed) return undefined;
     const cls = shipStats(entity.classId);
@@ -596,13 +606,14 @@ export class SystemShard implements Shard {
     entity.shields = Math.max(0, entity.shields - result.shieldHit / shieldCap);
     entity.hull = Math.max(0, entity.hull - result.hullHit / hullCap);
     if (result.destroyed) {
-      this.destroyEntity(entity, source);
+      this.destroyEntity(entity, source, weaponId);
     } else {
       this.broadcastCombatEvent({
-        kind: 'damaged',
+        kind: 'hit',
         target: entity.id,
         source,
-        amount,
+        weapon: weaponId,
+        damage: amount,
         shieldHit: result.shieldHit,
         hullHit: result.hullHit,
       });
@@ -611,13 +622,43 @@ export class SystemShard implements Shard {
   }
 
   /**
+   * TASK-42: the contact-callback contract for projectiles (TASK-43 wires
+   * its flight: laser = instant ray, missile = moving entity). When a
+   * projectile reaches its target, the sim calls this with the weapon spec,
+   * the firing entity, the intended target and the damage point; the
+   * server-side resolver (resolveHit) validates self/dead/range/LOS and
+   * applies damage through the TASK-23 pipeline. Fire INTENTS are the only
+   * inbound combat traffic — a client never claims a hit (TASK-67).
+   */
+  handleWeaponContact(
+    weapon: WeaponSpec,
+    sourceId: string,
+    targetId: string,
+    damagePoint: Vec3,
+  ): ResolveHitOutcome {
+    return resolveHit(this, { weapon, sourceId, targetId, damagePoint });
+  }
+
+  /**
+   * TASK-42: terrain height (m) at (x, z) on a planet — the LOS raycast
+   * sampler. Same surface the flight model clamps to (pad disc flattened).
+   */
+  terrainHeightAt(planetId: string, x: number, z: number): number {
+    const ctx = this.getTerrain(planetId);
+    ctx.update(x, z);
+    return padSurfaceHeight(x, z, ctx.heightAt(x, z), this.planetPads.get(planetId));
+  }
+
+  /**
    * Destroy a ship (the killing step of applyHit): freeze it (hull/shields 0,
    * no held input, no target) and spawn a static wreck at its final position
    * with the 600 s ttl. The wreck is a NEW entity (id `wreck:<shipId>`) so
    * the frozen ship — which a dock respawn re-adopts in TASK-49 — and the
-   * expiring wreck are independent.
+   * expiring wreck are independent. TASK-42: the wreck carries the killer's
+   * id (skull marker, TASK-49), the 'destroyed' event carries the weapon,
+   * and a PLAYER source additionally broadcasts the 'kill' event.
    */
-  private destroyEntity(entity: SimEntity, source: DamageSource): void {
+  private destroyEntity(entity: SimEntity, source: DamageSource, weaponId: string): void {
     entity.destroyed = true;
     entity.destroyedAtMs = this.now(); // TASK-24: wreck ttl anchor for the flush
     entity.hull = 0;
@@ -645,11 +686,22 @@ export class SystemShard implements Shard {
       targetId: null,
       docked: false, // static wreck: sublight wire regime at zero velocity
       ttl: this.wreckTtlTicks,
+      killerId: source.id, // TASK-42: skull marker until despawn (TASK-49)
     });
-    this.broadcastCombatEvent({ kind: 'destroyed', target: entity.id, source });
+    this.broadcastCombatEvent({ kind: 'destroyed', target: entity.id, source, weapon: weaponId });
+    if (source.kind === 'player') {
+      // kill = destroyed with a player source (the PvP kill feed / toasts).
+      this.broadcastCombatEvent({
+        kind: 'kill',
+        killer: source.id,
+        victim: entity.id,
+        weapon: weaponId,
+      });
+    }
     this.log.info('ship destroyed', {
       target: entity.id,
       source: source.id,
+      weapon: weaponId,
       wreck: `wreck:${entity.id}`,
     });
   }
@@ -2618,6 +2670,9 @@ export function entityToState(e: SimEntity): EntityState {
   // ground items ride the same field (their units) + `resourceId`.
   if (e.quantity !== undefined) state.quantity = e.quantity;
   if (e.resourceId !== undefined) state.resourceId = e.resourceId;
+  // TASK-42: the wreck's killer id — TASK-49 renders the skull marker
+  // from it until the wreck despawns.
+  if (e.kind === 'wreck' && e.killerId) state.killerId = e.killerId;
   // TASK-34: player-owned entities (ship + character) carry the inventory
   // so the client's weight bar updates within one snapshot of any change.
   if (e.kind === 'ship' || e.kind === 'character') {

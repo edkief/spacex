@@ -61,6 +61,22 @@ describe('applyDamage: shield-first ordering', () => {
     });
   });
 
+  it('float accumulation: a hit at the remaining hull STILL destroys (TASK-42 epsilon)', () => {
+    // Normalized fractions accumulate float error in the sim (0.3 of 100
+    // leaves 30.000000000000004, not 30): an exactly-lethal hit must count.
+    expect(applyDamage(ship(30.000000000000004, 0), 30, player)).toEqual({
+      shieldHit: 0,
+      hullHit: 30,
+      destroyed: true,
+    });
+    // ...while one point short still does not.
+    expect(applyDamage(ship(30.000000000000004, 0), 29, player)).toEqual({
+      shieldHit: 0,
+      hullHit: 29,
+      destroyed: false,
+    });
+  });
+
   it('overkill is capped at the remaining hull: no negative hull damage', () => {
     expect(applyDamage(ship(100, 50), 5000, player)).toEqual({
       shieldHit: 50,

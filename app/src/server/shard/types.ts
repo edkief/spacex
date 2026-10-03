@@ -61,14 +61,7 @@ export interface SimEntity {
    * interactable at the dropper's position with a `quantity` + `resourceId`
    * and a 300 s ttl (the generic tick ttl sweep despawns it).
    */
-  kind:
-    | 'ship'
-    | 'ai-ship'
-    | 'wreck'
-    | 'character'
-    | 'deposit'
-    | 'terminal'
-    | 'groundItem';
+  kind: 'ship' | 'ai-ship' | 'wreck' | 'character' | 'deposit' | 'terminal' | 'groundItem';
   /** Owner (null for AI ships and wrecks). One entity per player. */
   playerId: string | null;
   callsign?: string;
@@ -94,6 +87,12 @@ export interface SimEntity {
   destroyedAtMs?: number;
   /** TASK-23: ticks left until the entity is removed (wrecks only: 600 s). */
   ttl?: number;
+  /**
+   * TASK-42: the id of the source that destroyed the ship (set on 'wreck'
+   * entities when they spawn). TASK-49 renders it as the skull marker until
+   * the wreck despawns; the 10 Hz snapshot carries it as `killerId`.
+   */
+  killerId?: string;
   /**
    * Persisted 'docked' ships stay in the 'docked' wire regime until their
    * first input (which takes them off the dock plane).

@@ -8,6 +8,15 @@ export {
   SNAPSHOT_WARN_BYTES,
 } from './shard';
 export { SimLoop } from './sim';
+export {
+  resolveHit,
+  lineOfSight,
+  LOS_SAMPLES,
+  type CombatShard,
+  type ResolveHitArgs,
+  type ResolveHitCode,
+  type ResolveHitOutcome,
+} from './combat';
 export { TickHistogram } from './histogram';
 export { TerrainContext } from './terrain';
 export {

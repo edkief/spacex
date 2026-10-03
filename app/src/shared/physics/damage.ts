@@ -43,6 +43,15 @@ export interface ApplyDamageResult {
   destroyed: boolean;
 }
 
+/**
+ * Destroyed-boundary epsilon (TASK-42): normalized hull fractions accumulate
+ * float error across hits (30/100 of 100 pts can leave 30.000000000000004),
+ * so an exactly-lethal hit must still count as the killing one. The model
+ * stays PURE and bit-identical across client and server — the epsilon is a
+ * constant, not a comparison of two computed values.
+ */
+const DESTROYED_EPSILON = 1e-9;
+
 function frac01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
 }
@@ -77,7 +86,7 @@ export function applyDamage(
   const shieldHit = Math.min(amount, shields);
   const overflow = amount - shieldHit;
   const hullHit = Math.min(overflow, hull);
-  return { shieldHit, hullHit, destroyed: hullHit >= hull };
+  return { shieldHit, hullHit, destroyed: hullHit >= hull - DESTROYED_EPSILON };
 }
 
 /**

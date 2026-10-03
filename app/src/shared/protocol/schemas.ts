@@ -37,11 +37,13 @@ export const FLIGHT_REGIMES = ['space', 'atmosphere', 'surface'] as const;
 export type FlightRegime = (typeof FLIGHT_REGIMES)[number];
 
 /**
- * Combat event kinds (TASK-23 rewired the contract: the sim broadcasts
- * 'damaged' per hit and 'destroyed' on the killing hit — the old 'hit'/'kill'
- * placeholders were never produced. Wire contract change noted for TASK-69).
+ * Combat event kinds (TASK-42 extends the TASK-23 contract: the sim
+ * broadcasts 'hit' per landed hit, 'destroyed' on the killing hit, and
+ * 'kill' when a PLAYER destroyed a player — HUD attribution, toasts, and
+ * the wreck skull marker (TASK-49) read these. Wire contract change
+ * noted for TASK-69).
  */
-export const COMBAT_EVENT_KINDS = ['damaged', 'destroyed'] as const;
+export const COMBAT_EVENT_KINDS = ['hit', 'destroyed', 'kill'] as const;
 export type CombatEventKind = (typeof COMBAT_EVENT_KINDS)[number];
 
 export const PRESENCE_EVENTS = ['join', 'leave'] as const;
@@ -114,6 +116,11 @@ export const entityStateSchema = z
      * it. Wire contract addition (TASK-69 docs).
      */
     resourceId: z.string().min(1).optional(),
+    /**
+     * TASK-42: the killing source's id, set on kind 'wreck' — the skull
+     * marker TASK-49 renders until the wreck despawns. Other kinds omit it.
+     */
+    killerId: z.string().min(1).optional(),
     /**
      * TASK-34: the owner's inventory, set on player-owned entities (ship +
      * character) — {stacks: {resourceId: amount}, weightUsed}. The client
@@ -430,19 +437,24 @@ export const messageSchemas = {
     .strict(),
   target_update: z.object({ targetId: z.string().min(1).nullable() }).strict(),
   /**
-   * TASK-23: the sim broadcasts combat_event to the WHOLE shard. 'damaged'
-   * per hit (amount/shieldHit/hullHit in points, shield-first); the killing
-   * hit broadcasts 'destroyed' INSTEAD (no damage fields — the target is
-   * gone). Source mirrors the domain DamageSource in @shared/physics/damage
-   * (HUD attribution).
+   * TASK-42: the sim broadcasts combat_event to the WHOLE shard when a
+   * weapon hit lands (the server-side resolveHit pipeline). 'hit' per
+   * landed hit (damage/shieldHit/hullHit in points, shield-first; `weapon`
+   * is the firing WeaponSpec id — the HUD reads "interceptor laser hit
+   * your hull for 8" from these fields); the killing hit broadcasts
+   * 'destroyed' INSTEAD of a 'hit' (no damage fields — the target is gone);
+   * 'kill' ADDITIONALLY when the source is a PLAYER (killer = source id,
+   * victim = the ship entity id). Source mirrors the domain DamageSource in
+   * @shared/physics/damage (HUD attribution).
    */
   combat_event: z.discriminatedUnion('kind', [
     z
       .object({
-        kind: z.literal('damaged'),
+        kind: z.literal('hit'),
         target: z.string().min(1),
         source: damageSourceSchema,
-        amount: finite.min(0),
+        weapon: z.string().min(1).max(32),
+        damage: finite.min(0),
         shieldHit: finite.min(0),
         hullHit: finite.min(0),
       })
@@ -452,6 +464,15 @@ export const messageSchemas = {
         kind: z.literal('destroyed'),
         target: z.string().min(1),
         source: damageSourceSchema,
+        weapon: z.string().min(1).max(32),
+      })
+      .strict(),
+    z
+      .object({
+        kind: z.literal('kill'),
+        killer: z.string().min(1),
+        victim: z.string().min(1),
+        weapon: z.string().min(1).max(32),
       })
       .strict(),
   ]),

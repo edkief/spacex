@@ -99,10 +99,11 @@ const CASES: Record<string, { valid: unknown; invalid: unknown }> = {
   target_update: { valid: { targetId: null }, invalid: { targetId: 42 } },
   combat_event: {
     valid: {
-      kind: 'damaged',
+      kind: 'hit',
       target: 'b',
       source: { kind: 'player', id: 'a' },
-      amount: 12,
+      weapon: 'laser',
+      damage: 12,
       shieldHit: 8,
       hullHit: 4,
     },
@@ -110,7 +111,8 @@ const CASES: Record<string, { valid: unknown; invalid: unknown }> = {
       kind: 'nuke',
       target: 'b',
       source: { kind: 'player', id: 'a' },
-      amount: 12,
+      weapon: 'laser',
+      damage: 12,
       shieldHit: 8,
       hullHit: 4,
     },
@@ -159,26 +161,37 @@ describe('message payload schemas', () => {
     );
     expect(
       messageSchemas.combat_event.safeParse({
-        kind: 'damaged',
+        kind: 'hit',
         target: 'b',
         source: { kind: 'player', id: 'a' },
-        amount: Infinity,
+        weapon: 'laser',
+        damage: Infinity,
         shieldHit: 0,
         hullHit: 0,
       }).success,
     ).toBe(false);
   });
 
-  it('combat_event accepts the killed variant and rejects unknown kinds and shapes', () => {
-    // The killing hit: {kind:'destroyed', target, source} — no damage fields.
+  it('combat_event accepts the destroyed and kill variants and rejects unknown kinds', () => {
+    // The killing hit: {kind:'destroyed', target, source, weapon} — no damage fields.
     expect(
       messageSchemas.combat_event.safeParse({
         kind: 'destroyed',
         target: 'b',
         source: { kind: 'ai', id: 'rogue-1' },
+        weapon: 'missile',
       }).success,
     ).toBe(true);
-    // Old placeholder kinds are gone (TASK-23 rewired the contract).
+    // The PvP kill: {kind:'kill', killer, victim, weapon}.
+    expect(
+      messageSchemas.combat_event.safeParse({
+        kind: 'kill',
+        killer: 'a',
+        victim: 'b',
+        weapon: 'laser',
+      }).success,
+    ).toBe(true);
+    // Unknown/legacy field names are rejected (strict + discriminant).
     expect(
       messageSchemas.combat_event.safeParse({ kind: 'hit', attacker: 'a', target: 'b' }).success,
     ).toBe(false);
@@ -197,16 +210,29 @@ describe('message payload schemas', () => {
         kind: 'destroyed',
         target: 'b',
         source: { kind: 'player', id: 'a' },
-        amount: 5,
+        weapon: 'laser',
+        damage: 5,
+      }).success,
+    ).toBe(false);
+    // A hit without its weapon id is rejected.
+    expect(
+      messageSchemas.combat_event.safeParse({
+        kind: 'hit',
+        target: 'b',
+        source: { kind: 'player', id: 'a' },
+        damage: 1,
+        shieldHit: 0,
+        hullHit: 1,
       }).success,
     ).toBe(false);
     // Source must be a player/ai discriminant.
     expect(
       messageSchemas.combat_event.safeParse({
-        kind: 'damaged',
+        kind: 'hit',
         target: 'b',
         source: { kind: 'alien', id: 'a' },
-        amount: 1,
+        weapon: 'laser',
+        damage: 1,
         shieldHit: 0,
         hullHit: 1,
       }).success,

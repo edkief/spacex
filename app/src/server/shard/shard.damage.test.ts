@@ -20,6 +20,8 @@ import type { SimEntity } from './types';
 const SEED = 'shard-damage-seed';
 const PLAYER: DamageSource = { kind: 'player', id: 'p2' };
 const AI: DamageSource = { kind: 'ai', id: 'rogue-9' };
+/** The firing weapon id riding every combat event (TASK-42). */
+const WEAPON = 'laser';
 
 function testSystem(): SystemGen {
   const star = generateStars(SEED, 4)[0];
@@ -107,7 +109,7 @@ describe('SystemShard.applyHit (TASK-23 step 2)', () => {
     const other = addFakeConn(shard, 'p2', 'Beta');
 
     // Scout: 100 hull / 50 shields. 70 points → 50 shields, 20 hull.
-    const result = shard.applyHit('ship-p1', 70, PLAYER);
+    const result = shard.applyHit('ship-p1', 70, PLAYER, WEAPON);
     expect(result).toEqual({ shieldHit: 50, hullHit: 20, destroyed: false });
     const e = shard.entities.get('ship-p1')!;
     expect(e.shields).toBeCloseTo(0, 12);
@@ -117,10 +119,11 @@ describe('SystemShard.applyHit (TASK-23 step 2)', () => {
     const otherEvents = combatEvents(other.sends);
     expect(mineEvents).toEqual([
       {
-        kind: 'damaged',
+        kind: 'hit',
         target: 'ship-p1',
         source: PLAYER,
-        amount: 70,
+        weapon: WEAPON,
+        damage: 70,
         shieldHit: 50,
         hullHit: 20,
       },
@@ -139,8 +142,8 @@ describe('SystemShard.applyHit (TASK-23 step 2)', () => {
     const { sends } = addFakeConn(shard, 'p1', 'Alpha');
 
     // 50 (shields) + 50 (half hull), then the final 50 → hull at zero.
-    shard.applyHit('ship-p1', 100, AI);
-    shard.applyHit('ship-p1', 50, AI);
+    shard.applyHit('ship-p1', 100, AI, WEAPON);
+    shard.applyHit('ship-p1', 50, AI, WEAPON);
 
     expect(entity.destroyed).toBe(true);
     expect(entity.hull).toBe(0);
@@ -152,12 +155,37 @@ describe('SystemShard.applyHit (TASK-23 step 2)', () => {
     expect(wreck!.ship.pos).toEqual(start);
     expect(wreck!.ship.vel).toEqual({ x: 0, y: 0, z: 0 });
     expect(wreck!.ttl).toBe(Math.round(WRECK_TTL_MS / TICK_DT_MS));
-    // The first hit broadcasts 'damaged'; ONLY the killing hit broadcasts
-    // 'destroyed' (no 'damaged' for it).
+    // TASK-42: the wreck records its killer (skull marker, TASK-49).
+    expect(wreck!.killerId).toBe(AI.id);
+    // The first hit broadcasts 'hit'; ONLY the killing hit broadcasts
+    // 'destroyed' (no 'hit' for it). An AI source never emits 'kill'.
     expect(combatEvents(sends)).toEqual([
-      { kind: 'damaged', target: 'ship-p1', source: AI, amount: 100, shieldHit: 50, hullHit: 50 },
-      { kind: 'destroyed', target: 'ship-p1', source: AI },
+      {
+        kind: 'hit',
+        target: 'ship-p1',
+        source: AI,
+        weapon: WEAPON,
+        damage: 100,
+        shieldHit: 50,
+        hullHit: 50,
+      },
+      { kind: 'destroyed', target: 'ship-p1', source: AI, weapon: WEAPON },
     ]);
+    shard.stop();
+  });
+
+  it('a player killing hit additionally broadcasts kill (kill = destroyed with a player source)', () => {
+    vi.useFakeTimers();
+    const shard = makeShard();
+    shard.addEntity(makeEntity('p1', { x: 1, y: 1, z: 1 }));
+    const { sends } = addFakeConn(shard, 'p1', 'Alpha');
+
+    shard.applyHit('ship-p1', 150, PLAYER, WEAPON); // killing hit by a player
+    expect(combatEvents(sends)).toEqual([
+      { kind: 'destroyed', target: 'ship-p1', source: PLAYER, weapon: WEAPON },
+      { kind: 'kill', killer: PLAYER.id, victim: 'ship-p1', weapon: WEAPON },
+    ]);
+    expect(shard.entities.get('wreck:ship-p1')!.killerId).toBe(PLAYER.id);
     shard.stop();
   });
 
@@ -167,7 +195,7 @@ describe('SystemShard.applyHit (TASK-23 step 2)', () => {
     shard.addEntity(makeEntity('p1', { x: 5, y: 5, z: 5 }));
     const { sends } = addFakeConn(shard, 'p1', 'Alpha');
 
-    shard.applyHit('ship-p1', 150, AI); // killing hit
+    shard.applyHit('ship-p1', 150, AI, WEAPON); // killing hit
     shard.start();
     vi.advanceTimersByTime(2 * TICK_DT_MS); // one snapshot
 
@@ -194,10 +222,10 @@ describe('SystemShard.applyHit (TASK-23 step 2)', () => {
     shard.addEntity(makeEntity('p1', { x: 0, y: 0, z: 0 }));
     const { sends } = addFakeConn(shard, 'p1', 'Alpha');
 
-    shard.applyHit('ship-p1', 150, AI);
-    expect(shard.applyHit('ship-p1', 50, PLAYER)).toBeUndefined();
-    expect(shard.applyHit('wreck:ship-p1', 50, PLAYER)).toBeUndefined(); // wrecks too
-    expect(shard.applyHit('ship-nobody', 50, PLAYER)).toBeUndefined();
+    shard.applyHit('ship-p1', 150, AI, WEAPON);
+    expect(shard.applyHit('ship-p1', 50, PLAYER, WEAPON)).toBeUndefined();
+    expect(shard.applyHit('wreck:ship-p1', 50, PLAYER, WEAPON)).toBeUndefined(); // wrecks too
+    expect(shard.applyHit('ship-nobody', 50, PLAYER, WEAPON)).toBeUndefined();
 
     const events = combatEvents(sends);
     expect(events).toHaveLength(1); // exactly one 'destroyed', nothing re-broadcast
@@ -225,7 +253,7 @@ describe('SystemShard.applyHit (TASK-23 step 2)', () => {
     expect(moved).toBeGreaterThan(0);
 
     // Kill it in flight.
-    shard.applyHit('ship-p1', 150, AI);
+    shard.applyHit('ship-p1', 150, AI, WEAPON);
     const frozen = { ...entity.ship.pos };
 
     // Inputs are ignored from here on...
@@ -244,7 +272,7 @@ describe('SystemShard.applyHit (TASK-23 step 2)', () => {
     addFakeConn(shard, 'p1', 'Alpha');
     shard.start();
 
-    shard.applyHit('ship-p1', 150, AI);
+    shard.applyHit('ship-p1', 150, AI, WEAPON);
     expect(shard.entities.has('wreck:ship-p1')).toBe(true);
 
     const ttlTicks = Math.round(WRECK_TTL_MS / TICK_DT_MS); // 12 000 @ 20 Hz
@@ -262,13 +290,14 @@ describe('SystemShard.applyHit (TASK-23 step 2)', () => {
     const shard = makeShard();
     shard.addEntity(makeEntity('p1', { x: 0, y: 0, z: 0 }));
     const { sends } = addFakeConn(shard, 'p1', 'Alpha');
-    shard.applyHit('ship-p1', 5, { kind: 'ai', id: 'patrol-3' });
+    shard.applyHit('ship-p1', 5, { kind: 'ai', id: 'patrol-3' }, WEAPON);
     expect(combatEvents(sends)).toEqual([
       {
-        kind: 'damaged',
+        kind: 'hit',
         target: 'ship-p1',
         source: { kind: 'ai', id: 'patrol-3' },
-        amount: 5,
+        weapon: WEAPON,
+        damage: 5,
         shieldHit: 5,
         hullHit: 0,
       },
@@ -292,7 +321,7 @@ describe('SystemShard dock-repair revival (TASK-23 step 3, in-shard)', () => {
     const entity = makeEntity('p1', { x: 9, y: 9, z: 9 });
     shard.addEntity(entity);
     addFakeConn(shard, 'p1', 'Alpha');
-    shard.applyHit('ship-p1', 150, AI);
+    shard.applyHit('ship-p1', 150, AI, WEAPON);
     expect(entity.destroyed).toBe(true);
     expect(shard.enqueueInput('p1', input(1, { thrust: 1 }))).toBe(false);
 
