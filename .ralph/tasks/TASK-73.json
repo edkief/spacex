@@ -37,12 +37,17 @@
     "E2E: holding W from spawn moves the ship off the dock; screenshot `.ralph/screenshots/TASK-73-1.png`",
     "`npx tsc --noEmit` green; full `npm run test` green; touched e2e specs green; one commit"
   ],
-  "dependencies": ["TASK-72", "TASK-14", "TASK-22", "TASK-25.2"],
+  "dependencies": [
+    "TASK-72",
+    "TASK-14",
+    "TASK-22",
+    "TASK-25.2"
+  ],
   "estimatedComplexity": "medium",
   "notes": [
     "The server is already complete for ship flight (input routing, take-off on first input, regime resolution, pad state machine) — do NOT modify server sim code; if a server bug blocks the e2e, raise DECIDE rather than reworking the sim.",
     "Firing (LMB) and target lock (T) are separate one-shot messages today ('fire' / 'target_lock') — leave them as they are; the input payload's `fire`/`lock` stay false.",
     "Mouse steering, key remapping and a controls hint are out of scope (TASK-55 settings/remap, TASK-56 onboarding).",
-    "Do NOT commit `app/src/client/state/hazards.ts` (uncommitted TASK-48.2 work-in-progress), the pre-existing dirty `.ralph/screenshots/*.png` mods, or staged `.ralph/journal/` files."
+    "Do NOT commit the pre-existing dirty `.ralph/screenshots/*.png` mods."
   ]
 }

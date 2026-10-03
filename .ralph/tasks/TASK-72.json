@@ -37,12 +37,17 @@
     "E2E asserts the self ship projects inside the viewport near the center; screenshot `.ralph/screenshots/TASK-72-1.png` shows the ship",
     "`npx tsc --noEmit` green; full `npm run test` green; touched e2e specs green; one commit"
   ],
-  "dependencies": ["TASK-21", "TASK-27", "TASK-31", "TASK-35"],
+  "dependencies": [
+    "TASK-21",
+    "TASK-27",
+    "TASK-31",
+    "TASK-35"
+  ],
   "estimatedComplexity": "medium",
   "notes": [
     "Several existing specs/tests were written against the fixed spectator camera and may break once the in-ship camera follows the ship: the atmosphere dome pixel probe (TASK-28.3, `tests/e2e/atmosphere*.spec.ts`, `src/client/atmosphere-debug.ts`), `tests/e2e/camera-handoff.spec.ts`, the laser-flash screenshot in `tests/e2e/weapons.spec.ts`, and the transition benchmark (`src/client/test/transitionCycle.ts`). UPDATE those tests to the new camera behaviour (e.g. position the ship via the existing dev routes, or let a debug hook pin the camera) — do not keep the spectator camera alive just to satisfy them.",
     "The self entity resolution already exists in main.tsx: the CHARACTER is self while on foot, the ship otherwise; the player's ship is always `entities.find(e => e.kind === 'ship' && e.callsign === session.callsign)`. While on foot, keep updating the ship mesh from that ship entity (it is frozen/docked) so the player can see and walk back to it.",
     "Rendering only in this task: do NOT send flight input or wire ClientShipPredictor here (TASK-73). Until TASK-73 lands the mesh moves at snapshot rate (10 Hz) — acceptable since the ship cannot be flown from the client yet.",
-    "Do NOT commit `app/src/client/state/hazards.ts` (uncommitted TASK-48.2 work-in-progress from an interrupted run), the pre-existing dirty `.ralph/screenshots/*.png` mods, or staged `.ralph/journal/` files — leave them exactly as they are."
+    "Do NOT commit the pre-existing dirty `.ralph/screenshots/*.png` mods."
   ]
 }

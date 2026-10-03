@@ -31,11 +31,16 @@
     "E2E: one client sees another client's ship and an AI ship on screen; screenshot `.ralph/screenshots/TASK-74-1.png`",
     "`npx tsc --noEmit` green; full `npm run test` green; touched e2e specs green; one commit"
   ],
-  "dependencies": ["TASK-72", "TASK-21", "TASK-36", "TASK-45"],
+  "dependencies": [
+    "TASK-72",
+    "TASK-21",
+    "TASK-36",
+    "TASK-45"
+  ],
   "estimatedComplexity": "low",
   "notes": [
     "Wrecks (`kind: 'wreck'`) are TASK-49's impostor and drones are TASK-48.3 — out of scope here, but TASK-48.3 should follow the per-kind module pattern this task establishes.",
     "Missile tracers stay in CombatFx (`updateProjectiles`) — do not move them into the remote layer.",
-    "Do NOT commit `app/src/client/state/hazards.ts` (uncommitted TASK-48.2 work-in-progress), the pre-existing dirty `.ralph/screenshots/*.png` mods, or staged `.ralph/journal/` files."
+    "Do NOT commit the pre-existing dirty `.ralph/screenshots/*.png` mods."
   ]
 }
