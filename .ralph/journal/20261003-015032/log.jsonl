@@ -1,0 +1,41 @@
+{"time":"2026-10-03T01:52:42.338Z","level":"warn","message":"handoff left behind for a passing task","fields":{"path":".ralph/handoff/TASK-42.md"}}
+{"time":"2026-10-03T02:37:44.988Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-03T02:44:54.670Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-43.md"}}
+{"time":"2026-10-03T02:44:57.863Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":2}}
+{"time":"2026-10-03T03:30:00.469Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-03T03:35:36.325Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-43.md"}}
+{"time":"2026-10-03T03:35:39.654Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":3}}
+{"time":"2026-10-03T03:35:39.654Z","level":"info","message":"asking the agent to propose a split","fields":{"task":"TASK-43","folder":".ralph/split/TASK-43"}}
+{"time":"2026-10-03T03:54:16.405Z","level":"info","message":"split the task","fields":{"task":"TASK-43","into":"TASK-43.1,TASK-43.2,TASK-43.3","committed":true}}
+{"time":"2026-10-03T03:56:30.640Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-03T03:56:30.648Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-03T03:56:44.613Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-03T03:57:17.613Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-03T03:57:22.162Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-03T03:57:25.695Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-03T03:57:41.139Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-03T03:58:34.013Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-03T03:58:59.750Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-03T03:59:06.427Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-03T03:59:28.795Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-03T03:59:28.803Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-03T03:59:32.996Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-03T03:59:44.525Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-03T03:59:48.498Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-03T04:00:05.038Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-03T04:00:22.589Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-03T04:00:38.300Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-03T04:00:57.323Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-03T04:17:23.165Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":4}}
+{"time":"2026-10-03T04:28:09.708Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-03T04:38:25.050Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":5}}
+{"time":"2026-10-03T05:23:27.768Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-03T05:29:17.484Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-43.3.md"}}
+{"time":"2026-10-03T05:29:20.538Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":6}}
+{"time":"2026-10-03T06:07:42.266Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":7}}
+{"time":"2026-10-03T06:41:28.370Z","level":"info","message":"web UI action","fields":{"action":"stop","mode":"after-iteration","run":"20261003-015032"}}
+{"time":"2026-10-03T06:41:28.777Z","level":"warn","message":"stop requested: stopping after the current iteration"}
+{"time":"2026-10-03T06:41:34.626Z","level":"info","message":"web UI action","fields":{"action":"stop","mode":"after-iteration","run":"20261003-015032"}}
+{"time":"2026-10-03T06:52:45.079Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-03T06:57:04.628Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-67.md"}}
+{"time":"2026-10-03T06:57:07.803Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":8}}
