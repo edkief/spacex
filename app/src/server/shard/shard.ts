@@ -753,6 +753,13 @@ export class SystemShard implements Shard {
       this.sendErrorToPlayer(playerId, 'low-energy', 'LOW ENERGY', source);
       return;
     }
+    // Missiles NEED a valid target (no fallback behavior, unlike the laser):
+    // a targetless missile fire is a denied drop — no energy, no event.
+    // (The tick re-validates: a target lost between now and then is refunded.)
+    if (weapon.kind === 'missile' && !this.validMissileTarget(entity, payload.targetId)) {
+      this.log.debug('dropped missile: no valid target', { playerId, tick: this.sim.tickNumber });
+      return;
+    }
     // ACCEPTED: commit energy + cooldown now (a queued fire is one shot),
     // enqueue for the tick (cap: overflow drops + logs).
     entity.energy = spendEnergy(entity.energy ?? ENERGY_MAX, weapon);
@@ -868,9 +875,8 @@ export class SystemShard implements Shard {
       }
     }
     const damagePoint = vecAdd(nose, vecScale(forward, endT));
-    if (target) {
-      this.handleWeaponContact(weapon, entity.id, target.id, target.ship.pos);
-    }
+    // The fired-FX event goes out BEFORE the hit (the beam leads the damage;
+    // the client's line flash plays as the impact lands on the same frame).
     this.broadcastCombatEvent({
       kind: 'laser-fired',
       source,
@@ -878,11 +884,33 @@ export class SystemShard implements Shard {
       from: nose,
       to: target ? target.ship.pos : damagePoint,
     });
+    if (target) {
+      this.handleWeaponContact(weapon, entity.id, target.id, target.ship.pos);
+    }
+  }
+
+  /**
+   * The missile's target right now: alive, in range of the NOSE, with LOS —
+   * or undefined when the fire cannot resolve (a denied drop: silent, and a
+   * fire already accepted at handleFire has its energy REFUNDED).
+   */
+  private validMissileTarget(entity: SimEntity, targetId: string | undefined): SimEntity | undefined {
+    if (!targetId || targetId === entity.id) return undefined;
+    const t = this.entities.get(targetId);
+    if (!t || (t.kind !== 'ship' && t.kind !== 'ai-ship') || t.destroyed) return undefined;
+    const nose = vecAdd(
+      entity.ship.pos,
+      vecScale(quatRotateVector(entity.ship.quat, { x: 0, y: 0, z: 1 }), NOSE_OFFSET_M),
+    );
+    if (vecLength(vecSub(t.ship.pos, nose)) > (WEAPON_BY_ID.missile.range ?? 800)) return undefined;
+    if (!this.losClear(entity, t.ship.pos)) return undefined;
+    return t;
   }
 
   /**
    * Missile: needs a VALID client target (alive, in range, LOS) — otherwise
-   * the fire is a denied drop (no FX). Spawns a projectile ENTITY (visible
+   * the fire is a denied drop (no FX; a target lost between acceptance and
+   * tick refunds the committed energy). Spawns a projectile ENTITY (visible
    * in snapshots for every client), enforcing the 16-per-shard cap (the
    * OLDEST expires first, logged).
    */
@@ -895,20 +923,11 @@ export class SystemShard implements Shard {
     source: { kind: 'player'; id: string },
     tick: number,
   ): void {
-    let target: SimEntity | undefined;
-    if (targetId && targetId !== entity.id) {
-      const t = this.entities.get(targetId);
-      if (
-        t &&
-        (t.kind === 'ship' || t.kind === 'ai-ship') &&
-        !t.destroyed &&
-        vecLength(vecSub(t.ship.pos, nose)) <= weapon.range &&
-        this.losClear(entity, t.ship.pos)
-      ) {
-        target = t;
-      }
-    }
+    const target = this.validMissileTarget(entity, targetId);
     if (!target) {
+      // The energy was committed at ACCEPTANCE (handleFire): give it back —
+      // a denied fire spends nothing (spec).
+      entity.energy = Math.min(ENERGY_MAX, (entity.energy ?? ENERGY_MAX) + (weapon.energy ?? 0));
       this.log.debug('dropped missile: no valid target', { playerId: entity.playerId ?? null, tick });
       return;
     }

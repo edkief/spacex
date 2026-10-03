@@ -141,23 +141,28 @@ export function spendEnergy(energy: number, weapon: WeaponSpec): number {
 
 /**
  * Turn a velocity vector toward `toward` by at most `maxAngle` (the missile
- * turn-rate cap), keeping `magnitude`. A target at zero distance keeps the
- * current heading (no NaNs); a zero-magnitude vector adopts the full step.
+ * turn-rate cap), returning a vector of EXACTLY `magnitude` (the missile
+ * flies at constant speed). A target at zero distance keeps the current
+ * heading; a zero-magnitude vector adopts the full step.
  */
 export function turnToward(vel: Vec3, toward: Vec3, maxAngle: number, magnitude: number): Vec3 {
   const towardLen = vecLength(toward);
   const curLen = vecLength(vel);
-  if (towardLen <= 0) return vel;
-  if (curLen <= 0) return vecScale(vecNormalize(toward), magnitude);
+  if (curLen <= 0) {
+    // No current heading: adopt the full step toward the target (or stay put).
+    return towardLen <= 0 ? { x: 0, y: 0, z: 0 } : vecScale(vecNormalize(toward), magnitude);
+  }
+  if (towardLen <= 0) return vecScale(vel, magnitude / curLen); // zero distance: keep heading
   const axis = vecCross(vel, toward);
   const axisLen = vecLength(axis);
   const dot = Math.min(1, Math.max(-1, vecDot(vel, toward) / (curLen * towardLen)));
   const angle = Math.atan2(axisLen, dot); // 0 = aligned, π = opposite
-  if (angle <= 1e-9) return vecScale(vel, magnitude);
+  if (angle <= 1e-9) return vecScale(vel, magnitude / curLen); // aligned: just pin magnitude
   const step = Math.min(angle, maxAngle);
-  // Rodrigues: rotate `vel` about the (vel × toward) axis by `step`,
-  // then pin the magnitude (the missile flies at constant speed).
-  const rotated = vecAdd(vecScale(vel, Math.cos(step)), vecScale(axis, Math.sin(step) / axisLen));
+  // Rodrigues about the unit axis k = (vel × toward)/|…|: v' = v·cosθ +
+  // (k × v)·sinθ (+ k(k·v)(1−cosθ), which vanishes: the axis is ⊥ to vel).
+  const k = vecScale(axis, 1 / axisLen);
+  const rotated = vecAdd(vecScale(vel, Math.cos(step)), vecScale(vecCross(k, vel), Math.sin(step)));
   return vecScale(vecNormalize(rotated), magnitude);
 }
 
