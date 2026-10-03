@@ -17,25 +17,25 @@
       "step": 1,
       "description": "Hit resolver + LOS",
       "details": "resolveHit as specified; LOS: raycast source→damagePoint against the terrain heightfield (subsampled 5 points; any point below terrain = occluded) — space regime skips LOS entirely. Range per weapon (TASK-43 supplies it).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Events",
       "details": "shard.events emits combat events → broadcast to all conns (same channel as entity_update, distinct msg type). Kill tracking: destroyed event with a player source → kill event; a wreck's killer id stored on the wreck entity (TASK-49).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Sim hook",
       "details": "SimLoop: weapon fire intents (from TASK-43's message) → projectile travel (space: instant ray for lasers, TASK-43; missiles: moving entities, TASK-43) → on contact: resolveHit. This task provides resolveHit + the contact-callback contract; projectiles land in TASK-43.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Tests",
       "details": "All listed; the two-ship exchange test drives real ws clients through the sim. Run full suite.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-23", "TASK-13", "TASK-19"],

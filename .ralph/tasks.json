@@ -440,7 +440,7 @@
     "title": "Combat core: hitbox damage pipeline, shield-first",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-42.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-43",
