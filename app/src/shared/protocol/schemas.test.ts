@@ -101,6 +101,8 @@ const CASES: Record<string, { valid: unknown; invalid: unknown }> = {
     valid: { weapon: 'laser', targetId: 'ship-1' }, // TASK-43 fire intent
     invalid: { weapon: 'torpedo', targetId: 'ship-1' },
   },
+  target_lock: { valid: { targetId: 'ship-1' }, invalid: { targetId: '' } }, // TASK-44
+  target_release: { valid: {}, invalid: { targetId: 'ship-1' } }, // TASK-44 strict-empty
   combat_event: {
     valid: {
       kind: 'hit',

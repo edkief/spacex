@@ -46,6 +46,10 @@ const depositBody = z
   })
   .strict();
 
+const dummyBody = z
+  .object({ distance: z.number().finite().positive().max(450).optional() })
+  .strict();
+
 const giveBody = z
   .object({
     resourceId: z.enum(RESOURCE_IDS),
@@ -120,12 +124,10 @@ export function registerDevRoutes(app: FastifyInstance, deps: RouteDeps): void {
         .send({ code: 'not-in-system', message: 'ship system has no active shard' });
     }
     if (!active.shard.teleportCharacterForTesting(auth.player.id, parsed.data)) {
-      return reply
-        .code(409)
-        .send({
-          code: 'teleport-failed',
-          message: 'no on-foot character in the shard (not disembarked?)',
-        });
+      return reply.code(409).send({
+        code: 'teleport-failed',
+        message: 'no on-foot character in the shard (not disembarked?)',
+      });
     }
     return { ok: true, systemId: ship.position.systemId };
   });
@@ -206,5 +208,39 @@ export function registerDevRoutes(app: FastifyInstance, deps: RouteDeps): void {
       [parsed.data.resourceId]: parsed.data.amount,
     });
     return { ok: true, systemId: ship.position.systemId };
+  });
+
+  // TASK-44 e2e assist: a static ai-ship dummy directly ahead of the
+  // caller's ship (shard.spawnDummyTargetForTesting) — a live ship-shaped
+  // target for the lock-on flow without a second player. No production
+  // surface, no persistence.
+  app.post('/api/dev/dummy-target', async (req, reply) => {
+    const auth = await requireAuth(req, deps.sessions);
+    if (!auth.ok) return reply.code(401).send({ code: 'unauthorized', reason: auth.reason });
+    const parsed = dummyBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return reply.code(400).send({
+        code: 'invalid-dummy',
+        message: parsed.error.issues[0]?.message ?? 'invalid body',
+      });
+    }
+    const ship = await deps.repo.getShipByOwner(auth.player.id);
+    if (!ship) return reply.code(404).send({ code: 'no-ship', message: 'player has no ship' });
+    const active = router.active(ship.position.systemId);
+    if (!active) {
+      return reply
+        .code(409)
+        .send({ code: 'not-in-system', message: 'ship system has no active shard' });
+    }
+    const targetId = active.shard.spawnDummyTargetForTesting(
+      auth.player.id,
+      parsed.data.distance ?? 200,
+    );
+    if (!targetId) {
+      return reply
+        .code(409)
+        .send({ code: 'no-ship-entity', message: 'ship entity not in the shard' });
+    }
+    return { ok: true, targetId, systemId: ship.position.systemId };
   });
 }

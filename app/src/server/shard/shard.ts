@@ -78,6 +78,16 @@ import {
 import { MINING_UNIT_MS, stepMiningChannel, type MiningChannel } from '@shared/mining';
 import { shipStats, HEX_COLOR } from '@shared/ships';
 import {
+  coneContains,
+  LOCK_CONE_RAD,
+  LOCK_RANGE_M,
+  LOCK_RELEASE_RANGE_M,
+  LOCK_TTL_MS,
+  MISSILE_CONE_RAD,
+  MISSILE_CONE_RANGE_M,
+  pickNearestInCone,
+} from '@shared/targeting';
+import {
   ENERGY_MAX,
   canFire,
   loadoutFor,
@@ -247,6 +257,13 @@ export class SystemShard implements Shard {
    * client messages only assert intent (anti-spam).
    */
   readonly mining = new Map<string, MiningChannel>();
+  /**
+   * TASK-44: the target locks (playerId → the ship they have locked).
+   * Per-player SERVER state: missiles prefer it, the targeted ship's
+   * snapshot gains `targetedBy` (the lock icon), and the tick auto-releases
+   * on destroy / > 1500 m / 30 s. The client's target box is a view of it.
+   */
+  readonly targets = new Map<string, { targetId: string; lockedAtMs: number }>();
   /** TASK-34: ground item ids stay unique per shard (handleDrop). */
   private groundItemSeq = 0;
   /** TASK-43: missile ids stay unique per shard (spawn ordering for the cap). */
@@ -533,6 +550,15 @@ export class SystemShard implements Shard {
       this.entities.delete(entity.id);
       this.playerEntities.delete(playerId);
     }
+    // TASK-44: a warp takes the locks with the player — both directions
+    // (their own lock, and anyone locked onto the entity that just left;
+    // the gone-entity case would also auto-release on the next tick).
+    this.targets.delete(playerId);
+    if (entity) {
+      for (const [lockId, lock] of this.targets) {
+        if (lock.targetId === entity.id) this.targets.delete(lockId);
+      }
+    }
     this.log.debug('player fully removed (warp departure)', { playerId });
   }
 
@@ -685,6 +711,115 @@ export class SystemShard implements Shard {
    * TASK-42: terrain height (m) at (x, z) on a planet — the LOS raycast
    * sampler. Same surface the flight model clamps to (pad disc flattened).
    */
+  /**
+   * TASK-44: the lockable ship behind an id: exists, kind 'ship'/'ai-ship',
+   * not destroyed (v1: NO lock on deposits, terminals, characters or
+   * projectiles).
+   */
+  private lockableShip(targetId: string): SimEntity | undefined {
+    const t = this.entities.get(targetId);
+    if (!t) return undefined;
+    if (t.kind !== 'ship' && t.kind !== 'ai-ship') return undefined;
+    if (t.destroyed) return undefined;
+    return t;
+  }
+
+  /**
+   * TASK-44: 'target_lock' {targetId} — the SERVER owns lock state. The
+   * player must be in a live ship; the target must be a live ship (never
+   * self) within LOCK_RANGE_M and inside the LOCK_CONE_RAD nose cone.
+   * Anything else is rejected with {code:'invalid-target'} and NO lock is
+   * stored. Re-locking the current target refreshes the 30 s window.
+   */
+  handleTargetLock(playerId: string, targetId: string, source?: unknown): void {
+    const connId = this.playerConns.get(playerId);
+    const conn = connId ? this.connections.get(connId) : undefined;
+    if (!conn) return;
+    if (source !== undefined && conn.source !== source) {
+      this.log.debug('dropped target_lock from stale conn', { playerId, connId });
+      return;
+    }
+    const entity = this.playerEntities.get(playerId);
+    if (!entity || entity.destroyed || entity.disembarked) {
+      this.sendErrorToPlayer(playerId, 'invalid-target', 'no ship to lock from', source);
+      return;
+    }
+    const target = this.lockableShip(targetId);
+    const forward = quatRotateVector(entity.ship.quat, { x: 0, y: 0, z: 1 });
+    const valid =
+      target !== undefined &&
+      target.id !== entity.id &&
+      coneContains(entity.ship.pos, forward, target.ship.pos, LOCK_RANGE_M, LOCK_CONE_RAD);
+    if (!valid) {
+      // One code per spec: range / kind / destroyed / gone all fold into
+      // 'invalid-target' (the client box can only mean "no lock").
+      this.sendErrorToPlayer(playerId, 'invalid-target', 'invalid target', source);
+      return;
+    }
+    this.targets.set(playerId, { targetId: target.id, lockedAtMs: this.now() });
+  }
+
+  /** TASK-44: 'target_release' — drops the player's lock (T-key toggle). */
+  handleTargetRelease(playerId: string, source?: unknown): void {
+    const connId = this.playerConns.get(playerId);
+    const conn = connId ? this.connections.get(connId) : undefined;
+    if (!conn) return;
+    if (source !== undefined && conn.source !== source) return;
+    this.targets.delete(playerId);
+  }
+
+  /**
+   * TASK-44: per-tick auto-release — target destroyed or gone, distance
+   * past LOCK_RELEASE_RANGE_M, or the LOCK_TTL_MS window elapsed. Runs
+   * before the snapshot so `targetedBy` never shows a dead lock.
+   */
+  private tickTargetLocks(): void {
+    if (this.targets.size === 0) return;
+    const now = this.now();
+    for (const [playerId, lock] of this.targets) {
+      const target = this.entities.get(lock.targetId);
+      const shooter = this.playerEntities.get(playerId);
+      const expired =
+        !target ||
+        target.destroyed ||
+        !shooter ||
+        now - lock.lockedAtMs > LOCK_TTL_MS ||
+        vecLength(vecSub(shooter.ship.pos, target.ship.pos)) > LOCK_RELEASE_RANGE_M;
+      if (expired) this.targets.delete(playerId);
+    }
+  }
+
+  /**
+   * TASK-44: the missile's target preference — the shooter's VALID lock
+   * first, else the nearest ship in the nose cone (30°, 800 m), else
+   * undefined (the fire is denied with the 'NO TARGET' prompt). The lock
+   * is re-validated here, not assumed: a lock that died this tick falls
+   * through to the cone search.
+   */
+  private missilePreference(playerId: string, entity: SimEntity): SimEntity | undefined {
+    const lock = this.targets.get(playerId);
+    if (lock) {
+      const locked = this.validMissileTarget(entity, lock.targetId);
+      if (locked) return locked;
+    }
+    const forward = quatRotateVector(entity.ship.quat, { x: 0, y: 0, z: 1 });
+    const candidates: { id: string; pos: Vec3 }[] = [];
+    for (const e of this.entities.values()) {
+      if (e.id === entity.id || e.destroyed) continue;
+      if (e.kind !== 'ship' && e.kind !== 'ai-ship') continue;
+      if (!this.losClear(entity, e.ship.pos)) continue;
+      candidates.push({ id: e.id, pos: e.ship.pos });
+    }
+    const pick = pickNearestInCone(
+      entity.ship.pos,
+      forward,
+      candidates,
+      MISSILE_CONE_RANGE_M,
+      MISSILE_CONE_RAD,
+    );
+    return pick ? this.entities.get(pick.id) : undefined;
+  }
+
   terrainHeightAt(planetId: string, x: number, z: number): number {
     const ctx = this.getTerrain(planetId);
     ctx.update(x, z);
@@ -765,12 +900,19 @@ export class SystemShard implements Shard {
       this.sendErrorToPlayer(playerId, 'low-energy', 'LOW ENERGY', source);
       return;
     }
-    // Missiles NEED a valid target (no fallback behavior, unlike the laser):
-    // a targetless missile fire is a denied drop — no energy, no event.
-    // (The tick re-validates: a target lost between now and then is refunded.)
-    if (weapon.kind === 'missile' && !this.validMissileTarget(entity, payload.targetId)) {
-      this.log.debug('dropped missile: no valid target', { playerId, tick: this.sim.tickNumber });
-      return;
+    // TASK-44: missiles need a target — the shooter's LOCK first, else the
+    // nearest ship in the nose cone. Denied fires spend nothing and answer
+    // with the 'NO TARGET' prompt (no wasted ammo silently). The tick
+    // re-validates: a target lost between now and then is refunded.
+    // (payload.targetId stays the LASER's aim assist only.)
+    let missileTargetId: string | undefined;
+    if (weapon.kind === 'missile') {
+      const picked = this.missilePreference(playerId, entity);
+      if (!picked) {
+        this.sendErrorToPlayer(playerId, 'no-target', 'NO TARGET', source);
+        return;
+      }
+      missileTargetId = picked.id;
     }
     // ACCEPTED: commit energy + cooldown now (a queued fire is one shot),
     // enqueue for the tick (cap: overflow drops + logs).
@@ -785,7 +927,10 @@ export class SystemShard implements Shard {
       this.log.debug('dropped fire: queue full', { playerId, weapon: weapon.id });
       return;
     }
-    queue.push({ weapon: weapon.id, targetId: payload.targetId });
+    queue.push({
+      weapon: weapon.id,
+      targetId: weapon.kind === 'missile' ? missileTargetId : payload.targetId,
+    });
   }
 
   /** True when the source → point ray is clear (space regime skips LOS). */
@@ -1168,6 +1313,8 @@ export class SystemShard implements Shard {
   snapshot(): EntityState[] {
     const out: EntityState[] = [];
     let playerPos: Vec3[] | undefined;
+    // TASK-44: targetId → the players locking it (the lock icon's wire data).
+    const lockIcons = this.lockIconsByTarget();
     for (const entity of this.entities.values()) {
       if (entity.kind === 'deposit' && entity.depositSeq !== undefined) {
         if (!playerPos) playerPos = this.playerPositions();
@@ -1176,7 +1323,7 @@ export class SystemShard implements Shard {
         );
         if (!near) continue;
       }
-      out.push(entityToState(entity));
+      out.push(entityToState(entity, lockIcons?.get(entity.id)));
     }
     return out;
   }
@@ -1290,6 +1437,10 @@ export class SystemShard implements Shard {
     // award authority — awards, cancellations and the 10 Hz progress echo).
     this.updateMining(tick);
 
+    // TASK-44: auto-release stale target locks BEFORE firing, so missile
+    // preference and the snapshot's `targetedBy` never see a dead lock.
+    this.tickTargetLocks();
+
     // TASK-43: resolve queued fire intents (laser: instant ray through the
     // TASK-42 resolver; missile: spawn a homing projectile entity) — the
     // tick is the ONLY fire path (single writer). Then fly the missiles.
@@ -1309,6 +1460,52 @@ export class SystemShard implements Shard {
     const ms = performance.now() - t0;
     this.histogram.record(ms);
     this.events.emit('tick', { tick, ms, entities: this.entities.size });
+  }
+
+  /** TASK-44: targetId → the player ids locking it (sorted, deterministic). */
+  private lockIconsByTarget(): Map<string, string[]> | undefined {
+    if (this.targets.size === 0) return undefined;
+    const m = new Map<string, string[]>();
+    for (const [playerId, lock] of this.targets) {
+      const arr = m.get(lock.targetId) ?? [];
+      arr.push(playerId);
+      m.set(lock.targetId, arr);
+    }
+    for (const arr of m.values()) arr.sort();
+    return m;
+  }
+
+  /**
+   * TASK-44 e2e/test hook: a static ai-ship dummy DIRECTLY ahead of the
+   * player's ship (along its forward, `distance` m — always inside the lock
+   * cone by construction). The dev route /api/dev/dummy-target uses it so a
+   * single browser client can lock a live ship-shaped target.
+   */
+  spawnDummyTargetForTesting(playerId: string, distance = 200): string | undefined {
+    const entity = this.playerEntities.get(playerId);
+    if (!entity) return undefined;
+    const forward = quatRotateVector(entity.ship.quat, { x: 0, y: 0, z: 1 });
+    const seq = ++this.devDepositSeq;
+    const id = `ai:dummy:${seq}`;
+    this.addEntity({
+      id,
+      kind: 'ai-ship',
+      playerId: null,
+      classId: 'scout',
+      ship: {
+        pos: vecAdd(entity.ship.pos, vecScale(forward, Math.abs(distance))),
+        vel: { x: 0, y: 0, z: 0 },
+        quat: entity.ship.quat,
+        regime: entity.ship.regime,
+      },
+      hull: 1,
+      shields: 1,
+      targetId: null,
+      docked: false,
+      planetId: entity.planetId,
+      callsign: `AI-001-${seq}`,
+    });
+    return id;
   }
 
   private broadcast(): void {
@@ -3099,7 +3296,7 @@ export type CargoTransferOutcome =
   | 'insufficient';
 
 /** Entity → wire EntityState (hull/shields normalized 0..1, regime mapped). */
-export function entityToState(e: SimEntity): EntityState {
+export function entityToState(e: SimEntity, targetedBy?: string[]): EntityState {
   // Wire regimes v1: docked (at a dock or settled on a pad) vs sublight flight.
   const regime: EntityState['regime'] = e.docked || e.ship.onPad || e.padId ? 'docked' : 'sublight';
   const state: EntityState = {
@@ -3128,6 +3325,9 @@ export function entityToState(e: SimEntity): EntityState {
   // TASK-42: the wreck's killer id — TASK-49 renders the skull marker
   // from it until the wreck despawns.
   if (e.kind === 'wreck' && e.killerId) state.killerId = e.killerId;
+  // TASK-44: the lock icon — the players currently locking this ship
+  // (omitted when nobody is; the 10 Hz snapshot clears it in one frame).
+  if (targetedBy && targetedBy.length > 0) state.targetedBy = targetedBy;
   // TASK-43: the ship's energy (the weapon HUD's bar reads it from the
   // SELF entity_update); undefined on pre-43 entities — omitted.
   if (e.kind === 'ship' && e.playerId && e.energy !== undefined) state.energy = e.energy;

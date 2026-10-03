@@ -139,6 +139,13 @@ export const entityStateSchema = z
      */
     energy: finite.min(0).max(100).optional(),
     /**
+     * TASK-44: the player ids whose TARGET LOCK currently points at this
+     * ship (the lock icon above the targeted ship — PvP readability
+     * without a radar). Omitted when nobody is locking it; rides the
+     * 10 Hz snapshot, so a released lock clears within one frame.
+     */
+    targetedBy: z.array(z.string().min(1)).max(64).optional(),
+    /**
      * TASK-34: the owner's inventory, set on player-owned entities (ship +
      * character) — {stacks: {resourceId: amount}, weightUsed}. The client
      * renders the weight bar from its OWN entity within one snapshot.
@@ -538,6 +545,16 @@ export const messageSchemas = {
       targetId: z.string().min(1).optional(),
     })
     .strict(),
+  /**
+   * TASK-44: target lock requests (inbound, system-scoped). The SERVER owns
+   * the lock state; the client only names a target. Invalid targets answer
+   * {code:'invalid-target'} (out of range / not a ship / destroyed / gone).
+   * Releasing is explicit — the T-key toggle on the client sends
+   * 'target_release' while a lock is held. A {code:'no-target'} error
+   * answers a missile fire the server could not resolve (lock or nose cone).
+   */
+  target_lock: z.object({ targetId: z.string().min(1) }).strict(),
+  target_release: z.object({}).strict(),
 } as const;
 
 export type MessageType = keyof typeof messageSchemas;

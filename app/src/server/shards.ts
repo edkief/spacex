@@ -238,6 +238,13 @@ export function routeGameMessage(
     // rate, energy, range, LOS, target); denied fires are silent drops.
     const p = payload as { weapon: 'laser' | 'missile'; targetId?: string };
     shard.handleFire(conn.playerId, p, conn);
+  } else if (type === 'target_lock') {
+    // TASK-44: the lock request — server validates (500 m / 30° cone /
+    // live ship) and stores the per-player lock (missile preference +
+    // the targetedBy lock icon). Invalid targets answer 'invalid-target'.
+    shard.handleTargetLock(conn.playerId, (payload as { targetId: string }).targetId, conn);
+  } else if (type === 'target_release') {
+    shard.handleTargetRelease(conn.playerId, conn);
   } else if (type === 'sell') {
     // TASK-40: the WS alias of POST /api/ships/sell — the SAME handler
     // (shard.handleSell) the route delegates to. Docked + source-specific

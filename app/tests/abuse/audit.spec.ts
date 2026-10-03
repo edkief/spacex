@@ -56,6 +56,8 @@ const SYSTEM_SCOPED = [
   'repair',
   'chat',
   'target_update',
+  'target_lock',
+  'target_release',
 ] as const;
 /** Mirror of shards.ts routeGameMessage dispatch (inbound gameplay). */
 const GAME_DISPATCH = [
@@ -69,6 +71,8 @@ const GAME_DISPATCH = [
   'cargo_transfer',
   'fire',
   'sell',
+  'target_lock',
+  'target_release',
 ] as const;
 /** Connection-level types handled before dispatch. */
 const MISC = ['ping', 'pong', 'error'] as const;

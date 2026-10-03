@@ -122,6 +122,8 @@ const SYSTEM_SCOPED: ReadonlySet<string> = new Set([
   'repair',
   'chat',
   'target_update',
+  'target_lock',
+  'target_release',
 ]);
 
 /**

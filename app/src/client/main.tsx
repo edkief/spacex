@@ -57,6 +57,13 @@ import { installStreamDebug } from '@client/stream-debug';
 import { installCameraDebug } from '@client/camera/camera-debug';
 import { installAtmosphereDebug } from '@client/atmosphere-debug';
 import { WeaponHud } from '@client/ui/weapon-hud';
+import { TargetHud } from '@client/ui/target-box';
+import {
+  ingestCombatEvent,
+  ingestTargetingEntities,
+  onTargetingError,
+  toggleTargetLock,
+} from '@client/state/targeting';
 import { playCombatFx, type CombatEvent } from '@client/fx';
 import { recordCombatEvent } from '@client/fx-debug';
 import type { WeaponId } from '@shared/weapons';
@@ -493,6 +500,8 @@ function App() {
   const feedRemote = (entities: EntityState[]): void => {
     worldRef.current?.feedRemoteEntities(entities, sessionCallsignRef.current);
     store.applyActiveEntities(entities);
+    // TASK-44: the targeting store rides the same batch (target box).
+    ingestTargetingEntities(entities, sessionCallsignRef.current, Date.now());
   };
   const clientRef = React.useRef<ClientSession | null>(null);
   // TASK-31: the player's ship entity id (latest self entity_update) — the
@@ -715,6 +724,8 @@ function App() {
     // a denied fire never produced an event, so it never produces FX).
     (event) => {
       recordCombatEvent(event);
+      // TASK-44: the threat ping feed (hit/destroyed on OUR ship).
+      ingestCombatEvent(event, session?.playerId ?? null, Date.now());
       const world = worldRef.current;
       if (!world) return;
       playCombatFx(world.fx, event, (id) => {
@@ -733,6 +744,9 @@ function App() {
         window.clearTimeout(promptTimers.current.locked);
         promptTimers.current.locked = window.setTimeout(() => setLocked(false), 3000);
       }
+      // TASK-44: 'invalid-target' clears the optimistic lock; 'no-target'
+      // lights the NO TARGET prompt (both live in the targeting store).
+      onTargetingError(code, Date.now());
     },
   );
 
@@ -829,6 +843,30 @@ function App() {
       const resourceId = RESOURCE_IDS.find((id) => (inv.stacks[id] ?? 0) > 0);
       if (!resourceId) return;
       clientRef.current?.send('drop', { resourceId, amount: 1 });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // TASK-44: T — TARGET LOCK toggle (in-ship only). The store picks the
+  // nearest valid ship in the 500 m / 30° cone and lights the optimistic
+  // box + banner; the server re-validates ('invalid-target' clears it).
+  // Pressing T again while locked releases (sends 'target_release').
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 't' && e.key !== 'T') return;
+      if (e.repeat) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+      if (chartOpenRef.current) return;
+      if (!selfShipRef.current) return;
+      const cmd = toggleTargetLock(Date.now());
+      if (!cmd) return;
+      if (cmd.type === 'lock') {
+        clientRef.current?.send('target_lock', { targetId: cmd.targetId });
+      } else {
+        clientRef.current?.send('target_release', {});
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -1155,6 +1193,7 @@ function App() {
       <WeightBar />
       {/* TASK-43: the weapon HUD stub (active weapon 1/2 + energy bar +
           denial prompts) — in-ship only (selfShip is null on foot). */}
+      <TargetHud />
       <WeaponHud
         classId={selfShip?.classId ?? null}
         energy={selfShip?.energy ?? null}

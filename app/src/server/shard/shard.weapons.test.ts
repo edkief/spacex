@@ -563,6 +563,11 @@ describe('missiles (homing projectile entities)', () => {
     shipAt(shard, 'p3', { x: 2, y: 0, z: 298 }, 'scout', c); // ~2.8 m from p2 AND from the impact
     warmup(shard);
 
+    // TASK-44 preference: p1 LOCKS p2, so the missile homes on the LOCK even
+    // though p3 is the nearer nose-cone ship (lock > nearest).
+    shard.handleTargetLock('p1', 'ship-p2');
+    expect(shard.targets.get('p1')?.targetId).toBe('ship-p2');
+
     shard.handleFire('p1', { weapon: 'missile', targetId: 'ship-p2' });
     advance(shard, 5_050);
 
