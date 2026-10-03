@@ -481,7 +481,7 @@
     "title": "Target lock and target data feed",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-44.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-45",

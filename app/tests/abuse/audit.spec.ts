@@ -202,6 +202,13 @@ const REST_MANIFEST: Record<string, ManifestEntry> = {
     valid: { resourceId: 'iron', amount: 10 },
     invalid: { resourceId: 'iron', amount: 0 },
   },
+  '/api/dev/dummy-target': {
+    schema: z
+      .object({ distance: z.number().finite().positive().max(450).optional() })
+      .strict(),
+    valid: { distance: 200 },
+    invalid: { distance: 0 },
+  },
 };
 // NOTE: POST /api/session/logout takes NO body (token in the auth header),
 // so it has no body schema to audit. /api/ships/repair is likewise body-less
