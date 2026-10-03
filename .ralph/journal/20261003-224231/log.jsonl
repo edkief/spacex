@@ -1,0 +1,3 @@
+{"time":"2026-10-03T22:43:19.620Z","level":"info","message":"web UI action","fields":{"action":"stop","mode":"now","run":"20261003-224231"}}
+{"time":"2026-10-03T22:43:19.927Z","level":"warn","message":"stop requested: stopping now, interrupting the current iteration"}
+{"time":"2026-10-03T22:43:20.027Z","level":"warn","message":"could not commit Ralph's records","fields":{"error":"error: pathspec '.ralph/handoff' did not match any file(s) known to git"}}
