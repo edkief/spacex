@@ -7,6 +7,11 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: true,
+    // Live-ws tests (claim + join + teleport + dual-client polling) legitimately
+    // run 2-4 s solo and blow the 5 s DEFAULT when 31 parallel workers contend.
+    // Explicit per-test timeouts (the benches) are unaffected.
+    testTimeout: 15_000,
+    hookTimeout: 15_000,
     // tests/ holds Playwright e2e specs; validation-fuzz (TASK-64) and
     // session-log-leak (TASK-66) are the node specs living there — named
     // explicitly so scaffold.spec.ts is skipped. tests/abuse/ (TASK-67) is

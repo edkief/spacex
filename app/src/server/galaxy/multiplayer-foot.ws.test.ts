@@ -246,7 +246,11 @@ function dist3(
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-/** One full-forward input frame — the server HOLDS it (no resend needed). */
+/**
+ * One full-forward input frame. The server holds the last frame, but frames
+ * arriving during a tick-debt drop window are discarded (sim.inputDrops),
+ * so senders should stream rather than rely on a single send surviving.
+ */
 function walkFrame(seq: number) {
   return { seq, thrust: 1, turn: 0, pitch: 0, yaw: 0, fire: false, lock: false };
 }
@@ -437,12 +441,22 @@ describe('TASK-36: on-foot multiplayer over live ws', () => {
     const baseline = s.histogram.percentile(0.95);
     expect(s.histogram.sampleCount).toBeGreaterThan(5);
 
-    // Load: all four characters walk on held frames.
+    // Load: all four characters walk on held frames. The server holds the last
+    // frame, but enqueueInput DROPS frames that land while the tick loop owes
+    // more than maxCatchUpTicks (TASK-13 anti-spiral, sim.inputDrops) — under
+    // full-suite machine load a single-shot send can be lost entirely and the
+    // walkers never move. Stream at ~7/s per connection (well inside the 20/s
+    // inbound bucket) so the window always has a live held frame.
     s.histogram.reset();
-    for (const c of wClients) {
-      c.send({ v: PROTOCOL_VERSION, type: 'input', payload: walkFrame(1) });
+    const walkUntil = Date.now() + 5_000;
+    let seq = 0;
+    while (Date.now() < walkUntil) {
+      seq += 1;
+      for (const c of wClients) {
+        c.send({ v: PROTOCOL_VERSION, type: 'input', payload: walkFrame(seq) });
+      }
+      await sleep(150);
     }
-    await sleep(5_000);
     const loaded = s.histogram.percentile(0.95);
     expect(loaded - baseline, `p95 ${loaded} ms vs baseline ${baseline} ms`).toBeLessThanOrEqual(4);
     // All four characters actually moved (held thrust walks them).
