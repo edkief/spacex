@@ -196,9 +196,12 @@ describe('TASK-47 code path audit: exactly ONE fire implementation', () => {
     expect(count(src, '\n  applyHit(')).toBe(1); // the definition
     expect(count(src, 'private destroyEntity(')).toBe(1);
     expect(count(src, 'private detonateMissile(')).toBe(1);
-    // …the shared damage model is applied from exactly ONE place (applyHit):
-    // no parallel damage path can exist without touching that count.
-    expect(count(src, 'applyDamage(')).toBe(1);
+    // …the shared damage model is applied from exactly THREE places
+    // (applyHit — the ship/missile pipeline; droneFire — TASK-48's drone
+    // attack with source {kind:'drone'}; damageDroneForTesting — the
+    // test-only drone hull hook): no parallel damage path can exist
+    // without touching that count.
+    expect(count(src, 'applyDamage(')).toBe(3);
     expect(count(src, 'this.applyHit(')).toBe(2); // missile direct + splash
     expect(count(src, 'this.handleWeaponContact(')).toBe(1); // fireLaser only
     // combat.ts: resolveHit is the ONLY consumer of the contact contract.

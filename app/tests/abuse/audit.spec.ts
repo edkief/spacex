@@ -88,6 +88,7 @@ const OUTBOUND_ONLY = [
   'warp_arrived',
   'combat_event',
   'presence',
+  'hazard',
 ] as const;
 
 const INBOUND = [...HANDSHAKE, ...SYSTEM_SCOPED, ...GAME_DISPATCH, ...MISC];

@@ -64,6 +64,10 @@ const CASES: Record<string, { valid: unknown; invalid: unknown }> = {
     valid: { phase: 'active', depositId: 'dep-1', progress: 0.5, units: 2, status: 'mining' },
     invalid: { phase: 'exploded', depositId: 'dep-1', progress: 0.5, units: 2, status: 'mining' },
   },
+  hazard: {
+    valid: { exposure: 42.5, inside: 'storm', recoveringUntil: 1730000000000 },
+    invalid: { exposure: 51 },
+  },
   drop: {
     valid: { resourceId: 'iron', amount: 2 }, // TASK-34: the resource id is validated server-side
     invalid: { resourceId: 'iron', amount: 0 },
