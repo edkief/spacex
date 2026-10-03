@@ -1,0 +1,9 @@
+{
+  "status": "stopped",
+  "iterations": 5,
+  "runId": "20261003-210256",
+  "historyDir": "/home/ekieffer/Dev/spacex/.ralph/history/20261003-210256",
+  "tasksPassed": 64,
+  "tasksTotal": 82,
+  "message": "Stopped on request after 5 iterations"
+}

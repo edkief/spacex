@@ -1,0 +1,16 @@
+{
+  "runId": "20261003-210256",
+  "status": "stopped",
+  "startedAt": "2026-10-03T11:02:56.633Z",
+  "updatedAt": "2026-10-03T14:26:04.603Z",
+  "maxIterations": 100,
+  "iteration": 5,
+  "taskId": "TASK-45",
+  "iterationStartedAt": "2026-10-03T13:37:00.192Z",
+  "lastStatus": "wrapped-up",
+  "tasksPassed": 64,
+  "tasksTotal": 82,
+  "split": null,
+  "message": "Stopped on request after 5 iterations",
+  "pending": null
+}

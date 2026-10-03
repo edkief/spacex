@@ -1,0 +1,12 @@
+{"time":"2026-10-03T11:38:25.676Z","level":"warn","message":"provider retry scheduled","fields":{"attempt":2,"error":"getaddrinfo ENOTFOUND llama-chat.llama"}}
+{"time":"2026-10-03T11:47:57.316Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-03T11:52:24.403Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-67.md"}}
+{"time":"2026-10-03T11:52:28.244Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":1}}
+{"time":"2026-10-03T12:18:09.709Z","level":"warn","message":"handoff left behind for a passing task","fields":{"path":".ralph/handoff/TASK-67.md"}}
+{"time":"2026-10-03T13:00:16.090Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":3}}
+{"time":"2026-10-03T13:36:58.181Z","level":"warn","message":"model call failed","fields":{"error":"image input requires the model's matching mmproj"}}
+{"time":"2026-10-03T14:21:20.147Z","level":"info","message":"web UI action","fields":{"action":"stop","mode":"after-iteration","run":"20261003-210256"}}
+{"time":"2026-10-03T14:21:20.594Z","level":"warn","message":"stop requested: stopping after the current iteration"}
+{"time":"2026-10-03T14:22:01.000Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-03T14:26:00.690Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-45.md"}}
+{"time":"2026-10-03T14:26:04.602Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":5}}
