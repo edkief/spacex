@@ -258,7 +258,10 @@ describe('TASK-48: drones — aggro, 2 s fire cadence, pipeline source, ship imm
     env.dock();
     env.onFoot();
 
-    const droneIds = [...env.shard.drones.keys()];
+    // This cell's drones only — other cells on the planet host more.
+    const droneIds = [...env.shard.drones.keys()].filter((id) =>
+      id.startsWith(`drone:${cell.hazardId}:`),
+    );
     expect(droneIds.length).toBe(cell.droneCount); // seeded count (2-4)
     // Stand right next to one drone: instant aggro, instant first hit.
     const d0 = env.shard.entities.get(droneIds[0])!;
@@ -308,7 +311,7 @@ describe('TASK-48: drones — aggro, 2 s fire cadence, pipeline source, ship imm
     expect(ship.hull).toBe(1); // untouched by the drones
     // No on-foot character exists: the drones just keep patrolling their cell.
     const drone = env.shard.entities.get([...env.shard.drones.keys()][0])!;
-    expect(drone.destroyed).toBe(false);
+    expect(drone.destroyed).toBeFalsy();
   });
 
   it('a killed drone despawns and respawns with the cell after 180 s', () => {
