@@ -728,6 +728,11 @@ function App() {
       recordCombatEvent(event);
       // TASK-44: the threat ping feed (hit/destroyed on OUR ship).
       ingestCombatEvent(event, session?.playerId ?? null, Date.now());
+      // TASK-46: the AI began acquiring OUR ship — the 'ACQUIRING' toast IS
+      // the 1 s acquire delay: read it and break off (gameplay, not a cheat).
+      if (event.kind === 'ai-acquiring' && event.target === selfShipIdRef.current) {
+        store.notify('ACQUIRING');
+      }
       const world = worldRef.current;
       if (!world) return;
       playCombatFx(world.fx, event, (id) => {

@@ -117,6 +117,16 @@ import { TickHistogram } from './histogram';
 import { TerrainContext } from './terrain';
 import { lineOfSight, resolveHit, type ResolveHitOutcome } from './combat';
 import {
+  createAiState,
+  makeWaypoints,
+  resetAiState,
+  stepAi,
+  tickRng,
+  type AiPlayerView,
+  type AiState,
+  type AiWorld,
+} from './ai';
+import {
   defaultLogger,
   type ConnState,
   type Shard,
@@ -201,6 +211,12 @@ export interface CreateSystemShardOptions {
   dtMs?: number;
   /** Injectable clock (tests use a fake now for destruction timestamps). */
   now?: () => number;
+  /**
+   * TASK-46: skip the seeded rogue AI roster (default false — real shards
+   * always spawn their rogues). The benchmark seam: the AI-cost delta
+   * (p95 with rogues minus p95 without) measures the machine's tick cost.
+   */
+  spawnRogues?: boolean;
 }
 
 /**
@@ -281,6 +297,13 @@ export class SystemShard implements Shard {
    * spawnPos — there is no setTimeout anywhere in the shard.
    */
   private readonly rogues = new Map<string, RogueRosterEntry & { respawnAtMs?: number }>();
+  /**
+   * TASK-46: the per-rogue AI machine states (keyed by the rogue's entity
+   * id). Owned by the tick (single writer); tests read `mode` to assert the
+   * state sequence. Rogues are never persisted, so the states die with the
+   * shard (and are re-derived on the next spawn).
+   */
+  readonly ai = new Map<string, AiState>();
   private connSeq = 0;
   private offBus: (() => void) | undefined;
   private snapshotSizeWarned = false;
@@ -322,8 +345,17 @@ export class SystemShard implements Shard {
     // star, full hull, space regime). Rogues are a renewable threat — their
     // state resets to full on reap (the shard is dropped; the next spawn
     // re-derives the same roster) — so no persistence row ever exists.
-    for (const entry of rosterFor(options.galaxySeed, options.system)) {
-      this.spawnRogueShip(entry);
+    if (options.spawnRogues !== false) {
+      // The patrol loops are seeded from the per-tick shard RNG at tick 0
+      // (draw order = roster order — deterministic per system).
+      const rng = tickRng(options.systemId, 0);
+      for (const entry of rosterFor(options.galaxySeed, options.system)) {
+        this.spawnRogueShip(entry);
+        this.ai.set(
+          entry.aiId,
+          createAiState(entry.aiId, this.now(), makeWaypoints(rng, entry.patrolCenter, entry.patrolRadius)),
+        );
+      }
     }
     this.regimePlanets = systemRegimePlanets(options.system).map((planet) => ({
       ...planet,
@@ -988,7 +1020,7 @@ export class SystemShard implements Shard {
       vecScale(quatRotateVector(entity.ship.quat, { x: 0, y: 0, z: 1 }), NOSE_OFFSET_M),
     );
     const forward = quatRotateVector(entity.ship.quat, { x: 0, y: 0, z: 1 });
-    const source: { kind: 'player'; id: string } = { kind: 'player', id: conn.playerId };
+    const source: DamageSource = { kind: 'player', id: conn.playerId };
     if (weapon.kind !== 'missile') {
       this.fireLaser(entity, weapon, nose, forward, intent.targetId, source);
     } else {
@@ -1008,7 +1040,7 @@ export class SystemShard implements Shard {
     nose: Vec3,
     forward: Vec3,
     targetId: string | undefined,
-    source: { kind: 'player'; id: string },
+    source: DamageSource,
   ): void {
     let target: SimEntity | undefined;
     if (targetId && targetId !== entity.id) {
@@ -1057,6 +1089,11 @@ export class SystemShard implements Shard {
       }
     }
     const damagePoint = vecAdd(nose, vecScale(forward, endT));
+    // TASK-46: a player beam that resolved onto a rogue feeds its 5 s
+    // aggro memory (the "player fired on the AI" trigger).
+    if (target && source.kind === 'player' && target.kind === 'ai-ship') {
+      this.notePlayerFireAt(target.id, source.id);
+    }
     // The fired-FX event goes out BEFORE the hit (the beam leads the damage;
     // the client's line flash plays as the impact lands on the same frame).
     this.broadcastCombatEvent({
@@ -1093,6 +1130,19 @@ export class SystemShard implements Shard {
   }
 
   /**
+   * TASK-46: a player's shot landed in a rogue's aggro memory — "the player
+   * fired on the AI within the last 5 s" is the second aggro trigger (the
+   * first is the range + cone test). Called from both fire paths with the
+   * RESOLVED target (a shot that hits rock does not aggro).
+   */
+  private notePlayerFireAt(aiId: string, playerId: string): void {
+    const state = this.ai.get(aiId);
+    if (!state) return;
+    state.lastPlayerFireAtMs = this.now();
+    state.lastPlayerFireBy = playerId;
+  }
+
+  /**
    * Missile: needs a VALID client target (alive, in range, LOS) — otherwise
    * the fire is a denied drop (no FX; a target lost between acceptance and
    * tick refunds the committed energy). Spawns a projectile ENTITY (visible
@@ -1105,7 +1155,7 @@ export class SystemShard implements Shard {
     nose: Vec3,
     forward: Vec3,
     targetId: string | undefined,
-    source: { kind: 'player'; id: string },
+    source: DamageSource,
     tick: number,
   ): void {
     const target = this.validMissileTarget(entity, targetId);
@@ -1118,6 +1168,10 @@ export class SystemShard implements Shard {
         tick,
       });
       return;
+    }
+    // TASK-46: a player missile aimed at a rogue feeds its 5 s aggro memory.
+    if (source.kind === 'player' && target.kind === 'ai-ship') {
+      this.notePlayerFireAt(target.id, source.id);
     }
     // Entity budget: the oldest projectile expires first when the cap is hit.
     const projectiles: SimEntity[] = [];
@@ -1243,6 +1297,122 @@ export class SystemShard implements Shard {
       }
     }
     this.entities.delete(id);
+  }
+
+  /**
+   * TASK-46: the SAME loadout + cooldown + energy checks the player's
+   * handleFire commits — the machine only asks to fire when this passes, so
+   * a rogue's shots are rate-limited and energy-capped exactly like a
+   * player's (no infinite ammo, AC).
+   */
+  private aiCanFire(entity: SimEntity, weapon: WeaponId): boolean {
+    if (entity.destroyed || entity.docked) return false; // the docked guard (rogues never dock in v1)
+    if (!loadoutFor(entity.classId).some((w) => w.id === weapon)) return false;
+    if ((entity.fireCooldownUntil?.[weapon] ?? 0) > this.sim.tickNumber) return false;
+    if (!canFire(entity.energy ?? ENERGY_MAX, WEAPON_BY_ID[weapon])) return false;
+    return true;
+  }
+
+  /**
+   * TASK-46: resolve one AI fire intent in the tick — energy + cooldown
+   * committed at ACCEPTANCE (mirroring handleFire), then the SAME
+   * fireLaser / fireMissile pipeline the players use with source = the AI,
+   * so hit/kill attribution reads {kind:'ai', id} (one pipeline, two input
+   * sources — this is what keeps PvP/PvE parity real).
+   */
+  private resolveAiFire(
+    entity: SimEntity,
+    intent: { weapon: WeaponId; targetId: string },
+    tick: number,
+  ): void {
+    const weapon = WEAPON_BY_ID[intent.weapon];
+    if (!this.aiCanFire(entity, weapon.id)) return; // re-checked in the tick (single writer)
+    entity.energy = spendEnergy(entity.energy ?? ENERGY_MAX, weapon);
+    const cooldownTicks = Math.max(1, Math.ceil(1 / ((weapon.fireRate ?? 1) * this.dt)));
+    entity.fireCooldownUntil = {
+      ...(entity.fireCooldownUntil ?? {}),
+      [weapon.id]: this.sim.tickNumber + cooldownTicks,
+    };
+    const nose = vecAdd(
+      entity.ship.pos,
+      vecScale(quatRotateVector(entity.ship.quat, { x: 0, y: 0, z: 1 }), NOSE_OFFSET_M),
+    );
+    const forward = quatRotateVector(entity.ship.quat, { x: 0, y: 0, z: 1 });
+    const source: DamageSource = { kind: 'ai', id: entity.id };
+    if (weapon.kind !== 'missile') this.fireLaser(entity, weapon, nose, forward, intent.targetId, source);
+    else this.fireMissile(entity, weapon, nose, forward, intent.targetId, source, tick);
+  }
+
+  /**
+   * TASK-46: one tick of rogue AI. Each rogue's state machine (./ai)
+   * computes the ShipInput fed to the SAME integrateShip the players use
+   * (the AI is just another ship whose inputs come from the machine, not a
+   * ws client) and — once acquired — a fire intent resolved through the
+   * player fire pipeline. Rogues never target rogues: `players` is the
+   * player-ship list ONLY. All randomness draws from the per-tick shard RNG
+   * (systemId ^ tick — the determinism AC).
+   */
+  private stepAiShips(tick: number): void {
+    if (this.ai.size === 0) return;
+    const now = this.now();
+    const players: AiPlayerView[] = [];
+    for (const e of this.playerEntities.values()) {
+      if (e.destroyed || e.disembarked) continue;
+      players.push({ id: e.id, pos: e.ship.pos, vel: e.ship.vel });
+    }
+    const rng = tickRng(this.systemId, tick);
+    for (const [id, rogue] of this.rogues) {
+      const entity = this.entities.get(id);
+      if (!entity || entity.kind !== 'ai-ship') continue;
+      if (entity.docked) continue; // guard: a docked AI neither thinks nor fires
+      const state = this.ai.get(id);
+      if (!state) continue;
+      if (entity.destroyed) {
+        if (state.mode !== 'dead') {
+          state.mode = 'dead';
+          state.lastModeChangeAtMs = now;
+          this.log.debug('ai mode change', { id, from: state.mode, to: 'dead' });
+        }
+        continue;
+      }
+      if (state.mode === 'dead') {
+        // the TASK-45 respawn sweep just reset the entity in place: PATROL again
+        resetAiState(state, rng, rogue.patrolCenter, rogue.patrolRadius, now);
+      }
+      const world: AiWorld = {
+        tick,
+        nowMs: now,
+        dt: this.dt,
+        hull: entity.hull,
+        players,
+        canFire: (w) => this.aiCanFire(entity, w),
+      };
+      const prev = state.mode;
+      const result = stepAi(state, entity.ship, shipStats(entity.classId), world);
+      if (state.mode !== prev) {
+        this.log.debug('ai mode change', { id, from: prev, to: state.mode, targetId: state.targetId });
+      }
+      entity.ship = integrateShip(
+        entity.ship,
+        result.input,
+        this.dt,
+        entity.ship.regime,
+        undefined,
+        shipStats(entity.classId),
+      );
+      // TASK-43 parity: the same energy regen as player ships (no infinite ammo).
+      entity.energy = regenEnergy(entity.energy ?? ENERGY_MAX, this.dt);
+      if (result.acquiring) {
+        // The 1 s acquire delay doubles as a UI hook: the 'ACQUIRING' toast
+        // gives the player the grace period (gameplay, not a cheat).
+        this.broadcastCombatEvent({
+          kind: 'ai-acquiring',
+          source: { kind: 'ai', id: entity.id },
+          target: result.acquiring,
+        });
+      }
+      if (result.fire) this.resolveAiFire(entity, result.fire, tick);
+    }
   }
 
   /**
@@ -1480,6 +1650,11 @@ export class SystemShard implements Shard {
     // TASK-38: advance the active mining channels (the server clock is the
     // award authority — awards, cancellations and the 10 Hz progress echo).
     this.updateMining(tick);
+
+    // TASK-46: rogue AI — state machine inputs via the same integrateShip,
+    // fire intents through the same pipeline (runs before the fire sweeps so
+    // AI missiles spawn + fly this tick, like a player's queued fire).
+    this.stepAiShips(tick);
 
     // TASK-44: auto-release stale target locks BEFORE firing, so missile
     // preference and the snapshot's `targetedBy` never see a dead lock.

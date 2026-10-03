@@ -539,6 +539,17 @@ export const messageSchemas = {
         point: vec3Schema,
       })
       .strict(),
+    // TASK-46: the AI BEGAN acquiring a target — the player whose ship is
+    // `target` gets the 'ACQUIRING' HUD toast (the 1 s acquire delay is the
+    // grace period: gameplay, not a cheat).
+    z
+      .object({
+        kind: z.literal('ai-acquiring'),
+        source: damageSourceSchema,
+        /** The player ship entity id being acquired. */
+        target: z.string().min(1),
+      })
+      .strict(),
   ]),
   /**
    * TASK-43: the ONLY inbound combat traffic — a fire INTENT. The server

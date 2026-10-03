@@ -45,5 +45,8 @@ export function playCombatFx(world: FxWorld, event: CombatEvent, resolvePos: Res
     }
     case 'kill':
       return;
+    case 'ai-acquiring':
+      // The HUD toast lives in main.tsx (the presence store); no FX here.
+      return;
   }
 }
