@@ -240,8 +240,10 @@ describe('SystemShard snapshots (TASK-13 step 3)', () => {
 
     const parsed = JSON.parse(sends[0]) as { type: string; payload: { entities: EntityState[] } };
     expect(parsed.type).toBe('entity_update');
-    const e = parsed.payload.entities[0];
-    expect(e.id).toBe('ship-p1');
+    // TASK-40: the shard now also spawns station terminal entities, so target
+    // the ship by id instead of assuming it is the first entity in the buffer.
+    const e = parsed.payload.entities.find((x) => x.id === 'ship-p1')!;
+    expect(e).toBeDefined();
     expect(e.kind).toBe('ship');
     expect(e.classId).toBe('scout');
     expect(e.callsign).toBe('Alpha');
@@ -459,9 +461,10 @@ describe('SystemShard regime context (TASK-13 step 2, atmosphere)', () => {
     expect(Math.abs(entity.ship.pos.y - ground)).toBeLessThan(0.5);
     expect(Math.abs(entity.ship.vel.y)).toBeLessThan(1);
     expect(entity.ship.onPad).toBe(chosen.id);
-    // The snapshot now reports the docked wire regime.
-    const states = shard.snapshot();
-    expect(states[0].regime).toBe('docked');
+    // The snapshot now reports the docked wire regime (target the ship: the
+    // shard also broadcasts station terminal entities — TASK-40).
+    const ship = shard.snapshot().find((s) => s.kind === 'ship')!;
+    expect(ship.regime).toBe('docked');
     shard.stop();
   });
 });
@@ -537,7 +540,8 @@ describe('entityToState mapping', () => {
     const cls = shipStats(entity.classId);
     entity.hull = Math.min(1, cls.hull > 0 ? 10 / cls.hull : 0);
     shard.addEntity(entity);
-    const state = shard.snapshot()[0];
+    // Target the ship: the shard also contains station terminal entities (TASK-40).
+    const state = shard.snapshot().find((s) => s.kind === 'ship')!;
     expect(state.hull).toBeCloseTo(10 / cls.hull, 12);
   });
 });

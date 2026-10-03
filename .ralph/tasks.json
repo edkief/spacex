@@ -431,7 +431,7 @@
     "title": "Dock sell close-out: full suite green, lint pass, bookkeeping, final commit",
     "category": "api-endpoint",
     "specFilePath": ".ralph/tasks/TASK-40.2.json",
-    "passes": false,
+    "passes": true,
     "splitFrom": "TASK-40",
     "splitDepth": 1
   },

@@ -2,7 +2,12 @@ import React from 'react';
 
 import { CATALOG_IDS, RESOURCE_CATALOG } from '@shared/resources';
 import type { ResourceId } from '@shared/inventory';
-import { dockPanel, dockPanelSubscribe, closeDockPanel, type DockPanelState } from '@client/state/dock';
+import {
+  dockPanel,
+  dockPanelSubscribe,
+  closeDockPanel,
+  type DockPanelState,
+} from '@client/state/dock';
 
 /**
  * Dock panel (TASK-40) — the station market UI opened by the server's
@@ -60,7 +65,11 @@ function SellRow(props: {
       </span>
       {holdAmount > 0 && (
         <>
-          <button type="button" aria-label={`sell 1 ${resourceId} hold`} onClick={() => onSell(resourceId, 1, 'hold')}>
+          <button
+            type="button"
+            aria-label={`sell 1 ${resourceId} hold`}
+            onClick={() => onSell(resourceId, 1, 'hold')}
+          >
             hold 1
           </button>
           <button
@@ -74,7 +83,11 @@ function SellRow(props: {
       )}
       {invAmount > 0 && (
         <>
-          <button type="button" aria-label={`sell 1 ${resourceId} inv`} onClick={() => onSell(resourceId, 1, 'inv')}>
+          <button
+            type="button"
+            aria-label={`sell 1 ${resourceId} inv`}
+            onClick={() => onSell(resourceId, 1, 'inv')}
+          >
             inv 1
           </button>
           <button
@@ -158,7 +171,9 @@ export function DockPanel({ onSell }: DockPanelProps): React.ReactElement | null
           marginBottom: '0.5rem',
         }}
       >
-        <span style={{ color: '#e6edf3', fontWeight: 700, letterSpacing: '0.1em' }}>STATION DOCK</span>
+        <span style={{ color: '#e6edf3', fontWeight: 700, letterSpacing: '0.1em' }}>
+          STATION DOCK
+        </span>
         <button
           type="button"
           id="dock-panel-close"
@@ -197,12 +212,8 @@ export function DockPanel({ onSell }: DockPanelProps): React.ReactElement | null
           ))}
         </div>
       )}
-      {tab === 'ships' && (
-        <div style={{ opacity: 0.6 }}>Ship purchases land in TASK-53.</div>
-      )}
-      {tab === 'repair' && (
-        <div style={{ opacity: 0.6 }}>Repairs land in TASK-53.</div>
-      )}
+      {tab === 'ships' && <div style={{ opacity: 0.6 }}>Ship purchases land in TASK-53.</div>}
+      {tab === 'repair' && <div style={{ opacity: 0.6 }}>Repairs land in TASK-53.</div>}
     </div>
   );
 }

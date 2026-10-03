@@ -200,7 +200,11 @@ export interface Repository {
    * never drive the row below 0). Returns the updated row, or undefined
    * when the row is missing (not yet mined) or already depleted.
    */
-  decrementDeposit(systemId: string, depositSeq: number, amount: number): Promise<DepositRow | undefined>;
+  decrementDeposit(
+    systemId: string,
+    depositSeq: number,
+    amount: number,
+  ): Promise<DepositRow | undefined>;
   upsertSystem(systemId: string, name: string, shardActive?: boolean): Promise<SystemRow>;
   findSystem(systemId: string): Promise<SystemRow | undefined>;
   createSession(input: SessionInput): Promise<SessionRow>;
@@ -617,10 +621,7 @@ export function createRepo(db: Db, tables: Schema): Repository {
     },
 
     async listDeposits(systemId) {
-      const rows = await d
-        .select()
-        .from(t.deposits)
-        .where(eq(t.deposits.systemId, systemId));
+      const rows = await d.select().from(t.deposits).where(eq(t.deposits.systemId, systemId));
       return rows as DepositRow[];
     },
 

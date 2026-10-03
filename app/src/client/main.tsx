@@ -212,7 +212,11 @@ function useGameSession(
             payload?: { terminalId?: string; hold?: DockHoldView; inventory?: DockInventoryView };
           };
           if (p.ui === 'dock') {
-            openDockPanel(p.payload?.terminalId ?? null, p.payload?.hold ?? null, p.payload?.inventory ?? null);
+            openDockPanel(
+              p.payload?.terminalId ?? null,
+              p.payload?.hold ?? null,
+              p.payload?.inventory ?? null,
+            );
           }
           return;
         }

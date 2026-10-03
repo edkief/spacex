@@ -8,25 +8,25 @@
       "step": 1,
       "description": "Verify TASK-40.1's state (finish it first if it ran out of time)",
       "details": "Check `git status` + `git log --oneline 3122ad1..HEAD`: app/tests/e2e/sell.spec.ts should exist and be committed (with .ralph/screenshots/TASK-40-1.png present on disk). If TASK-40.1 ran out of time mid-e2e, its handoff (or the working tree) describes the remainder — finish the e2e first, exactly per the TASK-40.1 spec and .ralph/handoff/TASK-40.md, and commit it as its own WIP commit before the bookkeeping. Then re-run `cd app && npm run test:e2e sell.spec.ts` (the fixture boots the real dev server itself — do NOT also run `npm run dev`; no background dev server may be left up) — it must be green before any bookkeeping.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Full verification pass",
       "details": "cd app && npm run test (the FULL suite, ~3 min, ~119 files — the first full run since 3122ad1). Known flaky class (characterized in the TASK-39 close-out, pre-existing under parallel load on this machine, they fail on the parent commit too): transition/streaming p99 benchmarks, the surface 5 s timeout, multiplayer-foot scale p95, persist perf guard — if any go red, re-run that file ALONE twice; if it passes in isolation, record it as a pre-existing flaky in the LOG entry (cite the isolated pass) and proceed. Then `cd app && npx tsc --noEmit` (must be clean) and the lint pass: the 3122ad1 files (shared/sell.ts, shared/world/terminals.ts, server shard/shards/routes/schemas, client state+ui files) have NEVER been through eslint/prettier — run `npx eslint --fix` + `npx prettier --write` on them and re-run the affected test files afterwards if any file changed.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Bookkeeping",
       "details": "Set all 4 step `pass` flags to true in .ralph/tasks/TASK-40.json; set \"passes\": true for TASK-40 in .ralph/tasks.json (the TASK-40 entry starts at ~line 421, \"passes\": false at ~line 424); add a new TOP entry in .ralph/logs/LOG.md in the TASK-39 style ('### YYYY-MM-DD — TASK-40: Dock selling: deliver cargo for credits' + summary + Unit/WS/E2E/Verify bullets with the FRESH suite numbers and the screenshot path .ralph/screenshots/TASK-40-1.png); bump 'Tasks Completed' (currently 53) by 1 in the LOG header and leave 'Current Task' as the last close-out did ('—'); check .ralph/STRUCTURE.md — the new files all live in EXISTING directories (app/src/shared, app/src/client/state, app/src/client/ui, app/src/server, app/tests/e2e) so likely no change, add lines only if the file's convention demands; DELETE .ralph/handoff/TASK-40.md.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Final commit + promise",
       "details": "Stage everything (lint fixes, bookkeeping, handoff deletion); commit with a Conventional Commit message (e.g. 'feat(sell): TASK-40 dock selling — e2e verified, close-out'); confirm no background processes are left running; output <promise>TASK-40:DONE</promise>.",
-      "pass": false
+      "pass": true
     }
   ],
   "acceptanceCriteria": [

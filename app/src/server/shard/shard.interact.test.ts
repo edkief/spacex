@@ -323,7 +323,13 @@ describe('TASK-33: server interact validation + effects', () => {
     const ui = messages(toP1).filter((m) => m.type === 'ui-open');
     expect(ui).toHaveLength(1);
     expect(ui[0].payload.ui).toBe('dock');
-    expect(ui[0].payload.payload).toEqual({ terminalId: term });
+    // TASK-40: the dock ui-open payload also carries hold + inventory so the
+    // panel can show sellable amounts without a second round-trip.
+    expect(ui[0].payload.payload).toEqual({
+      terminalId: term,
+      hold: { capacity: 40, stacks: {}, weightUsed: 0 },
+      inventory: { stacks: {}, weightUsed: 0 },
+    });
     expect(messages(toP2).filter((m) => m.type === 'ui-open')).toHaveLength(0); // nobody else
     // The terminal itself is untouched (opening the UI is not consuming it).
     expect(shard.entities.has(term)).toBe(true);

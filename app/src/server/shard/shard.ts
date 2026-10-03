@@ -141,7 +141,12 @@ export interface CreateSystemShardOptions {
      * TASK-40: the sell path's atomic commit (stack decrement + addCredits in
      * one transaction — optional, test stubs predate it).
      */
-    Partial<Pick<Repository, 'withTransaction' | 'addCredits' | 'updatePlayerInventory' | 'updateShipCargo'>>;
+    Partial<
+      Pick<
+        Repository,
+        'withTransaction' | 'addCredits' | 'updatePlayerInventory' | 'updateShipCargo'
+      >
+    >;
   /** Keep in-shard entities in sync with dock purchases / livery changes. */
   shipSwapBus: ShipSwapBus;
   persist?: (entities: EntityState[]) => void;
@@ -1318,7 +1323,12 @@ export class SystemShard implements Shard {
     const character = this.entities.get(`char:${playerId}`);
     if (character) {
       if (!ship.padId) {
-        this.sendErrorToPlayer(playerId, 'not-docked', 'ship is not docked on a landing pad', source);
+        this.sendErrorToPlayer(
+          playerId,
+          'not-docked',
+          'ship is not docked on a landing pad',
+          source,
+        );
         return 'not-docked';
       }
       if (vecLength(vecSub(ship.ship.pos, character.ship.pos)) > ENTER_SHIP_RANGE_M) {
@@ -1393,7 +1403,12 @@ export class SystemShard implements Shard {
       return 'invalid-resource';
     }
     if (!Number.isInteger(payload.amount) || payload.amount <= 0) {
-      this.sendErrorToPlayer(playerId, 'invalid-amount', 'amount must be a positive integer', source);
+      this.sendErrorToPlayer(
+        playerId,
+        'invalid-amount',
+        'amount must be a positive integer',
+        source,
+      );
       return 'invalid-amount';
     }
     const res = transferCargo(
@@ -1516,8 +1531,7 @@ export class SystemShard implements Shard {
     payload: { resourceId: string; amount: number; source: SellSource },
     source?: unknown,
   ): Promise<
-    | { ok: true; sold: number; earned: number; balance: number }
-    | { ok: false; code: SellErrorCode }
+    { ok: true; sold: number; earned: number; balance: number } | { ok: false; code: SellErrorCode }
   > {
     const ship = this.playerEntities.get(playerId);
     if (!ship || ship.kind !== 'ship') {
@@ -1534,7 +1548,12 @@ export class SystemShard implements Shard {
       return { ok: false, code: 'invalid-resource' };
     }
     if (!Number.isInteger(payload.amount) || payload.amount <= 0) {
-      this.sendErrorToPlayer(playerId, 'invalid-amount', 'amount must be a positive integer', source);
+      this.sendErrorToPlayer(
+        playerId,
+        'invalid-amount',
+        'amount must be a positive integer',
+        source,
+      );
       return { ok: false, code: 'invalid-amount' };
     }
     // The station check: a docked ship is AT its station (pad or dock plane).
@@ -1590,7 +1609,12 @@ export class SystemShard implements Shard {
       (payload.source === 'hold' && typeof updateShipCargo !== 'function') ||
       (payload.source === 'inv' && typeof updatePlayerInventory !== 'function')
     ) {
-      this.sendErrorToPlayer(playerId, 'sell-failed', 'the dock could not complete the sale', source);
+      this.sendErrorToPlayer(
+        playerId,
+        'sell-failed',
+        'the dock could not complete the sale',
+        source,
+      );
       return { ok: false, code: 'sell-failed' };
     }
     let balance: number;
@@ -1618,7 +1642,12 @@ export class SystemShard implements Shard {
         resource: payload.resourceId,
         error: String(err),
       });
-      this.sendErrorToPlayer(playerId, 'sell-failed', 'the dock could not complete the sale', source);
+      this.sendErrorToPlayer(
+        playerId,
+        'sell-failed',
+        'the dock could not complete the sale',
+        source,
+      );
       return { ok: false, code: 'sell-failed' };
     }
     // Atomic in-memory apply: both stacks replaced (never mutated), the

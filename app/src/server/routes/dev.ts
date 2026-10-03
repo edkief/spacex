@@ -122,7 +122,10 @@ export function registerDevRoutes(app: FastifyInstance, deps: RouteDeps): void {
     if (!active.shard.teleportCharacterForTesting(auth.player.id, parsed.data)) {
       return reply
         .code(409)
-        .send({ code: 'teleport-failed', message: 'no on-foot character in the shard (not disembarked?)' });
+        .send({
+          code: 'teleport-failed',
+          message: 'no on-foot character in the shard (not disembarked?)',
+        });
     }
     return { ok: true, systemId: ship.position.systemId };
   });

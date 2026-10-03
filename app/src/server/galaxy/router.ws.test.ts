@@ -168,6 +168,8 @@ describe('galaxy router over live ws (TASK-11)', () => {
         `own ship missing from ${own}`,
       ).toBe(true);
       for (const e of snapshots[i].entities) {
+        // TASK-40: station terminals are static world content, not player-owned entities.
+        if (e.id.startsWith('terminal:')) continue;
         const j = ownerOfShip.get(e.id);
         expect(j, `client in ${own} sees foreign entity ${e.id}`).toBeDefined();
         const home = homeSystemIdForPlayer(GALAXY_SEED, players[j!].playerId);
@@ -224,6 +226,8 @@ describe('galaxy router over live ws (TASK-11)', () => {
     const fullByShip = new Map(fullClaimants.map((p) => [p.shipId, p]));
     for (const e of entities) {
       if (e.id === late.shipId) continue;
+      // TASK-40: station terminals are static world content, not player-owned entities.
+      if (e.id.startsWith('terminal:')) continue;
       const p = fullByShip.get(e.id);
       expect(p, `unknown entity ${e.id} in quiet system`).toBeDefined();
       expect(

@@ -44,7 +44,11 @@ const SYSTEM: SystemGen = {
   systemId: 'sys-terminal-sim',
   name: 'Terminal system',
   star: { class: 'G', name: 'Varda' },
-  planets: [makePlanet('planet-a'), makePlanet('planet-b'), { ...makePlanet('planet-x'), landable: false }],
+  planets: [
+    makePlanet('planet-a'),
+    makePlanet('planet-b'),
+    { ...makePlanet('planet-x'), landable: false },
+  ],
 };
 
 describe('terminalsFor — one per pad, deterministic', () => {
@@ -87,7 +91,12 @@ describe('terminalPosFor — on the pad plane, at the pad edge', () => {
 describe('withinTerminalRange — the on-foot "at a station" reach', () => {
   it('is true within 10 m (xz) and false beyond', () => {
     const [pad] = padsForSystem(SEED, SYSTEM);
-    const t = { terminalId: terminalIdFor(pad), planetId: pad.planetId, padId: pad.padId, pos: terminalPosFor(pad) };
+    const t = {
+      terminalId: terminalIdFor(pad),
+      planetId: pad.planetId,
+      padId: pad.padId,
+      pos: terminalPosFor(pad),
+    };
     const at = (dx: number, dz: number) =>
       withinTerminalRange({ x: t.pos.x + dx, y: t.pos.y, z: t.pos.z + dz }, [t]);
     expect(at(0, 0)).toBe(true);
@@ -99,7 +108,12 @@ describe('withinTerminalRange — the on-foot "at a station" reach', () => {
 
   it('ignores altitude (the pad plane is flat — y is not part of the reach)', () => {
     const [pad] = padsForSystem(SEED, SYSTEM);
-    const t = { terminalId: terminalIdFor(pad), planetId: pad.planetId, padId: pad.padId, pos: terminalPosFor(pad) };
+    const t = {
+      terminalId: terminalIdFor(pad),
+      planetId: pad.planetId,
+      padId: pad.padId,
+      pos: terminalPosFor(pad),
+    };
     const sameXzHighY = { x: t.pos.x, y: t.pos.y + 50, z: t.pos.z };
     expect(withinTerminalRange(sameXzHighY, [t])).toBe(true);
     expect(terminalDistanceM(t.pos, t)).toBe(0);

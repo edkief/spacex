@@ -40,7 +40,13 @@ export interface DockPanelState {
 
 type DockListener = (state: DockPanelState) => void;
 
-const CLOSED: DockPanelState = { open: false, terminalId: null, hold: null, inventory: null, balance: null };
+const CLOSED: DockPanelState = {
+  open: false,
+  terminalId: null,
+  hold: null,
+  inventory: null,
+  balance: null,
+};
 
 const listeners = new Set<DockListener>();
 let current: DockPanelState = CLOSED;

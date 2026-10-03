@@ -215,7 +215,11 @@ interface SellFrame {
 }
 
 async function sellFrame(c: WsTestClient, what: string): Promise<SellFrame> {
-  const m = await c.next((x) => x.type === 'sell' && (x.payload as SellFrame).sold !== undefined, what, 10_000);
+  const m = await c.next(
+    (x) => x.type === 'sell' && (x.payload as SellFrame).sold !== undefined,
+    what,
+    10_000,
+  );
   return m.payload as SellFrame;
 }
 

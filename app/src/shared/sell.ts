@@ -16,12 +16,7 @@
  * decrement back, and vice versa).
  */
 
-import {
-  inventoryWeight,
-  isResourceId,
-  type InventoryStacks,
-  type ResourceId,
-} from './inventory';
+import { inventoryWeight, isResourceId, type InventoryStacks, type ResourceId } from './inventory';
 import { RESOURCE_CATALOG } from './resources';
 import type { CargoHold } from './cargo';
 
