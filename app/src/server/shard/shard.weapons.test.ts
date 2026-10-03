@@ -109,7 +109,12 @@ function seedProjectile(shard: SystemShard, seq: number, pos: Vec3, targetId: st
     kind: 'projectile',
     playerId: null,
     classId: 'missile',
-    ship: { pos: { ...pos }, vel: { x: 0, y: 0, z: MISSILE.speed! }, quat: { x: 0, y: 0, z: 0, w: 1 }, regime: 'space' },
+    ship: {
+      pos: { ...pos },
+      vel: { x: 0, y: 0, z: MISSILE.speed! },
+      quat: { x: 0, y: 0, z: 0, w: 1 },
+      regime: 'space',
+    },
     hull: 0,
     shields: 0,
     targetId,
@@ -344,13 +349,20 @@ describe('LOS against the seeded analytic terrain', () => {
    * higher than 100 m on either side (+X) AND at least one of the sweep's
    * own 20 m subsamples (from the nose at px−97) stands ≥ 10 m above the
    * low ray — a narrow spike between samples would be (documentedly) missed.
-   * Scanned near the planet ANCHOR (10 km out, orbital slot 0): the regime
-   * machine only keeps a ship in the atmosphere/surface regimes within the
-   * 1 km atmosphere radius, where the terrain occlusion applies at all.
+   * Scanned within ±550 m of the planet ANCHOR: the regime machine only keeps
+   * a ship in the atmosphere/surface regimes within the 1 km atmosphere
+   * radius, where the terrain occlusion applies at all (ships at px±100 stay
+   * ≤ ~850 m out — inside the enter radius, so the tick never re-resolves
+   * them to 'space').
    */
-  function findRidge(shard: SystemShard, planetId: string, drop = 12): { px: number; pz: number; hM: number; hA: number; hB: number } {
+  function findRidge(
+    shard: SystemShard,
+    planetId: string,
+    planetIndex: number,
+    drop = 12,
+  ): { px: number; pz: number; hM: number; hA: number; hB: number } {
     const h = (x: number, z: number) => shard.terrainHeightAt(planetId, x, z);
-    const anchor = planetAnchor(0);
+    const anchor = planetAnchor(planetIndex);
     // Both ships (px±100) must stay inside the 1 km atmosphere radius or
     // the regime machine re-resolves them to 'space' (terrain skipped).
     for (let px = anchor.x - 550; px <= anchor.x + 550; px += 25) {
@@ -373,7 +385,13 @@ describe('LOS against the seeded analytic terrain', () => {
   }
 
   /** A surface ship at `pos` facing +X (yaw 90°, so the nose ray runs over the ridge). */
-  function surfaceShipFacingX(shard: SystemShard, playerId: string, pos: Vec3, planetId: string, sent?: string[]): void {
+  function surfaceShipFacingX(
+    shard: SystemShard,
+    playerId: string,
+    pos: Vec3,
+    planetId: string,
+    sent?: string[],
+  ): void {
     const entity: SimEntity = {
       id: `ship-${playerId}`,
       kind: 'ship',
@@ -399,9 +417,16 @@ describe('LOS against the seeded analytic terrain', () => {
   it('a ship behind the ridge is NOT hit; the same engagement clears at high altitude', () => {
     fakeNow = 1_000_000;
     const system = testSystem();
-    const planet = system.planets[0];
+    // The planet MUST have an atmosphere: on an airless planet
+    // (atmosphereRadius 0) the regime machine re-resolves every ship to
+    // 'space', and space ships skip the terrain/LOS sweep entirely — the
+    // occlusion could never fire. The seeded system's first landable
+    // atmospheric planet is slot 1 (ocean, 1 km atmosphere radius).
+    const planetIndex = system.planets.findIndex((p) => p.hasAtmosphere && p.landable);
+    expect(planetIndex).toBeGreaterThan(0);
+    const planet = system.planets[planetIndex];
     const shard = makeRidgeShard(system);
-    const { px, pz, hM, hA, hB } = findRidge(shard, planet.id);
+    const { px, pz, hM, hA, hB } = findRidge(shard, planet.id, planetIndex);
     expect(hM).toBeGreaterThan((hA + hB) / 2 + 5); // the ridge is really a ridge
 
     // Low: both 5 m above their own ground, the ridge (≥ +25 m) blocks.
@@ -410,6 +435,13 @@ describe('LOS against the seeded analytic terrain', () => {
     surfaceShipFacingX(shard, 'p1', { x: px - 100, y: hA + 5, z: pz }, planet.id, a);
     surfaceShipFacingX(shard, 'p2', { x: px + 100, y: hB + 5, z: pz }, planet.id, b);
     warmup(shard);
+    // Guard: both ships must STILL be in the surface regime after the tick
+    // (terrain occlusion only applies there) — a regime flip fails loudly
+    // instead of silently letting the shot through.
+    for (const id of ['ship-p1', 'ship-p2']) {
+      expect(shard.entities.get(id)!.ship.regime).toBe('surface');
+      expect(shard.entities.get(id)!.planetId).toBe(planet.id);
+    }
     shard.handleFire('p1', { weapon: 'laser', targetId: 'ship-p2' });
     advance(shard, 50);
 
@@ -420,10 +452,11 @@ describe('LOS against the seeded analytic terrain', () => {
 
     shard.stop();
 
-    // High: the same geometry at +2000 m — terrain cannot reach the ray.
+    // High: the same geometry at +2000 m — the ridge (≤ ~300 m of terrain)
+    // cannot reach the ray, and the shot lands.
     fakeNow = 1_000_000;
     const shard2 = makeRidgeShard(testSystem());
-    const r2 = findRidge(shard2, planet.id);
+    const r2 = findRidge(shard2, planet.id, planetIndex);
     const hi: string[] = [];
     surfaceShipFacingX(shard2, 'p1', { x: r2.px - 100, y: r2.hA + 2000, z: r2.pz }, planet.id, hi);
     surfaceShipFacingX(shard2, 'p2', { x: r2.px + 100, y: r2.hB + 2000, z: r2.pz }, planet.id);
@@ -453,7 +486,11 @@ describe('missiles (homing projectile entities)', () => {
     // The projectile is a VISIBLE entity (kind 'projectile', 5 s ttl).
     const proj = [...shard.entities.values()].find((e) => e.kind === 'projectile');
     expect(proj).toBeDefined();
-    expect(proj!.projectile).toMatchObject({ targetId: 'ship-p2', sourceId: 'ship-p1', weaponId: 'missile' });
+    expect(proj!.projectile).toMatchObject({
+      targetId: 'ship-p2',
+      sourceId: 'ship-p1',
+      weaponId: 'missile',
+    });
     expect(proj!.ttl).toBe(Math.round(MISSILE.ttl! / 0.05) - 1); // 100 at spawn, one tick elapsed
     expect(events(a).filter((e) => e.kind === 'missile-fired')).toHaveLength(1);
 

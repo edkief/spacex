@@ -8,19 +8,19 @@
       "step": 1,
       "description": "Reproduce and pinpoint with a throwaway debug script",
       "details": "cd app && npx vitest run src/server/shard/shard.weapons.test.ts — expect exactly 1 failure (the 'LOS against the seeded analytic terrain' test, assertion 'ship-p2 shields toBe(1)' receives 0.84). Recreate the throwaway tsx debug script (put it in /tmp — e.g. /tmp/los-debug.ts — never in the repo, never committed) that mirrors the failing test EXACTLY: same SYSTEM_SEED 'shard-weapons-los-seed', same makeRidgeShard/findRidge/surfaceShipFacingX code copied from the test (lines ~317-437), warmup 250 ms (advance(250) burning the 5-tick catch-up burst), then LOG AFTER warmup: entity.ship.regime and entity.planetId for both ships, the ship y positions (did the integrator move them?), and a replica of the laser's 20 m nose-ray sweep against shard.terrainHeightAt(planet.id, ...) to see which samples the shard's own sweep would take. This confirms or kills the regime-flip hypothesis before touching anything.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Fix the failure",
       "details": "IF the regime flips to 'space' after warmup (the prime suspect): shrink findRidge's scan window from ±550 m around planetAnchor(0) to ±350, then ±300 if needed (the ridge must keep BOTH ships px±100 within the 1050 m exit radius with margin), and add an explicit guard right after warmup in the test — both ships must still be regime 'surface' with planetId set — so a future flip fails loudly instead of silently hitting. Verify the ships' y (hA+5 / hB+5) does not drift under the integrator (surface clamp should hold them). IF the regime holds but the hit still lands: the two suspects are (a) the explicit-target path's losClear (5-sample lineOfSight from TASK-42) passing where it should not, and (b) the sweep's endT boundary — the 20 m subsamples land at d=20,40,…,180 from the nose while the target sits ~197 m out, so an occluder in the gap (180, endT] is missed; widen findRidge's occlusion predicate (require an occluding sample at d=180, or coverage reaching ~190 m) or relocate the ridge so an occluding sample lands before endT. IF the evidence shows a real bug in the committed laser sweep/LOS in shard.ts rather than the test setup: fix it MINIMALLY, keep this test as the regression, and re-run the whole file — the 14 already-green tests must stay green. Do NOT refactor working code for style, and do NOT re-derive the dead ends in the notes.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Green + commit",
       "details": "cd app && npx vitest run src/shared/weapons.test.ts src/server/shard/shard.weapons.test.ts → 33 passed / 0 failed; npx tsc --noEmit clean; delete the /tmp debug script; npx eslint --fix + npx prettier --write on the touched files; commit with a Conventional Commit message (e.g. 'test(weapons): TASK-43.1 ridge-LOS test green — <one-line cause>'). If the fix does not converge in time, leave an UPDATED .ralph/handoff/TASK-43.md (overwrite the stale one) stating exactly which hypothesis was confirmed/killed, what the debug script logged, and the single next action — the next attempt must not re-derive any of it.",
-      "pass": false
+      "pass": true
     }
   ],
   "acceptanceCriteria": [

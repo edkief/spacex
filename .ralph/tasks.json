@@ -447,7 +447,7 @@
     "title": "Weapons: fix the failing ridge-LOS unit test — all 33 weapon tests green",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-43.1.json",
-    "passes": false,
+    "passes": true,
     "splitFrom": "TASK-43",
     "splitDepth": 1
   },
