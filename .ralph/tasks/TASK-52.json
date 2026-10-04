@@ -17,25 +17,25 @@
       "step": 1,
       "description": "Exposure meter",
       "details": "ExposureMeter: from the player's hazard state (snapshot field exposure, recoveringUntil — extend the snapshot's player state in this task, small protocol addition); icon by active hazard kind (the snapshot includes the current hazard id when inside one).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Weight bar + prompt line",
       "details": "WeightBar (TASK-34, moved into the on-foot HUD slot with hover counts); InteractionLine: the unified prompt (the TASK-33 prompt is already single — this task gives it its final layout + the mining radial (a conic-gradient ring, rAF angle write from the server's miningProgress).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Mode switch",
       "details": "HUD mode = the player's activeEntity kind (ship/character) — a single source of truth; the HUD root renders the ShipHUD or OnFootHUD subtree (never both); the switch is atomic with the camera handoff (same event).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Tests + e2e",
       "details": "All listed; e2e rad-zone screenshot. Run full suite + e2e.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-34", "TASK-33"],

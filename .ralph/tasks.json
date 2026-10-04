@@ -587,7 +587,7 @@
     "title": "On-foot HUD: prompt, inventory strip, objective hint",
     "category": "ui-ux",
     "specFilePath": ".ralph/tasks/TASK-52.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-53",
