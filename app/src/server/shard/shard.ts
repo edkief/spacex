@@ -99,7 +99,7 @@ import {
   type CargoHold,
 } from '@shared/cargo';
 import { MINING_UNIT_MS, stepMiningChannel, type MiningChannel } from '@shared/mining';
-import { shipStats, HEX_COLOR } from '@shared/ships';
+import { SHIP_CLASSES, shipStats, HEX_COLOR } from '@shared/ships';
 import {
   coneContains,
   LOCK_CONE_RAD,
@@ -223,7 +223,12 @@ export interface CreateSystemShardOptions {
     Partial<
       Pick<
         Repository,
-        'withTransaction' | 'addCredits' | 'updatePlayerInventory' | 'updateShipCargo'
+        | 'withTransaction'
+        | 'addCredits'
+        | 'updatePlayerInventory'
+        | 'updateShipCargo'
+        /** TASK-49: the destruction's respawn (cargo loss + starter scout row). */
+        | 'respawnShip'
       >
     >;
   /** Keep in-shard entities in sync with dock purchases / livery changes. */
@@ -860,6 +865,8 @@ export class SystemShard implements Shard {
     if (!t) return undefined;
     if (t.kind !== 'ship' && t.kind !== 'ai-ship') return undefined;
     if (t.destroyed) return undefined;
+    // TASK-49: a docked ship is a safe zone — it can never be locked.
+    if (t.docked) return undefined;
     return t;
   }
 
@@ -944,7 +951,7 @@ export class SystemShard implements Shard {
     const forward = quatRotateVector(entity.ship.quat, { x: 0, y: 0, z: 1 });
     const candidates: { id: string; pos: Vec3 }[] = [];
     for (const e of this.entities.values()) {
-      if (e.id === entity.id || e.destroyed) continue;
+      if (e.id === entity.id || e.destroyed || e.docked) continue; // TASK-49: skip safe zones
       if (e.kind !== 'ship' && e.kind !== 'ai-ship') continue;
       if (!this.losClear(entity, e.ship.pos)) continue;
       candidates.push({ id: e.id, pos: e.ship.pos });
@@ -1134,7 +1141,8 @@ export class SystemShard implements Shard {
     let target: SimEntity | undefined;
     if (targetId && targetId !== entity.id) {
       const t = this.entities.get(targetId);
-      if (t && (t.kind === 'ship' || t.kind === 'ai-ship') && !t.destroyed) {
+      // TASK-49: a docked target is a safe zone — the beam passes over it.
+      if (t && (t.kind === 'ship' || t.kind === 'ai-ship') && !t.destroyed && !t.docked) {
         if (
           vecLength(vecSub(t.ship.pos, nose)) <= weapon.range &&
           this.losClear(entity, t.ship.pos)
@@ -1148,7 +1156,7 @@ export class SystemShard implements Shard {
     if (!target) {
       let best: { entity: SimEntity; t: number } | undefined;
       for (const e of this.entities.values()) {
-        if (e.id === entity.id || e.kind === 'wreck' || e.destroyed) continue;
+        if (e.id === entity.id || e.kind === 'wreck' || e.destroyed || e.docked) continue;
         if (e.kind !== 'ship' && e.kind !== 'ai-ship') continue;
         const to = vecSub(e.ship.pos, nose);
         const t = vecDot(to, forward);
@@ -1208,7 +1216,9 @@ export class SystemShard implements Shard {
   ): SimEntity | undefined {
     if (!targetId || targetId === entity.id) return undefined;
     const t = this.entities.get(targetId);
-    if (!t || (t.kind !== 'ship' && t.kind !== 'ai-ship') || t.destroyed) return undefined;
+    // TASK-49: a docked target is a safe zone — missiles can't lock it.
+    if (!t || (t.kind !== 'ship' && t.kind !== 'ai-ship') || t.destroyed || t.docked)
+      return undefined;
     const nose = vecAdd(
       entity.ship.pos,
       vecScale(quatRotateVector(entity.ship.quat, { x: 0, y: 0, z: 1 }), NOSE_OFFSET_M),
@@ -1449,7 +1459,9 @@ export class SystemShard implements Shard {
     const now = this.now();
     const players: AiPlayerView[] = [];
     for (const e of this.playerEntities.values()) {
-      if (e.destroyed || e.disembarked) continue;
+      // TASK-49: docked ships are safe zones — a rogue never targets one
+      // (the aggro cone + fire-memory both read this list).
+      if (e.destroyed || e.disembarked || e.docked) continue;
       players.push({ id: e.id, pos: e.ship.pos, vel: e.ship.vel });
     }
     const rng = tickRng(this.systemId, tick);
@@ -1567,12 +1579,120 @@ export class SystemShard implements Shard {
       const rogue = this.rogues.get(entity.id);
       if (rogue) rogue.respawnAtMs = this.now() + ROGUE_RESPAWN_MS;
     }
+    // TASK-49: a destroyed PLAYER ship loses its cargo and respawns IMMEDIATELY
+    // at the nearest dock in a fresh starter scout (immediate server-side — the
+    // 2 s 'SHIP LOST' moment is client presentation, driven by the 'destroyed'
+    // event above). A destroyed ship is by construction one its player is IN:
+    // docked / disembarked ships are weapon-invulnerable (step 2), so the
+    // "destroyed while on foot" edge cannot occur here.
+    if (entity.kind === 'ship' && entity.playerId) {
+      this.respawnPlayer(entity.playerId);
+    }
     this.log.info('ship destroyed', {
       target: entity.id,
       source: source.id,
       weapon: weaponId,
       wreck: `wreck:${entity.id}`,
     });
+  }
+
+  /**
+   * TASK-49: the nearest dock for a respawn — the pad in THIS system whose
+   * center is closest (true 3D distance) to the given position. A ship killed
+   * in open space respawns at the nearest station's pad; there is no
+   * cross-system respawn in v1 (the player stays in that system's economy — a
+   * soft consequence, documented in the spec). Returns undefined for a
+   * system with no landable pad (the caller then docks at the home dock).
+   */
+  private nearestDockPad(pos: Vec3): PadInfo | undefined {
+    let best: PadInfo | undefined;
+    let bestD = Infinity;
+    for (const pad of this.planetPads.values()) {
+      const d = vecLength(vecSub(pos, pad.pos));
+      if (d < bestD || (d === bestD && (!best || pad.padId < best.padId))) {
+        best = pad;
+        bestD = d;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * TASK-49: respawn a player at the nearest dock in a fresh starter scout
+   * (full hull/shields, starter livery, docked). Called from the destruction
+   * path (the single writer). The SAME sim entity is reset in place — its id
+   * is wire-stable, so the client's self-ship mesh just re-renders (the
+   * classId change rebuilds it as a scout) and the frozen wreck stays
+   * independent (`wreck:<id>`, its own ttl).
+   *
+   * - CARGO IS LOST: the ship's hold is cleared (PRD risk model — mining trips
+   *   are the stakes, not the player).
+   * - CREDITS + on-foot INVENTORY SURVIVE: `entity.inventory` is untouched.
+   *
+   * The old ship's DB record is replaced in one transaction (respawnShip —
+   * classId → scout, full caps, docked, cargo scrubbed, destroyed_at scrubbed).
+   */
+  respawnPlayer(playerId: string): { pad: PadInfo; shipId: string } | undefined {
+    const entity = this.playerEntities.get(playerId);
+    if (!entity || entity.kind !== 'ship') return undefined;
+    if (!entity.destroyed) return undefined; // only a destroyed ship respawns here
+    const dock = this.nearestDockPad(entity.ship.pos);
+    const scout = SHIP_CLASSES.scout;
+    // The respawn position: the nearest pad's surface, or (no landable pad)
+    // the seed-derived home dock in open space.
+    const padId = dock?.padId;
+    const pos: Vec3 = dock ? { ...dock.pos } : { ...homeDockPosition(this.galaxySeed, this.systemId) };
+    const regime: SimEntity['ship']['regime'] = dock ? 'surface' : 'space';
+    entity.cargo = undefined; // LOST (credits + inventory are kept — untouched)
+    entity.classId = 'scout';
+    entity.hull = 1;
+    entity.shields = 1;
+    entity.livery = { ...scout.defaultLivery };
+    entity.ship = {
+      pos,
+      vel: { x: 0, y: 0, z: 0 },
+      quat: quatIdentity(),
+      regime,
+      ...(padId ? { onPad: padId } : {}),
+    };
+    entity.destroyed = false;
+    entity.destroyedAtMs = undefined;
+    entity.docked = true;
+    entity.padId = padId;
+    entity.planetId = dock?.planetId;
+    entity.energy = ENERGY_MAX;
+    entity.fireCooldownUntil = undefined;
+    entity.heldInput = undefined;
+    entity.idle = !this.playerConns.has(playerId);
+    // Persist: replace the record (classId → scout, full caps, docked, cargo
+    // scrubbed) in one transaction. Best-effort — a persistence failure must
+    // never wedge the tick; the in-shard entity (the wire authority) is done.
+    this.persistRespawn(entity, pos);
+    this.log.info('player respawned at dock', {
+      playerId,
+      ship: entity.id,
+      padId: padId ?? 'home-dock',
+    });
+    return { pad: dock ?? { padId: '', planetId: '', pos, normal: { x: 0, y: 1, z: 0 }, radius: 0 }, shipId: entity.id };
+  }
+
+  /** TASK-49: persist the respawn (best-effort, one transaction, no throw). */
+  private persistRespawn(entity: SimEntity, pos: Vec3): void {
+    const repo = this.repo;
+    if (typeof repo.withTransaction !== 'function') return; // test stub without tx
+    void repo
+      .withTransaction(async (tx) => {
+        if (typeof tx.respawnShip !== 'function') return;
+        await tx.respawnShip(entity.id, {
+          position: { systemId: this.systemId, x: pos.x, y: pos.y, z: pos.z },
+          rotation: entity.ship.quat,
+          regime: entity.ship.regime as import('@server/db/schema').ShipRegime,
+          onPad: entity.padId ?? null,
+        });
+      })
+      .catch((err: unknown) => {
+        this.log.warn('respawn persist failed', { ship: entity.id, error: String(err) });
+      });
   }
 
   /**

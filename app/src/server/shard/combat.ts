@@ -81,6 +81,13 @@ export type ResolveHitCode =
   | 'unknown-source'
   | 'unknown-target'
   | 'dead-target'
+  | /**
+   * TASK-49: a DOCKED ship is a safe zone — weapons pass over it, it is never
+   * a valid target (the dock is invulnerable in v1). A docked ship is only
+   * one its player has left (disembark freezes it on the pad), so this is the
+   * guard that "a ship destroyed while the player is on foot" cannot happen.
+   */
+  'docked'
   | 'out-of-range'
   | 'no-line-of-sight';
 
@@ -111,6 +118,10 @@ export function resolveHit(shard: CombatShard, args: ResolveHitArgs): ResolveHit
   const target = shard.entities.get(targetId);
   if (!target) return { ok: false, code: 'unknown-target' };
   if (target.kind === 'wreck' || target.destroyed) return { ok: false, code: 'dead-target' };
+  // TASK-49: a docked ship is a safe zone — weapons pass over it (LOS
+  // "passes over"), no damage, no event. This single gate covers every
+  // damage path (laser/missile/AI all funnel through resolveHit → applyHit).
+  if (target.docked) return { ok: false, code: 'docked' };
 
   // Range: the damage point must be within the weapon's reach of the firer.
   if (vecLength(vecSub(damagePoint, source.ship.pos)) > weapon.range) {

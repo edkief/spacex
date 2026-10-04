@@ -158,6 +158,16 @@ export interface Repository {
     rows: Array<{ ownerId: string; classId: string; state: ShipStateInput }>,
   ): Promise<number>;
   saveShipState(shipId: string, state: ShipStateInput): Promise<ShipRow>;
+  /**
+   * TASK-49: replace a destroyed ship's record with a FRESH STARTER SCOUT in
+   * one UPDATE — the destruction's cargo loss + dock respawn, atomically:
+   * classId → 'scout', full scout caps, starter livery, docked at `position`,
+   * cargo scrubbed (LOST), destroyed_at scrubbed. Same row id (wire-stable).
+   */
+  respawnShip(
+    shipId: string,
+    input: { position: ShipPosition; rotation: Quat; regime: ShipRegime; onPad?: string | null },
+  ): Promise<ShipRow>;
   saveCargo(shipId: string, resourceType: string, quantity: number): Promise<CargoRow>;
   /**
    * Ships whose persisted position lives in `systemId`. Relies on the
@@ -437,6 +447,33 @@ export function createRepo(db: Db, tables: Schema): Repository {
           ...(state.onPad !== undefined ? { onPad: state.onPad } : {}),
           ...(state.destroyedAt !== undefined ? { destroyedAt: state.destroyedAt } : {}),
           ...(state.cargo !== undefined ? { cargo: state.cargo } : {}),
+          updatedAt: nowIso(),
+        })
+        .where(eq(t.ships.id, shipId));
+      const rows = await d.select().from(t.ships).where(eq(t.ships.id, shipId)).limit(1);
+      const row = await findOne<ShipRow>(rows);
+      if (!row) throw new NotFoundError('ship', shipId);
+      return row;
+    },
+
+    async respawnShip(shipId, input) {
+      const scout = SHIP_CLASSES.scout;
+      ShipPositionSchema.parse(input.position);
+      await d
+        .update(t.ships)
+        .set({
+          classId: 'scout',
+          livery: scout.defaultLivery,
+          hull: scout.hull,
+          shields: scout.shieldCapacity,
+          position: input.position,
+          velocity: { x: 0, y: 0, z: 0 } satisfies Vec3,
+          state: 'docked',
+          rotation: input.rotation,
+          regime: input.regime,
+          onPad: input.onPad ?? null,
+          cargo: '{}', // cargo is LOST — scrubbed with the destruction
+          destroyedAt: null,
           updatedAt: nowIso(),
         })
         .where(eq(t.ships.id, shipId));
