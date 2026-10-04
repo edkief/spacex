@@ -115,7 +115,7 @@ interface EntityState {
   onFoot?: boolean;
 }
 
-test('on foot: the prompt appears at a deposit, E picks it up, the prompt hides', async ({
+test('on foot: the prompt appears at a deposit, E mines it up, the prompt hides', async ({
   browser,
   e2eServer,
 }) => {
@@ -209,19 +209,23 @@ test('on foot: the prompt appears at a deposit, E picks it up, the prompt hides'
   await page.evaluate((s) => localStorage.setItem('drift.session.v1', JSON.stringify(s)), session);
   await page.goto(`${baseURL}/?sys=${target.systemId}`);
 
-  // The prompt: '[E] Take ore', bottom-center (the AC string).
+  // The prompt: 'Hold [E] to mine iron', bottom-center (TASK-38 hold-to-mine
+  // replaced the v1 '[E] Take ore' single-press pickup).
   const prompt = page.locator('#interact-prompt');
   await expect(prompt).toBeVisible({ timeout: 20_000 });
-  await expect(prompt).toHaveText('[E] Take ore');
+  await expect(prompt).toHaveText('Hold [E] to mine iron');
   await page.waitForTimeout(800); // let the on-foot camera settle
   await page.screenshot({
     path: path.join(__dirname, '../../../.ralph/screenshots/TASK-33-1.png'),
   });
 
-  // (3) PRESS E: the registry dispatches the 'interact' frame; the server
-  // applies the v1 pickup (quantity 1 → 0 → despawn). Within one 10 Hz
-  // snapshot the deposit leaves the target list → the prompt hides.
-  await page.keyboard.press('e');
+  // (3) HOLD E: the registry dispatches 'mine-start'; the server's 1.5 s
+  // channel awards the single unit (quantity 1 → 0 → despawn). Release E
+  // (mine-stop) and the deposit is gone from the target list → prompt hides.
+  await page.keyboard.down('e');
+  await expect(page.locator('#mining-hud')).toBeVisible({ timeout: 10_000 });
+  await page.waitForTimeout(1_800); // one full 1.5 s channel tick → award
+  await page.keyboard.up('e');
   await expect(prompt).toBeHidden({ timeout: 10_000 });
 
   assertClean();
