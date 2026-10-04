@@ -84,6 +84,7 @@ import { installInteractDebug } from '@client/interact-debug';
 import { bindDepositsDebug, installDepositsDebug } from '@client/deposits-debug';
 import { bindSelfShipDebug, installSelfShipDebug } from '@client/self-ship-debug';
 import { bindRemoteShipsDebug, installRemoteShipsDebug } from '@client/remote-ships-debug';
+import { bindHazardWorldDebug, installHazardWorldDebug } from '@client/hazard-world-debug';
 import { installTransitionDebug } from '@client/test/transitionCycle';
 import type { ChatMessage, EntityState, InputPayload } from '@shared/protocol/schemas';
 import { inputToCharacterInput, shipInputToPayload } from '@shared/protocol/inputs';
@@ -629,6 +630,9 @@ function App() {
   const weaponRef = React.useRef<WeaponId>('laser');
   const selfShipRef = React.useRef(false);
   const selfPosRef = React.useRef<{ x: number; y: number; z: number } | null>(null);
+  // TASK-48.3: the on-foot character's last 10 Hz position — drone 'hit'
+  // combat_events target THIS entity, so the FX impact flash can resolve it.
+  const charPosRef = React.useRef<{ x: number; y: number; z: number } | null>(null);
   const remoteShipsRef = React.useRef<{ id: string; pos: { x: number; y: number; z: number } }[]>(
     [],
   );
@@ -705,6 +709,7 @@ function App() {
         selfShipRef.current = false; // TASK-43: on foot = no weapons (v1)
         setSelfShip(null); // TASK-43: hide the weapon HUD on foot
         world.setCharacterPos(self.pos);
+        charPosRef.current = { ...self.pos }; // TASK-48.3: drone-hit FX anchor
         // TASK-72: the ship stays rendered while on foot — it sits docked
         // (frozen, but still in every batch) and is the object the character
         // walks back to. Update the mesh from the ship entity every batch.
@@ -735,6 +740,7 @@ function App() {
         // feed the pose), and clears all on-foot state otherwise.
         onFootRef.current = false; // TASK-73: Q-drop gate (on foot only)
         store.setSelfOnFoot(false); // TASK-36: PlayerList icon (self row)
+        charPosRef.current = null; // TASK-48.3: no character → no FX anchor
         // TASK-48.2: back in the ship → the hazard frames stop; drop any
         // stale exposure/hazard state (no on-foot pool while flying).
         clearHazard();
@@ -886,6 +892,12 @@ function App() {
       if (!world) return;
       playCombatFx(world.fx, event, (id) => {
         if (id === selfShipIdRef.current) return selfPosRef.current;
+        // TASK-48.3: a drone 'hit' targets the on-foot character entity —
+        // resolve it from the 10 Hz self updates (same standard event path,
+        // no new event type).
+        if (onFootRef.current && id === `char:${session?.playerId ?? ''}`) {
+          return charPosRef.current;
+        }
         return remoteShipsRef.current.find((t) => t.id === id)?.pos ?? null;
       });
     },
@@ -1380,6 +1392,17 @@ function App() {
           screen: world.projectToScreen(s.pos),
         }));
       });
+      // TASK-48.3: the hazard discs + drone meshes read lazily (the frame
+      // loop flips visibility every frame, so a cached value would lie).
+      bindHazardWorldDebug(hazardWorldDebug, () => {
+        const world = worldRef.current;
+        if (!world) return { systemId: null, discs: [], drones: [] };
+        return {
+          systemId: world.currentSystemId,
+          discs: world.hazardDiscsView(),
+          drones: world.drones(),
+        };
+      });
     }
     // The world is the pure function (seed, systemId) — boot join and warp
     // arrival (warp_arrived snapshot) take the same swapWorld path.
@@ -1680,6 +1703,8 @@ const depositsDebug = installDepositsDebug();
 const selfShipDebug = installSelfShipDebug();
 // TASK-74: dev-only remote-ship probe hook (no-op in production builds).
 const remoteShipsDebug = installRemoteShipsDebug();
+// TASK-48.3: dev-only hazard-world probe hook (no-op in production builds).
+const hazardWorldDebug = installHazardWorldDebug();
 // TASK-26.2: dev-only draw-distance budget benchmark hook (no-op in prod).
 installStreamDebug();
 // TASK-27: dev-only camera handoff probe hook (no-op in production builds).

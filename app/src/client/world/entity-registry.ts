@@ -9,7 +9,7 @@
  * ids the render layer holds.
  */
 
-export type EntityKind = 'ship' | 'character' | 'wreck';
+export type EntityKind = 'ship' | 'character' | 'wreck' | 'drone';
 
 const entities = new Map<string, EntityKind>();
 
@@ -29,6 +29,7 @@ export function entityCounts(): Record<EntityKind, number> & { total: number } {
     ship: 0,
     character: 0,
     wreck: 0,
+    drone: 0,
     total: 0,
   };
   for (const kind of entities.values()) counts[kind] += 1;

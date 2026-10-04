@@ -39,6 +39,7 @@ import { frameMonitor } from '@client/perf/frameMonitor';
 import { CameraRig } from '@client/camera/CameraRig';
 import { atmosphereViewFor } from './atmosphere-view';
 import { SelfShip, type SelfShipInput } from './self-ship';
+import { buildHazardDiscs, hazardDiscVisible, type HazardDiscRender } from './hazard-discs';
 
 /**
  * The in-system world (TASK-8). Owns the three.js scene on the game canvas
@@ -296,6 +297,12 @@ export class WorldManager {
   private pads: PadInfo[] = [];
   /** The glowing pad rings of the current system (per-frame culling list). */
   private padRings: THREE.Mesh[] = [];
+  /**
+   * TASK-48.3: the hazard discs of the current system (storm quad-spins +
+   * rad-zone ground discs, derived from the SAME shared hazardsFor the
+   * server uses). Per-frame: 500 m cull + spin-group rotation only.
+   */
+  private hazardDiscs: HazardDiscRender[] = [];
   /** The player ship's last-known world position (null before the first
    * entity_update): drives pad-ring visibility, nothing else. */
   private selfPos: Vec3 | null = null;
@@ -421,6 +428,13 @@ export class WorldManager {
       for (const ring of this.padRings) {
         ring.visible = padRingVisible(this.selfPos, ring.position);
       }
+      // TASK-48.3: hazard-disc culling (same 500 m rule as the pad rings)
+      // + the storm quad-spin (one rotation set per visible storm cell —
+      // no allocation, the quads share one geometry + material).
+      for (const disc of this.hazardDiscs) {
+        disc.group.visible = hazardDiscVisible(this.selfPos, disc.center);
+        if (disc.spin) disc.spin.rotation.y = this.clock.getElapsedTime() * disc.spinSpeed;
+      }
       // TASK-36: drive the remotes 200 ms in the past (interpolated) before
       // the render — cheap (a handful of entities, direct transforms).
       this.remoteLayer.renderFrame(nowMs);
@@ -462,6 +476,11 @@ export class WorldManager {
     this.pads = padsForSystem(this.seed, system);
     this.padRings = buildPadRings(this.seed, system);
     for (const ring of this.padRings) next.add(ring);
+    // TASK-48.3: hazard discs from the SAME shared hazardsFor the server's
+    // exposure math uses (deterministic per system seed) — the groups live
+    // in the per-system group, so they are disposed with it on the next swap.
+    this.hazardDiscs = buildHazardDiscs(this.seed, system);
+    for (const disc of this.hazardDiscs) next.add(disc.group);
     // TASK-37: the deposit list is derived from the SAME seed the server
     // uses (cached per system — a warm cache makes this a no-op; the first
     // cold derivation per system is the one-time ~100 ms placement pass).
@@ -485,6 +504,26 @@ export class WorldManager {
   /** The client-side pad list of the current system (empty before the first swap). */
   getPads(): PadInfo[] {
     return this.pads;
+  }
+
+  /**
+   * TASK-48.3: the rendered hazard discs (dev probe / e2e assertions) — wire
+   * facts from the shared hazardsFor + the live world position + visibility.
+   */
+  hazardDiscsView(): Array<{
+    hazardId: string;
+    kind: 'storm' | 'radzone';
+    pos: { x: number; y: number; z: number };
+    radius: number;
+    visible: boolean;
+  }> {
+    return this.hazardDiscs.map((d) => ({
+      hazardId: d.placement.hazardId,
+      kind: d.placement.kind,
+      pos: { x: d.center.x, y: d.center.y, z: d.center.z },
+      radius: d.placement.radius,
+      visible: d.group.visible,
+    }));
   }
 
   /**
@@ -537,6 +576,18 @@ export class WorldManager {
     pos: { x: number; y: number; z: number };
   }> {
     return this.remoteLayer.shipProbes();
+  }
+
+  /**
+   * TASK-48.3: the rendered hostile drones (dev probe / e2e assertions) —
+   * wire id + world position + live visibility (hull 0 = hidden).
+   */
+  drones(): Array<{
+    id: string;
+    pos: { x: number; y: number; z: number };
+    visible: boolean;
+  }> {
+    return this.remoteLayer.droneProbes();
   }
 
   /**
@@ -825,6 +876,7 @@ export class WorldManager {
     this.remoteLayer.dispose();
     this.pads = [];
     this.padRings = [];
+    this.hazardDiscs = [];
     this.dome.dispose();
     this.background.dispose();
     this.renderer.dispose();

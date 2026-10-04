@@ -432,3 +432,106 @@ describe('RemoteEntityLayer — ships (TASK-74)', () => {
     expect(entityCounts().ship).toBe(0);
   });
 });
+
+/**
+ * TASK-48.3: hostile surface drones (kind 'drone') — a small rotating
+ * octahedron at the interpolated (server-patrolled) position, hidden while
+ * the wire hull is 0 (killed, awaiting the server-side 180 s respawn), no
+ * callsign label (they are not a presence entry), and the same stale/dimmed
+ * opacity rule as the other remote meshes.
+ */
+describe('RemoteEntityLayer — drones (TASK-48.3)', () => {
+  beforeEach(() => {
+    resetEntityRegistry();
+  });
+
+  function drone(
+    id: string,
+    pos: { x: number; y: number; z: number },
+    extra: Partial<EntityState> = {},
+  ): EntityState {
+    return { ...entity(id, 'drone', pos), classId: 'drone', ...extra };
+  }
+
+  it('renders a drone as a small octahedron at the 200 ms interpolated position (no label)', () => {
+    const layer = new RemoteEntityLayer();
+    const parent = new THREE.Group();
+    layer.setParent(parent);
+    layer.addSnapshot(100, [drone('drone:1', { x: 0, y: 5, z: 0 })], 'me');
+    layer.addSnapshot(300, [drone('drone:1', { x: 2, y: 5, z: 0 })], 'me');
+    // now=490 → target 290 → f=(290-100)/200=0.95 → x = 2*0.95 = 1.9
+    layer.renderFrame(490);
+    const group = meshOf(parent)!;
+    expect(layer.renderedIds()).toEqual(['drone:1']);
+    expect(group.position.x).toBeCloseTo(1.9, 5);
+    expect(group.position.y).toBe(5);
+    // One octahedron body + one additive halo.
+    const body = group.children[0] as THREE.Mesh;
+    expect(body.geometry).toBeInstanceOf(THREE.OctahedronGeometry);
+    expect((body.material as THREE.MeshBasicMaterial).color.getHexString()).toBe(
+      AI_SHIP_TRIM_COLOR.slice(1),
+    );
+    // Drones carry no callsign label (they are not a presence entry).
+    expect(layer.labelStates(490)).toEqual([]);
+    expect(entityCounts().drone).toBe(1);
+    expect(entityCounts().total).toBe(1);
+  });
+
+  it('spins per frame (the octahedron rotates; the server owns the position)', () => {
+    const layer = new RemoteEntityLayer();
+    const parent = new THREE.Group();
+    layer.setParent(parent);
+    layer.addSnapshot(100, [drone('drone:1', { x: 0, y: 5, z: 0 })], 'me');
+    layer.renderFrame(110);
+    const group = meshOf(parent)!;
+    const first = group.rotation.y;
+    layer.renderFrame(1610); // 5 s later
+    expect(group.rotation.y).not.toBe(first);
+    // …but the position stayed at the (single) sampled position.
+    expect(group.position.x).toBe(0);
+  });
+
+  it('hides a killed drone (hull 0 on the wire) until its respawn streams again', () => {
+    const layer = new RemoteEntityLayer();
+    const parent = new THREE.Group();
+    layer.setParent(parent);
+    layer.addSnapshot(100, [drone('drone:1', { x: 0, y: 5, z: 0 }, { hull: 0 })], 'me');
+    layer.renderFrame(110);
+    expect(meshOf(parent)!.visible).toBe(false); // killed: hidden
+    layer.addSnapshot(200, [drone('drone:1', { x: 0, y: 5, z: 0 }, { hull: 1 })], 'me');
+    layer.renderFrame(210);
+    expect(meshOf(parent)!.visible).toBe(true); // respawned: visible again
+    expect(layer.droneProbes()[0]).toMatchObject({ id: 'drone:1', visible: true });
+  });
+
+  it('removes the drone when it leaves the snapshot (mesh + registry + probe)', () => {
+    const layer = new RemoteEntityLayer();
+    const parent = new THREE.Group();
+    layer.setParent(parent);
+    layer.addSnapshot(100, [drone('drone:1', V3)], 'me');
+    layer.renderFrame(110);
+    expect(parent.children).toHaveLength(1);
+    expect(entityCounts().drone).toBe(1);
+
+    layer.addSnapshot(200, [character('char-bob', 'bob', V3)], 'me');
+    layer.renderFrame(210);
+    expect(layer.renderedIds()).toEqual(['char-bob']);
+    expect(parent.children).toHaveLength(1);
+    expect(entityCounts().drone).toBe(0);
+    expect(layer.droneProbes()).toEqual([]);
+  });
+
+  it('applies the stale/dimmed opacity rule to the drone (dimmed when the buffer starves)', () => {
+    const layer = new RemoteEntityLayer();
+    const parent = new THREE.Group();
+    layer.setParent(parent);
+    layer.addSnapshot(100, [drone('drone:1', V3)], 'me');
+    // 4.9 s since the last sample → dimmed.
+    layer.renderFrame(5_000);
+    const group = meshOf(parent)!;
+    const body = (group.children[0] as THREE.Mesh).material as THREE.MeshBasicMaterial;
+    const glow = (group.children[1] as THREE.Mesh).material as THREE.MeshBasicMaterial;
+    expect(body.opacity).toBe(0.25);
+    expect(glow.opacity).toBeCloseTo(0.3 * 0.25, 5);
+  });
+});

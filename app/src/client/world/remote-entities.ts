@@ -5,6 +5,7 @@ import type { EntityState, Livery } from '@shared/protocol/schemas';
 import { registerEntity, unregisterEntity } from './entity-registry';
 import { buildCharacterMesh } from './character-mesh';
 import {
+  AI_SHIP_TRIM_COLOR,
   applyShipLivery,
   createShipRender,
   disposeShipRender,
@@ -31,6 +32,10 @@ import {
  *   the interpolated pos/quat, livery-tinted (AI ships carry the hostile
  *   trim accent). The ship render path lives in remote-ships.ts (per-kind
  *   module pattern); this layer stays the dispatcher.
+ * - `drone` — TASK-48.3: a hostile surface drone as a small rotating
+ *   octahedron at the interpolated position (the server patrols/hovers them
+ *   — the client never moves them locally); hull 0 (killed) hides it until
+ *   its server-side respawn streams again.
  *
  * Meshes live in the per-system world group (a warp disposes them with it);
  * the DOM labels live in a host element the WorldManager appends next to the
@@ -59,7 +64,7 @@ export const GROUND_ITEM_COLORS: Record<string, string> = {
 };
 const GROUND_ITEM_DEFAULT_COLOR = '#9aa4b2';
 
-const RENDERABLE_KINDS = new Set(['character', 'groundItem', 'ship', 'ai-ship']);
+const RENDERABLE_KINDS = new Set(['character', 'groundItem', 'ship', 'ai-ship', 'drone']);
 
 export interface Projected {
   x: number;
@@ -121,6 +126,8 @@ interface RemoteInfo {
   resourceId?: string;
   /** TASK-74: the hull class — carried on every wire EntityState. */
   classId?: string;
+  /** TASK-48.3: normalized hull (0..1) — a destroyed drone (hull 0) hides. */
+  hull?: number;
 }
 
 interface CharacterRender {
@@ -134,6 +141,45 @@ interface CharacterRender {
 interface GroundItemRender {
   group: THREE.Group;
   mats: THREE.MeshBasicMaterial[];
+}
+
+/** TASK-48.3: a hostile surface drone — small rotating octahedron + halo. */
+interface DroneRender {
+  group: THREE.Group;
+  /** The octahedron body material (the spin + staleness opacity targets). */
+  body: THREE.MeshBasicMaterial;
+  /** The additive halo material. */
+  glow: THREE.MeshBasicMaterial;
+}
+
+/** Drone body spin (rad/ms) — a slow, visible rotation, driven per frame. */
+export const DRONE_SPIN_RAD_PER_MS = 0.002;
+
+/**
+ * Pure (given nothing): the small hostile-drone mesh — a red octahedron with
+ * an additive halo, lit-free like the rest of the placeholder world. Reuses
+ * the AI-ship hostile trim so drones read as "hostile" at a glance.
+ */
+export function buildDroneMesh(): {
+  group: THREE.Group;
+  body: THREE.MeshBasicMaterial;
+  glow: THREE.MeshBasicMaterial;
+} {
+  const group = new THREE.Group();
+  const body = new THREE.MeshBasicMaterial({ color: AI_SHIP_TRIM_COLOR, transparent: true });
+  const octa = new THREE.Mesh(new THREE.OctahedronGeometry(0.55, 0), body);
+  octa.position.y = 0.4; // hover slightly above the entity origin
+  const glow = new THREE.MeshBasicMaterial({
+    color: AI_SHIP_TRIM_COLOR,
+    transparent: true,
+    opacity: 0.3,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const halo = new THREE.Mesh(new THREE.SphereGeometry(0.9, 12, 8), glow);
+  halo.position.y = 0.4;
+  group.add(octa, halo);
+  return { group, body, glow };
 }
 
 function disposeObject(root: THREE.Object3D): void {
@@ -159,6 +205,8 @@ export class RemoteEntityLayer {
   private readonly groundItems = new Map<string, GroundItemRender>();
   /** TASK-74: remote ships (kind 'ship' / 'ai-ship'), one ShipMesh per id. */
   private readonly ships = new Map<string, ShipRender>();
+  /** TASK-48.3: hostile surface drones (kind 'drone'), one octahedron per id. */
+  private readonly drones = new Map<string, DroneRender>();
   /** The per-system world group the meshes attach to (null before the first swap). */
   private parent: THREE.Group | null = null;
   private projector: ((pos: { x: number; y: number; z: number }) => Projected | null) | null = null;
@@ -199,6 +247,7 @@ export class RemoteEntityLayer {
         livery: e.livery,
         resourceId: e.resourceId,
         classId: e.classId,
+        hull: e.hull,
       });
     }
     for (const id of [...this.infos.keys()]) {
@@ -219,6 +268,7 @@ export class RemoteEntityLayer {
       if (info.kind === 'character') this.renderCharacter(id, info, state);
       else if (info.kind === 'groundItem') this.renderGroundItem(id, info, state);
       else if (info.kind === 'ship' || info.kind === 'ai-ship') this.renderShip(id, info, state);
+      else if (info.kind === 'drone') this.renderDrone(id, info, state, now);
     }
     this.applyLabels(this.labelStates(now));
   }
@@ -295,7 +345,33 @@ export class RemoteEntityLayer {
 
   /** All rendered remote entity ids (tests / debugging). */
   renderedIds(): string[] {
-    return [...this.characters.keys(), ...this.groundItems.keys(), ...this.ships.keys()];
+    return [
+      ...this.characters.keys(),
+      ...this.groundItems.keys(),
+      ...this.ships.keys(),
+      ...this.drones.keys(),
+    ];
+  }
+
+  /**
+   * TASK-48.3: the rendered drones with world position + visibility (dev
+   * probe / e2e — the e2e projects `pos` against the live camera).
+   */
+  droneProbes(): Array<{
+    id: string;
+    pos: { x: number; y: number; z: number };
+    visible: boolean;
+  }> {
+    const out: Array<{ id: string; pos: { x: number; y: number; z: number }; visible: boolean }> =
+      [];
+    for (const [id, r] of this.drones) {
+      out.push({
+        id,
+        pos: { x: r.group.position.x, y: r.group.position.y, z: r.group.position.z },
+        visible: r.group.visible,
+      });
+    }
+    return out;
   }
 
   /**
@@ -405,6 +481,32 @@ export class RemoteEntityLayer {
     setShipOpacity(r, opacity);
   }
 
+  /**
+   * TASK-48.3: the hostile surface drone. The server patrols/hovers the
+   * drones — the client NEVER moves them locally, it renders the streamed
+   * (200 ms interpolated) position as a small rotating octahedron. A killed
+   * drone streams hull 0 until its 180 s respawn — the mesh HIDES in that
+   * window (no client-side timer). The spin + the stale/dimmed opacity rule
+   * run per frame; the mesh is built once and disposed on leave.
+   */
+  private renderDrone(id: string, info: RemoteInfo, state: RemoteRenderState, now: number): void {
+    let r = this.drones.get(id);
+    if (!r) {
+      const built = buildDroneMesh();
+      this.parent?.add(built.group);
+      r = built;
+      this.drones.set(id, r);
+      registerEntity(id, 'drone');
+    }
+    r.group.position.set(state.pos.x, state.pos.y, state.pos.z);
+    r.group.rotation.y = now * DRONE_SPIN_RAD_PER_MS;
+    // Destroyed (hull 0 on the wire) until the server-side respawn: hidden.
+    r.group.visible = (info.hull ?? 1) > 0;
+    const opacity = state.dimmed ? DIMMED_OPACITY : state.stale ? STALE_OPACITY : 1;
+    r.body.opacity = opacity;
+    r.glow.opacity = 0.3 * opacity;
+  }
+
   private renderGroundItem(id: string, info: RemoteInfo, state: RemoteRenderState): void {
     let r = this.groundItems.get(id);
     if (!r) {
@@ -467,6 +569,12 @@ export class RemoteEntityLayer {
       this.parent?.remove(s.group);
       disposeShipRender(s);
       this.ships.delete(id);
+    }
+    const d = this.drones.get(id);
+    if (d) {
+      this.parent?.remove(d.group);
+      disposeObject(d.group);
+      this.drones.delete(id);
     }
     this.disposeLabel(id);
     unregisterEntity(id);

@@ -548,7 +548,7 @@
     "title": "Client: 3D hazard discs and drone meshes in WorldManager",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-48.3.json",
-    "passes": false,
+    "passes": true,
     "splitFrom": "TASK-48",
     "splitDepth": 1
   },

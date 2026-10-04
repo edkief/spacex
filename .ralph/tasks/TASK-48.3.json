@@ -8,19 +8,19 @@
       "step": 1,
       "description": "Hazard discs: storm (8 rotating quads) + rad zone (green disc), 500 m cull",
       "details": "In `app/src/client/world/WorldManager.ts`, follow the pad pattern exactly: `padRingsFor` (line ~153) wraps `padsForSystem(seed, system)`; `padRingVisible(pos, padPos)` (line ~171) is the 500 m cull applied per-frame at ~line 402; `this.pads = padsForSystem(this.seed, system)` on system change (~line 442). Add the same shape for hazards: derive `hazardsFor(seed, system)` (from `@shared/world/hazards`, the same function the server uses — client and server must derive identically). Per kind: 'storm' = a visible swirling particle disc — keep it cheap: 8 rotating quads around the cell center (no texture-heavy particles); 'radzone' = a green-glowing ground disc; 'drones' = no ground disc (the drones themselves are the marker). Disks sit at local ground height — use `planetHeightAt` from `@shared/world/deposits` if a height is needed (it is what hazards.ts itself used for cell positions — the cells already carry `pos` including y; use `cell.pos`/`cell.radius` as-is rather than re-measuring terrain). Cull each disc with the same 500 m visibility rule as pads.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Drone meshes from streamed entities + combat events",
       "details": "The server already streams drone entities at 10 Hz with entity kind 'drone' (added in the committed server slice; see ENTITY_KINDS and the drone entity object in `src/shared/protocol/schemas.ts`). Render each as a SMALL rotating octahedron at its streamed position (the server patrols/hovers them — the client never moves them locally). When a drone fires at a player, the server emits the standard combat events (laser-fired style, source {kind:'drone'}) — the standard client handling should already surface them; verify the drone's shot reads through the same events other entities use and add nothing new if it does. Cull drones beyond the entity-streaming range like other entities.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Verify and commit",
       "details": "`cd app && npx tsc --noEmit`, `npm run test` (full suite green), `eslint --fix` + `prettier --write` on touched files. Commit (conventional, mention TASK-48). Do NOT commit the pre-existing dirty `.ralph/screenshots/*.png` mods or `.ralph/split/TASK-46/`. Visual verification of the discs happens in the e2e of TASK-48.4 — if you cannot see the 3D here, type-check + suite is the gate.",
-      "pass": false
+      "pass": true
     }
   ],
   "acceptanceCriteria": [
