@@ -149,7 +149,9 @@ function StackColumn(props: {
   const rows = listStacks(props.stacks);
   return (
     <div style={{ minWidth: '220px', flex: '1 1 220px' }}>
-      <div style={{ color: '#e6edf3', fontWeight: 700, marginBottom: '0.25rem' }}>{props.title}</div>
+      <div style={{ color: '#e6edf3', fontWeight: 700, marginBottom: '0.25rem' }}>
+        {props.title}
+      </div>
       <WeightLine used={props.weightUsed} cap={props.cap} label="weight" />
       {rows.length === 0 && <div style={{ opacity: 0.6 }}>empty</div>}
       {rows.map((row) => {
@@ -341,7 +343,6 @@ export function ShipPanel(props: ShipPanelProps): React.ReactElement {
   const liveryKey = props.ship.livery ? canonicalJson(props.ship.livery) : '';
   React.useEffect(() => {
     setDraft(initialLivery(props.ship));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveryKey]);
   React.useEffect(
     () => () => {
@@ -481,7 +482,9 @@ export function ShipPanel(props: ShipPanelProps): React.ReactElement {
                 <span>acceleration: {cls.acceleration} u/s²</span>
                 <span>turn rate: {cls.turnRate} rad/s</span>
                 <span>mass: {cls.mass} u</span>
-                <span>cargo: {cls.cargoSlots} slots ({cls.maxWeight} u)</span>
+                <span>
+                  cargo: {cls.cargoSlots} slots ({cls.maxWeight} u)
+                </span>
                 <span>
                   weapons: laser ×{cls.weaponMounts.laser}
                   {cls.weaponMounts.missiles > 0 ? ` · missile ×${cls.weaponMounts.missiles}` : ''}
@@ -492,7 +495,12 @@ export function ShipPanel(props: ShipPanelProps): React.ReactElement {
                 {LIVERY_SLOTS.map((slot) => (
                   <label
                     key={slot}
-                    style={{ marginLeft: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                    style={{
+                      marginLeft: '0.75rem',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.3rem',
+                    }}
                   >
                     {slot}
                     <input
@@ -558,7 +566,10 @@ export function ShipPanel(props: ShipPanelProps): React.ReactElement {
                 hull {props.ship.hull}/{cls.hull} · shields {props.ship.shields}/
                 {cls.shieldCapacity}
               </div>
-              <div id={`${props.id}-repair-cost`} style={{ color: '#f0c674', marginBottom: '0.5rem' }}>
+              <div
+                id={`${props.id}-repair-cost`}
+                style={{ color: '#f0c674', marginBottom: '0.5rem' }}
+              >
                 repair cost: {repairCostNow} cr
               </div>
               <button

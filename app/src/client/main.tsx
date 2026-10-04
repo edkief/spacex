@@ -155,9 +155,7 @@ const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
  * strict 3-slot `Livery`, or null when any slot is missing/invalid (the
  * panel then falls back to the class default paint).
  */
-function panelLiveryFromWire(
-  l: Record<string, string> | null | undefined,
-): Livery | null {
+function panelLiveryFromWire(l: Record<string, string> | null | undefined): Livery | null {
   if (!l) return null;
   const { hull, accent, trim } = l;
   if (
@@ -1192,7 +1190,8 @@ function App() {
       if (e.key === 'm' || e.key === 'M') {
         const top = topSurface();
         if (top && top.kind !== 'chart') return; // a menu/panel is up → M is game input
-        if (top?.kind === 'chart') popSurface(); // M closes the chart (the old toggle)
+        if (top?.kind === 'chart')
+          popSurface(); // M closes the chart (the old toggle)
         else if (clientRef.current) openChart();
       }
     };
@@ -1630,7 +1629,11 @@ function App() {
   // onMove/onSell send the WS frames, onRepair / onLivery POST the REST
   // endpoints (the panel's only network-touching controls), and the
   // transient repair error renders under the Repair tab.
-  const sendCargoTransfer = (resourceId: ResourceId, amount: number, from: 'inv' | 'hold'): void => {
+  const sendCargoTransfer = (
+    resourceId: ResourceId,
+    amount: number,
+    from: 'inv' | 'hold',
+  ): void => {
     clientRef.current?.send('cargo_transfer', { resourceId, amount, from });
   };
   const doLivery = (colors: Livery): void => {
@@ -1813,11 +1816,7 @@ function App() {
         />
       )}
       {chartOpen && session && systemId && (
-        <StarChart
-          token={session.token}
-          currentSystemId={systemId}
-          onClose={closeTopSurface}
-        />
+        <StarChart token={session.token} currentSystemId={systemId} onClose={closeTopSurface} />
       )}
       {/* TASK-53: the ESC menu (top-level surface; the world keeps moving
           underneath — multiplayer, no pause). */}

@@ -13,13 +13,12 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Livery } from '@shared/ships';
-import { __resetMenu, openPanel } from '@client/state/menu';
+import { __resetMenu, openPanel, type PanelContext } from '@client/state/menu';
 
 import {
   LIVERY_SAVE_DEBOUNCE_MS,
   ShipPanel,
   tabsForContext,
-  type PanelContext,
   type PanelShipView,
 } from './ship-panel';
 
@@ -73,14 +72,9 @@ function renderPanel(
 
 /** Set a color input's value through the native setter (React's tracker). */
 function setColor(container: HTMLDivElement, slot: string, value: string): void {
-  const input = container.querySelector<HTMLInputElement>(
-    `#ship-panel-livery-${slot}`,
-  );
+  const input = container.querySelector<HTMLInputElement>(`#ship-panel-livery-${slot}`);
   if (!input) throw new Error(`livery ${slot} input missing`);
-  const setter = Object.getOwnPropertyDescriptor(
-    window.HTMLInputElement.prototype,
-    'value',
-  )?.set;
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
   if (!setter) throw new Error('no native value setter');
   act(() => {
     setter.call(input, value);
@@ -138,7 +132,9 @@ describe('ShipPanel tab switching (keyboard-first)', () => {
       );
     });
     expect(el.querySelector('#ship-panel-tab-repair')?.getAttribute('aria-pressed')).toBe('true');
-    expect(el.querySelector('#ship-panel-tab-overview')?.getAttribute('aria-pressed')).toBe('false');
+    expect(el.querySelector('#ship-panel-tab-overview')?.getAttribute('aria-pressed')).toBe(
+      'false',
+    );
   });
 
   it('ArrowRight / ArrowLeft cycle the tabs and the FOCUS follows the tab', () => {

@@ -17,9 +17,7 @@ import { EscMenu } from './esc-menu';
 
 let roots: Root[] = [];
 
-function renderMenu(
-  over: Partial<Parameters<typeof EscMenu>[0]> = {},
-): HTMLDivElement {
+function renderMenu(over: Partial<Parameters<typeof EscMenu>[0]> = {}): HTMLDivElement {
   openMenu(); // the menu must be the top surface (its trap is live)
   const container = document.createElement('div');
   document.body.appendChild(container);

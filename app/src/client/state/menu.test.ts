@@ -70,12 +70,12 @@ describe('menu stack (TASK-53)', () => {
   });
 
   it('one panel per stack, whichever context opened it (dock replaces nothing)', () => {
-    expect(openPanel({ id: 'ship-panel', title: 'SHIP', context: 'docked', activeTab: 'overview' })).toBe(
-      true,
-    );
-    expect(openPanel({ id: 'dock-panel', title: 'STATION DOCK', context: 'dock', activeTab: 'sell' })).toBe(
-      false,
-    );
+    expect(
+      openPanel({ id: 'ship-panel', title: 'SHIP', context: 'docked', activeTab: 'overview' }),
+    ).toBe(true);
+    expect(
+      openPanel({ id: 'dock-panel', title: 'STATION DOCK', context: 'dock', activeTab: 'sell' }),
+    ).toBe(false);
     expect((topSurface() as { id?: string }).id).toBe('ship-panel');
   });
 
