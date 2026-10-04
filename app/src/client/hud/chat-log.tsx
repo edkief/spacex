@@ -59,6 +59,18 @@ export function ChatLog({ store, onSend }: ChatLogProps) {
       if (t === inputRef.current || (t instanceof HTMLInputElement && t.id === 'chat-input')) {
         return;
       }
+      // TASK-54: Enter inside a FOCUSED interactive control performs that
+      // control's native activation (button, link, chart node) — never
+      // hijack it to open chat, or keyboard-only play (Enter on the warp
+      // button, menu items, panel buttons) breaks.
+      if (
+        t instanceof Element &&
+        t.closest(
+          'button, a, input, select, textarea, [role="button"], [tabindex]:not([tabindex="-1"])',
+        ) !== null
+      ) {
+        return;
+      }
       setOpen(true);
       e.preventDefault();
     };

@@ -6,7 +6,7 @@ import { hazardsFor } from '@shared/world/hazards';
 import { padsForSystem } from '@shared/world/pads';
 import { terminalsFor } from '@shared/world/terminals';
 import { generateStars } from '@shared/galaxy/stars';
-import { generateSystem } from '@shared/galaxy/system';
+import { generateSystem, systemForId } from '@shared/galaxy/system';
 import { requireAuth } from './auth';
 import type { RouteDeps } from './callsigns';
 
@@ -70,6 +70,9 @@ const giveBody = z
   })
   .strict();
 
+// (System resolution by id reuses @shared/galaxy/system's systemForId —
+//  the same pure seeded scan the shards use.)
+
 export function registerDevRoutes(app: FastifyInstance, deps: RouteDeps): void {
   const router = deps.galaxyRouter;
   if (!router) return;
@@ -77,6 +80,25 @@ export function registerDevRoutes(app: FastifyInstance, deps: RouteDeps): void {
   app.get('/api/dev/pad-target', async (req, reply) => {
     const auth = await requireAuth(req, deps.sessions);
     if (!auth.ok) return reply.code(401).send({ code: 'unauthorized', reason: auth.reason });
+    // TASK-54: ?systemId= scopes the lookup to ONE system (the keyboard
+    // e2e warps through its home system and docks at a pad THERE — the
+    // chart only exposes a system's neighbors, so the star-order first pad
+    // is generally not reachable by keyboard warp from an arbitrary home).
+    const wanted = (req.query as { systemId?: unknown }).systemId;
+    if (typeof wanted === 'string' && wanted.length > 0) {
+      const system = systemForId(deps.galaxySeed, wanted);
+      const planet = system?.planets.find((p) => p.landable && p.hasAtmosphere);
+      const pad =
+        system && planet
+          ? padsForSystem(deps.galaxySeed, system).find((p) => p.planetId === planet.id)
+          : undefined;
+      if (!pad) {
+        return reply
+          .code(404)
+          .send({ code: 'no-pad', message: `system ${wanted} has no landable atmospheric pad` });
+      }
+      return { systemId: system!.systemId, planetId: planet!.id, padId: pad.padId, pad: pad.pos };
+    }
     for (const star of generateStars(deps.galaxySeed)) {
       const system = generateSystem(deps.galaxySeed, star.id);
       const planet = system.planets.find((p) => p.landable && p.hasAtmosphere);
@@ -127,6 +149,24 @@ export function registerDevRoutes(app: FastifyInstance, deps: RouteDeps): void {
   app.get('/api/dev/terminal-target', async (req, reply) => {
     const auth = await requireAuth(req, deps.sessions);
     if (!auth.ok) return reply.code(401).send({ code: 'unauthorized', reason: auth.reason });
+    // TASK-54: ?systemId= scopes the lookup (same contract as pad-target).
+    const wanted = (req.query as { systemId?: unknown }).systemId;
+    if (typeof wanted === 'string' && wanted.length > 0) {
+      const system = systemForId(deps.galaxySeed, wanted);
+      const planet = system?.planets.find((p) => p.landable && p.hasAtmosphere);
+      const pad =
+        system && planet
+          ? padsForSystem(deps.galaxySeed, system).find((p) => p.planetId === planet.id)
+          : undefined;
+      const terminal =
+        system && pad ? terminalsFor(deps.galaxySeed, system).find((t) => t.padId === pad.padId) : undefined;
+      if (!terminal) {
+        return reply
+          .code(404)
+          .send({ code: 'no-terminal', message: `system ${wanted} has no station terminal` });
+      }
+      return { systemId: system!.systemId, terminalId: terminal.terminalId, pos: terminal.pos };
+    }
     for (const star of generateStars(deps.galaxySeed)) {
       const system = generateSystem(deps.galaxySeed, star.id);
       const planet = system.planets.find((p) => p.landable && p.hasAtmosphere);

@@ -7,6 +7,7 @@ import {
   WARP_OUT_MS,
   type WarpPhase,
 } from '@client/state/warp';
+import { useReducedMotion } from '@client/a11y/use-reduced-motion';
 
 /**
  * The in-world warp transition overlay (TASK-8) — CSS only, no
@@ -41,14 +42,30 @@ const PHASE_STYLE: Record<Exclude<WarpPhase, 'idle'>, React.CSSProperties> = {
 
 export function WarpOverlay(): React.ReactElement | null {
   const { phase, shaking } = useWarpPhaseState();
+  const reduced = useReducedMotion();
   React.useEffect(() => {
     const canvas = document.getElementById('game-canvas');
-    if (canvas instanceof HTMLElement) canvas.classList.toggle('warp-shake', shaking);
+    // TASK-54: reduced motion drops the camera shake, too.
+    if (canvas instanceof HTMLElement) canvas.classList.toggle('warp-shake', shaking && !reduced);
     return () => {
       if (canvas instanceof HTMLElement) canvas.classList.remove('warp-shake');
     };
-  }, [shaking]);
+  }, [shaking, reduced]);
   if (phase === 'idle') return null;
+  if (reduced) {
+    // TASK-54: reduced motion — a SIMPLE FADE veil (the phase-driven
+    // opacity choreography) instead of the spinning streak + core FX.
+    return (
+      <div
+        id="warp-overlay"
+        data-reduced-motion="true"
+        style={{ ...overlayBase, ...PHASE_STYLE[phase], background: '#05070c' }}
+        aria-hidden="true"
+      >
+        <style>{css}</style>
+      </div>
+    );
+  }
   return (
     <div id="warp-overlay" style={{ ...overlayBase, ...PHASE_STYLE[phase] }} aria-hidden="true">
       <style>{css}</style>

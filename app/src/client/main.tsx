@@ -13,8 +13,11 @@ import {
   callsignForPlayer,
   indexKillFeedEntities,
   indexKillFeedPlayers,
+  killFeedSubscribe,
   pushKillEvent,
 } from '@client/state/kill-feed';
+import { announce } from '@client/a11y/announcement-queue';
+import { LiveRegion } from '@client/a11y/live-region';
 import { showShipLost } from '@client/state/ship-lost';
 import { ChatLog } from '@client/hud/chat-log';
 import { createStarfield } from '@client/render/starfield';
@@ -793,6 +796,23 @@ function App() {
     null,
   );
   const [lowEnergy, setLowEnergy] = React.useState(false);
+  // TASK-54: the screen-reader announcements (the 1 Hz live region drains
+  // the queued messages — max 1 pending, 2 s min interval, so combat can't
+  // flood the SR): interaction prompts, lock-ons, low energy, kills.
+  React.useEffect(() => {
+    if (interactPrompt) announce(interactPrompt, 'navigation');
+  }, [interactPrompt]);
+  React.useEffect(() => {
+    if (lowEnergy) announce('Low energy', 'combat');
+  }, [lowEnergy]);
+  React.useEffect(
+    () =>
+      killFeedSubscribe((entries) => {
+        const latest = entries[entries.length - 1];
+        if (latest) announce(`${latest.killer} destroyed ${latest.victim}`, 'combat');
+      }),
+    [],
+  );
   // TASK-53: the ONE open-surface stack (ESC menu / star chart / the shared
   // ship/dock panel) — the modal state for the whole client. Any open
   // surface suppresses game input (only ESC reaches the game); ESC opens
@@ -841,6 +861,11 @@ function App() {
     setPanelShip(view);
   };
   const [locked, setLocked] = React.useState(false);
+  // TASK-54: announce the lock-on to the SR (combat priority — the live
+  // region's queue keeps combat ahead of navigation/chat).
+  React.useEffect(() => {
+    if (locked) announce('Target locked', 'combat');
+  }, [locked]);
   // Refs (the fire handlers are captured once — no stale closures):
   const weaponRef = React.useRef<WeaponId>('laser');
   const selfShipRef = React.useRef(false);
@@ -1758,7 +1783,13 @@ function App() {
 
   return (
     <div style={styles.shell}>
-      <canvas id="game-canvas" style={styles.canvas} />
+      {/* TASK-54: the 3D view is a screen-reader image with a live label. */}
+      <canvas
+        id="game-canvas"
+        role="img"
+        aria-label={systemId ? `3D view: flying in system ${systemId}` : '3D view: galaxy'}
+        style={styles.canvas}
+      />
       <div style={styles.hud}>
         <h1 style={styles.title}>DRIFT</h1>
         <p style={styles.status}>
@@ -1801,6 +1832,9 @@ function App() {
       )}
       <PlayerList store={store} />
       <ToastStack store={store} />
+      {/* TASK-54: the ONE aria-live surface — HUD summary + announcements,
+          at 1 Hz (never the 10 Hz snapshot cadence). */}
+      <LiveRegion />
 
       {/* TASK-53: the modal backdrop — any open surface (chart 111 /
           panels 112) sits above it; the game UI behind (≤ 85) goes dim. */}

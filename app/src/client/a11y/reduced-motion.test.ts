@@ -1,0 +1,152 @@
+// TASK-54: the reduced-motion setting — the client store, the FX gate
+// (the registry counter exposes the skip count: with the flag on, FX
+// counts are played == 0 / skipped > 0), and the shared defaults.
+import { afterEach, describe, expect, it } from 'vitest';
+
+import { DEFAULT_SETTINGS, SETTING_KEYS } from '@shared/settings';
+import {
+  __resetSettings,
+  isReducedMotion,
+  setSetting,
+  settingsState,
+  settingsSubscribe,
+} from './reduced-motion';
+import {
+  __resetFxCounts,
+  fxCounts,
+  playCombatFx,
+  type CombatEvent,
+  type FxWorld,
+} from '@client/fx';
+import type { Vec3 } from '@shared/physics/vec';
+
+/** A recording FX world (counts every effect call). */
+function recordingWorld(): FxWorld & { calls: string[] } {
+  const calls: string[] = [];
+  return {
+    calls,
+    addLaserFlash: () => calls.push('laser'),
+    addImpactFlash: () => calls.push('impact'),
+    addExplosion: () => calls.push('explosion'),
+    screenShake: (px) => calls.push(`shake:${px}`),
+  };
+}
+
+const NO_POS = () => null;
+const P0: Vec3 = { x: 0, y: 0, z: 0 };
+const ALWAYS = () => P0;
+
+afterEach(() => {
+  __resetSettings();
+  __resetFxCounts();
+});
+
+describe('settings store (TASK-54 reduced motion)', () => {
+  it('defaults to OFF per the shared defaults', () => {
+    expect(DEFAULT_SETTINGS[SETTING_KEYS.reducedMotion]).toBe(false);
+    expect(isReducedMotion()).toBe(false);
+  });
+
+  it('flips immediately and notifies subscribers (no restart)', () => {
+    const seen: boolean[] = [];
+    const unsub = settingsSubscribe((s) => seen.push(s['reduced-motion']));
+    setSetting(SETTING_KEYS.reducedMotion, true);
+    expect(isReducedMotion()).toBe(true);
+    expect(seen).toEqual([true]);
+    setSetting(SETTING_KEYS.reducedMotion, false);
+    expect(seen).toEqual([true, false]);
+    setSetting(SETTING_KEYS.reducedMotion, false); // no-op: no duplicate emit
+    expect(seen).toEqual([true, false]);
+    unsub();
+    setSetting(SETTING_KEYS.reducedMotion, true);
+    expect(seen).toEqual([true, false]); // unsubscribed
+  });
+
+  it('never hands out a mutable reference', () => {
+    const a = settingsState();
+    a['reduced-motion'] = true;
+    expect(isReducedMotion()).toBe(false);
+  });
+});
+
+describe('the reduced-motion FX gate (the registry counter)', () => {
+  const LASER: CombatEvent = {
+    kind: 'laser-fired',
+    source: { kind: 'player', id: 'p' },
+    weapon: 'laser',
+    from: P0,
+    to: P0,
+  };
+  const IMPACT: CombatEvent = {
+    kind: 'missile-impact',
+    weapon: 'missile',
+    projectile: 'proj-1',
+    point: P0,
+  };
+
+  it('plays every effect by default', () => {
+    const world = recordingWorld();
+    playCombatFx(world, LASER, NO_POS);
+    playCombatFx(world, IMPACT, NO_POS);
+    playCombatFx(
+      world,
+      {
+        kind: 'hit',
+        target: 't',
+        source: { kind: 'player', id: 'p' },
+        weapon: 'laser',
+        damage: 1,
+        shieldHit: 1,
+        hullHit: 0,
+      },
+      ALWAYS,
+    );
+    playCombatFx(
+      world,
+      { kind: 'destroyed', target: 't', source: { kind: 'player', id: 'p' }, weapon: 'missile' },
+      ALWAYS,
+    );
+    // laser(1) + missile-impact(2: flash + shake) + hit(1) + destroyed(2: boom + shake)
+    expect(fxCounts).toEqual({ played: 6, skipped: 0 });
+    expect(world.calls).toContain('explosion');
+    expect(world.calls).toContain('shake:6');
+  });
+
+  it('skips ALL FX when reduced motion is on (FX count = 0, skip counter exposed)', () => {
+    setSetting(SETTING_KEYS.reducedMotion, true);
+    const world = recordingWorld();
+    playCombatFx(world, LASER, NO_POS);
+    playCombatFx(world, IMPACT, NO_POS);
+    playCombatFx(
+      world,
+      {
+        kind: 'hit',
+        target: 't',
+        source: { kind: 'player', id: 'p' },
+        weapon: 'laser',
+        damage: 1,
+        shieldHit: 1,
+        hullHit: 0,
+      },
+      ALWAYS,
+    );
+    playCombatFx(
+      world,
+      { kind: 'destroyed', target: 't', source: { kind: 'player', id: 'p' }, weapon: 'missile' },
+      ALWAYS,
+    );
+    expect(world.calls).toEqual([]); // shake, slow-mo (in explosion), particles: zero
+    expect(fxCounts.played).toBe(0);
+    expect(fxCounts.skipped).toBe(6);
+  });
+
+  it('resumes playing when the toggle flips back off', () => {
+    setSetting(SETTING_KEYS.reducedMotion, true);
+    const world = recordingWorld();
+    playCombatFx(world, LASER, NO_POS);
+    setSetting(SETTING_KEYS.reducedMotion, false);
+    playCombatFx(world, LASER, NO_POS);
+    expect(fxCounts).toEqual({ played: 1, skipped: 1 });
+    expect(world.calls).toEqual(['laser']);
+  });
+});

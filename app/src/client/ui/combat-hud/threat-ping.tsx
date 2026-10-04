@@ -7,6 +7,7 @@
  */
 import React from 'react';
 import { targetingSubscribe, type TargetingView } from '@client/state/targeting';
+import { useReducedMotion } from '@client/a11y/use-reduced-motion';
 import { styleFromRect, threatPingRect, type Viewport } from './layout';
 
 /** Fade window: opacity = remaining ms / this. */
@@ -27,9 +28,42 @@ export function ThreatPing({ viewport }: ThreatPingProps) {
     return () => window.clearInterval(id);
   }, []);
 
+  const reduced = useReducedMotion();
   const threat = view?.threat;
   const remaining = threat ? threat.expiresAt - now : 0;
   if (!threat || remaining <= 0) return null;
+
+  // TASK-54: reduced motion — a STATIC edge icon (constant opacity, no
+  // wedge rotation, no fade-out animation) at the same bearing position.
+  // The 10 Hz tick still ages the 3 s LIFE (the icon expires), it just
+  // stops animating it.
+  if (reduced) {
+    return (
+      <div
+        id="threat-ping"
+        role="status"
+        data-testid="threat-ping"
+        data-reduced-motion="true"
+        aria-label={`Threat from ${threat.attackerId}`}
+        title={threat.attackerId}
+        style={styleFromRect(threatPingRect(threat.bearing, viewport), {
+          zIndex: 94,
+          pointerEvents: 'none',
+        })}
+      >
+        <div
+          data-testid="threat-ping-static"
+          style={{
+            width: '50%',
+            height: '50%',
+            margin: '25% 0 0 25%',
+            borderRadius: '50%',
+            background: 'rgba(255, 45, 45, 0.95)',
+          }}
+        />
+      </div>
+    );
+  }
 
   const bearingDeg = (threat.bearing * 180) / Math.PI;
   return (

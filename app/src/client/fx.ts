@@ -1,7 +1,36 @@
 import type { PayloadSchemas } from '@shared/protocol/schemas';
 import type { Vec3 } from '@shared/physics/vec';
+import { isReducedMotion } from '@client/a11y/reduced-motion';
 
 export type CombatEvent = PayloadSchemas['combat_event'];
+
+/**
+ * FX registry counters (TASK-54): `played` / `skipped` are the FX
+ * registry's skip/play counts — the reduced-motion test asserts
+ * `skipped > 0 && played == 0` after a combat event with the flag on.
+ */
+export const fxCounts: { played: number; skipped: number } = { played: 0, skipped: 0 };
+
+export function __resetFxCounts(): void {
+  fxCounts.played = 0;
+  fxCounts.skipped = 0;
+}
+
+/**
+ * The reduced-motion gate (TASK-54): one world effect call is either
+ * PLAYED (default) or SKIPPED (the 'reduced-motion' setting is on).
+ * Gated: laser flashes, impact flashes, explosions (which also arm the
+ * client-side slow-mo — skipping the explosion skips the slow-mo) and
+ * camera shake. When on, the registry counts the skip for the test.
+ */
+function fx(world: FxWorld, fn: () => void): void {
+  if (isReducedMotion()) {
+    fxCounts.skipped += 1;
+    return;
+  }
+  fxCounts.played += 1;
+  fn();
+}
 
 /**
  * Combat FX dispatcher (TASK-43 step 3): the ONE place a server
@@ -32,28 +61,29 @@ export type ResolvePos = (entityId: string) => Vec3 | null;
 export function playCombatFx(world: FxWorld, event: CombatEvent, resolvePos: ResolvePos): void {
   switch (event.kind) {
     case 'laser-fired':
-      world.addLaserFlash(event.from, event.to);
+      fx(world, () => world.addLaserFlash(event.from, event.to));
       return;
     case 'missile-fired':
       // The tracer is a snapshot entity — nothing to play on launch.
       return;
     case 'missile-impact':
-      world.addImpactFlash(event.point);
-      world.screenShake(2);
+      fx(world, () => world.addImpactFlash(event.point));
+      fx(world, () => world.screenShake(2));
       return;
     case 'hit': {
       const pos = resolvePos(event.target);
-      if (pos) world.addImpactFlash(pos);
+      if (pos) fx(world, () => world.addImpactFlash(pos));
       return;
     }
     case 'destroyed': {
       // TASK-49: the destruction sequence — explosion FX + the 1 s slow-mo
       // (the FX world arms it inside addExplosion). The 'SHIP LOST' overlay
-      // is main.tsx's store (2 s), not an FX.
+      // is main.tsx's store (2 s), not an FX. Reduced motion skips both the
+      // explosion (debris/smoke particles) and its slow-mo (gate above).
       const pos = resolvePos(event.target);
       if (pos) {
-        world.addExplosion(pos);
-        world.screenShake(6);
+        fx(world, () => world.addExplosion(pos));
+        fx(world, () => world.screenShake(6));
       }
       return;
     }
