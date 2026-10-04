@@ -1,0 +1,9 @@
+{
+  "status": "stopped",
+  "iterations": 10,
+  "runId": "20261004-011704",
+  "historyDir": "/workspace/master/.ralph/history/20261004-011704",
+  "tasksPassed": 73,
+  "tasksTotal": 88,
+  "message": "Stopped on request after 10 iterations"
+}
