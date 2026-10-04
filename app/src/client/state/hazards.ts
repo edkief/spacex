@@ -33,11 +33,18 @@ export interface HazardState {
   inside: 'storm' | 'radzone' | null;
   /** The 5 s 'SHIELD BURN' knock-down is active. */
   recovering: boolean;
+  /** Epoch-ms end of the knock-down (null when not recovering) — TASK-52's HUD countdown. */
+  recoveringUntil: number | null;
 }
 
 type HazardListener = (state: HazardState) => void;
 
-const CLEAR: HazardState = { exposure: EXPOSURE_MAX, inside: null, recovering: false };
+const CLEAR: HazardState = {
+  exposure: EXPOSURE_MAX,
+  inside: null,
+  recovering: false,
+  recoveringUntil: null,
+};
 
 const listeners = new Set<HazardListener>();
 let current: HazardState = CLEAR;
@@ -58,10 +65,13 @@ function emit(next: HazardState): void {
  * client-side timer is needed.
  */
 export function setHazardFrame(frame: HazardFrame): void {
+  const until = frame.recoveringUntil ?? 0;
+  const recovering = until > Date.now();
   emit({
     exposure: frame.exposure,
     inside: frame.inside ?? null,
-    recovering: (frame.recoveringUntil ?? 0) > Date.now(),
+    recovering,
+    recoveringUntil: recovering ? until : null,
   });
 }
 

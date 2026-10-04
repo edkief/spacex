@@ -99,22 +99,25 @@ export function registerDevRoutes(app: FastifyInstance, deps: RouteDeps): void {
   app.get('/api/dev/hazard-target', async (req, reply) => {
     const auth = await requireAuth(req, deps.sessions);
     if (!auth.ok) return reply.code(401).send({ code: 'unauthorized', reason: auth.reason });
+    // TASK-52: ?kind=radzone selects the first rad zone (the exposure-meter
+    // e2e); the default 'storm' keeps the TASK-48 e2e byte-identical.
+    const kind = (req.query as { kind?: unknown }).kind === 'radzone' ? 'radzone' : 'storm';
     for (const star of generateStars(deps.galaxySeed)) {
       const system = generateSystem(deps.galaxySeed, star.id);
-      const storm = hazardsFor(deps.galaxySeed, system).find((h) => h.kind === 'storm');
-      if (storm) {
+      const cell = hazardsFor(deps.galaxySeed, system).find((h) => h.kind === kind);
+      if (cell) {
         return {
           systemId: system.systemId,
-          planetId: storm.planetId,
-          hazardId: storm.hazardId,
-          pos: storm.pos,
-          radius: storm.radius,
+          planetId: cell.planetId,
+          hazardId: cell.hazardId,
+          pos: cell.pos,
+          radius: cell.radius,
         };
       }
     }
     return reply
       .code(404)
-      .send({ code: 'no-hazard', message: 'no storm cell in the seeded galaxy' });
+      .send({ code: 'no-hazard', message: `no ${kind} cell in the seeded galaxy` });
   });
 
   // TASK-40 e2e assist: the station SELL terminal's world position for the

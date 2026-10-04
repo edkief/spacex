@@ -18,24 +18,45 @@ describe('hazard store (TASK-48.2)', () => {
       exposure: EXPOSURE_MAX,
       inside: null,
       recovering: false,
+      recoveringUntil: null,
     });
   });
 
   it('setHazardFrame stores the frame fields (store update)', () => {
     setHazardFrame({ exposure: 32, inside: 'storm' });
-    expect(hazardState()).toEqual({ exposure: 32, inside: 'storm', recovering: false });
+    expect(hazardState()).toEqual({
+      exposure: 32,
+      inside: 'storm',
+      recovering: false,
+      recoveringUntil: null,
+    });
 
     setHazardFrame({ exposure: 7 });
-    expect(hazardState()).toEqual({ exposure: 7, inside: null, recovering: false });
+    expect(hazardState()).toEqual({
+      exposure: 7,
+      inside: null,
+      recovering: false,
+      recoveringUntil: null,
+    });
   });
 
   it('derives recovering from recoveringUntil relative to now (future = true, past = false)', () => {
     const now = Date.now();
     setHazardFrame({ exposure: 0, recoveringUntil: now + 10_000 });
-    expect(hazardState().recovering).toBe(true);
+    expect(hazardState()).toEqual({
+      exposure: 0,
+      inside: null,
+      recovering: true,
+      recoveringUntil: now + 10_000,
+    });
 
     setHazardFrame({ exposure: 0, recoveringUntil: now - 1 });
-    expect(hazardState().recovering).toBe(false);
+    expect(hazardState()).toEqual({
+      exposure: 0,
+      inside: null,
+      recovering: false,
+      recoveringUntil: null,
+    });
 
     setHazardFrame({ exposure: 0 }); // omitted → clear
     expect(hazardState().recovering).toBe(false);
@@ -52,7 +73,12 @@ describe('hazard store (TASK-48.2)', () => {
 
     setHazardFrame({ exposure: 41, inside: 'radzone' });
     expect(fn).toHaveBeenCalledTimes(2);
-    expect(fn).toHaveBeenLastCalledWith({ exposure: 41, inside: 'radzone', recovering: false });
+    expect(fn).toHaveBeenLastCalledWith({
+      exposure: 41,
+      inside: 'radzone',
+      recovering: false,
+      recoveringUntil: null,
+    });
 
     off();
     setHazardFrame({ exposure: 13 });
@@ -66,6 +92,7 @@ describe('hazard store (TASK-48.2)', () => {
       exposure: EXPOSURE_MAX,
       inside: null,
       recovering: false,
+      recoveringUntil: null,
     });
   });
 });

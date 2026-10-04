@@ -24,12 +24,10 @@ import { StarChart } from '@client/ui/star-chart';
 import { WarpOverlay } from '@client/ui/warp-overlay';
 import { ShipLostOverlay } from '@client/ui/ship-lost-overlay';
 import { ReentryTint } from '@client/ui/reentry-tint';
-import { DockedIndicator } from '@client/ui/docked-indicator';
-import { LeaveShipPrompt } from '@client/ui/leave-ship-prompt';
-import { InteractPrompt } from '@client/ui/interact-prompt';
-import { WeightBar } from '@client/ui/weight-bar';
-import { HazardHud } from '@client/ui/hazard-hud';
-import { ShipHud } from '@client/ui/ship-hud/ship-hud';
+// TASK-52: the ONE HUD mode switch — ShipHudArea (flight HUD + docked/leave
+// prompts + cargo) XOR OnFootHud (exposure meter + weight bar + interaction
+// line), never both (the mode = the player's active entity kind).
+import { HudRoot, type HudMode } from '@client/ui/hud-root';
 import type { NavSample } from '@client/ui/ship-hud/nav-readout';
 import { flashHullHit, selfShipView, setSelfShipView } from '@client/state/ship-hud';
 import { setChartTarget } from '@client/state/chart-target';
@@ -46,7 +44,6 @@ import {
 } from '@client/state/dock';
 import { setCredits } from '@client/state/credits';
 import { pushCreditFloat } from '@client/state/credit-float';
-import { MiningHud } from '@client/ui/mining-hud';
 import { inventory, setInventory } from '@client/state/inventory';
 import {
   setMiningActive,
@@ -709,10 +706,12 @@ function App() {
   // E can dispatch THIS frame.
   const interactNullStreakRef = React.useRef(0);
   const [interactPrompt, setInteractPrompt] = React.useState<string | null>(null);
-  // TASK-39: the ship-HUD 'Cargo' button (stub until the full HUD, TASK-51)
-  // renders exactly while the self entity IS the ship (in flight or docked
-  // in the cockpit) — on foot the prompt path (Open cargo) takes over.
-  const [inShip, setInShip] = React.useState(false);
+  // TASK-52: the HUD MODE — the player's active entity kind (the server's
+  // self entity_update: 'ship' = in the cockpit, 'character' + onFoot = on
+  // foot). ONE source of truth for the HUD root: ShipHudArea XOR OnFootHud,
+  // never both. Set at the SAME event as the camera handoff (world's
+  // setCharacterPos / reEnterShip), so the switch is atomic with it.
+  const [hudMode, setHudMode] = React.useState<HudMode>(null);
   // TASK-43: the weapon HUD state — the active weapon (1/2 keys, client
   // state), the SELF ship's classId + energy (10 Hz entity_update), and the
   // two transient server denial prompts (error frames {code}).
@@ -801,7 +800,7 @@ function App() {
         // counter survives — re-entry re-seeds the predictor, not the seq).
         shipPredictorRef.current = null;
         store.setSelfOnFoot(true); // TASK-36: PlayerList icon (self row)
-        setInShip(false); // TASK-39: the HUD Cargo button is in-ship only
+        setHudMode('onfoot'); // TASK-52: HUD root → on-foot subtree (atomic with the handoff)
         selfShipRef.current = false; // TASK-43: on foot = no weapons (v1)
         setSelfShip(null); // TASK-43: hide the weapon HUD on foot
         world.setCharacterPos(self.pos);
@@ -840,7 +839,9 @@ function App() {
         // TASK-48.2: back in the ship → the hazard frames stop; drop any
         // stale exposure/hazard state (no on-foot pool while flying).
         clearHazard();
-        setInShip(self?.kind === 'ship'); // TASK-39: ship-HUD Cargo button
+        // TASK-52: HUD root → ship subtree only while the self entity IS the
+        // ship (atomic with the reverse handoff above); null at boot/swap.
+        setHudMode(self?.kind === 'ship' ? 'ship' : null);
         // TASK-43: the weapon HUD tracks the SELF ship (classId for the
         // loadout, energy for the bar) + the fire handlers' ship refs.
         if (self && self.kind === 'ship') {
@@ -943,6 +944,7 @@ function App() {
       promptStateRef.current = { kind: 'hidden' };
       interactNullStreakRef.current = 0;
       setInteractPrompt(null);
+      setHudMode(null); // TASK-52: a system swap never carries a HUD mode
       // TASK-38: a system swap never carries a channel — drop the held-E
       // bookkeeping and any stale mining HUD state (the server kills the
       // channel itself on warp departure).
@@ -1599,22 +1601,20 @@ function App() {
       {/* TASK-49: the 'SHIP LOST' moment (2 s, our ship destroyed). */}
       <ShipLostOverlay />
       <ReentryTint />
-      <DockedIndicator />
-      <LeaveShipPrompt />
-      <InteractPrompt text={interactPrompt} />
-      <WeightBar />
-      {/* TASK-48.2: the hazard HUD (radiation meter + 'SHIELD BURN' /
-          'RECOVERING' prompts) — driven by the server's 'hazard' frame. */}
-      <HazardHud />
-      {/* TASK-51: the flight HUD — speed/altitude/regime/nav/docked block
-          (bottom-left, above the player list) + vitals bar (top-left,
-          under the chat). Unmounts (null) on foot / before the first
-          self-ship snapshot; everything is 10 Hz snapshot truth. */}
-      <ShipHud
+      {/* TASK-52: the ONE HUD mode switch — the player's active entity kind
+          selects the ship subtree (TASK-51 flight HUD + docked/leave prompts
+          + CARGO) or the on-foot subtree (exposure meter + weight bar +
+          interaction line with the mining radial) — never both. The mode is
+          set at the same event as the camera handoff, so the switch is
+          atomic with it. */}
+      <HudRoot
+        mode={hudMode}
+        promptText={interactPrompt}
         viewport={viewport}
         navSample={shipNavSample}
         dockTarget={nearestDockTarget}
         stationName={stationNameFor}
+        onCargoOpen={() => clientRef.current?.send('cargo_open', {})}
       />
       {/* TASK-50: the combat HUD (target box, weapon readout, threat ping,
           kill feed) — in-ship regions unmount on foot (selfShip null). */}
@@ -1631,33 +1631,6 @@ function App() {
         lowEnergy={lowEnergy}
         locked={locked}
       />
-      {/* TASK-39: the ship-HUD 'Cargo' button (stub until the full HUD,
-          TASK-51) — in-ship (in flight or docked) it opens the cargo panel
-          with the hold ONLY ('cargo_open' — no inventory side in flight). */}
-      {inShip && (
-        <button
-          id="ship-hud-cargo"
-          type="button"
-          onClick={() => clientRef.current?.send('cargo_open', {})}
-          style={{
-            position: 'fixed',
-            bottom: '2rem',
-            right: '6.5rem', // left of the weight bar (right 2rem, 120 px)
-            zIndex: 85,
-            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-            fontSize: '0.7rem',
-            letterSpacing: '0.08em',
-            color: '#9fb0c3',
-            background: 'rgba(15, 20, 28, 0.8)',
-            border: '1px solid #2c3a4d',
-            borderRadius: '4px',
-            padding: '0.35rem 0.6rem',
-            cursor: 'pointer',
-          }}
-        >
-          CARGO
-        </button>
-      )}
       {/* TASK-39: the cargo panel (INVENTORY | CARGO HOLD, Move buttons) —
           driven by the server's per-connection 'cargo' frame. */}
       <CargoPanel
@@ -1678,9 +1651,6 @@ function App() {
           stores, seeded by /api/players/me and updated on each 'sell'). */}
       <CreditsCounter />
       <CreditFloatLayer />
-      {/* TASK-38: the hold-to-mine channel HUD (radial progress, ore
-          counter, 'Backpack full' / 'Depleted') — server-timed. */}
-      <MiningHud />
       {/* TASK-57: dev-only frame monitor (F3) — never shipped in prod. */}
       {import.meta.env.DEV && <FrameMonitorOverlay />}
       {connState === 'lost' && session && (
