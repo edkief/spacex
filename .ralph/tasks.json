@@ -573,7 +573,7 @@
     "title": "Combat HUD: shields, hull, target card, weapons",
     "category": "ui-ux",
     "specFilePath": ".ralph/tasks/TASK-50.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-51",

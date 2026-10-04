@@ -2,47 +2,50 @@
   "id": "TASK-50",
   "title": "Combat HUD: target box, weapon/energy, threat ping, kill feed",
   "category": "ui-ux",
-  "description": "The combat-facing HUD elements assembled from the combat subsystems: the target box, the weapon/energy readout, the threat ping arc, and the kill feed — all in one coherent layout.",
+  "description": "The combat-facing HUD elements assembled from the combat subsystems: the target box, the weapon/energy readout, the threat ping arc, and the kill feed \u2014 all in one coherent layout.",
   "acceptanceCriteria": [
     "Target box (right of center, 1/3 from the edge): a bracket box around the locked target's screen position (projected from world, hidden when the target is behind the camera or > 1500 m); inside the box: callsign (or AI name + 'AI' tag), distance (m, live), a hull bar + shield bar (green/amber), a weapon-locked indicator when the target has locked the player (TASK-44)",
     "Weapon readout (bottom-center, above the prompt line): active weapon name (LASER / MISSILE), a weapon selector (1/2, shows loadout counts '2x' for dual lasers), an energy bar (100 max, amber < 25, red < 10 + 'LOW ENERGY'), the missile count for the missile weapon",
-    "Threat ping: a red arc on the screen edge pointing at the last attacker's bearing (TASK-44 state), with a 3 s fade; the arc is a DOM element (conic-gradient wedge) — screen-edge, not world-anchored",
+    "Threat ping: a red arc on the screen edge pointing at the last attacker's bearing (TASK-44 state), with a 3 s fade; the arc is a DOM element (conic-gradient wedge) \u2014 screen-edge, not world-anchored",
     "Kill feed (top-center): the TASK-47 feed (5 entries, 10 s, PvP white / PvE grey)",
-    "Layout rules: combat HUD elements never overlap the prompt line (bottom-center), the player list (bottom-left), the chat (top-left), or the debug overlay (top-right) — a layout test asserts the bounding boxes of all HUD regions are disjoint (DOM getBoundingClientRect in a component test)",
-    "Performance: the HUD updates at 10 Hz (snapshot cadence) — no per-frame React re-renders (the target box screen projection updates via rAF but writes to a ref'd style, not state); HUD overhead < 1 ms/frame (frame monitor category, TASK-57)",
-    "Unit/component tests: target box projection math (world→screen, behind-camera hide), energy bar states, threat ping bearing→wedge rotation, kill feed TTL, layout disjointness; e2e: a combat scene (scripted via hooks) with the target box + kill feed visible (screenshot)",
+    "Layout rules: combat HUD elements never overlap the prompt line (bottom-center), the player list (bottom-left), the chat (top-left), or the debug overlay (top-right) \u2014 a layout test asserts the bounding boxes of all HUD regions are disjoint (DOM getBoundingClientRect in a component test)",
+    "Performance: the HUD updates at 10 Hz (snapshot cadence) \u2014 no per-frame React re-renders (the target box screen projection updates via rAF but writes to a ref'd style, not state); HUD overhead < 1 ms/frame (frame monitor category, TASK-57)",
+    "Unit/component tests: target box projection math (world\u2192screen, behind-camera hide), energy bar states, threat ping bearing\u2192wedge rotation, kill feed TTL, layout disjointness; e2e: a combat scene (scripted via hooks) with the target box + kill feed visible (screenshot)",
     "npm run test green"
   ],
   "steps": [
     {
       "step": 1,
       "description": "Target box",
-      "details": "TargetBox component: reads TargetingState (TASK-44); projection: world pos → NDC → screen via the camera (rAF, ref'd style transform); hide rules (behind camera: dot(cameraForward, toTarget) < 0; > 1500 m); bars from the target's snapshot hull/shield.",
-      "pass": false
+      "details": "TargetBox component: reads TargetingState (TASK-44); projection: world pos \u2192 NDC \u2192 screen via the camera (rAF, ref'd style transform); hide rules (behind camera: dot(cameraForward, toTarget) < 0; > 1500 m); bars from the target's snapshot hull/shield.",
+      "pass": true
     },
     {
       "step": 2,
       "description": "Weapon readout + threat ping",
       "details": "WeaponReadout (from ship state: activeWeapon, energy, loadout); ThreatPing (a screen-edge wedge: rotation = bearing, opacity = remaining/3 s); both 10 Hz state updates (snapshot-driven).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Assembly + layout test",
       "details": "CombatHUD assembles the four regions in fixed layout slots; the disjointness test renders all HUD components at a test viewport (1280x720) and asserts no overlaps; frame monitor: a 'hud' category timing the HUD work (assert < 1 ms).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Tests + e2e",
       "details": "All listed; e2e combat screenshot. Run full suite + e2e.",
-      "pass": false
+      "pass": true
     }
   ],
-  "dependencies": ["TASK-44", "TASK-43"],
+  "dependencies": [
+    "TASK-44",
+    "TASK-43"
+  ],
   "estimatedComplexity": "medium",
   "technicalNotes": [
-    "The HUD is DOM (not canvas) — a11y + layout testability; the only per-frame work is the target-box projection (one style write).",
-    "All combat HUD state already exists (TASK-43/44) — this task is presentation + layout discipline."
+    "The HUD is DOM (not canvas) \u2014 a11y + layout testability; the only per-frame work is the target-box projection (one style write).",
+    "All combat HUD state already exists (TASK-43/44) \u2014 this task is presentation + layout discipline."
   ]
 }

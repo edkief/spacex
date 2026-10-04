@@ -127,8 +127,7 @@ export function ingestTargetingEntities(
         shieldPct: Math.round(t.shields * 100),
         bearing: relativeBearing(self.pos, forwardOf(self.rot ?? IDENT_QUAT), t.pos),
         pos: { ...t.pos },
-        locksUs:
-          ownPlayerId !== null && (t.targetedBy ?? []).includes(ownPlayerId),
+        locksUs: ownPlayerId !== null && (t.targetedBy ?? []).includes(ownPlayerId),
         isAi: t.kind === 'ai-ship',
       };
     }

@@ -56,6 +56,13 @@ const dummyBody = z
   .object({ distance: z.number().finite().positive().max(450).optional() })
   .strict();
 
+const combatKillBody = z
+  .object({
+    victim: z.string().min(1).max(64),
+    weapon: z.enum(['laser', 'missile']).optional(),
+  })
+  .strict();
+
 const giveBody = z
   .object({
     resourceId: z.enum(RESOURCE_IDS),
@@ -274,5 +281,35 @@ export function registerDevRoutes(app: FastifyInstance, deps: RouteDeps): void {
         .send({ code: 'no-ship-entity', message: 'ship entity not in the shard' });
     }
     return { ok: true, targetId, systemId: ship.position.systemId };
+  });
+
+  // TASK-50 e2e assist: broadcast a 'kill' combat_event with the CALLER as
+  // the killer (shard.broadcastKillForTesting — the scripted combat scene
+  // for the kill-feed screenshot; the real path is the server's killing hit).
+  // No production surface, no persistence.
+  app.post('/api/dev/combat-kill', async (req, reply) => {
+    const auth = await requireAuth(req, deps.sessions);
+    if (!auth.ok) return reply.code(401).send({ code: 'unauthorized', reason: auth.reason });
+    const parsed = combatKillBody.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({
+        code: 'invalid-kill',
+        message: parsed.error.issues[0]?.message ?? 'invalid body',
+      });
+    }
+    const ship = await deps.repo.getShipByOwner(auth.player.id);
+    if (!ship) return reply.code(404).send({ code: 'no-ship', message: 'player has no ship' });
+    const active = router.active(ship.position.systemId);
+    if (!active) {
+      return reply
+        .code(409)
+        .send({ code: 'not-in-system', message: 'ship system has no active shard' });
+    }
+    active.shard.broadcastKillForTesting(
+      auth.player.id,
+      parsed.data.victim,
+      parsed.data.weapon ?? 'laser',
+    );
+    return { ok: true, systemId: ship.position.systemId };
   });
 }

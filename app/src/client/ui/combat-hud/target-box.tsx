@@ -122,10 +122,20 @@ export function TargetBox({ viewport, camera }: TargetBoxProps) {
         })}
       >
         <div style={{ color: '#ff5a5a', letterSpacing: 1, fontSize: 10 }}>◤ TARGET ◢</div>
-        <div style={{ margin: '2px 0 4px', color: '#ffffff', whiteSpace: 'nowrap', overflow: 'hidden' }}>
+        <div
+          style={{
+            margin: '2px 0 4px',
+            color: '#ffffff',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+          }}
+        >
           {box.callsign}
           {box.isAi && (
-            <span style={{ marginLeft: 6, color: '#e5484d', fontSize: 10 }} data-testid="target-ai-tag">
+            <span
+              style={{ marginLeft: 6, color: '#e5484d', fontSize: 10 }}
+              data-testid="target-ai-tag"
+            >
               AI
             </span>
           )}
@@ -172,11 +182,19 @@ function Corner({ side }: { side: 'tl' | 'tr' | 'bl' | 'br' }) {
     case 'tl':
       return <div style={{ ...base, left: -halfW, top: -halfH, borderWidth: '2px 0 0 2px' }} />;
     case 'tr':
-      return <div style={{ ...base, left: halfW - CORNER, top: -halfH, borderWidth: '2px 2px 0 0' }} />;
+      return (
+        <div style={{ ...base, left: halfW - CORNER, top: -halfH, borderWidth: '2px 2px 0 0' }} />
+      );
     case 'bl':
-      return <div style={{ ...base, left: -halfW, top: halfH - CORNER, borderWidth: '0 0 2px 2px' }} />;
+      return (
+        <div style={{ ...base, left: -halfW, top: halfH - CORNER, borderWidth: '0 0 2px 2px' }} />
+      );
     case 'br':
-      return <div style={{ ...base, left: halfW - CORNER, top: halfH - CORNER, borderWidth: '0 2px 2px 0' }} />;
+      return (
+        <div
+          style={{ ...base, left: halfW - CORNER, top: halfH - CORNER, borderWidth: '0 2px 2px 0' }}
+        />
+      );
   }
 }
 

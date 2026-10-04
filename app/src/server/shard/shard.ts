@@ -1641,7 +1641,9 @@ export class SystemShard implements Shard {
     // The respawn position: the nearest pad's surface, or (no landable pad)
     // the seed-derived home dock in open space.
     const padId = dock?.padId;
-    const pos: Vec3 = dock ? { ...dock.pos } : { ...homeDockPosition(this.galaxySeed, this.systemId) };
+    const pos: Vec3 = dock
+      ? { ...dock.pos }
+      : { ...homeDockPosition(this.galaxySeed, this.systemId) };
     const regime: SimEntity['ship']['regime'] = dock ? 'surface' : 'space';
     entity.cargo = undefined; // LOST (credits + inventory are kept — untouched)
     entity.classId = 'scout';
@@ -1673,7 +1675,10 @@ export class SystemShard implements Shard {
       ship: entity.id,
       padId: padId ?? 'home-dock',
     });
-    return { pad: dock ?? { padId: '', planetId: '', pos, normal: { x: 0, y: 1, z: 0 }, radius: 0 }, shipId: entity.id };
+    return {
+      pad: dock ?? { padId: '', planetId: '', pos, normal: { x: 0, y: 1, z: 0 }, radius: 0 },
+      shipId: entity.id,
+    };
   }
 
   /** TASK-49: persist the respawn (best-effort, one transaction, no throw). */
@@ -1959,6 +1964,21 @@ export class SystemShard implements Shard {
       callsign: `AI-001-${seq}`,
     });
     return id;
+  }
+
+  /**
+   * TASK-50 e2e hook: broadcast a 'kill' combat_event (the client kill
+   * feed's ONLY input) for a scripted scene. No entity state is touched —
+   * it is the pure broadcast path; the client resolves killer (player id →
+   * presence roster) and victim (ship id → entity batches) to callsigns.
+   */
+  broadcastKillForTesting(killerPlayerId: string, victimShipId: string, weapon: string): void {
+    this.broadcastCombatEvent({
+      kind: 'kill',
+      killer: killerPlayerId,
+      victim: victimShipId,
+      weapon,
+    });
   }
 
   private broadcast(): void {

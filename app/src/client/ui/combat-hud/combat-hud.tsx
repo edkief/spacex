@@ -20,12 +20,7 @@ import { KillFeed } from '@client/hud/kill-feed';
 import { TargetBox } from './target-box';
 import { ThreatPing } from './threat-ping';
 import { WeaponReadout } from './weapon-readout';
-import {
-  HUD_BUDGET_MS,
-  styleFromRect,
-  targetBannerRect,
-  type Viewport,
-} from './layout';
+import { HUD_BUDGET_MS, styleFromRect, targetBannerRect, type Viewport } from './layout';
 
 /** The transient banner window (the store's self-clear is 2.5 s). */
 const BANNER_MS = 2_500;

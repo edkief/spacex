@@ -208,6 +208,16 @@ const REST_MANIFEST: Record<string, ManifestEntry> = {
     valid: { distance: 200 },
     invalid: { distance: 0 },
   },
+  '/api/dev/combat-kill': {
+    schema: z
+      .object({
+        victim: z.string().min(1).max(64),
+        weapon: z.enum(['laser', 'missile']).optional(),
+      })
+      .strict(),
+    valid: { victim: 'ai:dummy:1', weapon: 'laser' },
+    invalid: { victim: '' },
+  },
 };
 // NOTE: POST /api/session/logout takes NO body (token in the auth header),
 // so it has no body schema to audit. /api/ships/repair is likewise body-less

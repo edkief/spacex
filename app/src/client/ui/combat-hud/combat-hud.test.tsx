@@ -93,12 +93,17 @@ const mk = (
 function worldWith(dist: number, targetExtra: Partial<EntityState> = {}): EntityState[] {
   return [
     mk('ship-p1', 'ship', { x: 0, y: 0, z: 0 }, { callsign: 'one' }),
-    mk('ai:dummy:1', 'ai-ship', { x: 0, y: 0, z: dist }, {
-      callsign: 'AI-001-1',
-      hull: 0.61,
-      shields: 0.2,
-      ...targetExtra,
-    }),
+    mk(
+      'ai:dummy:1',
+      'ai-ship',
+      { x: 0, y: 0, z: dist },
+      {
+        callsign: 'AI-001-1',
+        hull: 0.61,
+        shields: 0.2,
+        ...targetExtra,
+      },
+    ),
   ];
 }
 
