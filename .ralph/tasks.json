@@ -525,7 +525,7 @@
     "title": "Flight controls: client ship input loop + prediction",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-73.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-74",

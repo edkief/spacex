@@ -265,12 +265,30 @@ test('docked ship: disembark, walk 10 m, walk back, re-enter the cockpit', async
   // (3) TURN toward the ship: it is on the character's SIDE (the ±30° cone
   // misses it at spawn); 'd' turns right at 3 rad/s — the first revolution
   // must sweep the cone across the 2.5 m hull → '[E] Enter ship' (5 m
-  // enter radius, TASK-35).
+  // enter radius, TASK-35). Bounded 100 ms bursts (≈ 17° each), NOT one
+  // long hold + release: on the software-GL page the main thread is busy
+  // (60 fps rAF + the prompt's boundary flicker), so a held key's RELEASE
+  // event can be queued for hundreds of ms — the character then keeps
+  // turning, overshoots the ship's bearing and parks OUTSIDE the cone,
+  // where the prompt hides and the text assertion fails. A burst loop that
+  // re-reads the prompt AT REST after each burst cannot overshoot: it stops
+  // the instant the facing settles inside the cone (24 × 17° covers the
+  // full revolution either side of the bearing).
   const prompt = page.locator('#interact-prompt');
-  await page.keyboard.down('d');
-  await expect(prompt).toBeVisible({ timeout: 20_000 });
-  await page.keyboard.up('d');
-  await expect(prompt).toHaveText('[E] Enter ship');
+  const promptText = async (): Promise<string | null> =>
+    prompt
+      .isVisible()
+      .then((v) => (v ? prompt.textContent() : null))
+      .catch(() => null);
+  for (let i = 0; i < 24; i++) {
+    await page.keyboard.down('d');
+    await page.waitForTimeout(100);
+    await page.keyboard.up('d');
+    await page.waitForTimeout(400); // rest: the raycast settles (the release
+    // event can lag the main thread; a 400 ms wait absorbs a ~21° tail)
+    if ((await promptText()) === '[E] Enter ship') break;
+  }
+  await expect(prompt).toHaveText('[E] Enter ship', { timeout: 5_000 });
   await page.waitForTimeout(800); // let the on-foot camera settle
   await page.screenshot({
     path: path.join(__dirname, '../../../.ralph/screenshots/TASK-35-1.png'),
@@ -298,8 +316,6 @@ test('docked ship: disembark, walk 10 m, walk back, re-enter the cockpit', async
   // when hidden — the ship sits to the character's right: the TURN step
   // stopped turning as the ship entered the cone from the right, and no
   // later input rotates the facing) and settle again.
-  const promptText = async (): Promise<string | null> =>
-    prompt.isVisible().then((v) => (v ? prompt.textContent() : null)).catch(() => null);
   await page.keyboard.down('s');
   const back = await charBack(page, start, 0.6);
   await page.keyboard.up('s');

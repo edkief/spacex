@@ -8,25 +8,25 @@
       "step": 1,
       "description": "Pure input mapping: ShipInput → wire InputPayload",
       "details": "Add the inverse of `inputToShipInput` (src/shared/protocol/inputs.ts) — e.g. `shipInputToPayload(seq, input): InputPayload`. Wire mapping (must round-trip through inputToShipInput exactly): thrust → `thrust`, yaw → `yaw`, pitch → `pitch`, ROLL → `turn`, VTOL `up > 0` → `action: 'vtol'`; `fire: false`, `lock: false`. Unit test the round trip for every channel.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "One shared input seq + key handling",
       "details": "The server drops any frame with `seq <= conn.lastSeq` PER CONNECTION (shard.enqueueInput), and the same 'input' message drives the ship or the character. So the ship loop and the on-foot loop MUST share ONE monotonically increasing seq counter (today `charSeqRef` in main.tsx) — rename/generalise it (e.g. `inputSeqRef`) rather than adding a second counter, and route acks to whichever predictor is active. Key conflicts with existing global handlers in main.tsx: Q currently sends 'drop' (~line 871) and E sends 'exit_ship' when docked / interacts on foot (~line 820). Make Q-drop fire ON FOOT only (the server would answer 'wrong-regime' anyway — don't send it), and keep E = Leave ship ONLY while the DOCKED indicator is up (otherwise in-ship E is roll). Typing in an input (chat) and the open star chart must not fly the ship; window blur clears held keys (same rules as the on-foot capture).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Ship prediction loop",
       "details": "While the self entity is the player's ship (in flight or docked, not on foot, not destroyed): each rAF frame read `regimeWiring.remapper.readInput(pressed)` (RegimeWiring.remapper in src/client/state/regime-wiring.ts follows the regime tracker; the RegimeWiring instance is currently created inside `useGameSession` via useMemo and not returned — expose it), send a frame on change or at 20 Hz (same cadence rule as the on-foot loop), and step a `ClientShipPredictor` (seeded from the first self ship snapshot; `setContext` with the tracker regime + ship classId; reconcile on each self ship entity_update against the last acked seq, following the usage block on the class). Drive `world.setSelfShipTransform(pos, quat)` (TASK-72) and the rig's `setShip` from `predictor.getState()` every frame so the mesh + chase camera are smooth at 60 fps, not 10 Hz. Disembark / destroy / system swap drops the predictor (mirror how charPredictorRef is cleared); re-entry re-seeds it. Keep the loop out of React state (refs only). If main.tsx grows further, extract the loop into a hook/module under src/client/input or src/client/net (AGENTS.md: keep files small) — the existing on-foot loop is a good candidate to move alongside it.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Tests, e2e, screenshot, commit",
       "details": "Unit: payload mapping round trip; seq stays monotonic across ship → on-foot → ship transitions; Q/E gating; the loop sends nothing while typing / chart open. E2E (new `tests/e2e/flight.spec.ts`): fresh callsign, hold W for ~2 s, assert the ship's server position (existing dev routes or the debug hook from TASK-72) moved forward along its facing and the docked state cleared; screenshot `.ralph/screenshots/TASK-73-1.png` mid-flight showing the ship from the chase camera. Then `cd app && npx tsc --noEmit`, full `npm run test`, affected e2e specs (landing, enter-ship, disembark, walk, inventory must stay green), `eslint --fix` + `prettier --write`. Commit (conventional, mention TASK-73).",
-      "pass": false
+      "pass": true
     }
   ],
   "acceptanceCriteria": [

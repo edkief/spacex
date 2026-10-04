@@ -96,6 +96,15 @@ import type { Vec3 } from '@shared/physics/vec';
  */
 const STARFIELD_SEED = 'DRIFT-SEED-0001';
 
+/**
+ * TASK-73: how many CONSECUTIVE null frames the on-foot interaction raycast
+ * must report before the prompt (and E's dispatch target) is cleared. The
+ * predicted state flickers resolved↔null near the 3 m / 30° boundaries
+ * (release coast + prediction lead); holding ~50 ms (3 frames @ 60 fps)
+ * keeps the invariant that a visible prompt is always dispatchable.
+ */
+const INTERACT_HOLD_FRAMES = 3;
+
 /** Fetches the REST health endpoint through the Vite same-origin proxy. */
 async function fetchHealth(): Promise<HealthPayload | null> {
   try {
@@ -579,6 +588,14 @@ function App() {
   // TASK-39: the raycast's distance for the current target (the ship's
   // proximity sub-prompts branch on it: Open cargo vs Enter ship).
   const resolvedDistanceRef = React.useRef<number | undefined>(undefined);
+  // TASK-73: debounce counter — consecutive frames the on-foot raycast
+  // resolved to NULL while a prompt is up. The PREDICTED state (not the
+  // server's) drives the raycast, so near the 3 m / 30° boundary the result
+  // flickers resolved↔null frame-to-frame (release coast + prediction
+  // lead). Holding the last hit across a short null streak keeps the
+  // invariant the prompt promises: the visible target is always the target
+  // E can dispatch THIS frame.
+  const interactNullStreakRef = React.useRef(0);
   const [interactPrompt, setInteractPrompt] = React.useState<string | null>(null);
   // TASK-39: the ship-HUD 'Cargo' button (stub until the full HUD, TASK-51)
   // renders exactly while the self entity IS the ship (in flight or docked
@@ -753,6 +770,7 @@ function App() {
         if (self?.kind !== 'ship') shipPredictorRef.current = null;
         resolvedTargetRef.current = null;
         resolvedDistanceRef.current = undefined;
+        interactNullStreakRef.current = 0;
         heldInteractRef.current = null; // a held E never survives re-entry
         promptStateRef.current = { kind: 'hidden' };
         setInteractPrompt(null);
@@ -803,6 +821,7 @@ function App() {
         .map((e) => ({ id: e.id, pos: { ...e.pos } }));
       feedRemote(entities);
       promptStateRef.current = { kind: 'hidden' };
+      interactNullStreakRef.current = 0;
       setInteractPrompt(null);
       // TASK-38: a system swap never carries a channel — drop the held-E
       // bookkeeping and any stale mining HUD state (the server kills the
@@ -1128,26 +1147,53 @@ function App() {
       // graph), anchored at the character's feet + facing. The state
       // machine emits on change only, so React re-renders only on a real
       // show / hide / switch of the bottom-center prompt.
-      const resolved = resolveInteract(
+      const raw = resolveInteract(
         interactTargetsRef.current,
         st.pos,
         st.quat,
         { callsign: sessionCallsignRef.current },
         interactRegistry,
       );
-      resolvedTargetRef.current = resolved?.target ?? null;
-      resolvedDistanceRef.current = resolved?.distance;
-      // TASK-73: dev hook — the exact raycast state the E key dispatches.
-      if (interactDebug) {
-        interactDebug.text = resolved?.text ?? null;
-        interactDebug.targetId = resolved?.target.id ?? null;
-        interactDebug.distance = resolved?.distance ?? null;
-        interactDebug.feet = resolved ? { ...st.pos } : null;
-      }
-      const next = nextPromptState(promptStateRef.current, resolved);
-      if (next !== promptStateRef.current) {
-        promptStateRef.current = next;
-        setInteractPrompt(next.kind === 'visible' ? next.text : null);
+      // TASK-73: debounce — a short null streak (the predicted-state
+      // flicker at the 3 m / 30° boundary) must not clear the dispatch
+      // target while the prompt is up: the last hit (target, distance,
+      // prompt, dev hook) stays alive for at most INTERACT_HOLD_FRAMES
+      // consecutive null frames. Any hit — including a switch to a
+      // different target — re-arms immediately.
+      if (raw) {
+        interactNullStreakRef.current = 0;
+        resolvedTargetRef.current = raw.target;
+        resolvedDistanceRef.current = raw.distance;
+        // TASK-73: dev hook — the exact raycast state the E key dispatches.
+        if (interactDebug) {
+          interactDebug.text = raw.text;
+          interactDebug.targetId = raw.target.id;
+          interactDebug.distance = raw.distance;
+          interactDebug.feet = { ...st.pos };
+        }
+        const next = nextPromptState(promptStateRef.current, raw);
+        if (next !== promptStateRef.current) {
+          promptStateRef.current = next;
+          setInteractPrompt(next.kind === 'visible' ? next.text : null);
+        }
+      } else if (++interactNullStreakRef.current < INTERACT_HOLD_FRAMES) {
+        // flicker frame — the last target + prompt stay alive (E still
+        // dispatches them); the streak hides everything past the hold.
+      } else {
+        interactNullStreakRef.current = 0;
+        resolvedTargetRef.current = null;
+        resolvedDistanceRef.current = undefined;
+        if (interactDebug) {
+          interactDebug.text = null;
+          interactDebug.targetId = null;
+          interactDebug.distance = null;
+          interactDebug.feet = null;
+        }
+        const next = nextPromptState(promptStateRef.current, null);
+        if (next !== promptStateRef.current) {
+          promptStateRef.current = next;
+          setInteractPrompt(null);
+        }
       }
     };
     raf = requestAnimationFrame(loop);
