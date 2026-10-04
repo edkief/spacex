@@ -580,7 +580,7 @@
     "title": "Ship HUD: nav, velocity, regime, cargo, weapons",
     "category": "ui-ux",
     "specFilePath": ".ralph/tasks/TASK-51.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-52",

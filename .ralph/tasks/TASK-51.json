@@ -18,25 +18,25 @@
       "step": 1,
       "description": "Readouts",
       "details": "ShipHUD component: SpeedReadout, AltitudeReadout (regime-aware), RegimeTag, DockedTag — all from the local ship's snapshot state (10 Hz); the hit flash subscribes to combat events (self only).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Nav readout",
       "details": "NavReadout: target = chart selection (TASK-7 state) else nearest station (derived); bearing = atan2 of the target-relative vector rotated by the ship yaw; distance formatted (m < 1 km, km ≥ 1 km, 1 decimal); the arrow is a CSS-rotated chevron (rAF ref).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Hull/shield bar",
       "details": "VitalsBar (top-left): two stacked bars (shield over hull), width 200 px, hover tooltip with numbers; the red flash: a 300 ms CSS class toggle on self-hit events.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Tests + e2e",
       "details": "All listed; e2e two-regime screenshots. Run full suite + e2e.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-13", "TASK-14", "TASK-57"],
