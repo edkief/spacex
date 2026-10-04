@@ -1,11 +1,6 @@
 import path from 'node:path';
 import { expect, test } from './fixtures';
-import {
-  canvasCenterLuminanceMean,
-  canvasLuminanceVariance,
-  collectErrors,
-  uniqueCallsign,
-} from './helpers';
+import { canvasLuminanceVariance, collectErrors, uniqueCallsign } from './helpers';
 import { ClaimPage } from './pages/claim';
 
 /**
@@ -20,8 +15,9 @@ import { ClaimPage } from './pages/claim';
  *   (2 s in + network + 2 s out);
  * - the world swap landed on the target system and built under the
  *   300 ms budget (__DRIFT__.worldSwap, dev-only hook);
- * - the target system's star renders at the canvas center (mean
- *   luminance of a 32x32 center sample);
+ * - the chase camera STAYS ON THE SHIP after the swap (TASK-72: no snap
+ *   back to the old fixed spectator vantage) — asserted via the live
+ *   __SELF_SHIP__ projection (in front of the camera, near the center);
  * - no console/page errors.
  * Screenshots: .ralph/screenshots/TASK-8-{1,2,3}.png
  */
@@ -93,9 +89,30 @@ test('warp: in-world transition to the target system', async ({ browser, e2eServ
   // The HUD status line follows the ship into the target system.
   await expect(page.locator('#sys-id')).toContainText(`sys ${targetSys}`);
 
-  // The target system's star renders at the canvas center (the WorldManager
-  // camera centers on the system origin, where the star sits).
-  expect(await canvasCenterLuminanceMean(page), 'star at canvas center').toBeGreaterThan(100);
+  // TASK-72: the chase camera survives the swap ON the ship (the player
+  // re-docks in the target system) — the self ship projects in front of the
+  // camera, near the center. (Before TASK-72 this asserted the star at the
+  // canvas center, which pinned the old fixed spectator vantage.)
+  const shipOnScreen = await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const p = window.__SELF_SHIP__?.probe() ?? null;
+          return p !== null && p.screen !== null && p.classId !== null;
+        }),
+      { timeout: 5000, message: 'self ship not in front of the camera after the warp' },
+    )
+    .toBe(true);
+  void shipOnScreen;
+  const nearCenter = await page.evaluate(() => {
+    const p = window.__SELF_SHIP__?.probe() ?? null;
+    if (!p?.screen) return false;
+    return (
+      Math.abs(p.screen.x - window.innerWidth / 2) <= window.innerWidth * 0.25 &&
+      Math.abs(p.screen.y - window.innerHeight / 2) <= window.innerHeight * 0.25
+    );
+  });
+  expect(nearCenter, 'chase camera should stay on the ship after the swap').toBe(true);
 
   await page.screenshot({ path: path.join(__dirname, '../../../.ralph/screenshots/TASK-8-3.png') });
 

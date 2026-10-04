@@ -1,6 +1,11 @@
 import type { Livery } from '@shared/protocol/schemas';
 import type { Quat, Vec3 } from '@shared/physics/vec';
-import { applyLivery, buildShipMesh, disposeShipMesh, type ShipMesh } from '@client/render/ship-mesh';
+import {
+  applyLivery,
+  buildShipMesh,
+  disposeShipMesh,
+  type ShipMesh,
+} from '@client/render/ship-mesh';
 
 /**
  * TASK-72: the player's OWN ship, as a scene-level mesh. The remote-entity
