@@ -9,11 +9,15 @@ import {
   MAX_CALLSIGN_LABELS,
   RemoteEntityLayer,
 } from './remote-entities';
+import { AI_SHIP_TRIM_COLOR } from './remote-ships';
 
 /**
- * TASK-36 step 4: RemoteEntityLayer unit tests — label fade math, ground-item
- * colors, callsign-based self exclusion, the 200 ms interpolated placement,
- * livery tint, removal, and the label cap / behind-camera handling.
+ * TASK-36 step 4 (+ TASK-74): RemoteEntityLayer unit tests — label fade
+ * math, ground-item colors, callsign-based self exclusion, the 200 ms
+ * interpolated placement, livery tint, removal, the label cap /
+ * behind-camera handling, and the remote-ship render path (create-once /
+ * re-tint / rebuild-on-class-change / dispose / self exclusion / AI trim /
+ * label dedup).
  * Node environment (no DOM): the label pipeline is asserted through the
  * pure `labelStates`; the mesh layer through three.js objects.
  */
@@ -41,6 +45,15 @@ function character(
   extra: Partial<EntityState> = {},
 ): EntityState {
   return { ...entity(id, 'character', pos), callsign, onFoot: true, ...extra };
+}
+
+function ship(
+  id: string,
+  callsign: string,
+  pos: { x: number; y: number; z: number },
+  extra: Partial<EntityState> = {},
+): EntityState {
+  return { ...entity(id, 'ship', pos), callsign, classId: 'scout', ...extra };
 }
 
 /** The character layer's parented mesh group (the first child, when one exists). */
@@ -202,5 +215,220 @@ describe('RemoteEntityLayer', () => {
     expect(layer.renderedIds()).toEqual([]);
     expect(parent.children).toHaveLength(0);
     expect(entityCounts().total).toBe(0);
+  });
+});
+
+/** The unique zone materials of one ship group (hull / accent / trim). */
+function shipMats(group: THREE.Group): THREE.MeshStandardMaterial[] {
+  const mats = new Set<THREE.Material>();
+  group.traverse((o) => {
+    if (o instanceof THREE.Mesh) {
+      const m = o.material;
+      if (Array.isArray(m)) m.forEach((x) => mats.add(x));
+      else mats.add(m);
+    }
+  });
+  return [...mats] as THREE.MeshStandardMaterial[];
+}
+
+describe('RemoteEntityLayer — ships (TASK-74)', () => {
+  beforeEach(() => {
+    resetEntityRegistry();
+  });
+
+  it('a ship + an ai-ship snapshot create one mesh each, interpolated 200 ms in the past', () => {
+    const layer = new RemoteEntityLayer();
+    const parent = new THREE.Group();
+    layer.setParent(parent);
+    layer.addSnapshot(
+      100,
+      [
+        ship('s-bob', 'bob', { x: 0, y: 0, z: 0 }),
+        ship('ai-1', 'ROGUE-1', V3, { kind: 'ai-ship' }),
+      ],
+      'me',
+    );
+    layer.addSnapshot(
+      300,
+      [
+        ship('s-bob', 'bob', { x: 2, y: 0, z: 0 }),
+        ship('ai-1', 'ROGUE-1', V3, { kind: 'ai-ship' }),
+      ],
+      'me',
+    );
+    // now=490 → target 290 → f=(290-100)/200=0.95 → bob's ship x = 2*0.95 = 1.9
+    layer.renderFrame(490);
+    expect(parent.children).toHaveLength(2);
+    expect(layer.renderedIds().sort()).toEqual(['ai-1', 's-bob']);
+    expect(entityCounts().ship).toBe(2);
+    expect(entityCounts().total).toBe(2);
+    const bobGroup = layer.shipProbes().find((p) => p.id === 's-bob')!.pos;
+    expect(bobGroup.x).toBeCloseTo(1.9, 5);
+    expect(parent.children[0].position.x).toBeCloseTo(1.9, 5);
+  });
+
+  it('re-tints in place on livery change without rebuilding the mesh', () => {
+    const layer = new RemoteEntityLayer();
+    const parent = new THREE.Group();
+    layer.setParent(parent);
+    layer.addSnapshot(100, [ship('s-bob', 'bob', V3, { livery: { hull: '#112233' } })], 'me');
+    layer.renderFrame(110);
+    const firstGroup = parent.children[0] as THREE.Group;
+    expect(shipMats(firstGroup).some((m) => m.color.getHexString() === '112233')).toBe(true);
+
+    // New livery, same classId: SAME group instance, recolor only.
+    layer.addSnapshot(200, [ship('s-bob', 'bob', V3, { livery: { hull: '#445566' } })], 'me');
+    layer.renderFrame(210);
+    expect(parent.children[0]).toBe(firstGroup);
+    expect(shipMats(firstGroup).some((m) => m.color.getHexString() === '445566')).toBe(true);
+  });
+
+  it('rebuilds the mesh when the classId changes (a ship swap)', () => {
+    const layer = new RemoteEntityLayer();
+    const parent = new THREE.Group();
+    layer.setParent(parent);
+    layer.addSnapshot(100, [ship('s-bob', 'bob', V3, { classId: 'scout' })], 'me');
+    layer.renderFrame(110);
+    const before = parent.children[0] as THREE.Group;
+    expect(layer.shipProbes()[0].classId).toBe('scout');
+
+    layer.addSnapshot(200, [ship('s-bob', 'bob', V3, { classId: 'freighter' })], 'me');
+    layer.renderFrame(210);
+    expect(layer.shipProbes()[0].classId).toBe('freighter');
+    // Same id, NEW silhouette — the old group was disposed and replaced.
+    expect(parent.children).toHaveLength(1);
+    expect(parent.children[0]).not.toBe(before);
+    expect(entityCounts().ship).toBe(1);
+  });
+
+  it('disposes the mesh when the ship leaves the snapshot', () => {
+    const layer = new RemoteEntityLayer();
+    const parent = new THREE.Group();
+    layer.setParent(parent);
+    layer.addSnapshot(100, [ship('s-bob', 'bob', V3), character('char-alice', 'alice', V3)], 'me');
+    layer.renderFrame(110);
+    expect(parent.children).toHaveLength(2);
+    expect(entityCounts().ship).toBe(1);
+
+    layer.addSnapshot(200, [character('char-alice', 'alice', V3)], 'me');
+    layer.renderFrame(210);
+    expect(layer.renderedIds()).toEqual(['char-alice']);
+    expect(parent.children).toHaveLength(1);
+    expect(entityCounts().ship).toBe(0);
+    expect(layer.shipProbes()).toEqual([]);
+  });
+
+  it('excludes self SHIPS by callsign (the frozen docked self ship never renders)', () => {
+    const layer = new RemoteEntityLayer();
+    layer.addSnapshot(
+      100,
+      [
+        { ...entity('ship-me', 'ship', V3), callsign: 'me' },
+        ship('s-bob', 'bob', { x: 1, y: 0, z: 0 }),
+      ],
+      'me',
+    );
+    layer.renderFrame(110);
+    expect(layer.renderedIds()).toEqual(['s-bob']);
+    expect(layer.shipProbes().map((p) => p.callsign)).toEqual(['bob']);
+  });
+
+  it('gives AI ships the hostile trim accent and keeps player ships on the class default', () => {
+    const layer = new RemoteEntityLayer();
+    const parent = new THREE.Group();
+    layer.setParent(parent);
+    layer.addSnapshot(
+      100,
+      [
+        ship('s-bob', 'bob', V3, { classId: 'scout' }),
+        ship('ai-1', 'ROGUE-1', V3, { classId: 'scout', kind: 'ai-ship' }),
+      ],
+      'me',
+    );
+    layer.renderFrame(110);
+    const aiRed = AI_SHIP_TRIM_COLOR.slice(1);
+    // The ai-ship carries exactly ONE material in the hostile trim color…
+    const aiMats = shipMats(parent.children[1] as THREE.Group);
+    expect(aiMats.filter((m) => m.color.getHexString() === aiRed)).toHaveLength(1);
+    // …and the player ship has none of them (class-default trim instead).
+    const playerMats = shipMats(parent.children[0] as THREE.Group);
+    expect(playerMats.filter((m) => m.color.getHexString() === aiRed)).toHaveLength(0);
+    // Zone materials are transparent — the stale/dimmed opacity rule works.
+    expect(aiMats.every((m) => m.transparent)).toBe(true);
+  });
+
+  it('applies the stale/dimmed opacity rule to ship materials (dimmed when the buffer starves)', () => {
+    const layer = new RemoteEntityLayer();
+    const parent = new THREE.Group();
+    layer.setParent(parent);
+    layer.addSnapshot(100, [ship('s-bob', 'bob', V3)], 'me');
+    // 4.9 s since the last sample → newest sample is older than STALE_MS → dimmed.
+    layer.renderFrame(5_000);
+    expect(shipMats(parent.children[0] as THREE.Group).every((m) => m.opacity === 0.25)).toBe(true);
+  });
+
+  it('labels ships by callsign (AI ships by their AI name) through the same overlay + cap', () => {
+    const layer = new RemoteEntityLayer();
+    layer.setProjector(() => ({ x: 0, y: 0, dist: 3 }));
+    layer.addSnapshot(
+      100,
+      [
+        ship('s-bob', 'bob', V3),
+        ship('ai-1', 'ROGUE-1', V3, { kind: 'ai-ship' }),
+        ...Array.from({ length: MAX_CALLSIGN_LABELS }, (_, i) =>
+          character(`char-${i}`, `ped${i}`, { x: i, y: 0, z: 0 }),
+        ),
+      ],
+      'me',
+    );
+    layer.renderFrame(110);
+    const states = layer.labelStates(110);
+    // 2 ships + 16 characters = 18 candidates; the cap keeps 16.
+    expect(states).toHaveLength(18);
+    expect(new Set(states.map((s) => s.callsign)).size).toBe(18);
+    expect(states.filter((s) => s.visible)).toHaveLength(MAX_CALLSIGN_LABELS);
+    const byId = new Map(states.map((s) => [s.id, s]));
+    expect(byId.get('s-bob')?.callsign).toBe('bob');
+    expect(byId.get('ai-1')?.callsign).toBe('ROGUE-1');
+  });
+
+  it('never double-labels an on-foot player: the character beats the docked ship', () => {
+    const layer = new RemoteEntityLayer();
+    layer.setProjector(() => ({ x: 0, y: 0, dist: 3 }));
+    layer.addSnapshot(
+      100,
+      [
+        character('char-bob', 'bob', V3),
+        // Bob's DOCKED scout, still carrying his callsign on the wire.
+        ship('s-bob', 'bob', V3),
+        ship('s-carol', 'carol', { x: 5, y: 0, z: 0 }),
+      ],
+      'me',
+    );
+    layer.renderFrame(110);
+    const states = layer.labelStates(110);
+    // bob appears exactly ONCE — via the CHARACTER (the active entity);
+    // carol's label rides her ship.
+    expect(states.filter((s) => s.callsign === 'bob')).toHaveLength(1);
+    expect(states.find((s) => s.callsign === 'bob')?.id).toBe('char-bob');
+    expect(states.find((s) => s.callsign === 'carol')?.id).toBe('s-carol');
+    // Both ships still render even though only one is labeled.
+    expect(layer.renderedIds().sort()).toEqual(['s-bob', 's-carol', 'char-bob'].sort());
+  });
+
+  it('clear() disposes remote ships too (world swap)', () => {
+    const layer = new RemoteEntityLayer();
+    const parent = new THREE.Group();
+    layer.setParent(parent);
+    layer.addSnapshot(
+      100,
+      [ship('s-bob', 'bob', V3), ship('ai-1', 'ROGUE-1', V3, { kind: 'ai-ship' })],
+      'me',
+    );
+    layer.renderFrame(110);
+    layer.clear();
+    expect(layer.shipProbes()).toEqual([]);
+    expect(parent.children).toHaveLength(0);
+    expect(entityCounts().ship).toBe(0);
   });
 });

@@ -6,7 +6,7 @@ import { SPAWN_GATE_POS } from '@shared/galaxy/spawn';
 import { planetAnchor } from '@shared/galaxy/planets';
 import type { PlanetClass, SpectralClass, SystemGen } from '@shared/galaxy/types';
 import { ATMOSPHERE_BOUNDARY_M } from '@shared/physics/atmosphere';
-import type { Vec3 } from '@shared/physics/vec';
+import type { Quat, Vec3 } from '@shared/physics/vec';
 import type { Regime } from '@shared/regime';
 import type { EntityState } from '@shared/protocol/schemas';
 import { padsForSystem, type PadInfo } from '@shared/world/pads';
@@ -334,10 +334,10 @@ export class WorldManager {
   /** The pad plane height feeding the handoff nudge (flat disc under the feet). */
   private rigPadHeight = 0;
   /**
-   * TASK-36: the remote-entity render layer (interpolated remote characters
-   * + shared ground items, the 200 ms TASK-14 buffer). Meshes attach to the
-   * per-system world group; the callsign labels ride a DOM host attached
-   * via attachRemoteLabels.
+   * TASK-36 (+ TASK-74 ships): the remote-entity render layer
+   * (interpolated remote characters + ships + shared ground items, the 200
+   * ms TASK-14 buffer). Meshes attach to the per-system world group; the
+   * callsign labels ride a DOM host attached via attachRemoteLabels.
    */
   private readonly remoteLayer = new RemoteEntityLayer();
   /**
@@ -526,6 +526,20 @@ export class WorldManager {
   }
 
   /**
+   * TASK-74: the rendered remote ships (dev probe / e2e assertions) — wire
+   * facts + world position. The e2e projects `pos` via projectToScreen.
+   */
+  remoteShips(): Array<{
+    id: string;
+    kind: string;
+    classId: string | null;
+    callsign: string | null;
+    pos: { x: number; y: number; z: number };
+  }> {
+    return this.remoteLayer.shipProbes();
+  }
+
+  /**
    * TASK-36: attach the callsign-label DOM overlay (a canvas-sibling element
    * sized like the viewport) + wire the world→screen projector.
    */
@@ -705,9 +719,13 @@ export class WorldManager {
    * The rendered self ship (dev probe / e2e assertions). Null until the
    * first setSelfShip.
    */
-  selfShipView(): { classId: string; pos: Vec3 } | null {
+  selfShipView(): { classId: string; pos: Vec3; rot: Quat } | null {
     if (!this.selfShip.mesh) return null;
-    return { classId: this.selfShip.mesh.classId, pos: this.selfShip.position()! };
+    return {
+      classId: this.selfShip.mesh.classId,
+      pos: this.selfShip.position()!,
+      rot: this.selfShip.orientation()!,
+    };
   }
 
   /**

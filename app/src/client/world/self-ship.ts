@@ -119,6 +119,13 @@ export class SelfShip {
     return { x: p.x, y: p.y, z: p.z };
   }
 
+  /** The world orientation of the rendered group (null = not spawned). */
+  orientation(): Quat | null {
+    if (!this.mesh) return null;
+    const q = this.mesh.group.quaternion;
+    return { x: q.x, y: q.y, z: q.z, w: q.w };
+  }
+
   /** True while a mesh exists (a scene-level parent keeps it visible). */
   get active(): boolean {
     return this.mesh !== null;

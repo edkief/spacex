@@ -80,6 +80,7 @@ import { installCharDebug } from '@client/char-debug';
 import { installInteractDebug } from '@client/interact-debug';
 import { bindDepositsDebug, installDepositsDebug } from '@client/deposits-debug';
 import { bindSelfShipDebug, installSelfShipDebug } from '@client/self-ship-debug';
+import { bindRemoteShipsDebug, installRemoteShipsDebug } from '@client/remote-ships-debug';
 import { installTransitionDebug } from '@client/test/transitionCycle';
 import type { ChatMessage, EntityState, InputPayload } from '@shared/protocol/schemas';
 import { inputToCharacterInput, shipInputToPayload } from '@shared/protocol/inputs';
@@ -528,10 +529,11 @@ function App() {
   }, [session]);
   const [store] = React.useState(() => new PresenceStore());
   const [chatStore] = React.useState(() => new ChatStore());
-  // TASK-36: every snapshot batch feeds BOTH remote render targets — the
-  // remote-entity layer (interpolated remote characters + shared ground
-  // items, 200 ms behind) and presence' onFoot derivation (the PlayerList
-  // icon flips on disembark / re-enter). Refs only — no React state churn.
+  // TASK-36 (TASK-74: + remote ships): every snapshot batch feeds BOTH
+  // remote render targets — the remote-entity layer (interpolated remote
+  // characters + ships + shared ground items, 200 ms behind) and presence'
+  // onFoot derivation (the PlayerList icon flips on disembark / re-enter).
+  // Refs only — no React state churn.
   const feedRemote = (entities: EntityState[]): void => {
     worldRef.current?.feedRemoteEntities(entities, sessionCallsignRef.current);
     store.applyActiveEntities(entities);
@@ -1346,7 +1348,21 @@ function App() {
         const world = worldRef.current;
         const v = world?.selfShipView() ?? null;
         if (!world || !v) return null;
-        return { classId: v.classId, pos: v.pos, screen: world.projectToScreen(v.pos) };
+        return { classId: v.classId, pos: v.pos, rot: v.rot, screen: world.projectToScreen(v.pos) };
+      });
+      // TASK-74: the remote-ship probes project LAZILY against the live
+      // camera (same pattern — a seed-corrected re-creation stays bound).
+      bindRemoteShipsDebug(remoteShipsDebug, () => {
+        const world = worldRef.current;
+        if (!world) return [];
+        return world.remoteShips().map((s) => ({
+          id: s.id,
+          kind: s.kind as 'ship' | 'ai-ship',
+          classId: s.classId,
+          callsign: s.callsign,
+          pos: s.pos,
+          screen: world.projectToScreen(s.pos),
+        }));
       });
     }
     // The world is the pure function (seed, systemId) — boot join and warp
@@ -1641,6 +1657,8 @@ const interactDebug = installInteractDebug();
 const depositsDebug = installDepositsDebug();
 // TASK-72: dev-only self-ship probe hook (no-op in production builds).
 const selfShipDebug = installSelfShipDebug();
+// TASK-74: dev-only remote-ship probe hook (no-op in production builds).
+const remoteShipsDebug = installRemoteShipsDebug();
 // TASK-26.2: dev-only draw-distance budget benchmark hook (no-op in prod).
 installStreamDebug();
 // TASK-27: dev-only camera handoff probe hook (no-op in production builds).

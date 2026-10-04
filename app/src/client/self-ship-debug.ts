@@ -12,13 +12,15 @@
  * production builds never ship it.
  */
 
-import type { Vec3 } from '@shared/physics/vec';
+import type { Quat, Vec3 } from '@shared/physics/vec';
 
 export interface SelfShipProbeResult {
   /** The rendered hull class ('scout' for a fresh player). */
   classId: string | null;
   /** World position of the ship's origin (null = not spawned yet). */
   pos: Vec3 | null;
+  /** World orientation (null = not spawned yet) — TASK-74 e2e aims off the nose. */
+  rot: Quat | null;
   /**
    * Projected screen position (CSS pixels, origin top-left) + view-space
    * distance — null when the ship is not spawned or sits behind the camera.
@@ -39,7 +41,7 @@ declare global {
   }
 }
 
-const EMPTY: SelfShipProbeResult = { classId: null, pos: null, screen: null };
+const EMPTY: SelfShipProbeResult = { classId: null, pos: null, rot: null, screen: null };
 
 /** Install the hook (DEV builds only); the source is bound lazily. */
 export function installSelfShipDebug(): SelfShipDebug | null {

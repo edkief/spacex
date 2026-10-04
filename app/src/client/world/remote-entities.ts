@@ -4,11 +4,19 @@ import { RemoteEntityTracker, type RemoteRenderState } from '@client/net/interpo
 import type { EntityState, Livery } from '@shared/protocol/schemas';
 import { registerEntity, unregisterEntity } from './entity-registry';
 import { buildCharacterMesh } from './character-mesh';
+import {
+  applyShipLivery,
+  createShipRender,
+  disposeShipRender,
+  setShipOpacity,
+  SHIP_LABEL_HEIGHT_M,
+  type ShipRender,
+} from './remote-ships';
 
 /**
  * TASK-36: the remote-entity render layer — the on-foot multiplayer view.
  *
- * Remote characters ride the SAME 200 ms interpolation buffer as ships
+ * Remote entities ride the SAME 200 ms interpolation buffer as ships
  * (TASK-14's RemoteEntityTracker, kind-agnostic by design): every 10 Hz
  * snapshot batch is fed in (self excluded), and each frame every remote
  * entity's render state is resolved 200 ms in the past — smooth even across
@@ -18,7 +26,11 @@ import { buildCharacterMesh } from './character-mesh';
  *   livery-colored, with a screen-space DOM callsign label (≤ 16, a11y
  *   friendly, 10 m billboard fade) positioned per frame outside React;
  * - `groundItem` — a small glowing ore chunk (shared drops/pickups, TASK-34:
- *   the server already broadcasts these to every peer).
+ *   the server already broadcasts these to every peer);
+ * - `ship` / `ai-ship` — TASK-74: the TASK-21 ShipMeshBuilder silhouette at
+ *   the interpolated pos/quat, livery-tinted (AI ships carry the hostile
+ *   trim accent). The ship render path lives in remote-ships.ts (per-kind
+ *   module pattern); this layer stays the dispatcher.
  *
  * Meshes live in the per-system world group (a warp disposes them with it);
  * the DOM labels live in a host element the WorldManager appends next to the
@@ -47,7 +59,7 @@ export const GROUND_ITEM_COLORS: Record<string, string> = {
 };
 const GROUND_ITEM_DEFAULT_COLOR = '#9aa4b2';
 
-const RENDERABLE_KINDS = new Set(['character', 'groundItem']);
+const RENDERABLE_KINDS = new Set(['character', 'groundItem', 'ship', 'ai-ship']);
 
 export interface Projected {
   x: number;
@@ -107,6 +119,8 @@ interface RemoteInfo {
   callsign?: string;
   livery?: Livery;
   resourceId?: string;
+  /** TASK-74: the hull class — carried on every wire EntityState. */
+  classId?: string;
 }
 
 interface CharacterRender {
@@ -139,10 +153,12 @@ function disposeObject(root: THREE.Object3D): void {
  */
 export class RemoteEntityLayer {
   private readonly tracker = new RemoteEntityTracker();
-  /** Wire facts for the RENDERABLE ids (kind / callsign / livery / resource). */
+  /** Wire facts for the RENDERABLE ids (kind / callsign / livery / class / resource). */
   private readonly infos = new Map<string, RemoteInfo>();
   private readonly characters = new Map<string, CharacterRender>();
   private readonly groundItems = new Map<string, GroundItemRender>();
+  /** TASK-74: remote ships (kind 'ship' / 'ai-ship'), one ShipMesh per id. */
+  private readonly ships = new Map<string, ShipRender>();
   /** The per-system world group the meshes attach to (null before the first swap). */
   private parent: THREE.Group | null = null;
   private projector: ((pos: { x: number; y: number; z: number }) => Projected | null) | null = null;
@@ -167,8 +183,8 @@ export class RemoteEntityLayer {
   /**
    * Ingest one snapshot batch (10 Hz). Self is excluded by CALLSIGN (after
    * disembark both the frozen ship and the character carry it — the local
-   * predictor owns that entity). Kinds we don't render are buffered by the
-   * tracker but carry no mesh (ships render in their own later task).
+   * predictor owns that entity). Kinds we don't render (wrecks, drones, …)
+   * are buffered by the tracker but carry no mesh.
    */
   addSnapshot(now: number, entities: EntityState[], selfCallsign: string): void {
     const remotes = entities.filter((e) => e.callsign !== selfCallsign);
@@ -182,6 +198,7 @@ export class RemoteEntityLayer {
         callsign: e.callsign,
         livery: e.livery,
         resourceId: e.resourceId,
+        classId: e.classId,
       });
     }
     for (const id of [...this.infos.keys()]) {
@@ -201,6 +218,7 @@ export class RemoteEntityLayer {
       if (!info) continue;
       if (info.kind === 'character') this.renderCharacter(id, info, state);
       else if (info.kind === 'groundItem') this.renderGroundItem(id, info, state);
+      else if (info.kind === 'ship' || info.kind === 'ai-ship') this.renderShip(id, info, state);
     }
     this.applyLabels(this.labelStates(now));
   }
@@ -209,26 +227,60 @@ export class RemoteEntityLayer {
    * Pure (given the projector): the label positions/opacities for the
    * current frame — nearest first, capped at MAX_CALLSIGN_LABELS. Exposed
    * for tests; renderFrame applies it to the DOM.
+   *
+   * TASK-74: ships carry their callsign (AI ships the AI name) through the
+   * SAME overlay. A player on foot has BOTH a character and a docked ship —
+   * label the ACTIVE entity: the character when one exists for the callsign,
+   * else the ship. One callsign, one label, never two.
    */
   labelStates(now: number): LabelState[] {
     const states = this.tracker.renderAll(now);
-    const out: LabelState[] = [];
+    const candidates: Array<{
+      id: string;
+      callsign: string;
+      anchor: { x: number; y: number; z: number };
+      character: boolean;
+    }> = [];
     for (const [id, state] of states) {
       const info = this.infos.get(id);
-      if (!info || info.kind !== 'character' || !info.callsign) continue;
-      const headPos = {
-        x: state.pos.x,
-        y: state.pos.y + CALLSIGN_LABEL_HEIGHT_M,
-        z: state.pos.z,
-      };
-      const p = this.projector ? this.projector(headPos) : null;
+      if (!info || !info.callsign) continue;
+      if (info.kind === 'character') {
+        candidates.push({
+          id,
+          callsign: info.callsign,
+          anchor: { x: state.pos.x, y: state.pos.y + CALLSIGN_LABEL_HEIGHT_M, z: state.pos.z },
+          character: true,
+        });
+      } else if (info.kind === 'ship' || info.kind === 'ai-ship') {
+        candidates.push({
+          id,
+          callsign: info.callsign,
+          anchor: { x: state.pos.x, y: state.pos.y + SHIP_LABEL_HEIGHT_M, z: state.pos.z },
+          character: false,
+        });
+      }
+    }
+    // Character wins per callsign (an on-foot player's docked ship stays unlabeled).
+    const withCharacter = new Set(candidates.filter((c) => c.character).map((c) => c.callsign));
+    const out: LabelState[] = [];
+    for (const c of candidates) {
+      if (!c.character && withCharacter.has(c.callsign)) continue;
+      const p = this.projector ? this.projector(c.anchor) : null;
       if (!p) {
-        out.push({ id, callsign: info.callsign, x: 0, y: 0, opacity: 0, visible: false, dist: Infinity });
+        out.push({
+          id: c.id,
+          callsign: c.callsign,
+          x: 0,
+          y: 0,
+          opacity: 0,
+          visible: false,
+          dist: Infinity,
+        });
         continue;
       }
       out.push({
-        id,
-        callsign: info.callsign,
+        id: c.id,
+        callsign: c.callsign,
         x: p.x,
         y: p.y,
         opacity: labelOpacity(p.dist),
@@ -243,7 +295,38 @@ export class RemoteEntityLayer {
 
   /** All rendered remote entity ids (tests / debugging). */
   renderedIds(): string[] {
-    return [...this.characters.keys(), ...this.groundItems.keys()];
+    return [...this.characters.keys(), ...this.groundItems.keys(), ...this.ships.keys()];
+  }
+
+  /**
+   * TASK-74: the rendered remote ships with wire facts + world position
+   * (dev probe / e2e — the e2e projects `pos` against the live camera).
+   */
+  shipProbes(): Array<{
+    id: string;
+    kind: string;
+    classId: string | null;
+    callsign: string | null;
+    pos: { x: number; y: number; z: number };
+  }> {
+    const out: Array<{
+      id: string;
+      kind: string;
+      classId: string | null;
+      callsign: string | null;
+      pos: { x: number; y: number; z: number };
+    }> = [];
+    for (const [id, r] of this.ships) {
+      const info = this.infos.get(id);
+      out.push({
+        id,
+        kind: info?.kind ?? 'ship',
+        classId: r.mesh.classId,
+        callsign: info?.callsign ?? null,
+        pos: { x: r.group.position.x, y: r.group.position.y, z: r.group.position.z },
+      });
+    }
+    return out;
   }
 
   /**
@@ -291,6 +374,37 @@ export class RemoteEntityLayer {
     r.head.opacity = opacity;
   }
 
+  /**
+   * TASK-74: the remote ship path (ship + ai-ship). The mesh is created ONCE
+   * per entity id (TASK-21 builder + livery), re-tinted in place only when
+   * the wire livery changes, rebuilt only when the classId changes (a ship
+   * swap), and disposed when the entity leaves — no per-frame material
+   * churn. Transform + the stale/dimmed opacity rule run per frame.
+   */
+  private renderShip(id: string, info: RemoteInfo, state: RemoteRenderState): void {
+    const classId = info.classId ?? 'scout';
+    const ai = info.kind === 'ai-ship';
+    let r = this.ships.get(id);
+    if (!r) {
+      r = createShipRender(classId, ai, info.livery);
+      this.parent?.add(r.group);
+      this.ships.set(id, r);
+      registerEntity(id, 'ship');
+    } else if (r.mesh.classId !== classId) {
+      // classId changed (a ship swap): rebuild the silhouette, keep the id.
+      this.parent?.remove(r.group);
+      disposeShipRender(r);
+      r = createShipRender(classId, ai, info.livery);
+      this.parent?.add(r.group);
+      this.ships.set(id, r);
+    }
+    r.group.position.set(state.pos.x, state.pos.y, state.pos.z);
+    r.group.quaternion.set(state.quat.x, state.quat.y, state.quat.z, state.quat.w);
+    applyShipLivery(r, info.livery);
+    const opacity = state.dimmed ? DIMMED_OPACITY : state.stale ? STALE_OPACITY : 1;
+    setShipOpacity(r, opacity);
+  }
+
   private renderGroundItem(id: string, info: RemoteInfo, state: RemoteRenderState): void {
     let r = this.groundItems.get(id);
     if (!r) {
@@ -300,7 +414,8 @@ export class RemoteEntityLayer {
     }
     r.group.position.set(state.pos.x, state.pos.y, state.pos.z);
     const opacity = state.dimmed ? DIMMED_OPACITY : state.stale ? STALE_OPACITY : 1;
-    for (const m of r.mats) m.opacity = m.blending === THREE.AdditiveBlending ? 0.35 * opacity : opacity;
+    for (const m of r.mats)
+      m.opacity = m.blending === THREE.AdditiveBlending ? 0.35 * opacity : opacity;
   }
 
   private applyLabels(states: LabelState[]): void {
@@ -346,6 +461,12 @@ export class RemoteEntityLayer {
       this.parent?.remove(g.group);
       disposeObject(g.group);
       this.groundItems.delete(id);
+    }
+    const s = this.ships.get(id);
+    if (s) {
+      this.parent?.remove(s.group);
+      disposeShipRender(s);
+      this.ships.delete(id);
     }
     this.disposeLabel(id);
     unregisterEntity(id);

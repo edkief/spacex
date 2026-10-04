@@ -532,7 +532,7 @@
     "title": "Render remote player ships and rogue AI ships",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-74.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-48.2",
