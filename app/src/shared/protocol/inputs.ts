@@ -27,6 +27,29 @@ export function inputToShipInput(input: InputPayload): ShipInput {
 }
 
 /**
+ * Inverse of {@link inputToShipInput} (TASK-73): a flight-model input →
+ * wire frame. The client's ship prediction loop maps the active control
+ * scheme's readout through this so the EXACT same channels the server
+ * integrates (`inputToShipInput`) leave the socket:
+ * thrust → thrust, yaw → yaw, pitch → pitch, ROLL → turn, and VTOL
+ * demand (`up > 0`) → action 'vtol'. `fire`/`lock` stay false — firing
+ * and target lock are separate one-shot messages ('fire' / 'target_lock',
+ * TASK-43/44). Round-trips exactly: `inputToShipInput(shipInputToPayload(s, i)) === i`.
+ */
+export function shipInputToPayload(seq: number, input: ShipInput): InputPayload {
+  return {
+    seq,
+    thrust: input.thrust,
+    yaw: input.yaw,
+    pitch: input.pitch,
+    turn: input.roll,
+    fire: false,
+    lock: false,
+    ...(input.up > 0 ? { action: 'vtol' } : {}),
+  };
+}
+
+/**
  * Map a wire input frame onto the surface-regime character channels
  * (TASK-32). The SAME 'input' message drives both regimes — the server
  * routes by the player's active entity kind, so no protocol change:

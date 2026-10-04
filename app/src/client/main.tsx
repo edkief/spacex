@@ -81,7 +81,10 @@ import { bindDepositsDebug, installDepositsDebug } from '@client/deposits-debug'
 import { bindSelfShipDebug, installSelfShipDebug } from '@client/self-ship-debug';
 import { installTransitionDebug } from '@client/test/transitionCycle';
 import type { ChatMessage, EntityState, InputPayload } from '@shared/protocol/schemas';
-import { inputToCharacterInput } from '@shared/protocol/inputs';
+import { inputToCharacterInput, shipInputToPayload } from '@shared/protocol/inputs';
+import { InputFrameSender, effectiveFlightPressed, shipInputKey } from '@client/input/flight-loop';
+import { ClientShipPredictor, shipStateFromWire } from '@client/net/prediction';
+import type { ShipClassId } from '@shared/ships';
 import type { Regime } from '@shared/regime';
 import type { Vec3 } from '@shared/physics/vec';
 
@@ -166,6 +169,10 @@ function useGameSession(
   session: ClaimedSession | null,
   store: PresenceStore,
   chatStore: ChatStore,
+  // TASK-73: the regime manager is created in the caller (the self-entity
+  // bridge closures need it too) and returned so the ship input loop can
+  // read the active scheme + tracker regime.
+  regimeWiring: RegimeWiring,
   clientRef: React.RefObject<ClientSession | null>,
   seedRef: React.RefObject<string>,
   onError: (msg: string) => void,
@@ -212,11 +219,6 @@ function useGameSession(
   const [systemId, setSystemId] = React.useState<string | null>(null);
   const [connState, setConnState] = React.useState<ConnectionState>('connecting');
   const systemIdRef = React.useRef<string | null>(null);
-  // TASK-25.2: the regime manager — one tracker (local prediction + server
-  // authority from self entity_updates) + one controls remapper (the active
-  // key scheme). Consumers (flight input, camera) land in TASK-27/31.
-  const regimeWiring = React.useMemo(() => new RegimeWiring(), []);
-
   React.useEffect(() => {
     if (!session) {
       setSystemId(null);
@@ -423,7 +425,7 @@ function useGameSession(
     };
   }, [session, store, chatStore, clientRef, systemParam]);
 
-  return { systemId, connState };
+  return { systemId, connState, regimeWiring };
 }
 
 /** Minimal callsign claim form; on success the session boots automatically. */
@@ -541,12 +543,26 @@ function App() {
   // as the server (CharacterPredictor, the TASK-14 pattern); input frames
   // ride the plain 'input' message (thrust = fwd/back, yaw = turn, action
   // run/jump) — the server routes by the active entity kind.
-  const charPressedRef = React.useRef<Set<string>>(new Set());
-  const charSeqRef = React.useRef(0);
-  const charLastKeyRef = React.useRef('');
-  const charLastSendMsRef = React.useRef(0);
+  // TASK-25.2/73: the regime manager (tracker + controls remapper) — created
+  // here so the session hook AND the self-entity bridge + ship loop all read
+  // the same live instance.
+  const regimeWiring = React.useMemo(() => new RegimeWiring(), []);
+  // TASK-73: the SHARED pressed-key set — one capture feeds BOTH the ship
+  // loop (remapper.readInput) and the on-foot loop. Same rules: typing in
+  // an input never captures, blur clears everything.
+  const pressedRef = React.useRef<Set<string>>(new Set());
+  // TASK-73: ONE monotonic input seq + 20 Hz cadence per connection, shared
+  // by the ship and on-foot loops (the server drops stale seqs per
+  // connection; a disembark/re-entry must never reset the counter).
+  const inputSender = React.useMemo(() => new InputFrameSender(), []);
   const charPredictorRef = React.useRef<CharacterPredictor | null>(null);
-  const charAckedSeqRef = React.useRef(0);
+  // TASK-73: the ship prediction target (client mirror of charPredictorRef)
+  // + the last input seq the server APPLIED (shared by both predictors —
+  // only the ACTIVE one reconciles).
+  const shipPredictorRef = React.useRef<ClientShipPredictor | null>(null);
+  const inputAckedSeqRef = React.useRef(0);
+  // TASK-73: on-foot flag for the Q-drop gate (drop fires ON FOOT only).
+  const onFootRef = React.useRef(false);
   const charLiveryRef = React.useRef<Record<string, string> | null>(null);
   // TASK-33: the on-foot interaction system (refs only — per-frame state must
   // NOT re-render React): the InteractableRegistry is the single dispatch
@@ -613,6 +629,7 @@ function App() {
     session,
     store,
     chatStore,
+    regimeWiring,
     clientRef,
     serverSeedRef,
     (msg) => {
@@ -646,6 +663,10 @@ function App() {
         // ON FOOT: the predictor must SURVIVE every 10 Hz self update — the
         // prediction loop owns it between snapshots (clearing it here would
         // stop on-foot input entirely after the first snapshot).
+        onFootRef.current = true; // TASK-73: Q-drop gate (on foot only)
+        // TASK-73: disembark drops the ship predictor (the shared seq
+        // counter survives — re-entry re-seeds the predictor, not the seq).
+        shipPredictorRef.current = null;
         store.setSelfOnFoot(true); // TASK-36: PlayerList icon (self row)
         setInShip(false); // TASK-39: the HUD Cargo button is in-ship only
         selfShipRef.current = false; // TASK-43: on foot = no weapons (v1)
@@ -667,7 +688,7 @@ function App() {
         }
         charPredictorRef.current.reconcile(
           characterStateFromWire(self),
-          charAckedSeqRef.current,
+          inputAckedSeqRef.current,
           performance.now(),
         );
         if (charDebug) {
@@ -679,6 +700,7 @@ function App() {
         // the world runs the reverse camera handoff when the self entity is
         // the ship (once, while the capsule still exists; later updates just
         // feed the pose), and clears all on-foot state otherwise.
+        onFootRef.current = false; // TASK-73: Q-drop gate (on foot only)
         store.setSelfOnFoot(false); // TASK-36: PlayerList icon (self row)
         setInShip(self?.kind === 'ship'); // TASK-39: ship-HUD Cargo button
         // TASK-43: the weapon HUD tracks the SELF ship (classId for the
@@ -692,6 +714,28 @@ function App() {
           // exists (onfoot → chase).
           world.setSelfShip(selfShipStateFrom(self));
           world.reEnterShip(self.pos, self.rot ?? { x: 0, y: 0, z: 0, w: 1 });
+          // TASK-73: SEED the ship predictor from the first self ship
+          // snapshot; every later update re-sets the flight context
+          // (tracker regime + atmosphere + class) and RECONCILES against
+          // the last APPLIED seq (the shared ack — the server's authority).
+          if (!shipPredictorRef.current) {
+            shipPredictorRef.current = new ClientShipPredictor(shipStateFromWire(self), {
+              regime: regimeWiring.regime,
+              shipClass: self.classId as ShipClassId,
+              planet: regimeWiring.planetAtmo,
+            });
+          } else {
+            shipPredictorRef.current.setContext({
+              regime: regimeWiring.regime,
+              shipClass: self.classId as ShipClassId,
+              planet: regimeWiring.planetAtmo,
+            });
+          }
+          shipPredictorRef.current.reconcile(
+            shipStateFromWire(self),
+            inputAckedSeqRef.current,
+            performance.now(),
+          );
         } else {
           selfShipRef.current = false;
           setSelfShip(null);
@@ -703,6 +747,9 @@ function App() {
         // re-entering the ship). The ON-FOOT branch above keeps the
         // predictor alive across its 10 Hz snapshots.
         charPredictorRef.current = null;
+        // TASK-73: no self ship (system swap / boot / destroyed) drops the
+        // ship predictor too — re-entry re-seeds it from the first update.
+        if (self?.kind !== 'ship') shipPredictorRef.current = null;
         resolvedTargetRef.current = null;
         resolvedDistanceRef.current = undefined;
         heldInteractRef.current = null; // a held E never survives re-entry
@@ -710,10 +757,11 @@ function App() {
         setInteractPrompt(null);
       }
     },
-    // TASK-32: input acks — the predictor reconciles on the next self
-    // entity_update against this seq.
+    // TASK-32/73: input acks — the SHARED applied-seq; whichever predictor
+    // is active (ship or on-foot) reconciles on the next self update
+    // against it (the server acks the last seq it APPLIED, per connection).
     (seq) => {
-      charAckedSeqRef.current = seq;
+      inputAckedSeqRef.current = seq;
       if (charDebug) charDebug.acked = seq;
     },
     // TASK-33: entity_update batches → the raycast's target list (a pickup
@@ -755,6 +803,9 @@ function App() {
       heldInteractRef.current = null;
       setMiningActive(null);
       setMiningEnded(null);
+      // TASK-73: a system swap drops the ship predictor (the next snapshot's
+      // self-ship update re-seeds it; the shared seq counter survives).
+      shipPredictorRef.current = null;
     },
     // TASK-38: the server's channel frame → the mining HUD store. The
     // '+1 <resource>' float's resource is the deposit's (the target list
@@ -899,6 +950,9 @@ function App() {
       if (e.key !== 'q' && e.key !== 'Q') return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+      // TASK-73: Q drives ROLL in-ship — the drop fires ON FOOT only.
+      // (The server would answer 'wrong-regime' anyway; don't send it.)
+      if (!onFootRef.current) return;
       const inv = inventory();
       if (!inv) return;
       const resourceId = RESOURCE_IDS.find((id) => (inv.stacks[id] ?? 0) > 0);
@@ -986,10 +1040,11 @@ function App() {
     return () => canvas.removeEventListener('mousedown', onDown);
   }, []);
 
-  // TASK-32: on-foot key capture — the pressed set the prediction loop
-  // maps to input frames (WASD + Shift run + Space jump). Typing in an
-  // input (chat) never moves the character; blur drops everything (a
-  // stale "held" key would walk the character into the ground).
+  // TASK-32/73: key capture — the SHARED pressed set both prediction loops
+  // read (the ship loop maps it through the active control scheme; the
+  // on-foot loop maps WASD + Shift run + Space jump). Typing in an input
+  // (chat) never moves anything; blur drops everything (a stale "held"
+  // key would walk the character / fly the ship).
   React.useEffect(() => {
     const isTyping = (e: KeyboardEvent): boolean => {
       const t = e.target as HTMLElement | null;
@@ -998,14 +1053,14 @@ function App() {
     const keyOf = (e: KeyboardEvent): string => (e.key === 'Shift' ? 'Shift' : e.key.toLowerCase());
     const onDown = (e: KeyboardEvent): void => {
       if (isTyping(e)) return;
-      charPressedRef.current.add(keyOf(e));
+      pressedRef.current.add(keyOf(e));
     };
     const onUp = (e: KeyboardEvent): void => {
       if (isTyping(e)) return;
-      charPressedRef.current.delete(keyOf(e));
+      pressedRef.current.delete(keyOf(e));
     };
     const onBlur = (): void => {
-      charPressedRef.current.clear();
+      pressedRef.current.clear();
     };
     window.addEventListener('keydown', onDown);
     window.addEventListener('keyup', onUp);
@@ -1033,17 +1088,19 @@ function App() {
       const p = charPredictorRef.current;
       const world = worldRef.current;
       if (!p || !world) return;
-      const pressed = charPressedRef.current;
+      const pressed = pressedRef.current;
       const thrust = (pressed.has('w') ? 1 : 0) - (pressed.has('s') ? 1 : 0);
       const yaw = (pressed.has('d') ? 1 : 0) - (pressed.has('a') ? 1 : 0);
       const run = pressed.has('Shift');
       const jump = pressed.has(' ');
       const action = run && jump ? 'run+jump' : run ? 'run' : jump ? 'jump' : undefined;
       const key = `${thrust}|${yaw}|${action ?? ''}`;
-      if (key !== charLastKeyRef.current || now - charLastSendMsRef.current >= 50) {
-        charSeqRef.current += 1;
+      // TASK-73: the SHARED seq counter + cadence (the ship loop stamps
+      // the same counter — one monotonic seq per connection).
+      const seq = inputSender.shouldSend(now, key);
+      if (seq !== null) {
         const payload: InputPayload = {
-          seq: charSeqRef.current,
+          seq,
           thrust,
           turn: 0,
           pitch: 0,
@@ -1053,9 +1110,7 @@ function App() {
           ...(action ? { action } : {}),
         };
         clientRef.current?.send('input', payload);
-        charLastKeyRef.current = key;
-        charLastSendMsRef.current = now;
-        p.step(dt, now, { seq: payload.seq, input: inputToCharacterInput(payload) });
+        p.step(dt, now, { seq, input: inputToCharacterInput(payload) });
       } else {
         p.step(dt, now);
       }
@@ -1084,6 +1139,59 @@ function App() {
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
   }, [interactRegistry]);
+
+  // TASK-73: the SHIP prediction loop — one rAF per frame, active only
+  // while the self entity is the player's ship (the predictor exists; the
+  // on-foot / snapshot / destroyed paths clear it). Reads the SHARED
+  // pressed set through the ACTIVE control scheme (the RegimeWiring's
+  // remapper follows the regime tracker: WASD+QE flight, Space VTOL in
+  // atmosphere, surface = zero), stamps the SHARED monotonic seq (20 Hz /
+  // on-change cadence), steps the ClientShipPredictor (the SAME shared
+  // integrateShip as the server), and drives the self ship mesh + chase
+  // camera at RENDER rate from the prediction — the 10 Hz snapshots
+  // reconcile it (seeded/reconciled in the self-entity bridge).
+  // DOCKED: the server freezes the ship and its FIRST input takes it off,
+  // so NO idle frames go out while the docked indicator is up (a held zero
+  // frame would launch the ship) and the predictor holds its seeded pose
+  // (atmosphere gravity would sink it off the pad); only a real control
+  // demand is sent — the next snapshot reconciles onto the undock.
+  React.useEffect(() => {
+    let raf = 0;
+    let last = performance.now();
+    const loop = (): void => {
+      raf = requestAnimationFrame(loop);
+      const now = performance.now();
+      const dt = Math.min(0.1, (now - last) / 1000);
+      last = now;
+      const p = shipPredictorRef.current;
+      const world = worldRef.current;
+      if (!p || !world) return;
+      const docked = dockedIndicator();
+      const pressed = effectiveFlightPressed(pressedRef.current, {
+        chartOpen: chartOpenRef.current,
+      });
+      const input = regimeWiring.remapper.readInput(pressed);
+      const nonzero =
+        input.thrust !== 0 ||
+        input.yaw !== 0 ||
+        input.pitch !== 0 ||
+        input.roll !== 0 ||
+        input.up !== 0;
+      const seq = !docked || nonzero ? inputSender.shouldSend(now, shipInputKey(input)) : null;
+      if (seq !== null) {
+        clientRef.current?.send('input', shipInputToPayload(seq, input));
+        p.step(dt, now, { seq, input });
+      } else if (!docked) {
+        p.step(dt, now);
+      }
+      // The mesh + chase camera track the prediction at render rate
+      // (smooth 60 fps, not the 10 Hz snapshot feed).
+      const st = p.getState();
+      world.setSelfShipTransform(st.pos, st.quat);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [regimeWiring]);
 
   // TASK-8: the warp controller. The chart dispatches 'warp-started' on the
   // shared bus; the controller runs the state machine (warp-in → awaiting →

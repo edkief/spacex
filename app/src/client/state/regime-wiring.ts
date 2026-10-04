@@ -26,8 +26,13 @@
 
 import { ControlsRemapper, type ControlsLogger } from '@client/input/controls';
 import { systemForId } from '@shared/galaxy/system';
-import { planetAtmosphereRadius, systemRegimePlanets } from '@shared/galaxy/planets';
+import {
+  planetAtmosphereDensity,
+  planetAtmosphereRadius,
+  systemRegimePlanets,
+} from '@shared/galaxy/planets';
 import { boundaryFactor } from '@shared/physics/atmosphere';
+import type { PlanetAtmo } from '@shared/physics/flight';
 import { vecLength, type Vec3 } from '@shared/physics/vec';
 import type { Planet } from '@shared/galaxy/types';
 import type { EntityState } from '@shared/protocol/schemas';
@@ -103,5 +108,23 @@ export class RegimeWiring {
     if (this.tracker.regime === 'space' || !this.tracker.planetId) return 0;
     const planet = this.systemPlanets.find((p) => p.id === this.tracker.planetId);
     return planet ? boundaryFactor(pos.y, { atmosphereRadius: planetAtmosphereRadius(planet) }) : 0;
+  }
+
+  /**
+   * TASK-73: the atmosphere context the flight prediction needs — mirrors
+   * the server's resolveRegimeCtx (density + enter radius from the SAME
+   * generated Planet, so the client's integrateShip matches the authority).
+   * Undefined in space, when no planet is tracked, or for airless bodies
+   * (the server passes no planet context then either).
+   */
+  get planetAtmo(): PlanetAtmo | undefined {
+    if (this.tracker.regime !== 'atmosphere' || !this.tracker.planetId) return undefined;
+    const planet = this.systemPlanets.find((p) => p.id === this.tracker.planetId);
+    return planet?.hasAtmosphere
+      ? {
+          atmosphereDensity: planetAtmosphereDensity(planet),
+          atmosphereRadius: planetAtmosphereRadius(planet),
+        }
+      : undefined;
   }
 }

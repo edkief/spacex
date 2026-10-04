@@ -146,4 +146,26 @@ describe('RegimeWiring (session → tracker + remapper)', () => {
     wiring.onSelfUpdate(selfEntity(above, 'atmosphere'), 1100);
     expect(wiring.atmosphereBoundaryAt(above)).toBe(0);
   });
+
+  it('planetAtmo: the flight prediction context (density + enter radius), undefined in space (TASK-73)', () => {
+    const wiring = new RegimeWiring();
+    wiring.setSystem(SEED, ATMO_SYSTEM.systemId);
+
+    // In space: no planet context (the server passes none either).
+    wiring.onSelfUpdate(selfEntity(FAR_AWAY), 0);
+    expect(wiring.planetAtmo).toBeUndefined();
+
+    // Tracking the atmosphere planet: the SAME generated Planet the server
+    // derives its context from (density > 0, enter radius = the boundary).
+    wiring.onSelfUpdate(selfEntity(IN_ATMOSPHERE), 1000);
+    expect(wiring.regime).toBe('atmosphere');
+    const atmo = wiring.planetAtmo;
+    expect(atmo).toBeDefined();
+    expect(atmo!.atmosphereDensity).toBeGreaterThan(0);
+    expect(atmo!.atmosphereRadius).toBe(ATMO_PLANET.atmosphereRadius);
+
+    // Back in space: the context clears (the predictor's setContext follows).
+    wiring.onSelfUpdate(selfEntity(FAR_AWAY, 'space'), 2000);
+    expect(wiring.planetAtmo).toBeUndefined();
+  });
 });
