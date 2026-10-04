@@ -29,6 +29,12 @@ Excludes dotfiles, tests, and config.
 │       │   ├── hazard-debug.ts # TASK-48.2: dev-only window.__HAZARD__ hook (import.meta.env.DEV gate, never ships) — READ-THROUGH getters over state/hazards (exposure / inside / recovering), never stale, zero plumbing (the raw exposure number the TASK-48.4 e2e asserts)
 │       │   ├── stream-debug.ts # TASK-26.2: dev-only window.__STREAM__ hook (import.meta.env.DEV gate, never ships) — surfaceBenchmark() renders the 13-chunk default-LOD scene (Torolm dev-seed, resting player) through a fresh WebGLRenderer + detached canvas, returns renderer.info.render.triangles + per-ring SceneTriangleStats, disposes everything (no GL context leak)
 │       │   ├── atmosphere-debug.ts # TASK-28.3: dev-only window.__ATMO__ hook (import.meta.env.DEV gate, never ships) — midBoundaryComparison() scans the seeded galaxy (40 systems) for the min/max mid-boundary-haze atmospheric pair, renders each dome in isolation through a real WebGLRenderer (offscreen canvas; raw-sRGB uniform override + NoBlending so the sampled pixel is EXACTLY lerp(clear, atmo, hazeMid)), samples the center pixel, disposes everything (no GL context leak)
+│       │   ├── a11y/
+│       │   │   ├── announcement-queue.ts # TASK-54: SR announcement queue — max 1 pending (newest higher-priority replaces), MIN_INTERVAL_MS (2 s) between flushes, priority combat > navigation > chat; the 1 Hz LiveRegion calls flush(now) each tick
+│       │   │   ├── live-region.tsx # TASK-54: the 1 Hz aria-live="polite" region — hudSummary() speech text (speed/hull/credits/exposure) + queued announcements, never faster than 1 Hz
+│       │   │   ├── reduced-motion.ts # TASK-54: reduced-motion setting store (SETTING_KEYS.reducedMotion, default off, shared defaults in src/shared/settings.ts) — emit-on-change + immediate catch-up, takes effect live (no restart)
+│       │   │   ├── use-reduced-motion.ts # TASK-54: React hook over the reduced-motion store
+│       │   │   └── summary.ts # TASK-54: hudSummary() — the 1 Hz screen-reader speech string from live game state
 │       │   ├── net/
 │       │   │   ├── prediction.ts   # TASK-14: ClientShipPredictor — per-frame integrateShip + server-timeline reconcile (blend/rewind/snap, 10 s queue cap)
 │       │   │   ├── character-prediction.ts # TASK-32: CharacterPredictor — per-frame integrateCharacter (shared model) + the same seq/ack/reconcile machinery (server-timeline or local-currency replay, blend/rewind/snap); characterStateFromWire for the 10 Hz self snapshot

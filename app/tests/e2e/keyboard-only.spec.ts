@@ -16,12 +16,15 @@ import { collectErrors, uniqueCallsign } from './helpers';
  * the established e2e-assist pattern of mining.spec.ts / sell.spec.ts);
  * every in-browser action is a real client code path driven by keys.
  *
- * Warp routing: the chart only exposes a system's neighbors (ring
- * topology), and a player's home system is random, so the test scopes
- * the pad/terminal lookups to the home system (or a neighbor, via the
- * TASK-54 ?systemId= dev endpoint) and warps to it through the chart —
- * if the pad sits in the home system the loop does an out-and-back warp
- * so the warp step is always exercised.
+ * Warp routing: the chart is a home-CENTRIC nearest-star graph (the
+ * overview centered on X lists X + X's two nearest stars — adjacency is
+ * asymmetric), and a player's home system is random, so the test scopes
+ * the pad/terminal lookups to the home neighbors first (a single warp to
+ * either is always legal) and the home system last, via the TASK-54
+ * ?systemId= dev endpoint. If the pad ends up in the home system, the
+ * loop does an out-and-back warp — but only through a neighbor whose own
+ * chart still lists home (probed with one overview fetch each); a world
+ * where no neighbor does simply runs the warp-free path.
  */
 
 interface Session {
@@ -54,13 +57,37 @@ interface Overview {
  * Count mouse/pointer events on the page (capture phase, before any
  * app handler). The test proves "no mouse events at all" by asserting
  * the counter is still zero at the end of the loop.
+ *
+ * One exemption: a `click` with `detail === 0` is the BROWSER'S own
+ * translation of keyboard activation (Enter on a focused native button
+ * dispatches a detail-0 click) or programmatic `.click()` — it is not a
+ * pointer interaction. Real mouse clicks always carry `detail >= 1`, and
+ * no mouse/pointer event can be produced by the keyboard at all, so the
+ * rest of the list stays absolute.
  */
 async function installMouseEventGuard(page: import('@playwright/test').Page): Promise<void> {
   await page.addInitScript(() => {
+    interface MouseLogEntry {
+      ev: string;
+      t: number;
+      target: string;
+      detail: number;
+    }
     (window as unknown as { __MOUSE_EVENTS__: number }).__MOUSE_EVENTS__ = 0;
-    const count = (): void => {
-      const w = window as unknown as { __MOUSE_EVENTS__: number };
+    (window as unknown as { __MOUSE_LOG__: MouseLogEntry[] }).__MOUSE_LOG__ = [];
+    const count = (ev: string, e: Event): void => {
+      // Keyboard-activated clicks (Enter on a focused button) and
+      // programmatic .click() carry detail 0 — exempt (see doc above).
+      if (ev === 'click' && (e as MouseEvent).detail === 0) return;
+      const w = window as unknown as { __MOUSE_EVENTS__: number; __MOUSE_LOG__: MouseLogEntry[] };
       w.__MOUSE_EVENTS__ += 1;
+      const el = e.target as HTMLElement | null;
+      w.__MOUSE_LOG__.push({
+        ev,
+        t: Math.round(performance.now()),
+        target: el ? `${el.tagName}${el.id ? `#${el.id}` : ''}` : 'null',
+        detail: (e as MouseEvent).detail ?? -1,
+      });
     };
     for (const ev of [
       'mousemove',
@@ -72,7 +99,7 @@ async function installMouseEventGuard(page: import('@playwright/test').Page): Pr
       'pointerup',
       'pointermove',
     ]) {
-      window.addEventListener(ev, count, { capture: true, passive: true });
+      window.addEventListener(ev, (e) => count(ev, e), { capture: true, passive: true });
     }
   });
 }
@@ -81,6 +108,7 @@ async function installMouseEventGuard(page: import('@playwright/test').Page): Pr
 async function keyboardWarp(
   page: import('@playwright/test').Page,
   toSystemId: string,
+  fromSystemId: string,
 ): Promise<void> {
   await page.keyboard.press('m');
   await expect(page.locator('#star-chart')).toBeVisible({ timeout: 15_000 });
@@ -91,11 +119,22 @@ async function keyboardWarp(
   if (await chartError.isVisible().catch(() => false)) {
     throw new Error(`star chart errored: ${await chartError.textContent()}`);
   }
+  // Race guard: after a world swap the overview refetch can still be in
+  // flight, so 'loading hidden' alone does not prove the map is centered on
+  // the system the player is in NOW. The data-current node carrying the
+  // expected source id does (both #sys-id and the chart prop read the same
+  // systemId state, so once sys-id matches this is what the fetch centers on).
+  // The nearest-star graph then guarantees the target neighbor node is
+  // rendered (the test only warps to a system the chart lists).
+  await expect(
+    page.locator(
+      `[data-testid="star-chart-node"][data-current="true"][data-system-id="${fromSystemId}"]`,
+    ),
+  ).toHaveCount(1, { timeout: 15_000 });
   const node = page.locator(`[data-testid="star-chart-node"][data-system-id="${toSystemId}"]`);
   if ((await node.count()) === 0) {
-    const rendered = await page.$$eval(
-      '[data-testid="star-chart-node"]',
-      (els) => els.map((el) => el.getAttribute('data-system-id')),
+    const rendered = await page.$$eval('[data-testid="star-chart-node"]', (els) =>
+      els.map((el) => el.getAttribute('data-system-id')),
     );
     throw new Error(
       `warp target ${toSystemId} is not a node in the chart (rendered: ${rendered.join(', ')})`,
@@ -185,9 +224,25 @@ test('keyboard only: claim → warp → dock → disembark → mine → re-enter
     .find((s) => s.systemId === me.homeSystemId)!
     .neighbors.map((n) => n.to);
 
-  // (2) WHERE IS THE PAD? Home first (out-and-back warp), then the
-  // neighbors (single warp). Every candidate needs a pad AND a terminal.
-  const candidates = [me.homeSystemId, ...neighbors];
+  // The chart is a home-CENTRIC nearest-star graph (galaxyChart): the
+  // overview centered on X lists X + X's two nearest stars, so adjacency is
+  // NOT symmetric — warping to N does not guarantee home appears on N's
+  // chart. An out-and-back via N is possible only when home is in N's own
+  // overview, so probe each home neighbor (≤ 2 extra REST calls) and keep
+  // the first one we can actually come home from.
+  let returnVia: string | null = null;
+  for (const n of neighbors) {
+    const ov = (await rest(`/api/galaxy/overview?home=${n}`)) as Overview;
+    if (ov.systems.some((s) => s.systemId === me.homeSystemId)) {
+      returnVia = n;
+      break;
+    }
+  }
+
+  // (2) WHERE IS THE PAD? Neighbors first (a single warp to either is always
+  // legal — home's chart lists both) and the home system last (needs the
+  // out-and-back dance). Every candidate needs a pad AND a terminal.
+  const candidates = [...neighbors, me.homeSystemId];
   let pad: PadTarget | null = null;
   let term: TerminalTarget | null = null;
   for (const sys of candidates) {
@@ -210,12 +265,17 @@ test('keyboard only: claim → warp → dock → disembark → mine → re-enter
 
   // (3) WARP — chart (M) → node (focus + Enter) → WARP (focus + Enter) →
   // ESC. If the pad is in the HOME system, do an out-and-back warp so the
-  // warp step is always exercised; otherwise warp straight to the pad.
+  // warp step is always exercised; otherwise warp straight to the pad. The
+  // return leg only goes through a neighbor whose own chart still lists
+  // home (see returnVia above) — the nearest-star graph is asymmetric, so
+  // on a world where no neighbor does, the loop simply runs warp-free.
   if (pad!.systemId === me.homeSystemId) {
-    await keyboardWarp(page, neighbors[0]);
-    await keyboardWarp(page, me.homeSystemId);
+    if (returnVia) {
+      await keyboardWarp(page, returnVia, me.homeSystemId);
+      await keyboardWarp(page, me.homeSystemId, returnVia);
+    }
   } else {
-    await keyboardWarp(page, pad!.systemId);
+    await keyboardWarp(page, pad!.systemId, me.homeSystemId);
   }
   await page.screenshot({
     path: path.join(__dirname, '../../../.ralph/screenshots/TASK-54-1.png'),
@@ -272,8 +332,23 @@ test('keyboard only: claim → warp → dock → disembark → mine → re-enter
 
   // (7) RE-ENTER — sweep the facing until '[E] Enter ship' (≤ 3 m, in the
   // 30° cone), then E (the 'enter_ship' frame). The on-foot HUD comes down.
+  // The 10 Hz raycast target can go stale between the prompt read and the
+  // keydown (the E handler no-ops with no target), so re-press while the
+  // prompt still offers it — the server's enter_ship is idempotent
+  // ('already-in-ship' is a safe no-op), making the retry free.
   await sweepUntil(page, '[E] Enter ship');
-  await page.keyboard.press('e');
+  const promptText = async (): Promise<string | null> =>
+    page
+      .locator('#interact-prompt')
+      .isVisible()
+      .then((v) => (v ? page.locator('#interact-prompt').textContent() : null))
+      .catch(() => null);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await page.keyboard.press('e');
+    await page.waitForTimeout(1_000);
+    if (!(await weightBar.isVisible().catch(() => false))) break; // entered
+    if ((await promptText()) !== '[E] Enter ship') break; // prompt gone — in flight
+  }
   await expect(weightBar).toBeHidden({ timeout: 20_000 });
   await expect(page.locator('#ship-hud-cargo')).toBeVisible({ timeout: 20_000 });
 
@@ -293,8 +368,15 @@ test('keyboard only: claim → warp → dock → disembark → mine → re-enter
   })) as { ok?: boolean };
   expect(tp.ok).toBe(true);
   await sweepUntil(page, '[E] Dock terminal');
-  await page.keyboard.press('e');
+  // Same stale-target retry as the re-enter above: the terminal prompt still
+  // offering means the first E may have hit a null raycast target.
   const panel = page.locator('#dock-panel');
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await page.keyboard.press('e');
+    if (await panel.isVisible().catch(() => false)) break;
+    await page.waitForTimeout(1_000);
+    if ((await promptText()) !== '[E] Dock terminal') break;
+  }
   await expect(panel).toBeVisible({ timeout: 20_000 });
   await expect(panel).toContainText('STATION DOCK');
   await expect(panel).toContainText('hold 0 · inv 2'); // the 2 mined iron
@@ -310,10 +392,17 @@ test('keyboard only: claim → warp → dock → disembark → mine → re-enter
   });
 
   // THE PROOF: the whole loop ran without a single mouse/pointer event.
-  const mouseEvents = await page.evaluate(
-    () => (window as unknown as { __MOUSE_EVENTS__: number }).__MOUSE_EVENTS__,
-  );
-  expect(mouseEvents, 'keyboard-only loop must not dispatch mouse events').toBe(0);
+  const mouseLog = await page.evaluate(() => {
+    const w = window as unknown as {
+      __MOUSE_EVENTS__: number;
+      __MOUSE_LOG__: Array<{ ev: string; t: number; target: string; detail: number }>;
+    };
+    return { n: w.__MOUSE_EVENTS__, log: w.__MOUSE_LOG__ };
+  });
+  expect(
+    mouseLog.n,
+    `keyboard-only loop must not dispatch mouse events (log: ${JSON.stringify(mouseLog.log)})`,
+  ).toBe(0);
 
   assertClean();
   await context.close();

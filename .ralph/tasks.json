@@ -601,7 +601,7 @@
     "title": "Accessibility: contrast, text scale, colorblind indicators",
     "category": "ui-ux",
     "specFilePath": ".ralph/tasks/TASK-54.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-55",
