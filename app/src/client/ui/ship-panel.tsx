@@ -433,6 +433,7 @@ export function ShipPanel(props: ShipPanelProps): React.ReactElement {
             type="button"
             id={`${props.id}-tab-${t}`}
             aria-pressed={tab === t}
+            onClick={() => setTab(t)}
             style={{
               opacity: tab === t ? 1 : 0.55,
               background: 'none',
