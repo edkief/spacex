@@ -594,7 +594,7 @@
     "title": "Menu shell: chart, dock, system list, chat, controls",
     "category": "ui-ux",
     "specFilePath": ".ralph/tasks/TASK-53.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-54",

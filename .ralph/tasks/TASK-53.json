@@ -17,25 +17,25 @@
       "step": 1,
       "description": "Menu shell + input gating",
       "details": "MenuShell (a React context: open surface stack); the input map (TASK-25 controls) checks the stack: non-ESC input is dropped while a surface is open; ESC pops the stack; the world keeps simulating (no pause message — the server is unaware).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Ship panel (shared tabs)",
       "details": "ShipPanel: Overview (stats + livery pickers with 500 ms debounce → the TASK-21 endpoint), Cargo (the TASK-39 component, embedded), Repair (TASK-23 cost preview + action, docked-gated); the tab set is context-driven ({docked: [Overview, Cargo, Repair], in-flight: [Overview, Cargo], on-foot-dock: [Overview, Cargo, Sell]}).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Dock panel",
       "details": "DockPanel = ShipPanel with the Sell tab (TASK-40) + the on-foot context; opened by the 'ui-open' message / the terminal prompt; the same shell component (one implementation, context props — no duplicated panel code).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Tests + e2e",
       "details": "All listed; e2e menu screenshot. Run full suite + e2e.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-7", "TASK-40", "TASK-20", "TASK-23", "TASK-21", "TASK-16"],
