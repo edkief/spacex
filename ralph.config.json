@@ -29,5 +29,16 @@
   "ui": {
     "actions": "open",
     "host": "0.0.0.0"
+  },
+  "metrics": {
+    "cost": {
+      "estimator": "power",
+      "currency": "$AU",
+      "power": {
+        "watts": 220, 
+        "pricePerKwh": 0.24,
+        "models": { "ollama/qwen3:8b": { "watts": 180 } }
+      }
+    }
   }
 }
