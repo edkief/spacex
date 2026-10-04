@@ -216,6 +216,11 @@ describe('PvP kill scenario over live ws (TASK-47 step 2)', () => {
     for (const id of [a.shipId, b.shipId, c.shipId]) {
       expect(shard.entities.get(id)!.ship.regime).toBe('space');
     }
+    // TASK-49: the teleported ships are IN FLIGHT — clear the pad's 'docked'
+    // flag (the safe-zone gate would otherwise refuse the lock + every shot).
+    for (const id of [a.shipId, b.shipId, c.shipId]) {
+      shard.entities.get(id)!.docked = false;
+    }
     // A is the INTERCEPTOR (laser + missile): the same test-hook mutation
     // the weapons ws test uses (dock purchases take over via the swap bus;
     // this pins the class directly). B stays the scout starter (50/100).
@@ -334,9 +339,12 @@ describe('PvP kill scenario over live ws (TASK-47 step 2)', () => {
     );
     expect(bDestroyed.payload).toEqual(events.find((e) => e.kind === 'destroyed'));
 
-    // (6) Sim state: B is destroyed (frozen) and the wreck carries A.
-    expect(eB.destroyed).toBe(true);
-    expect(eB.hull).toBe(0);
+    // (6) Sim state: TASK-49 — B already respawned (the SAME wire id, now a
+    //     docked starter scout at the nearest dock) and the wreck carries A.
+    expect(eB.destroyed).toBeFalsy();
+    expect(eB.docked).toBe(true);
+    expect(eB.classId).toBe('scout');
+    expect(eB.hull).toBe(1);
     const wreck = shard.entities.get(`wreck:${b.shipId}`)!;
     expect(wreck.killerId).toBe(a.playerId);
     // The wreck + its killer ride the 10 Hz snapshot wire (skull marker,

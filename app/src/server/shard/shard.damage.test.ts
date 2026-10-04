@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { homeDockPosition } from '@shared/galaxy/dock';
 import { generateSystem } from '@shared/galaxy/system';
 import { generateStars } from '@shared/galaxy/stars';
 import type { SystemGen } from '@shared/galaxy/types';
 import type { DamageSource } from '@shared/physics/damage';
+import type { Vec3 } from '@shared/physics/vec';
 import type { EntityState, InputPayload } from '@shared/protocol/schemas';
+import { padsForSystem } from '@shared/world/pads';
 import { createShipSwapBus, type ShipRowLike } from '@server/shards';
 
 import { SystemShard, TICK_DT_MS, WRECK_TTL_MS } from './shard';
@@ -12,9 +15,11 @@ import type { SimEntity } from './types';
 
 /**
  * Ship damage model in the sim (TASK-23 step 2): the applyHit hook (shared
- * shield-first math), destroyed state (frozen / input-ignored /
- * non-targetable), the static wreck entity with its 600 s ttl, and the
- * combat_event broadcast to the whole shard.
+ * shield-first math), the static wreck entity with its 600 s ttl, and the
+ * combat_event broadcast to the whole shard. TASK-49: a destroyed PLAYER
+ * ship now respawns immediately (in place, docked starter scout) — the wreck
+ * is what lingers at the death spot; the full death-and-recovery loop is
+ * covered in shard.destruction-respawn.test.ts.
  */
 
 const SEED = 'shard-damage-seed';
@@ -96,6 +101,25 @@ function combatEvents(sends: string[]): unknown[] {
     .map((s) => (JSON.parse(s) as { payload: unknown }).payload);
 }
 
+/**
+ * TASK-49: where a destroyed player ship respawns — the nearest pad of THIS
+ * system by true 3D distance (or the seed-derived home dock when the system
+ * has no landable pad). Mirrors SystemShard.respawnPlayer so the position
+ * assertion stays honest whichever path the seeded system takes.
+ */
+function respawnPos(system: SystemGen, from: Vec3): Vec3 {
+  let best: ReturnType<typeof padsForSystem>[number] | undefined;
+  let bestD = Infinity;
+  for (const pad of padsForSystem(SEED, system)) {
+    const d = Math.hypot(from.x - pad.pos.x, from.y - pad.pos.y, from.z - pad.pos.z);
+    if (d < bestD || (d === bestD && (!best || pad.padId < best.padId))) {
+      best = pad;
+      bestD = d;
+    }
+  }
+  return best ? { ...best.pos } : { ...homeDockPosition(SEED, system.systemId) };
+}
+
 afterEach(() => {
   vi.useRealTimers();
 });
@@ -133,9 +157,10 @@ describe('SystemShard.applyHit (TASK-23 step 2)', () => {
     shard.stop();
   });
 
-  it('a killing hit destroys the ship: frozen at its final position with a static wreck', () => {
+  it('a killing hit destroys the ship: wreck at the death spot + immediate dock respawn (TASK-49)', () => {
     vi.useFakeTimers();
-    const shard = makeShard();
+    const system = testSystem();
+    const shard = makeShard(system);
     const start = { x: 10, y: 20, z: 30 };
     const entity = makeEntity('p1', start, { x: 1, y: 0, z: 2 });
     shard.addEntity(entity);
@@ -145,10 +170,16 @@ describe('SystemShard.applyHit (TASK-23 step 2)', () => {
     shard.applyHit('ship-p1', 100, AI, WEAPON);
     shard.applyHit('ship-p1', 50, AI, WEAPON);
 
-    expect(entity.destroyed).toBe(true);
-    expect(entity.hull).toBe(0);
-    expect(entity.shields).toBe(0);
-    // The wreck is a static entity at the final position (vel zeroed).
+    // TASK-49: a destroyed PLAYER ship respawns IMMEDIATELY, in place (same
+    // wire id) — a fresh starter scout, docked, full hull/shields, at the
+    // nearest dock. (Cargo loss / credits-kept: destruction-respawn test.)
+    expect(entity.destroyed).toBeFalsy();
+    expect(entity.docked).toBe(true);
+    expect(entity.classId).toBe('scout');
+    expect(entity.hull).toBe(1);
+    expect(entity.shields).toBe(1);
+    expect(entity.ship.pos).toEqual(respawnPos(system, start));
+    // The wreck is a static entity at the death spot (vel zeroed).
     const wreck = shard.entities.get('wreck:ship-p1');
     expect(wreck).toBeDefined();
     expect(wreck!.kind).toBe('wreck');
@@ -189,13 +220,15 @@ describe('SystemShard.applyHit (TASK-23 step 2)', () => {
     shard.stop();
   });
 
-  it('the wreck and the frozen ship both ride the 10 Hz snapshot wire contract', () => {
+  it('the wreck and the respawned scout both ride the 10 Hz snapshot wire contract', () => {
     vi.useFakeTimers();
-    const shard = makeShard();
-    shard.addEntity(makeEntity('p1', { x: 5, y: 5, z: 5 }));
+    const system = testSystem();
+    const shard = makeShard(system);
+    const death = { x: 5, y: 5, z: 5 };
+    shard.addEntity(makeEntity('p1', death));
     const { sends } = addFakeConn(shard, 'p1', 'Alpha');
 
-    shard.applyHit('ship-p1', 150, AI, WEAPON); // killing hit
+    shard.applyHit('ship-p1', 150, AI, WEAPON); // killing hit → dock respawn
     shard.start();
     vi.advanceTimersByTime(2 * TICK_DT_MS); // one snapshot
 
@@ -203,32 +236,54 @@ describe('SystemShard.applyHit (TASK-23 step 2)', () => {
     const entities = (JSON.parse(snapshot) as { payload: { entities: EntityState[] } }).payload
       .entities;
     const byId = new Map(entities.map((e) => [e.id, e]));
-    expect(byId.get('ship-p1')).toMatchObject({ id: 'ship-p1', kind: 'ship', hull: 0 });
+    // The SAME ship id is now the fresh starter scout, docked at the nearest
+    // dock (the client re-renders the wire-stable id — TASK-49).
+    expect(byId.get('ship-p1')).toMatchObject({
+      id: 'ship-p1',
+      kind: 'ship',
+      classId: 'scout',
+      hull: 1,
+      shields: 1,
+      pos: respawnPos(system, death),
+    });
+    // The wreck lingers at the DEATH spot (not the dock), with its killer.
     expect(byId.get('wreck:ship-p1')).toMatchObject({
       id: 'wreck:ship-p1',
       kind: 'wreck',
       hull: 0,
       shields: 0,
-      pos: { x: 5, y: 5, z: 5 },
+      pos: death,
       vel: { x: 0, y: 0, z: 0 },
       classId: 'scout',
+      killerId: AI.id,
     });
     shard.stop();
   });
 
-  it('double-destroy guard: a second hit on a dead ship is a no-op (no event, no second wreck)', () => {
+  it('no double-destroy: the killing hit respawns a FRESH scout (a direct second hit damages it); the wreck refuses hits', () => {
     vi.useFakeTimers();
     const shard = makeShard();
     shard.addEntity(makeEntity('p1', { x: 0, y: 0, z: 0 }));
     const { sends } = addFakeConn(shard, 'p1', 'Alpha');
 
-    shard.applyHit('ship-p1', 150, AI, WEAPON);
-    expect(shard.applyHit('ship-p1', 50, PLAYER, WEAPON)).toBeUndefined();
+    shard.applyHit('ship-p1', 150, AI, WEAPON); // killing hit → dock respawn
+    // TASK-49 design: the low-level applyHit has NO docked gate — the gate is
+    // resolveHit, where every fire path funnels — so a direct second hit now
+    // damages the FRESH starter scout (full shields absorb it) instead of
+    // no-op'ing on a frozen dead ship.
+    expect(shard.applyHit('ship-p1', 50, PLAYER, WEAPON)).toEqual({
+      shieldHit: 50,
+      hullHit: 0,
+      destroyed: false,
+    });
     expect(shard.applyHit('wreck:ship-p1', 50, PLAYER, WEAPON)).toBeUndefined(); // wrecks too
     expect(shard.applyHit('ship-nobody', 50, PLAYER, WEAPON)).toBeUndefined();
 
     const events = combatEvents(sends);
-    expect(events).toHaveLength(1); // exactly one 'destroyed', nothing re-broadcast
+    // Exactly one 'destroyed' (never re-broadcast) + the new 'hit'.
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({ kind: 'destroyed', target: 'ship-p1' });
+    expect(events[1]).toMatchObject({ kind: 'hit', target: 'ship-p1', shieldHit: 50 });
     expect(shard.entities.has('wreck:ship-p1')).toBe(true);
     expect(entityCount(shard, 'wreck')).toBe(1);
     shard.stop();
@@ -238,10 +293,12 @@ describe('SystemShard.applyHit (TASK-23 step 2)', () => {
     return [...shard.entities.values()].filter((e) => e.kind === kind).length;
   }
 
-  it('a destroyed ship stops integrating and ignores inputs', () => {
+  it('a killing hit respawns the ship at the dock: the scout is live again, the wreck stays frozen', () => {
     vi.useFakeTimers();
-    const shard = makeShard();
-    const entity = makeEntity('p1', { x: 0, y: 0, z: 0 });
+    const system = testSystem();
+    const shard = makeShard(system);
+    const death = { x: 100, y: 100, z: 100 };
+    const entity = makeEntity('p1', death, { x: 1, y: 0, z: 2 });
     shard.addEntity(entity);
     addFakeConn(shard, 'p1', 'Alpha');
     shard.start();
@@ -249,23 +306,35 @@ describe('SystemShard.applyHit (TASK-23 step 2)', () => {
     // One tick of full thrust: the ship moves along +Z.
     shard.enqueueInput('p1', input(1, { thrust: 1 }));
     vi.advanceTimersByTime(TICK_DT_MS);
-    const moved = entity.ship.pos.z;
-    expect(moved).toBeGreaterThan(0);
+    expect(entity.ship.pos.z).toBeGreaterThan(death.z);
 
-    // Kill it in flight.
+    // Kill it in flight: the wreck spawns at the ship's FINAL position
+    // (it drifted a little under thrust since the `death` start)…
+    const final = { ...entity.ship.pos };
     shard.applyHit('ship-p1', 150, AI, WEAPON);
-    const frozen = { ...entity.ship.pos };
+    // …and TASK-49 respawns the SAME entity in place — a fresh starter
+    // scout, docked at the nearest dock, full hull/shields.
+    expect(entity.destroyed).toBeFalsy();
+    expect(entity.docked).toBe(true);
+    expect(entity.classId).toBe('scout');
+    expect(entity.hull).toBe(1);
+    expect(entity.shields).toBe(1);
+    expect(entity.ship.pos).toEqual(respawnPos(system, final));
 
-    // Inputs are ignored from here on...
-    expect(shard.enqueueInput('p1', input(2, { thrust: 1 }))).toBe(false);
-    expect(shard.enqueueInput('p1', input(3, { thrust: 1 }))).toBe(false);
-    // ...and the entity no longer integrates: 20 more ticks, no motion.
+    // Inputs are ACCEPTED again (no longer destroyed): the first frame is
+    // the take-off…
+    expect(shard.enqueueInput('p1', input(2, { thrust: 1 }))).toBe(true);
+    vi.advanceTimersByTime(2 * TICK_DT_MS);
+    expect(entity.docked).toBe(false);
+    // …and the WRECK is what stays frozen at the death spot.
+    const wreck = shard.entities.get('wreck:ship-p1')!;
+    expect(wreck.ship.pos).toEqual(final);
     vi.advanceTimersByTime(20 * TICK_DT_MS);
-    expect(entity.ship.pos).toEqual(frozen);
+    expect(wreck.ship.pos).toEqual(final);
     shard.stop();
   });
 
-  it('the wreck expires after its 600 s ttl; the destroyed ship stays for the respawn', () => {
+  it('the wreck expires after its 600 s ttl; the respawned scout waits at the dock', () => {
     vi.useFakeTimers();
     const shard = makeShard();
     shard.addEntity(makeEntity('p1', { x: 0, y: 0, z: 0 }));
@@ -274,14 +343,17 @@ describe('SystemShard.applyHit (TASK-23 step 2)', () => {
 
     shard.applyHit('ship-p1', 150, AI, WEAPON);
     expect(shard.entities.has('wreck:ship-p1')).toBe(true);
+    // TASK-49: the respawn already happened — what lingers is the wreck.
+    expect(shard.entities.get('ship-p1')!.destroyed).toBeFalsy();
 
     const ttlTicks = Math.round(WRECK_TTL_MS / TICK_DT_MS); // 12 000 @ 20 Hz
     vi.advanceTimersByTime((ttlTicks - 1) * TICK_DT_MS);
     expect(shard.entities.has('wreck:ship-p1')).toBe(true); // one tick early: still there
     vi.advanceTimersByTime(TICK_DT_MS); // the final tick
     expect(shard.entities.has('wreck:ship-p1')).toBe(false); // expired
-    expect(shard.entities.has('ship-p1')).toBe(true); // the ship waits for TASK-49
-    expect(shard.entities.get('ship-p1')!.destroyed).toBe(true);
+    // The RESPAWNED scout (not a frozen dead ship) waits at the dock.
+    expect(shard.entities.has('ship-p1')).toBe(true);
+    expect(shard.entities.get('ship-p1')!.docked).toBe(true);
     shard.stop();
   });
 
@@ -306,8 +378,8 @@ describe('SystemShard.applyHit (TASK-23 step 2)', () => {
   });
 });
 
-describe('SystemShard dock-repair revival (TASK-23 step 3, in-shard)', () => {
-  it('a bus swap (repair) revives a destroyed in-shard entity: full hull, docked, integrating again', async () => {
+describe('SystemShard dock bus swap (TASK-23 step 3, in-shard)', () => {
+  it('a bus swap (dock purchase/repair) updates the in-shard entity in place: hull, dock, position', async () => {
     const system = testSystem();
     const bus = createShipSwapBus();
     const shard = new SystemShard({
@@ -321,9 +393,13 @@ describe('SystemShard dock-repair revival (TASK-23 step 3, in-shard)', () => {
     const entity = makeEntity('p1', { x: 9, y: 9, z: 9 });
     shard.addEntity(entity);
     addFakeConn(shard, 'p1', 'Alpha');
+    // TASK-49: a destroyed PLAYER ship already respawned in place (docked
+    // starter scout) — the bus swap now re-points the SAME entity at the new
+    // ship record (a dock purchase / repair while docked).
     shard.applyHit('ship-p1', 150, AI, WEAPON);
-    expect(entity.destroyed).toBe(true);
-    expect(shard.enqueueInput('p1', input(1, { thrust: 1 }))).toBe(false);
+    expect(entity.destroyed).toBeFalsy();
+    expect(entity.docked).toBe(true);
+    expect(shard.enqueueInput('p1', input(1, { thrust: 1 }))).toBe(true);
 
     const repaired: ShipRowLike = {
       id: 'ship-p1',

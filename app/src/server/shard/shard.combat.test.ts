@@ -160,7 +160,7 @@ describe('resolveHit validation (TASK-42 step 1)', () => {
     shard.stop();
   });
 
-  it('rejects dead targets: destroyed ships and their wrecks are not targetable', () => {
+  it('rejects dead and safe-zone targets: a killed ship respawns DOCKED (not targetable); its wreck stays dead', () => {
     vi.useFakeTimers();
     const shard = makeShard();
     shard.addEntity(makeEntity('p1', { x: 0, y: 0, z: 0 }, 'space'));
@@ -169,9 +169,13 @@ describe('resolveHit validation (TASK-42 step 1)', () => {
     addFakeConn(shard, 'p2', 'Beta');
 
     shard.applyHit('ship-p1', 150, { kind: 'player', id: 'p2' }, LASER.id);
-    expect(shard.entities.get('ship-p1')!.destroyed).toBe(true);
+    // TASK-49: the killed PLAYER ship respawns immediately — the live entity
+    // is now the docked starter scout (a safe zone); the wreck at the death
+    // spot is what is dead.
+    expect(shard.entities.get('ship-p1')!.destroyed).toBeFalsy();
+    expect(shard.entities.get('ship-p1')!.docked).toBe(true);
 
-    // The frozen dead ship...
+    // The respawned docked ship is a safe zone...
     expect(
       resolveHit(shard, {
         weapon: LASER,
@@ -179,7 +183,7 @@ describe('resolveHit validation (TASK-42 step 1)', () => {
         targetId: 'ship-p1',
         damagePoint: { x: 0, y: 0, z: 0 },
       }),
-    ).toEqual({ ok: false, code: 'dead-target' });
+    ).toEqual({ ok: false, code: 'docked' });
     // ...and its wreck too.
     expect(
       resolveHit(shard, {
@@ -408,8 +412,17 @@ describe('damage pipeline integration through resolveHit (TASK-42 step 2)', () =
     const wreck = shard.entities.get('wreck:ship-p1');
     expect(wreck!.killerId).toBe('p2');
 
-    // The dead target is not targetable any more.
-    expect(fire()).toEqual({ ok: false, code: 'dead-target' });
+    // The victim has already respawned DOCKED (TASK-49): the live ship is a
+    // safe zone; the wreck at the death spot is what is dead-target.
+    expect(fire()).toEqual({ ok: false, code: 'docked' });
+    expect(
+      resolveHit(shard, {
+        weapon: LASER,
+        sourceId: 'ship-p2',
+        targetId: 'wreck:ship-p1',
+        damagePoint: { x: 0, y: 0, z: 0 },
+      }),
+    ).toEqual({ ok: false, code: 'dead-target' });
     shard.stop();
   });
 

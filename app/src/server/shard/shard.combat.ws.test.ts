@@ -161,6 +161,11 @@ describe('combat over live ws (TASK-42 step 4)', () => {
     const eB = shard.entities.get(b.shipId)!;
     expect(eA.ship.regime).toBe('space');
     expect(eB.ship.regime).toBe('space');
+    // TASK-49: a teleported ship is IN FLIGHT — clear the pad's 'docked'
+    // flag, otherwise the safe-zone gate (docked ships are invulnerable)
+    // refuses every shot in the trade.
+    eA.docked = false;
+    eB.docked = false;
 
     // The sim's contact-callback path (TASK-43's projectiles call exactly
     // this): A and B trade 30-point laser hits…
@@ -239,11 +244,13 @@ describe('combat over live ws (TASK-42 step 4)', () => {
     );
     expect(bDestroyed.payload).toEqual(cDestroyed[0]);
 
-    // …the sim state matches (frozen dead ship + wreck with its killer),
-    // and the wreck's killer rides the 10 Hz snapshot wire (skull marker
-    // for TASK-49).
-    expect(eB.destroyed).toBe(true);
-    expect(eB.hull).toBe(0);
+    // …the sim state matches (TASK-49: the victim already respawned — the
+    // SAME wire id, now a docked starter scout — and the wreck with its
+    // killer lingers), and the wreck's killer rides the 10 Hz snapshot wire.
+    expect(eB.destroyed).toBeFalsy();
+    expect(eB.docked).toBe(true);
+    expect(eB.classId).toBe('scout');
+    expect(eB.hull).toBe(1);
     const wreck = shard.entities.get(`wreck:${b.shipId}`)!;
     expect(wreck.killerId).toBe(a.playerId);
     // 10 Hz snapshots: skip any still buffered from before the wreck
@@ -263,8 +270,13 @@ describe('combat over live ws (TASK-42 step 4)', () => {
     expect(wireWreck).toBeDefined();
     expect(wireWreck!.killerId).toBe(a.playerId);
 
-    // A hit on the now-dead ship is refused (dead targets are not targetable).
-    expect(fire(a.shipId, b.shipId, POS_B)).toEqual({ ok: false, code: 'dead-target' });
+    // A hit on the respawned (DOCKED) victim is refused — a safe zone
+    // (TASK-49); the wreck at the death spot is the dead-target.
+    expect(fire(a.shipId, b.shipId, POS_B)).toEqual({ ok: false, code: 'docked' });
+    expect(fire(a.shipId, `wreck:${b.shipId}`, POS_B)).toEqual({
+      ok: false,
+      code: 'dead-target',
+    });
 
     a.client.close();
     b.client.close();

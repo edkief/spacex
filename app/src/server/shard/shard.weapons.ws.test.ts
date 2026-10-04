@@ -190,6 +190,13 @@ async function parkInSpace(aPlayerId: string, bPlayerId: string, posA: object, p
     true,
   );
   await new Promise((r) => setTimeout(r, 400));
+  // TASK-49: a teleported ship is IN FLIGHT — clear the pad's 'docked' flag,
+  // otherwise the safe-zone gate (docked ships are weapon-invulnerable)
+  // refuses the whole engagement.
+  for (const id of [aPlayerId, bPlayerId]) {
+    const e = [...shard.entities.values()].find((x) => x.playerId === id);
+    if (e) e.docked = false;
+  }
 }
 
 describe('weapons over live ws (TASK-43 step: A fires at B, B shields drop, C sees the FX)', () => {

@@ -152,8 +152,8 @@ describe('destruction → respawn (the full death-and-recovery loop)', () => {
 
     // (1) RESPAWN: the SAME ship id is reset in place to a fresh starter
     //     scout, docked at the nearest pad (here the system's single pad).
-    const respawned = shard.playerEntities.get('p2')!;
-    expect(respawned.id).toBe('ship-p2'); // wire-stable id (the client re-renders it)
+    const respawned = shard.entities.get('ship-p2')!;
+    expect(respawned.playerId).toBe('p2'); // the SAME wire-stable id re-renders for p2
     expect(respawned.destroyed).toBe(false);
     expect(respawned.classId).toBe('scout');
     expect(respawned.hull).toBe(1);
