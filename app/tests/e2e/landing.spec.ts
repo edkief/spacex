@@ -197,7 +197,17 @@ test('land at the station pad: server-docked, then #docked-indicator in the brow
   await expect(page.locator('#docked-indicator')).toBeVisible({ timeout: 15_000 });
 
   // The screenshot must show a rendered world, not a black screen.
-  const variance = await canvasLuminanceVariance(page);
+  // Chase-camera framing (TASK-72): the docked ship sits at screen centre in
+  // ship-local space (stable on every run), but the 4 DEFAULT 32x32 sample
+  // regions all land in flat areas of this composition (dark background and
+  // the unlit planet disc), so sample the ship hull/wings + atmosphere ring
+  // explicitly — GL coords, origin bottom-left (page y 720 − glY).
+  const variance = await canvasLuminanceVariance(page, [
+    [624, 261], // ship hull (grey on black planet)
+    [530, 261], // gold left wing
+    [700, 261], // gold right wing
+    [130, 250], // teal atmosphere ring, left of the planet
+  ]);
   expect(variance, 'canvas luminance variance (rendered, non-uniform)').toBeGreaterThan(1);
   await page.screenshot({
     path: path.join(__dirname, '../../../.ralph/screenshots/TASK-29.4-1.png'),
