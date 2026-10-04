@@ -2,6 +2,7 @@ import React from 'react';
 import type { ChartSystem } from '@shared/galaxy/chart';
 import type { GalaxyShardHealth } from '@shared/health';
 import { dispatchWarpEvent, warpSubscribe, lastWarpEvent } from '@client/state/warp';
+import { setChartTarget } from '@client/state/chart-target';
 import { ChartMap } from './chart-map';
 
 /** Poll cadence for the live occupancy badges (TASK-7 spec: every 5 s). */
@@ -113,6 +114,14 @@ export function StarChart({ token, currentSystemId, onClose }: StarChartProps): 
 
   const selected = systems?.find((s) => s.systemId === selectedId) ?? null;
   const neighbor = selected?.neighbors.find((n) => n.to === currentSystemId);
+
+  // TASK-51: the nav readout points at the selection while it exists
+  // (cleared on deselect, on close, and on a new-system snapshot).
+  React.useEffect(() => {
+    const sel = selectedId ? systems?.find((s) => s.systemId === selectedId) : null;
+    setChartTarget(sel ? { systemId: sel.systemId, name: sel.name } : null);
+    return () => setChartTarget(null);
+  }, [selectedId, systems]);
 
   const activate = (systemId: string): void => {
     if (systemId === currentSystemId) return;

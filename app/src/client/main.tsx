@@ -29,6 +29,10 @@ import { LeaveShipPrompt } from '@client/ui/leave-ship-prompt';
 import { InteractPrompt } from '@client/ui/interact-prompt';
 import { WeightBar } from '@client/ui/weight-bar';
 import { HazardHud } from '@client/ui/hazard-hud';
+import { ShipHud } from '@client/ui/ship-hud/ship-hud';
+import type { NavSample } from '@client/ui/ship-hud/nav-readout';
+import { flashHullHit, selfShipView, setSelfShipView } from '@client/state/ship-hud';
+import { setChartTarget } from '@client/state/chart-target';
 import { clearHazard, setHazardFrame, type HazardFrame } from '@client/state/hazards';
 import { CargoPanel } from '@client/ui/cargo-panel';
 import { openCargoPanel } from '@client/state/cargo';
@@ -358,8 +362,25 @@ function useGameSession(
             setReentryTint(boundary > 0 ? reentryTintFactor(-self.vel.y, boundary) : 0);
           }
           // TASK-29.3: DOCKED indicator — visible exactly while the wire
-          // regime is 'docked' with a padId set (HUD stub; full HUD TASK-51).
+          // regime is 'docked' with a padId set.
           if (self) setDockedIndicator(isDocked(self.regime, self.padId));
+          // TASK-51: the ship HUD's single input — the server's self ship
+          // entity (10 Hz truth, the client never displays a prediction as
+          // fact). On foot (self = character) the HUD clears (unmounts).
+          if (self && self.kind === 'ship') {
+            setSelfShipView({
+              pos: self.pos,
+              vel: self.vel,
+              rot: self.rot ?? { x: 0, y: 0, z: 0, w: 1 },
+              hull: self.hull,
+              shields: self.shields,
+              regime: self.flightRegime ?? 'space',
+              padId: self.padId ?? null,
+              atMs: Date.now(),
+            });
+          } else {
+            setSelfShipView(null);
+          }
           // TASK-34: weight bar — the server's self entity carries the
           // inventory (updates within one snapshot of any pickup/drop).
           setInventory(self?.inventory ?? null);
@@ -410,6 +431,10 @@ function useGameSession(
         setReentryTint(0);
         // TASK-29.3: a warp must never carry a stale docked state either.
         setDockedIndicator(false);
+        // TASK-51: a new system never carries a stale ship view or chart
+        // target (the nav readout's implicit dock target is re-derived).
+        setSelfShipView(null);
+        setChartTarget(null);
         // TASK-34: a warp must never carry a stale weight bar either.
         setInventory(null);
         // TASK-48.2: a warp must never carry a stale hazard state either
@@ -620,6 +645,44 @@ function App() {
   // only the ACTIVE one reconciles).
   const shipPredictorRef = React.useRef<ClientShipPredictor | null>(null);
   const inputAckedSeqRef = React.useRef(0);
+  // TASK-51: the ship HUD bridges — the nav arrow reads the LIVE predicted
+  // pose (render rate, inside NavReadout's rAF) and falls back to the last
+  // 10 Hz snapshot; the implicit dock target is the world's nearest
+  // landing pad (the station) and the docked tag resolves the current pad
+  // the same way (pad → planet name).
+  const shipNavSample = React.useCallback((): NavSample | null => {
+    const p = shipPredictorRef.current;
+    if (p) {
+      const st = p.getState();
+      return { pos: st.pos, rot: st.quat };
+    }
+    const v = selfShipView();
+    return v ? { pos: v.pos, rot: v.rot } : null;
+  }, []);
+  const stationNameFor = React.useCallback((padId: string): string | null => {
+    const world = worldRef.current;
+    const pad = world ? world.getPads().find((p) => p.padId === padId) : null;
+    if (!world || !pad || !world.currentSystemId) return null;
+    const sys = systemForId(serverSeedRef.current, world.currentSystemId);
+    const planet = sys?.planets.find((pl) => pl.id === pad.planetId);
+    return planet ? `${planet.name} STATION` : null;
+  }, []);
+  const nearestDockTarget = React.useCallback((): { name: string; pos: Vec3 } | null => {
+    const world = worldRef.current;
+    const pads = world ? world.getPads() : [];
+    if (pads.length === 0) return null;
+    const s = shipNavSample();
+    let best = pads[0];
+    let bestD = Infinity;
+    for (const p of pads) {
+      const d = s ? (p.pos.x - s.pos.x) ** 2 + (p.pos.z - s.pos.z) ** 2 : Number.MAX_VALUE;
+      if (d < bestD) {
+        bestD = d;
+        best = p;
+      }
+    }
+    return { name: stationNameFor(best.padId) ?? 'STATION', pos: best.pos };
+  }, [shipNavSample, stationNameFor]);
   // TASK-73: on-foot flag for the Q-drop gate (drop fires ON FOOT only).
   const onFootRef = React.useRef(false);
   const charLiveryRef = React.useRef<Record<string, string> | null>(null);
@@ -910,6 +973,14 @@ function App() {
     // a denied fire never produced an event, so it never produces FX).
     (event) => {
       recordCombatEvent(event);
+      // TASK-51: the vitals bar's red flash — a hit/destroyed ON OUR ship
+      // only (other ships' hits are FX, not our vitals).
+      if (
+        (event.kind === 'hit' || event.kind === 'destroyed') &&
+        event.target === selfShipIdRef.current
+      ) {
+        flashHullHit(Date.now());
+      }
       // TASK-47: the persistent kill feed (top-center, last 5, 10 s fade).
       if (event.kind === 'kill') {
         pushKillEvent(event.killer, event.victim, event.weapon, Date.now());
@@ -1535,6 +1606,16 @@ function App() {
       {/* TASK-48.2: the hazard HUD (radiation meter + 'SHIELD BURN' /
           'RECOVERING' prompts) — driven by the server's 'hazard' frame. */}
       <HazardHud />
+      {/* TASK-51: the flight HUD — speed/altitude/regime/nav/docked block
+          (bottom-left, above the player list) + vitals bar (top-left,
+          under the chat). Unmounts (null) on foot / before the first
+          self-ship snapshot; everything is 10 Hz snapshot truth. */}
+      <ShipHud
+        viewport={viewport}
+        navSample={shipNavSample}
+        dockTarget={nearestDockTarget}
+        stationName={stationNameFor}
+      />
       {/* TASK-50: the combat HUD (target box, weapon readout, threat ping,
           kill feed) — in-ship regions unmount on foot (selfShip null). */}
       <CombatHud
