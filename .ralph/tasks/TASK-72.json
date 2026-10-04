@@ -8,25 +8,25 @@
       "step": 1,
       "description": "Chase pose in pose-math + CameraRig mode",
       "details": "`src/client/camera/pose-math.ts`: add `'chase'` to `CameraMode` and a pure `chasePose(ship: ShipState): Pose` — camera at ship-local (0, CHASE_HEIGHT, -CHASE_BEHIND) rotated by the ship quat (the flight model's forward is +Z, see SPAWN_GATE_QUAT in @shared/galaxy/spawn and COCKPIT_OFFSET which is +Z forward), looking at a point CHASE_LOOK_AHEAD ahead of the ship. Start with CHASE_BEHIND ≈ 14, CHASE_HEIGHT ≈ 4, CHASE_LOOK_AHEAD ≈ 20 (the scout hull is ~4.2 long, wings ~7.8 wide — see src/client/render/ship-mesh.ts) and export the constants. `CameraRig.targetPose` returns chasePose for 'chase'. The rig's default `mode` stays settable; handoff/update/smoothing work unchanged for the new mode. Unit tests in `pose-math.test.ts` / `camera-rig.test.ts`: chase pose sits behind + above the ship for identity and SPAWN_GATE_QUAT, and follows yaw.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Self ship mesh in WorldManager",
       "details": "`src/client/world/WorldManager.ts`: own a `selfShip: ShipMesh | null` built with `buildShipMesh(classId)` + `applyLivery` (src/client/render/ship-mesh.ts — currently only used by its test). New method e.g. `setSelfShip(state: { classId: string; pos: Vec3; rot: Quat; livery?: Livery | null } | null)`: creates the mesh on first call (scene-level, like the character mesh — it must survive swapWorld), re-creates it if classId changes (ship purchase), re-applies livery only when it changed, and sets position/quaternion. `null` disposes (disposeShipMesh). Also expose `setSelfShipTransform(pos, quat)` for the per-frame drive TASK-73 will add. The ship stays visible while the player is on foot (it is the object the character walks back to) — only dispose on null / dispose(). The remote layer drops EVERY entity carrying the self callsign (remote-entities.ts ~line 174, `e.callsign !== selfCallsign`), so this mesh is the only place the player's ship renders.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Activate the rig in chase mode from the first self ship update",
       "details": "In main.tsx the self-entity bridge (the `(self, shipId) => { ... }` callback passed to useGameSession, ~line 630 — the `self.kind === 'ship'` branch currently calls `world.reEnterShip`) must call the new WorldManager API with the ship's classId/pos/rot/livery on every self ship update. WorldManager: the first self ship update sets `rigActive = true`, `cameraRig.mode = 'chase'`, feeds `cameraRig.setShip` and lets the rig's first-frame snap prime it (no handoff animation from the spectator vantage on boot). Update `reEnterShip` so re-entry hands off onfoot → 'chase' (not 'cockpit'), and `clearCharacter` so a warp/boot reset re-arms the chase camera on the next ship update instead of snapping back to the (150, 40, 150) spectator pose. Disembark (setCharacterPos → handoff('onfoot')) must still animate from wherever the camera is. Keep 'cockpit' mode available in the rig (unused by default) — do not delete it.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Tests, e2e, screenshot, commit",
       "details": "Unit: WorldManager/self-ship test (mesh created once, livery re-tint without rebuild, classId change rebuilds, null disposes, survives swapWorld). E2E (new `tests/e2e/self-ship.spec.ts`, using the existing fixtures/helpers/pages): claim a fresh callsign, wait for `#sys-id`, assert the ship is on screen — e.g. a dev-only probe (follow `src/client/camera/camera-debug.ts` / `char-debug.ts`) exposing the self-ship world pos + its projected screen position, asserting it is inside the viewport and near the center. Screenshot `.ralph/screenshots/TASK-72-1.png` and verify visually that a ship is clearly visible in front of the camera. Then `cd app && npx tsc --noEmit`, `npm run test` (full suite green), the affected e2e specs, `eslint --fix` + `prettier --write` on touched files. Commit (conventional, mention TASK-72).",
-      "pass": false
+      "pass": true
     }
   ],
   "acceptanceCriteria": [

@@ -518,7 +518,7 @@
     "title": "See your own ship at spawn: self ship mesh + chase camera",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-72.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-73",
