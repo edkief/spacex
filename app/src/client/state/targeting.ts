@@ -1,7 +1,6 @@
 /**
  * TASK-44: the client targeting state — the target box's data feed and the
- * threat ping. This is STATE ONLY (the HUD, TASK-50, renders it; a minimal
- * stub lives in ui/target-box.tsx for now):
+ * threat ping. This is STATE ONLY (the TASK-50 combat HUD renders it):
  *
  * - The LOCK is server-owned (the shard's `targets` map); this store keeps
  *   the client's optimistic mirror of it, refreshed from every snapshot and
@@ -14,13 +13,14 @@
  *   the attacker's snapshot position), fading after 3 s; the arc always
  *   shows the strongest attacker of the last 5 s (shared pickStrongestThreat).
  *
+ * Rendered by the TASK-50 combat HUD (src/client/ui/combat-hud/).
  * Follows the subscribe/emit idiom of src/client/state/inventory.ts.
  */
 
 import { canonicalJson } from '@shared/canonical';
 import type { EntityState } from '@shared/protocol/schemas';
 import type { CombatEvent } from '@client/fx';
-import type { Quat } from '@shared/physics/vec';
+import type { Quat, Vec3 } from '@shared/physics/vec';
 import {
   forwardOf,
   LOCK_CONE_RAD,
@@ -43,6 +43,12 @@ export interface TargetBoxView {
   shieldPct: number;
   /** Relative bearing (rad, -π..π, positive = right of our nose). */
   bearing: number;
+  /** The target's world position (the TASK-50 bracket's projection source). */
+  pos: Vec3;
+  /** True when the target has locked OUR ship (the wire `targetedBy`). */
+  locksUs: boolean;
+  /** True for rogue AI ships (the card tags their name with 'AI'). */
+  isAi: boolean;
 }
 
 /** The threat ping arc (null while nothing is lit). */
@@ -101,6 +107,8 @@ export function ingestTargetingEntities(
   entities: readonly EntityState[],
   ownCallsign: string,
   now: number,
+  /** The player's id (the wire `targetedBy` carries shooter player ids). */
+  ownPlayerId: string | null = null,
 ): void {
   lastEntities = [...entities];
   const self = lastEntities.find((e) => e.kind === 'ship' && e.callsign === ownCallsign);
@@ -118,6 +126,10 @@ export function ingestTargetingEntities(
         hullPct: Math.round(t.hull * 100),
         shieldPct: Math.round(t.shields * 100),
         bearing: relativeBearing(self.pos, forwardOf(self.rot ?? IDENT_QUAT), t.pos),
+        pos: { ...t.pos },
+        locksUs:
+          ownPlayerId !== null && (t.targetedBy ?? []).includes(ownPlayerId),
+        isAi: t.kind === 'ai-ship',
       };
     }
   } else {

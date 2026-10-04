@@ -6,7 +6,9 @@ import { PresenceStore } from '@client/net/presence';
 import { ChatStore } from '@client/net/chat';
 import { PlayerList } from '@client/hud/player-list';
 import { ToastStack } from '@client/hud/toast-stack';
-import { KillFeed } from '@client/hud/kill-feed';
+import { CombatHud } from '@client/ui/combat-hud/combat-hud';
+import type { CameraSample } from '@client/ui/combat-hud/projection';
+import type { Viewport } from '@client/ui/combat-hud/layout';
 import {
   callsignForPlayer,
   indexKillFeedEntities,
@@ -68,8 +70,7 @@ import { installDriftDebug, reportServerSeed, reportWorldSwap } from '@client/dr
 import { installStreamDebug } from '@client/stream-debug';
 import { installCameraDebug } from '@client/camera/camera-debug';
 import { installAtmosphereDebug } from '@client/atmosphere-debug';
-import { WeaponHud } from '@client/ui/weapon-hud';
-import { TargetHud } from '@client/ui/target-box';
+
 import {
   ingestCombatEvent,
   ingestTargetingEntities,
@@ -544,6 +545,30 @@ function App() {
   React.useEffect(() => {
     sessionCallsignRef.current = session?.callsign ?? '';
   }, [session]);
+  // The player's id (the wire `targetedBy` carries shooter player ids —
+  // the target card's 'LOCKED ON' indicator).
+  const sessionPlayerIdRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    sessionPlayerIdRef.current = session?.playerId ?? null;
+  }, [session]);
+
+  // TASK-50: the combat HUD layout slots follow the viewport size.
+  const [viewport, setViewport] = React.useState<Viewport>({
+    w: window.innerWidth,
+    h: window.innerHeight,
+  });
+  React.useEffect(() => {
+    const onResize = () => setViewport({ w: window.innerWidth, h: window.innerHeight });
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  /** Live camera sample for the target-box projection (rAF, ref'd style). */
+  const combatCamera = React.useCallback((): CameraSample | null => {
+    const world = worldRef.current;
+    if (!world) return null;
+    const s = world.cameraSample();
+    return { ...s, width: window.innerWidth, height: window.innerHeight };
+  }, []);
   const [store] = React.useState(() => new PresenceStore());
   const [chatStore] = React.useState(() => new ChatStore());
   // TASK-36 (TASK-74: + remote ships): every snapshot batch feeds BOTH
@@ -557,7 +582,12 @@ function App() {
     // TASK-45: the PlayerList AI section (rogues ride the entity list).
     store.applyAiEntities(entities);
     // TASK-44: the targeting store rides the same batch (target box).
-    ingestTargetingEntities(entities, sessionCallsignRef.current, Date.now());
+    ingestTargetingEntities(
+      entities,
+      sessionCallsignRef.current,
+      Date.now(),
+      sessionPlayerIdRef.current,
+    );
     // TASK-47: the kill feed indexes every batch so kill events resolve
     // killer (playerId) and victim (ship id) to callsigns.
     indexKillFeedEntities(entities);
@@ -1486,8 +1516,7 @@ function App() {
       )}
       <PlayerList store={store} />
       <ToastStack store={store} />
-      {/* TASK-47: the kill feed (top-center, fed by kill combat_events). */}
-      <KillFeed />
+
       {chartOpen && session && systemId && (
         <StarChart
           token={session.token}
@@ -1506,10 +1535,11 @@ function App() {
       {/* TASK-48.2: the hazard HUD (radiation meter + 'SHIELD BURN' /
           'RECOVERING' prompts) — driven by the server's 'hazard' frame. */}
       <HazardHud />
-      {/* TASK-43: the weapon HUD stub (active weapon 1/2 + energy bar +
-          denial prompts) — in-ship only (selfShip is null on foot). */}
-      <TargetHud />
-      <WeaponHud
+      {/* TASK-50: the combat HUD (target box, weapon readout, threat ping,
+          kill feed) — in-ship regions unmount on foot (selfShip null). */}
+      <CombatHud
+        viewport={viewport}
+        camera={combatCamera}
         classId={selfShip?.classId ?? null}
         energy={selfShip?.energy ?? null}
         weapon={weapon}

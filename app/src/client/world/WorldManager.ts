@@ -559,6 +559,28 @@ export class WorldManager {
     return this.camera;
   });
 
+  /**
+   * TASK-50: a PLAIN snapshot of the camera for the combat HUD's target
+   * projection (world→NDC→screen). No THREE types leak to the UI layer;
+   * the caller merges in the viewport size.
+   */
+  cameraSample(): {
+    pos: { x: number; y: number; z: number };
+    quat: { x: number; y: number; z: number; w: number };
+    fovDeg: number;
+  } {
+    return {
+      pos: { x: this.camera.position.x, y: this.camera.position.y, z: this.camera.position.z },
+      quat: {
+        x: this.camera.quaternion.x,
+        y: this.camera.quaternion.y,
+        z: this.camera.quaternion.z,
+        w: this.camera.quaternion.w,
+      },
+      fovDeg: this.camera.fov,
+    };
+  }
+
   /** TASK-37: the ore rocks currently known (dev probe / e2e assertions). */
   oreRocks(): OreRockView[] {
     return this.oreLayer.views();
