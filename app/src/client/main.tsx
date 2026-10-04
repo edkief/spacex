@@ -33,25 +33,44 @@ import { flashHullHit, selfShipView, setSelfShipView } from '@client/state/ship-
 import { setChartTarget } from '@client/state/chart-target';
 import { clearHazard, setHazardFrame, type HazardFrame } from '@client/state/hazards';
 import { CargoPanel } from '@client/ui/cargo-panel';
-import { openCargoPanel } from '@client/state/cargo';
+import { openCargoPanel, closeCargoPanel } from '@client/state/cargo';
 import { DockPanel } from '@client/ui/dock-panel';
 import { CreditsCounter, CreditFloatLayer } from '@client/ui/credits-hud';
 import {
   openDockPanel,
+  closeDockPanel,
   applySellResult,
   type DockHoldView,
   type DockInventoryView,
 } from '@client/state/dock';
-import { setCredits } from '@client/state/credits';
+import { credits, creditsSubscribe, setCredits } from '@client/state/credits';
 import { pushCreditFloat } from '@client/state/credit-float';
-import { inventory, setInventory } from '@client/state/inventory';
+import { inventory, inventorySubscribe, setInventory } from '@client/state/inventory';
+// TASK-53: the ONE open-surface stack (ESC menu / star chart / shared panel)
+// + the two modal surfaces it drives.
+import {
+  anySurfaceOpen,
+  closeAllSurfaces,
+  menuStack,
+  menuSubscribe,
+  openChart,
+  openMenu,
+  openPanel,
+  popSurface,
+  topSurface,
+  type Surface,
+} from '@client/state/menu';
+import { EscMenu } from '@client/ui/esc-menu';
+import { ShipPanel, shipClassFor, type PanelShipView } from '@client/ui/ship-panel';
+import { canonicalJson } from '@shared/canonical';
+import type { Livery } from '@shared/ships';
 import {
   setMiningActive,
   setMiningEnded,
   type MiningActiveFrame,
   type MiningEndedFrame,
 } from '@client/state/mining';
-import { RESOURCE_IDS } from '@shared/inventory';
+import { RESOURCE_IDS, type ResourceId } from '@shared/inventory';
 import {
   createInteractableRegistry,
   interactableTargetsFrom,
@@ -63,7 +82,12 @@ import {
 import type { InteractableTarget } from '@shared/interaction';
 import { WarpController, warpSubscribe } from '@client/state/warp';
 import { setReentryTint } from '@client/state/reentry';
-import { dockedIndicator, isDocked, setDockedIndicator } from '@client/state/docked';
+import {
+  dockedIndicator,
+  dockedIndicatorSubscribe,
+  isDocked,
+  setDockedIndicator,
+} from '@client/state/docked';
 import { reentryTintFactor } from '@shared/physics/atmosphere';
 import { FrameMonitorOverlay } from '@client/ui/debug-overlay';
 import { systemForId } from '@shared/galaxy/system';
@@ -114,6 +138,40 @@ const STARFIELD_SEED = 'DRIFT-SEED-0001';
  * keeps the invariant that a visible prompt is always dispatchable.
  */
 const INTERACT_HOLD_FRAMES = 3;
+
+/** TASK-53: the shared panel's view before the first ship entity arrives. */
+const EMPTY_PANEL_SHIP: PanelShipView = {
+  classId: null,
+  hull: null,
+  shields: null,
+  energy: null,
+  livery: null,
+};
+
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+/**
+ * TASK-53: the wire livery (an open `Record<string,string>`) → the panel's
+ * strict 3-slot `Livery`, or null when any slot is missing/invalid (the
+ * panel then falls back to the class default paint).
+ */
+function panelLiveryFromWire(
+  l: Record<string, string> | null | undefined,
+): Livery | null {
+  if (!l) return null;
+  const { hull, accent, trim } = l;
+  if (
+    typeof hull === 'string' &&
+    typeof accent === 'string' &&
+    typeof trim === 'string' &&
+    HEX_COLOR.test(hull) &&
+    HEX_COLOR.test(accent) &&
+    HEX_COLOR.test(trim)
+  ) {
+    return { hull, accent, trim };
+  }
+  return null;
+}
 
 /** Fetches the REST health endpoint through the Vite same-origin proxy. */
 async function fetchHealth(): Promise<HealthPayload | null> {
@@ -277,6 +335,14 @@ function useGameSession(
               p.payload?.hold ?? null,
               p.payload?.inventory ?? null,
             );
+            // TASK-53: the panel rides the menu stack (ESC pops it, game
+            // input is gated while it is open).
+            openPanel({
+              id: 'dock-panel',
+              title: 'STATION DOCK',
+              context: 'dock',
+              activeTab: 'sell',
+            });
           }
           return;
         }
@@ -290,6 +356,15 @@ function useGameSession(
             inventory?: { stacks: Record<string, number>; weightUsed: number };
           };
           openCargoPanel(p.hold, p.inventory ?? null);
+          // TASK-53: the panel rides the menu stack (ESC pops it, game
+          // input is gated while it is open). The context — and with it the
+          // Repair tab — is the live docked state at open time.
+          openPanel({
+            id: 'cargo-panel',
+            title: 'CARGO',
+            context: dockedIndicator() ? 'docked' : 'flight',
+            activeTab: 'cargo',
+          });
           return;
         }
         if (msg.type === 'hazard') {
@@ -720,6 +795,53 @@ function App() {
     null,
   );
   const [lowEnergy, setLowEnergy] = React.useState(false);
+  // TASK-53: the ONE open-surface stack (ESC menu / star chart / the shared
+  // ship/dock panel) — the modal state for the whole client. Any open
+  // surface suppresses game input (only ESC reaches the game); ESC opens
+  // the menu from the empty stack and otherwise POPS the top surface
+  // (panel → menu → closed). The world keeps simulating underneath
+  // (multiplayer — no pause).
+  const [stack, setStack] = React.useState<readonly Surface[]>(menuStack);
+  React.useEffect(() => menuSubscribe(setStack), []);
+  const anyOpen = stack.length > 0;
+  const menuOpen = stack.some((s) => s.kind === 'menu');
+  const chartOpen = stack.some((s) => s.kind === 'chart');
+  const panel = stack.find((s) => s.kind === 'panel') ?? null;
+  // The credit balance (menu footer + panel context; the credits store).
+  const [balance, setBalance] = React.useState<number | null>(credits);
+  React.useEffect(() => creditsSubscribe(setBalance), []);
+  // The live docked state (the panel context + the Repair gate).
+  const [dockedNow, setDockedNow] = React.useState(dockedIndicator);
+  React.useEffect(() => dockedIndicatorSubscribe(setDockedNow), []);
+  // The on-foot inventory (the menu SHIPS panel's Cargo tab while on foot).
+  const [invView, setInvView] = React.useState(inventory);
+  React.useEffect(() => inventorySubscribe(setInvView), []);
+  // The transient repair error (the Repair tab's alert line).
+  const [repairMessage, setRepairMessage] = React.useState<string | null>(null);
+  // TASK-53: the shared panel's ship view (the 10 Hz self/ship entity —
+  // hull/shields arrive NORMALIZED 0..1 on the wire; the panel's bars and
+  // the repair preview work in ABSOLUTE points, so convert here against the
+  // class caps). JSON-gated so the 10 Hz feed re-renders only on a real
+  // change (the livery save echo, a hit, an energy tick).
+  const [panelShip, setPanelShip] = React.useState<PanelShipView | null>(null);
+  const panelShipKeyRef = React.useRef('');
+  const updatePanelShip = (e: EntityState | null): void => {
+    let view: PanelShipView | null = null;
+    if (e && e.kind === 'ship' && e.classId) {
+      const cls = shipClassFor(e.classId);
+      view = {
+        classId: e.classId,
+        hull: cls ? e.hull * cls.hull : null,
+        shields: cls ? e.shields * cls.shieldCapacity : null,
+        energy: e.energy ?? null,
+        livery: panelLiveryFromWire(e.livery),
+      };
+    }
+    const key = view ? canonicalJson(view) : '';
+    if (key === panelShipKeyRef.current) return;
+    panelShipKeyRef.current = key;
+    setPanelShip(view);
+  };
   const [locked, setLocked] = React.useState(false);
   // Refs (the fire handlers are captured once — no stale closures):
   const weaponRef = React.useRef<WeaponId>('laser');
@@ -809,6 +931,7 @@ function App() {
         // (frozen, but still in every batch) and is the object the character
         // walks back to. Update the mesh from the ship entity every batch.
         world.setSelfShip(ship ? selfShipStateFrom(ship) : null);
+        updatePanelShip(ship); // TASK-53: the shared panel views the DOCKED ship
         // TASK-32: the character is the local prediction target — seed the
         // predictor from the first snapshot (flat pad-plane terrain; the
         // 10 Hz snapshot corrects any off-pad drift) and reconcile every
@@ -848,6 +971,7 @@ function App() {
           selfShipRef.current = true;
           selfPosRef.current = { ...self.pos };
           setSelfShip({ classId: self.classId, energy: self.energy ?? null });
+          updatePanelShip(self); // TASK-53: the shared panel views the SELF ship
           // TASK-72: drive the self-ship mesh (first call spawns it + arms
           // the chase camera) and run the re-entry handoff when a capsule
           // exists (onfoot → chase).
@@ -879,6 +1003,7 @@ function App() {
           selfShipRef.current = false;
           setSelfShip(null);
           world.setSelfShip(ship ? selfShipStateFrom(ship) : null);
+          updatePanelShip(ship ?? null); // TASK-53: no self ship → the panel has no ship
           world.clearCharacter();
         }
         // No character → no prediction, and no interaction either (TASK-33:
@@ -1036,21 +1161,58 @@ function App() {
     },
   );
 
-  // TASK-7: the star chart (M key or the Systems button); typing in an
-  // input (chat) never toggles it.
-  const [chartOpen, setChartOpen] = React.useState(false);
+  // TASK-53: the menu shell — ESC (the global key) + the star chart.
+  // ESC from the empty stack opens the ESC menu; while any surface is
+  // open, ESC POPS the top (panel → menu → closed), closing the store
+  // alongside when the pop is a store-driven panel (cargo / dock).
+  // M opens the star chart (the HUD SYSTEMS button is the same call);
+  // M again — or ESC — closes it. A menu or panel underneath or on top
+  // swallows M (modal: only ESC reaches the game). Typing in an input
+  // (chat) never triggers any of this.
+  const closePoppedPanel = (popped: Surface | null): void => {
+    if (popped?.kind !== 'panel') return;
+    if (popped.id === 'cargo-panel') closeCargoPanel();
+    else if (popped.id === 'dock-panel') closeDockPanel();
+  };
+  const closeTopSurface = (): void => {
+    closePoppedPanel(popSurface());
+  };
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
-      if (e.key === 'm' || e.key === 'M') setChartOpen((v) => !v);
+      if (e.key === 'Escape') {
+        if (anySurfaceOpen()) {
+          closePoppedPanel(popSurface());
+          return;
+        }
+        if (clientRef.current) openMenu(); // no session → nothing to menu
+        return;
+      }
+      if (e.key === 'm' || e.key === 'M') {
+        const top = topSurface();
+        if (top && top.kind !== 'chart') return; // a menu/panel is up → M is game input
+        if (top?.kind === 'chart') popSurface(); // M closes the chart (the old toggle)
+        else if (clientRef.current) openChart();
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
   React.useEffect(() => {
-    if (!systemId) setChartOpen(false); // no system → nothing to chart
+    if (!systemId && anySurfaceOpen()) closeAllSurfaces(); // no system → no surfaces
   }, [systemId]);
+  // TASK-53: opening ANY surface clears the pressed-key set — a physically
+  // held key must not keep walking the character or flying the ship under
+  // the modal (the game input is suppressed while a surface is open; the
+  // world itself keeps moving, the server never knows).
+  React.useEffect(
+    () =>
+      menuSubscribe((s) => {
+        if (s.length > 0) pressedRef.current.clear();
+      }),
+    [],
+  );
 
   // TASK-31: E — LEAVE SHIP. Fires ONLY while the docked prompt is up
   // (state/docked store true ⇒ the player's own entity is a docked ship)
@@ -1066,7 +1228,7 @@ function App() {
       if (e.key !== 'e' && e.key !== 'E') return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
-      if (chartOpenRef.current) return;
+      if (anySurfaceOpen()) return; // TASK-53: any open surface is modal (ESC only)
       if (dockedIndicator()) {
         const shipId = selfShipIdRef.current;
         if (!shipId) return;
@@ -1124,6 +1286,7 @@ function App() {
       if (e.key !== 'q' && e.key !== 'Q') return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+      if (anySurfaceOpen()) return; // TASK-53: any open surface is modal (ESC only)
       // TASK-73: Q drives ROLL in-ship — the drop fires ON FOOT only.
       // (The server would answer 'wrong-regime' anyway; don't send it.)
       if (!onFootRef.current) return;
@@ -1147,7 +1310,7 @@ function App() {
       if (e.repeat) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
-      if (chartOpenRef.current) return;
+      if (anySurfaceOpen()) return; // TASK-53: any open surface is modal (ESC only)
       if (!selfShipRef.current) return;
       const cmd = toggleTargetLock(Date.now());
       if (!cmd) return;
@@ -1172,6 +1335,7 @@ function App() {
     };
     const onKey = (e: KeyboardEvent): void => {
       if (isTyping(e)) return;
+      if (anySurfaceOpen()) return; // TASK-53: any open surface is modal (ESC only)
       if (e.key === '1') {
         setWeapon('laser');
         weaponRef.current = 'laser';
@@ -1188,7 +1352,7 @@ function App() {
     if (!canvas) return;
     const onDown = (e: MouseEvent): void => {
       if (e.button !== 0) return;
-      if (chartOpenRef.current) return;
+      if (anySurfaceOpen()) return; // TASK-53: any open surface is modal (ESC only)
       if (!selfShipRef.current) return; // on foot / before the first self ship
       // Aim assist: the nearest other ship within the active weapon's max
       // engagement (800 u covers both weapons; the server re-checks range).
@@ -1227,6 +1391,7 @@ function App() {
     const keyOf = (e: KeyboardEvent): string => (e.key === 'Shift' ? 'Shift' : e.key.toLowerCase());
     const onDown = (e: KeyboardEvent): void => {
       if (isTyping(e)) return;
+      if (anySurfaceOpen()) return; // TASK-53: game input suppressed while a surface is open
       pressedRef.current.add(keyOf(e));
     };
     const onUp = (e: KeyboardEvent): void => {
@@ -1460,6 +1625,45 @@ function App() {
     };
   }, [session]);
 
+  // TASK-53: the shared panel's actions — the panels never talk to the
+  // server themselves (the one-dispatch-site pattern of the cargo panel):
+  // onMove/onSell send the WS frames, onRepair / onLivery POST the REST
+  // endpoints (the panel's only network-touching controls), and the
+  // transient repair error renders under the Repair tab.
+  const sendCargoTransfer = (resourceId: ResourceId, amount: number, from: 'inv' | 'hold'): void => {
+    clientRef.current?.send('cargo_transfer', { resourceId, amount, from });
+  };
+  const doLivery = (colors: Livery): void => {
+    if (!session) return;
+    void fetch('/api/ships/livery', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${session.token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ colors }),
+    }).catch(() => {
+      /* the ship keeps its current paint; the picker draft stays */
+    });
+  };
+  const doRepair = (): void => {
+    if (!session) return;
+    setRepairMessage(null);
+    fetch('/api/ships/repair', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${session.token}` },
+    })
+      .then(async (res) => {
+        const body = (await res.json().catch(() => null)) as {
+          code?: string;
+          message?: string;
+          balance?: number;
+        } | null;
+        if (body?.balance !== undefined) setCredits(body.balance);
+        if (res.ok) return;
+        if (body?.code === 'not-docked') setRepairMessage('Repair requires a docked ship.');
+        else setRepairMessage(body?.message ?? 'Repair failed.');
+      })
+      .catch(() => setRepairMessage('Repair failed — server unreachable.'));
+  };
+
   // TASK-70: the three.js starfield owns #game-canvas (mounted outside
   // React on purpose) until the player has a system, when the WorldManager
   // (TASK-8) takes over the same canvas for the in-system view.
@@ -1568,7 +1772,12 @@ function App() {
           <button
             id="systems-button"
             type="button"
-            onClick={() => setChartOpen((v) => !v)}
+            onClick={() => {
+              // TASK-53: the chart rides the menu stack (M / ESC / CLOSE
+              // button all pop it); this is the same open-or-close call.
+              if (topSurface()?.kind === 'chart') closeTopSurface();
+              else openChart();
+            }}
             style={styles.sysButton}
           >
             SYSTEMS (M)
@@ -1590,11 +1799,65 @@ function App() {
       <PlayerList store={store} />
       <ToastStack store={store} />
 
+      {/* TASK-53: the modal backdrop — any open surface (chart 111 /
+          panels 112) sits above it; the game UI behind (≤ 85) goes dim. */}
+      {anyOpen && (
+        <div
+          id="surface-backdrop"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(5, 8, 12, 0.4)',
+            zIndex: 110,
+          }}
+        />
+      )}
       {chartOpen && session && systemId && (
         <StarChart
           token={session.token}
           currentSystemId={systemId}
-          onClose={() => setChartOpen(false)}
+          onClose={closeTopSurface}
+        />
+      )}
+      {/* TASK-53: the ESC menu (top-level surface; the world keeps moving
+          underneath — multiplayer, no pause). */}
+      {menuOpen && session && (
+        <EscMenu
+          callsign={session.callsign}
+          credits={balance}
+          onResume={closeTopSurface}
+          onSystems={() => {
+            openChart();
+          }}
+          onShips={() => {
+            openPanel({
+              id: 'ship-panel',
+              title: 'SHIP',
+              context: dockedNow ? 'docked' : 'flight',
+              activeTab: 'overview',
+            });
+          }}
+        />
+      )}
+      {/* TASK-53: the SHIPS item's target — the shared panel from the menu
+          (hold data needs the 'cargo' frame, so the Cargo tab explains how
+          to get it; the on-foot inventory tab works straight away). */}
+      {panel?.id === 'ship-panel' && (
+        <ShipPanel
+          id="ship-panel"
+          title="SHIP"
+          context={dockedNow ? 'docked' : 'flight'}
+          activeTab="overview"
+          ship={panelShip ?? EMPTY_PANEL_SHIP}
+          docked={dockedNow}
+          hold={null}
+          inventory={invView ? { stacks: invView.stacks, weightUsed: invView.weightUsed } : null}
+          balance={balance}
+          onMove={sendCargoTransfer}
+          onRepair={doRepair}
+          onLivery={doLivery}
+          repairMessage={repairMessage}
+          onClose={closeTopSurface}
         />
       )}
       <WarpOverlay />
@@ -1631,20 +1894,33 @@ function App() {
         lowEnergy={lowEnergy}
         locked={locked}
       />
-      {/* TASK-39: the cargo panel (INVENTORY | CARGO HOLD, Move buttons) —
-          driven by the server's per-connection 'cargo' frame. */}
+      {/* TASK-39/53: the cargo panel (the shared ShipPanel in its CARGO
+          mode) — driven by the server's per-connection 'cargo' frame,
+          riding the menu stack (ESC pops it). */}
       <CargoPanel
-        onMove={(resourceId, amount, from) =>
-          clientRef.current?.send('cargo_transfer', { resourceId, amount, from })
-        }
+        onMove={sendCargoTransfer}
+        onRepair={doRepair}
+        onLivery={doLivery}
+        repairMessage={repairMessage}
+        onClose={closeTopSurface}
+        ship={panelShip ?? EMPTY_PANEL_SHIP}
+        docked={dockedNow}
+        balance={balance}
       />
-      {/* TASK-40: the station dock panel (SELL tab live; SHIPS/REPAIR are
-          TASK-53 stubs) — opened by the server's 'ui-open' {ui:'dock'} frame,
-          driven by the 'sell' result frame. The panel sends the 'sell' frame. */}
+      {/* TASK-40/53: the station dock panel (the shared ShipPanel in its
+          DOCK mode — the SELL tab live) — opened by the server's 'ui-open'
+          {ui:'dock'} frame, driven by the 'sell' result frame. */}
       <DockPanel
         onSell={(resourceId, amount, source) =>
           clientRef.current?.send('sell', { resourceId, amount, source })
         }
+        onMove={sendCargoTransfer}
+        onRepair={doRepair}
+        onLivery={doLivery}
+        repairMessage={repairMessage}
+        onClose={closeTopSurface}
+        ship={panelShip ?? EMPTY_PANEL_SHIP}
+        docked={dockedNow}
       />
       {/* TASK-40: the HUD credit balance (top-right) + the transient "+N cr"
           float at the terminal (both driven by the credits / credit-float
