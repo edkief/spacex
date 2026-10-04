@@ -26,6 +26,18 @@ export const SHAKE_DECAY_MS = 100;
 export const TRACER_CAP = 16;
 /** Trail ribbon length (spec: ≤ 8 points). */
 export const TRAIL_MAX = 8;
+/** Explosion core flash lifetime (TASK-49 spec: a 1 s flash). */
+export const EXPLOSION_FLASH_MS = 1000;
+/** Shockwave quad lifetime (TASK-49 spec: expanding quad, 1 s). */
+export const SHOCKWAVE_MS = 1000;
+/** Debris fade lifetime (TASK-49 spec: 8 tumbling tetrahedrons, 3 s fade). */
+export const DEBRIS_MS = 3000;
+/** Debris count (TASK-49 spec: 8 tumbling tetrahedrons). */
+export const DEBRIS_COUNT = 8;
+/** Slow-mo window (TASK-49 spec: 1 s, client-only, cosmetic). */
+export const SLOW_MO_MS = 1000;
+/** Slow-mo timeScale (TASK-49 spec: 0.3 — prediction is unaffected). */
+export const SLOW_MO_SCALE = 0.3;
 /** Flash render order: on top of sky/planets/dome so glows are never occluded. */
 export const FLASH_RENDER_ORDER = 20;
 /** Muzzle-glow scale in dev slow-mo (screenshot) mode. */
@@ -46,16 +58,35 @@ interface Flash {
 export class CombatFx {
   private readonly group = new THREE.Group();
   private readonly attach: (scene: THREE.Object3D) => THREE.Camera;
+  /** The scene camera (from `attach`) — the shockwave billboards toward it. */
+  private boundCamera: THREE.Camera | null = null;
   private readonly flashes: Flash[] = [];
   private readonly tracers = new Map<string, Tracer>();
   /** Dev-only (import.meta.env.DEV): stretch flash lifetimes for screenshots. */
   slow = false;
   private shakeMag = 0;
   private shakeUntil = 0;
+  /** TASK-49: a VIRTUAL fx clock (ms) that ages effects. It advances at
+   * `dt * timeScale` per frame, so a slow-mo window stretches every flash /
+   * shockwave / debris without touching prediction (which runs on real time). */
+  private fxTime = 0;
+  private lastFrameNow = -1;
+  /** Real-time end of the active slow-mo window (performance.now ms). */
+  private slowMoUntil = 0;
+
+  /** The FX timeScale for the current frame (0.3 during slow-mo, else 1). */
+  get timeScale(): number {
+    return performance.now() < this.slowMoUntil ? SLOW_MO_SCALE : 1;
+  }
+
+  /** Arm the 1 s client-only slow-mo (cosmetic — prediction keeps real time). */
+  armSlowMo(): void {
+    this.slowMoUntil = performance.now() + SLOW_MO_MS;
+  }
 
   constructor(attach: (scene: THREE.Object3D) => THREE.Camera) {
     this.attach = attach;
-    this.attach(this.group);
+    this.boundCamera = this.attach(this.group);
   }
 
   /** True while any flash/tracer is live (dev probe / e2e assertions). */
@@ -75,7 +106,7 @@ export class CombatFx {
 
   /** One laser shot: additive line nose→to (60 ms) + a muzzle spark. */
   addLaserFlash(from: Vec3, to: Vec3): void {
-    const now = performance.now();
+    const now = this.fxTime;
     const slow = this.stretched();
     const life = slow ? 500 : LASER_FLASH_MS;
     // In the dev slow-mo (screenshot) mode the flash HOLDS full opacity for
@@ -135,7 +166,7 @@ export class CombatFx {
 
   /** One impact: a small expanding flash at `point` (additive, ~120 ms). */
   addImpactFlash(point: Vec3): void {
-    const now = performance.now();
+    const now = this.fxTime;
     const flash = new THREE.Mesh(
       new THREE.SphereGeometry(1, 12, 12),
       new THREE.MeshBasicMaterial({
@@ -160,6 +191,116 @@ export class CombatFx {
         ((obj as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = 1 - age;
       },
     });
+  }
+
+  /**
+   * One ship destruction (TASK-49): the 1 s flash + expanding shockwave quad
+   * + 8 tumbling tetrahedrons (3 s fade). The 1 s client-only slow-mo is
+   * armed (cosmetic — prediction keeps running at real time). All pieces are
+   * additive glows that ignore depth (never occluded into invisibility).
+   */
+  addExplosion(point: Vec3): void {
+    this.armSlowMo();
+    const slow = this.stretched();
+    const now = this.fxTime;
+    const p = new THREE.Vector3(point.x, point.y, point.z);
+
+    // (1) The 1 s core flash: a hot sphere that expands + fades.
+    const core = new THREE.Mesh(
+      new THREE.SphereGeometry(1, 16, 16),
+      new THREE.MeshBasicMaterial({
+        color: 0xffd0a0,
+        transparent: true,
+        opacity: 1,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        depthTest: false,
+      }),
+    );
+    core.renderOrder = FLASH_RENDER_ORDER;
+    core.position.copy(p);
+    this.group.add(core);
+    this.flashes.push({
+      obj: core,
+      born: now,
+      life: slow ? 2000 : EXPLOSION_FLASH_MS,
+      update: (age, obj) => {
+        obj.scale.setScalar(1 + age * 8);
+        ((obj as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = 1 - age;
+      },
+    });
+
+    // (2) The shockwave: an expanding flat quad (ring) at the impact plane.
+    const wave = new THREE.Mesh(
+      new THREE.RingGeometry(0.7, 1, 32),
+      new THREE.MeshBasicMaterial({
+        color: 0xffb060,
+        transparent: true,
+        opacity: 0.9,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        depthTest: false,
+      }),
+    );
+    wave.renderOrder = FLASH_RENDER_ORDER;
+    wave.position.copy(p);
+    // Face the wave toward the camera (billboard) so it reads as a shockwave
+    // from any vantage. The camera is known via attach at frame time.
+    this.group.add(wave);
+    this.flashes.push({
+      obj: wave,
+      born: now,
+      life: slow ? 2000 : SHOCKWAVE_MS,
+      update: (age, obj) => {
+        const w = obj as THREE.Mesh;
+        w.scale.setScalar(1 + age * 30);
+        const cam = this.boundCamera;
+        if (cam) w.lookAt(cam.position);
+        (w.material as THREE.MeshBasicMaterial).opacity = 0.9 * (1 - age);
+      },
+    });
+
+    // (3) 8 tumbling tetrahedrons: debris that fly out + fade over 3 s.
+    for (let i = 0; i < DEBRIS_COUNT; i++) {
+      const debris = new THREE.Mesh(
+        new THREE.TetrahedronGeometry(0.6),
+        new THREE.MeshBasicMaterial({
+          color: i % 2 === 0 ? 0xff9040 : 0x8a8f98,
+          transparent: true,
+          opacity: 1,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          depthTest: false,
+        }),
+      );
+      debris.renderOrder = FLASH_RENDER_ORDER;
+      debris.position.copy(p);
+      this.group.add(debris);
+      // A per-debris tumble + outward velocity (deterministic by index).
+      const dir = new THREE.Vector3(
+        Math.cos((i / DEBRIS_COUNT) * Math.PI * 2),
+        0.4 + (i % 3) * 0.3,
+        Math.sin((i / DEBRIS_COUNT) * Math.PI * 2),
+      ).normalize();
+      const spin = new THREE.Vector3(i + 1, ((i * 7) % 5) + 1, ((i * 3) % 7) + 1).multiplyScalar(
+        0.02,
+      );
+      this.flashes.push({
+        obj: debris,
+        born: now,
+        life: slow ? 6000 : DEBRIS_MS,
+        update: (age, obj) => {
+          const d = obj as THREE.Mesh;
+          d.position.copy(p).addScaledVector(dir, age * 18);
+          d.quaternion.setFromEuler(
+            new THREE.Euler(spin.x * age * 60, spin.y * age * 60, spin.z * age * 60),
+          );
+          d.scale.setScalar(Math.max(0.05, 1 - age * 0.5));
+          (d.material as THREE.MeshBasicMaterial).opacity = 1 - age;
+        },
+      });
+    }
   }
 
   /** Screen shake: a `px`-pixel camera nudge decaying over 100 ms. */
@@ -230,9 +371,14 @@ export class CombatFx {
 
   /** Age the flashes, cull the dead, apply the decaying shake nudge. */
   frame(nowMs: number): THREE.Vector3 {
+    // Advance the virtual fx clock at the current timeScale: a slow-mo window
+    // stretches every effect's lifetime cosmetically (prediction is separate).
+    if (this.lastFrameNow < 0) this.lastFrameNow = nowMs;
+    this.fxTime += (nowMs - this.lastFrameNow) * this.timeScale;
+    this.lastFrameNow = nowMs;
     for (let i = this.flashes.length - 1; i >= 0; i--) {
       const f = this.flashes[i];
-      const age = (nowMs - f.born) / f.life;
+      const age = (this.fxTime - f.born) / f.life;
       if (age >= 1) {
         this.group.remove(f.obj);
         f.obj.traverse((o) => {

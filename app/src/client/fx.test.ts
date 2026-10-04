@@ -13,12 +13,14 @@ interface Calls {
   world: FxWorld;
   laser: Array<[unknown, unknown]>;
   impact: Array<unknown>;
+  explosion: Array<unknown>;
   shake: Array<number>;
 }
 
 function fxSpy(): Calls {
   const laser: Array<[unknown, unknown]> = [];
   const impact: Array<unknown> = [];
+  const explosion: Array<unknown> = [];
   const shake: Array<number> = [];
   return {
     world: {
@@ -28,12 +30,16 @@ function fxSpy(): Calls {
       addImpactFlash: (point) => {
         impact.push(point);
       },
+      addExplosion: (point) => {
+        explosion.push(point);
+      },
       screenShake: (px) => {
         shake.push(px);
       },
     },
     laser,
     impact,
+    explosion,
     shake,
   };
 }
@@ -47,6 +53,31 @@ const DRONE_HIT: CombatEvent = {
   shieldHit: 3,
   hullHit: 0,
 };
+
+describe('playCombatFx — destruction (TASK-49)', () => {
+  const DESTROYED: CombatEvent = {
+    kind: 'destroyed',
+    target: 'ship-p2',
+    source: { kind: 'player', id: 'p1' },
+    weapon: 'laser',
+  };
+
+  it("a 'destroyed' event at a known target plays the EXPLOSION (not a small impact flash) + a 6 px shake", () => {
+    const { world, explosion, impact, shake } = fxSpy();
+    playCombatFx(world, DESTROYED, (id) => (id === 'ship-p2' ? { x: 5, y: 6, z: 7 } : null));
+    expect(explosion).toEqual([{ x: 5, y: 6, z: 7 }]);
+    // The explosion supersedes the small impact flash for a destruction.
+    expect(impact).toEqual([]);
+    expect(shake).toEqual([6]);
+  });
+
+  it("a 'destroyed' at an UNRESOLVABLE target produces no FX (same rule as every other event)", () => {
+    const { world, explosion, shake } = fxSpy();
+    playCombatFx(world, DESTROYED, () => null);
+    expect(explosion).toEqual([]);
+    expect(shake).toEqual([]);
+  });
+});
 
 describe('playCombatFx — drone shots (TASK-48.3)', () => {
   it("a drone 'hit' on the player surfaces an impact flash at the target (the standard event path)", () => {

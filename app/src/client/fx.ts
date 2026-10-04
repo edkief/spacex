@@ -12,12 +12,16 @@ export type CombatEvent = PayloadSchemas['combat_event'];
  * - 'laser-fired'   → 60 ms additive line flash nose→to (+ muzzle spark);
  * - 'missile-fired' → nothing (the tracer rides the 10 Hz snapshots);
  * - 'missile-impact'→ small flash at the point + a 2 px screen shake;
- * - 'hit' / 'destroyed' on a known target → a small flash at the target
- *   (resolvePos feeds the last-known position; unknown → no effect).
+ * - 'hit' on a known target → a small flash at the target (resolvePos feeds
+ *   the last-known position; unknown → no effect);
+ * - 'destroyed' (TASK-49) → the explosion FX (1 s flash + expanding
+ *   shockwave quad + 8 tumbling tetrahedrons, 3 s fade) + the 1 s client-only
+ *   slow-mo (the 'SHIP LOST' overlay is the main.tsx store, not FX).
  */
 export interface FxWorld {
   addLaserFlash(from: Vec3, to: Vec3): void;
   addImpactFlash(point: Vec3): void;
+  addExplosion(point: Vec3): void;
   screenShake(px: number): void;
 }
 
@@ -37,10 +41,20 @@ export function playCombatFx(world: FxWorld, event: CombatEvent, resolvePos: Res
       world.addImpactFlash(event.point);
       world.screenShake(2);
       return;
-    case 'hit':
-    case 'destroyed': {
+    case 'hit': {
       const pos = resolvePos(event.target);
       if (pos) world.addImpactFlash(pos);
+      return;
+    }
+    case 'destroyed': {
+      // TASK-49: the destruction sequence — explosion FX + the 1 s slow-mo
+      // (the FX world arms it inside addExplosion). The 'SHIP LOST' overlay
+      // is main.tsx's store (2 s), not an FX.
+      const pos = resolvePos(event.target);
+      if (pos) {
+        world.addExplosion(pos);
+        world.screenShake(6);
+      }
       return;
     }
     case 'kill':
