@@ -8,13 +8,17 @@ import { RawWsClient } from './raw-ws';
  * never ran (readInput was never called, ClientShipPredictor never
  * instantiated) — the player spawned docked and could not move the ship.
  *
- * Flow: claim → raw WS joins the home system (the SERVER-authoritative
- * observation point — the 10 Hz entity_updates) → the browser authenticates
- * with the same token → the chase camera arms (TASK-72 hook) → hold W for
- * ~2 s. The client's flight loop streams 'input' frames (thrust +1); the
- * server integrates them and the ship's SERVER position moves forward
- * along its facing, and the docked state is not (re)asserted. Screenshot
- * mid-flight shows the ship from the chase camera.
+ * Flow: claim → raw WS joins the home system and captures the SPAWN state
+ * (position + facing) → the browser authenticates with the same token and
+ * joins the same system → the chase camera arms (TASK-72 hook) → hold W.
+ * The client's flight loop streams 'input' frames (thrust +1); the server
+ * takes the (docked) ship off on the first input and integrates it.
+ *
+ * Observation: the shard registers ONE connection per player — when the
+ * browser joins, its connection SUPERSEDES the raw one (TASK-17), so the
+ * raw client goes deaf. The server-authoritative position is therefore read
+ * from the browser's OWN inbound entity_updates (an init-script tap), which
+ * are the same 10 Hz broadcast buffer every in-system peer receives.
  */
 
 const PROTOCOL_VERSION = 1; // mirrors @shared/protocol (Playwright does not resolve tsconfig aliases)
@@ -52,6 +56,38 @@ function quatForward(q: { x: number; y: number; z: number; w: number }): Vec3 {
 
 const IDENTITY = { x: 0, y: 0, z: 0, w: 1 };
 
+/**
+ * Tap the page's WebSocket so every entity_update carrying OUR ship lands in
+ * `window.__shipUpdates` (pos + regime). The client dials through the global
+ * constructor (src/client/net/session.ts), so subclassing it in an init
+ * script sees every frame without touching app code.
+ */
+function tapShipUpdates(callsign: string): void {
+  const w = window as unknown as { __shipUpdates?: Array<{ pos: Vec3; regime: string }> };
+  w.__shipUpdates = [];
+  const Orig = window.WebSocket;
+  window.WebSocket = class extends Orig {
+    constructor(...args: ConstructorParameters<typeof Orig>) {
+      super(...args);
+      this.addEventListener('message', (ev: MessageEvent) => {
+        try {
+          const m = JSON.parse(String(ev.data)) as {
+            type?: string;
+            payload?: { entities?: EntityState[] };
+          };
+          if (m.type !== 'entity_update') return;
+          const e = (m.payload?.entities ?? []).find(
+            (t) => t.kind === 'ship' && t.callsign === callsign,
+          );
+          if (e) w.__shipUpdates?.push({ pos: e.pos, regime: e.regime });
+        } catch {
+          // never break the page's networking from a tap
+        }
+      });
+    }
+  };
+}
+
 test('flight: holding W from spawn flies the ship forward (server position)', async ({
   browser,
   e2eServer,
@@ -60,8 +96,9 @@ test('flight: holding W from spawn flies the ship forward (server position)', as
   test.setTimeout(90_000);
   const callsign = uniqueCallsign('flight');
 
-  // (a) Claim + a RAW ws client — the server-authoritative observer (the
-  // browser is a second connection in the same shard).
+  // (a) Claim + a RAW ws client that captures the SPAWN state before the
+  // browser joins (once the browser joins, the raw conn is superseded —
+  // TASK-17 — and the observation moves to the browser's inbound tap).
   const claimRes = await fetch(`${baseURL}/api/callsigns`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -96,9 +133,11 @@ test('flight: holding W from spawn flies the ship forward (server position)', as
   const forward = quatForward(spawn.rot ?? IDENTITY);
 
   // (b) The browser: same token, home system (no warp — the e2e shard has
-  // one system). Wait until the chase camera has the ship in view
+  // one system). The init-script tap records the server's entity_updates
+  // for our ship; wait until the chase camera has the ship in view
   // (TASK-72 debug hook — the mesh exists and projects ahead of the rig).
   const context = await browser.newContext();
+  await context.addInitScript(tapShipUpdates, callsign);
   const page = await context.newPage();
   const { assertClean } = collectErrors(page);
   await page.goto(baseURL);
@@ -113,34 +152,35 @@ test('flight: holding W from spawn flies the ship forward (server position)', as
 
   // (c) HOLD W — the client's flight loop streams thrust frames; the server
   // takes the (docked) ship off on the first input and integrates it.
-  // Assert on the SERVER position: it must move FORWARD along the spawn
-  // facing (thrust is along +Z-of-quat), and the docked state must not
-  // reassert (it stays off the pad).
+  // Assert on the SERVER position (the browser's own inbound entity_update
+  // broadcast): it must move FORWARD along the spawn facing (thrust is
+  // along +Z-of-quat), and the docked state must not reassert.
   await page.keyboard.down('w');
-  const movedMsg = await client.next(
-    (m) => {
-      if (m.type !== 'entity_update') return false;
-      const entities = (m.payload as { entities: EntityState[] }).entities ?? [];
-      const e = entities.find((t) => t.kind === 'ship' && t.callsign === callsign);
-      if (!e || e.regime === 'docked') return false;
-      const d =
-        (e.pos.x - spawn.pos.x) * forward.x +
-        (e.pos.y - spawn.pos.y) * forward.y +
-        (e.pos.z - spawn.pos.z) * forward.z;
-      return d > 5;
-    },
-    'ship moved forward along its facing (server position)',
-    20_000,
-  );
-  const moved = (movedMsg.payload as { entities: EntityState[] }).entities.find(
-    (e) => e.kind === 'ship' && e.callsign === callsign,
-  )!;
-  const travelled =
-    (moved.pos.x - spawn.pos.x) * forward.x +
-    (moved.pos.y - spawn.pos.y) * forward.y +
-    (moved.pos.z - spawn.pos.z) * forward.z;
-  expect(travelled).toBeGreaterThan(5);
-  expect(moved.regime).not.toBe('docked');
+  // Forward-travel of the ship per the SERVER's own entity_update broadcast
+  // (the tap records every update; a SINGLE arg — bundle the constants).
+  const bestTravelled = (): Promise<number> =>
+    page.evaluate(
+      ({ sp, fw }: { sp: Vec3; fw: Vec3 }) => {
+        const ups =
+          (window as unknown as { __shipUpdates?: Array<{ pos: Vec3; regime: string }> })
+            .__shipUpdates ?? [];
+        let best = 0;
+        for (const u of ups) {
+          if (u.regime === 'docked') continue;
+          const d = (u.pos.x - sp.x) * fw.x + (u.pos.y - sp.y) * fw.y + (u.pos.z - sp.z) * fw.z;
+          if (d > best) best = d;
+        }
+        return best;
+      },
+      { sp: spawn.pos, fw: forward },
+    );
+  await expect
+    .poll(() => bestTravelled(), {
+      timeout: 20_000,
+      message: 'server position never moved forward while holding W',
+    })
+    .toBeGreaterThan(5);
+  const travelled = await bestTravelled();
 
   // The visual artifact: mid-flight, still holding W — the ship from the
   // chase camera (the mesh + camera are driven from the prediction at
@@ -167,8 +207,7 @@ test('flight: holding W from spawn flies the ship forward (server position)', as
 
   console.log(
     `[TASK-73] callsign=${callsign} spawn=(${spawn.pos.x.toFixed(1)}, ${spawn.pos.y.toFixed(1)}, ${spawn.pos.z.toFixed(1)}) ` +
-      `moved=(${moved.pos.x.toFixed(1)}, ${moved.pos.y.toFixed(1)}, ${moved.pos.z.toFixed(1)}) ` +
-      `forward-travel=${travelled.toFixed(1)} u regime=${moved.regime}`,
+      `forward-travel=${travelled.toFixed(1)} u (server entity_update, non-docked)`,
   );
 
   assertClean();
