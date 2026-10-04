@@ -77,6 +77,7 @@ import type { WeaponId } from '@shared/weapons';
 import { RegimeWiring } from '@client/state/regime-wiring';
 import { CharacterPredictor, characterStateFromWire } from '@client/net/character-prediction';
 import { installCharDebug } from '@client/char-debug';
+import { installInteractDebug } from '@client/interact-debug';
 import { bindDepositsDebug, installDepositsDebug } from '@client/deposits-debug';
 import { bindSelfShipDebug, installSelfShipDebug } from '@client/self-ship-debug';
 import { installTransitionDebug } from '@client/test/transitionCycle';
@@ -755,6 +756,12 @@ function App() {
         heldInteractRef.current = null; // a held E never survives re-entry
         promptStateRef.current = { kind: 'hidden' };
         setInteractPrompt(null);
+        if (interactDebug) {
+          interactDebug.text = null;
+          interactDebug.targetId = null;
+          interactDebug.distance = null;
+          interactDebug.feet = null;
+        }
       }
     },
     // TASK-32/73: input acks — the SHARED applied-seq; whichever predictor
@@ -1130,6 +1137,13 @@ function App() {
       );
       resolvedTargetRef.current = resolved?.target ?? null;
       resolvedDistanceRef.current = resolved?.distance;
+      // TASK-73: dev hook — the exact raycast state the E key dispatches.
+      if (interactDebug) {
+        interactDebug.text = resolved?.text ?? null;
+        interactDebug.targetId = resolved?.target.id ?? null;
+        interactDebug.distance = resolved?.distance ?? null;
+        interactDebug.feet = resolved ? { ...st.pos } : null;
+      }
       const next = nextPromptState(promptStateRef.current, resolved);
       if (next !== promptStateRef.current) {
         promptStateRef.current = next;
@@ -1576,6 +1590,7 @@ const claimStyles: Record<string, React.CSSProperties> = {
 installDriftDebug();
 // TASK-32: dev-only self-character probe hook (no-op in production builds).
 const charDebug = installCharDebug();
+const interactDebug = installInteractDebug();
 // TASK-37: dev-only ore-rock probe hook (no-op in production builds).
 const depositsDebug = installDepositsDebug();
 // TASK-72: dev-only self-ship probe hook (no-op in production builds).

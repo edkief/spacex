@@ -24,8 +24,13 @@ import { collectErrors, uniqueCallsign } from './helpers';
  *   behind at 7.5 m+ — beyond the 5 m radius, the prompt hides;
  *   screenshot 2).
  * - WALK BACK: holding S walks backward along the same line to within 0.6 m
- *   of the start — the ship is 2.5 m ahead in the cone again → the prompt
- *   returns (screenshot 3).
+ *   of the start, then the test WAITS FOR REST (the release coast carries
+ *   the character another 0.3-1 m, which can stop it outside the 3 m
+ *   sub-prompt boundary or on the 30° cone edge — E must land at rest) and
+ *   closes the gap with the PROMPT AS SENSOR: 'Open cargo' → a short W
+ *   burst (in the cone, W always approaches the ship), hidden → a bounded
+ *   turn nudge toward the ship — until '[E] Enter ship' holds stable
+ *   (screenshot 3).
  * - RE-ENTER: E dispatches through the InteractableRegistry → the
  *   'enter_ship' frame → the server removes the character, switches the
  *   active entity back to the ship, the docked HUD stubs reappear and the
@@ -175,6 +180,39 @@ async function charPos(page: Page, minDist: number, from: CharPos): Promise<Char
     .then((h) => h.jsonValue() as unknown as CharPos);
 }
 
+/**
+ * Wait until the character has come to REST (server position via __CHAR__,
+ * 10 Hz): no movement > 6 cm per 100 ms poll for 600 ms. The walk-back
+ * releases S while the character is still moving (the release coast ends
+ * 0.3-1 m past the stop point), and the re-enter prompt's boundaries (the
+ * 3 m sub-prompt, the 30° cone) must be evaluated at rest — an E pressed
+ * mid-coast races the coast across a boundary and silently no-ops (the
+ * raycast resolves nothing on that frame).
+ */
+async function charSettled(page: Page): Promise<void> {
+  type Settle = { x: number | null; z: number | null; t: number };
+  await page.evaluate(() => {
+    (window as unknown as { __settle?: Settle }).__settle = { x: null, z: null, t: 0 };
+  });
+  await page.waitForFunction(
+    () => {
+      const p = window.__CHAR__?.pos;
+      const s = (window as unknown as { __settle?: Settle }).__settle;
+      if (!p || !s) return null;
+      const now = Date.now();
+      if (s.x === null || s.z === null || Math.hypot(p.x - s.x, p.z - s.z) > 0.06) {
+        s.x = p.x;
+        s.z = p.z;
+        s.t = now;
+        return null;
+      }
+      return now - s.t >= 600 ? true : null;
+    },
+    null,
+    { timeout: 15_000, polling: 100 },
+  );
+}
+
 /** Walk until within `dist` of the start position (the return leg). */
 async function charBack(page: Page, from: CharPos, dist: number): Promise<CharPos> {
   return page
@@ -251,14 +289,42 @@ test('docked ship: disembark, walk 10 m, walk back, re-enter the cockpit', async
   void far;
 
   // (5) WALK BACK: backward along the same line (facing kept) to within
-  // 0.6 m of the start — the ship is 2.5 m ahead in the cone again → the
-  // prompt returns.
+  // 0.6 m of the start, release, and WAIT FOR REST. The coast after the
+  // release parks the character 0.3-1 m further — sometimes OUTSIDE the
+  // 3 m sub-prompt boundary ('Open cargo') or on the 30° cone edge — so
+  // the prompt is the sensor for the final approach: while it does not
+  // read '[E] Enter ship', close the gap (W burst in the far zone — in
+  // the cone, forward always approaches the ship; a bounded turn nudge
+  // when hidden — the ship sits to the character's right: the TURN step
+  // stopped turning as the ship entered the cone from the right, and no
+  // later input rotates the facing) and settle again.
+  const promptText = async (): Promise<string | null> =>
+    prompt.isVisible().then((v) => (v ? prompt.textContent() : null)).catch(() => null);
   await page.keyboard.down('s');
   const back = await charBack(page, start, 0.6);
   await page.keyboard.up('s');
   void back;
-  await expect(prompt).toBeVisible({ timeout: 15_000 });
-  await expect(prompt).toHaveText('[E] Enter ship');
+  await charSettled(page);
+  for (let i = 0; i < 5; i++) {
+    const text = await promptText();
+    if (text === '[E] Enter ship') break;
+    if (text === '[E] Open cargo') {
+      await page.keyboard.down('w');
+      await page.waitForTimeout(250);
+      await page.keyboard.up('w');
+    } else {
+      // hidden (cone edge): alternate nudge direction — 'd' recenters in
+      // the common case (ship right of facing), 'a' covers the deflected
+      // facing that leaves the ship left.
+      await page.keyboard.down(i % 2 === 0 ? 'd' : 'a');
+      await page.waitForTimeout(150);
+      await page.keyboard.up(i % 2 === 0 ? 'd' : 'a');
+    }
+    await charSettled(page);
+  }
+  await expect(prompt).toHaveText('[E] Enter ship', { timeout: 15_000 });
+  await page.waitForTimeout(400); // stability: the prompt must HOLD (no
+  await expect(prompt).toHaveText('[E] Enter ship'); // boundary flicker)
   await page.screenshot({
     path: path.join(__dirname, '../../../.ralph/screenshots/TASK-35-3.png'),
   });
