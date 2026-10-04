@@ -8,19 +8,19 @@
       "step": 1,
       "description": "E2E: tests/e2e/hazards.spec.ts — storm cell + exposure meter",
       "details": "Create `app/tests/e2e/hazards.spec.ts` by copying the skeleton of `app/tests/e2e/walk.spec.ts` verbatim (inline RawWsClient — see `app/tests/e2e/raw-ws.ts`, claim → `dockAtPad` → browser → press E to disembark). Then: GET `/api/dev/hazard-target` (from TASK-48.2) to get the first storm cell {systemId, planetId, hazardId, pos, radius}; `POST /api/dev/teleport-char` (existing, dev.ts ~line 108) to put the character inside that storm cell; wait for `#hazard-hud` (from TASK-48.2) to be visible; wait a few seconds and assert `window.__HAZARD__` exposure < 50 (the drain is the AC); screenshot `.ralph/screenshots/TASK-48-1.png` (it should show the storm disc from TASK-48.3 + the exposure meter); `assertClean()` per the walk.spec.ts conventions. The harness follows `playwright.e2e.config.ts`; run `npx playwright test -c playwright.e2e.config.ts tests/e2e/hazards.spec.ts` from `app/`.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Full suite + e2e green",
       "details": "Run `cd app && npx tsc --noEmit`, full `npm run test`, and the e2e spec (plus at least walk.spec.ts as a regression canary). Fix failures within this task's scope (e2e wiring, not server sim — if a SERVER behavior looks wrong, re-read .ralph/handoff/TASK-48.md before touching server code; the committed server suite is green and should be treated as the spec of record).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Close-out: flags, board, log, structure, commit",
       "details": "(a) `.ralph/tasks/TASK-48.json`: set every step `pass: true` (all 4). (b) `.ralph/tasks.json`: TASK-48 entry (~line 512) → `passes: true`. (c) `.ralph/logs/LOG.md`: newest-at-top entry for TASK-48 completion, bump the 'Tasks Completed' counter. (d) `.ralph/STRUCTURE.md`: add the new files if it tracks them (`shared/world/hazards.ts`, `server/shard/shard.hazards.test.ts`, `client/state/hazards.ts`, `client/ui/hazard-hud.tsx`, `client/hazard-debug.ts`, `client/world/WorldManager.ts` hazard section, `server/routes/dev.ts` hazard-target, `tests/e2e/hazards.spec.ts`). (e) `eslint --fix` + `prettier --write` on touched files; final `npm run test`; commit everything for this task (spec flags, log, e2e, screenshot) — do NOT commit the pre-existing dirty `.ralph/screenshots/*.png` mods from OTHER tasks or untracked `.ralph/split/TASK-46/`.",
-      "pass": false
+      "pass": true
     }
   ],
   "acceptanceCriteria": [

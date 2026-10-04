@@ -557,7 +557,7 @@
     "title": "Hazards e2e (storm screenshot) + TASK-48 close-out",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-48.4.json",
-    "passes": false,
+    "passes": true,
     "splitFrom": "TASK-48",
     "splitDepth": 1
   },
