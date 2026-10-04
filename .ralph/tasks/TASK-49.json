@@ -17,28 +17,33 @@
       "step": 1,
       "description": "Destruction handler",
       "details": "shard.onDestroyed(ship): transaction — delete cargo, mark ship record destroyed (keep a wreck snapshot {pos, quat, classId, livery, killer} for rendering), spawn the wreck entity (ttl 600 s); if the ship had a player: respawnPlayer(playerId) — nearest dock (station list, 3D distance), create starter scout (TASK-20 pattern), switch activeEntity, broadcast the respawn (entity_update: new ship at the dock + the player's presence updated).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Docked invulnerability",
       "details": "resolveHit (TASK-42): a docked ship (state 'docked') is not a valid target (LOS passes over it) — update TASK-42's tests; AI does not target docked ships (TASK-46 target filter).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Client FX + moment",
       "details": "Explosion FX (per spec), slow-mo (a 1 s timeScale on the render loop, cosmetic only — prediction keeps running at real time), 'SHIP LOST' overlay (2 s, then the respawned ship's cockpit), the killer marker on wrecks (a small DOM label like the character labels, TASK-36 pattern).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Tests + e2e",
       "details": "All listed; e2e scripted kill with the moment + respawn screenshots. Run full suite + e2e.",
-      "pass": false
+      "pass": true
     }
   ],
-  "dependencies": ["TASK-42", "TASK-23", "TASK-41", "TASK-24"],
+  "dependencies": [
+    "TASK-42",
+    "TASK-23",
+    "TASK-41",
+    "TASK-24"
+  ],
   "estimatedComplexity": "medium",
   "technicalNotes": [
     "Cargo loss is the only real penalty (credits + inventory survive) — it matches the PRD's risk model: mining trips are the stakes, not the player.",

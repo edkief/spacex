@@ -566,7 +566,7 @@
     "title": "Ship destruction, dock respawn, wreck impostor",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-49.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-50",
