@@ -2,56 +2,57 @@
 
 ## Status
 
-Server-side is implemented and unit-tested: killing a player ship now creates a killer-attributed wreck AND immediately respawns the same ship id in place as a fresh starter scout at the nearest dock (cargo LOST, credits + on-foot inventory KEPT), and docked ships are a weapon-invulnerable safe zone. 12 pre-existing tests in 5 files fail because they assumed a destroyed player ship stays frozen; client FX (step 3) and e2e (step 4) have not started.
+Server-side (steps 1–2) DONE + unit-tested; all 12 stale tests fixed; FULL unit suite green (1340 passed / 1 skipped); `tsc --noEmit` clean. Client FX step 3 is HALF DONE: explosion FX + slow-mo land (`c7b9d1e`) but the 'SHIP LOST' overlay, the wreck impostor render + killer marker, and main.tsx wiring are NOT started. E2E (step 4) NOT started. Two commits this iteration: `fd598a8` (12 stale tests) + `c7b9d1e` (explosion FX).
 
-## Done
+## Done (committed)
 
-- `app/src/server/shard/combat.ts`: `ResolveHitCode` gained `'docked'`; `resolveHit` early-returns `{ ok: false, code: 'docked' }` for a docked target — the single gate covering every fire path (laser/missile/AI funnel through resolveHit → applyHit). NOTE: the low-level `applyHit` deliberately has NO docked gate; a direct `applyHit` on a docked ship still deals damage (this is why the double-destroy test now behaves differently).
-- `app/src/server/shard/shard.ts`:
-  - `destroyEntity` (~line 1579): after creating the `wreck:<id>` entity (with `killerId`), calls `this.respawnPlayer(entity.playerId)` for player ships.
-  - `respawnPlayer` (~line 1622): in-place reset of the SAME entity (wire-stable id) — classId→'scout', hull/shields→1 (normalized), scout default livery, `docked: true`, `pos` = nearest pad (or `homeDockPosition(seed, systemId)` fallback when the system has no landable pad), regime surface/space, cargo cleared (LOST), `inventory` and credits untouched, destroyed state scrubbed, energy full, idle from connection state. Returns `{ pad, shipId }`.
-  - `nearestDockPad`: nearest pad by true 3D distance over `this.planetPads`.
-  - `persistRespawn`: fire-and-forget `withTransaction` → `tx.respawnShip`; failures log a warn and never wedge the tick.
-  - Docked gates added to: `lockableShip`, the AI laser-target candidate loop, the fire-path target + raycast, `validMissileTarget`, and the AI `players` target list — all now skip docked ships.
-  - `CreateSystemShardOptions` repo Pick now includes `'respawnShip'`; `SHIP_CLASSES` import added.
-- `app/src/server/db/repo.ts`: `Repository.respawnShip` interface + impl — one UPDATE replacing the row: classId 'scout', scout caps, starter livery, full hull/shields, docked, caller-supplied position/rotation/regime/onPad, `cargo '{}'` (LOST), `destroyedAt null`.
-- `app/src/server/shard/shard.destruction-respawn.test.ts` (NEW, 6/6 pass): full loop (A kills B → B respawned docked scout at `padsForSystem(SEED, SYSTEM)[0]`, cargo LOST / inventory KEPT, wreck with killerId + ttl, destroyed + kill events), persist (stub `withTransaction`/`respawnShip`), docked ship takes no damage via `handleFire`, docked ship cannot be locked via `handleTargetLock`, wreck 600 s ttl expiry, third observer sees the wreck with killerId on the 10 Hz snapshot. Uses a FAKE `now` closure + `shard.sim.step(fakeNow)` per 50 ms, single overkill `applyHit(id, 1000, source, 'missile')`.
+### Server (steps 1–2, prior session, commit b52fcc5)
+- `combat.ts`: `ResolveHitCode += 'docked'`; `resolveHit` early-returns `{ok:false,code:'docked'}` for docked targets (the single gate for every fire path). `applyHit` deliberately has NO docked gate (a direct second `applyHit` on the respawned ship deals damage — by design).
+- `shard.ts`: `destroyEntity` → `respawnPlayer(entity.playerId)` for player ships; `respawnPlayer` resets the SAME wire-stable entity in place (classId 'scout', hull/shields 1, starter livery, docked, pos = nearest pad 3D or `homeDockPosition(seed, systemId)`, regime surface/space, cargo LOST, inventory+credits KEPT, destroyed scrubbed, energy full, idle from conns); `persistRespawn` fire-and-forget tx. Docked gates: lockableShip, AI laser candidates, fire raycast, validMissileTarget, AI players list.
+- `repo.ts`: `respawnShip` (one UPDATE: scout caps, docked, caller pos/rot/regime/onPad, cargo '{}', destroyed_at null).
+- `shard.destruction-respawn.test.ts` (6/6): full loop, persist, docked invulnerability via handleFire + handleTargetLock, wreck 600 s ttl, third-observer sees wreck+killerId on snapshot.
+
+### 12 stale tests fixed (commit fd598a8)
+- `shard.damage.test.ts` (6 reworked, 9/9): added `respawnPos(system, from)` helper mirroring respawnPlayer (padsForSystem nearest 3D / homeDockPosition); killing-hit test asserts docked scout respawn + wreck at death spot; snapshot test expects scout@respawn + wreck@death with killerId; double-destroy → renamed, second direct `applyHit` now returns a damage object on the FRESH scout (wrecks/unknown still undefined, exactly one 'destroyed'); "stops integrating" → respawned scout live again (enqueueInput true, first input = take-off), wreck frozen 20 ticks; ttl test → respawned scout waits docked; bus-swap test → updates in place (respawn already ran).
+- `shard.combat.test.ts` (2): dead-target test → killed ship respawns docked (`code:'docked'`), wreck still `dead-target`; pipeline test final fire → 'docked' + wreck 'dead-target' assert added.
+- `shard.combat.ws.test.ts` (1): after teleports, `eA.docked=false; eB.docked=false` (teleported = in flight; safe-zone gate would refuse everything); post-kill asserts docked scout + wreck; final fire → 'docked' + wreck 'dead-target'.
+- `shard.weapons.ws.test.ts` (2): `parkInSpace` clears `docked` on both teleported ships.
+- `shard.pvp.ws.test.ts` (1): after teleports, clear `docked` on all three; step (6) asserts respawned docked scout.
+- `shard.destruction-respawn.test.ts`: `shard.playerEntities` (private) → `shard.entities.get('ship-p2')` (tsc).
+
+### Client FX (commit c7b9d1e, step 3 PARTIAL)
+- `world/combat-fx.ts`: `addExplosion(point)` — 1 s core flash (expanding additive sphere) + expanding camera-facing shockwave quad (RingGeometry, billboards to `boundCamera` from the attach closure) + 8 tumbling tetrahedrons (3 s fade, deterministic per-index dir/spin) + `armSlowMo()`; SLOW_MO_MS 1000 / SLOW_MO_SCALE 0.3. VIRTUAL fx clock: `frame(nowMs)` advances `fxTime += dt * timeScale`; all flash `born` values are fxTime-based (laser/impact switched too) — slow-mo stretches effect aging only, shake + prediction stay real-time.
+- `fx.ts`: `FxWorld += addExplosion`; `playCombatFx` 'destroyed' → `addExplosion(pos)` + `screenShake(6)` ('hit' keeps addImpactFlash).
+- `fx.test.ts`: mock updated; 2 new tests (destroyed→explosion+shake at known pos; unresolvable→nothing).
 
 ## Working tree
+Clean (beyond the pre-existing `.ralph/screenshots/*.png` noise — do NOT commit/revert those). Baseline: `c7b9d1e`.
 
-Committed baseline: `53b22f5` (TASK-48.4). Everything TASK-49 is UNCOMMITTED on top:
-- modified: `app/src/server/db/repo.ts`, `app/src/server/shard/combat.ts`, `app/src/server/shard/shard.ts`
-- new: `app/src/server/shard/shard.destruction-respawn.test.ts`
-- new: this handoff (`.ralph/handoff/TASK-49.md`)
-- IGNORE: `.ralph/screenshots/*.png` show as modified — pre-existing noise from earlier e2e runs, not this work; do not commit or revert them.
+## Verification state
+- `npx vitest run --exclude 'tests/e2e/**' --exclude 'tests/abuse/**'` → 148 files, 1340 passed / 1 skipped (run at 12:12, before the FX commit).
+- `npx tsc --noEmit` → clean (after FX commit).
+- eslint --fix + prettier --write run on the 3 FX files (clean).
+- Rerun full unit suite + tsc at next-iteration start (fast, ~2 min) before close-out.
 
-Builds: `npx tsc --noEmit` clean (checked at handoff). New test file green. Full unit suite currently: **12 failed / 1328 passed / 1 skipped** — every failure is a test written before this task that assumed a destroyed player ship stays `destroyed=true` and frozen.
+## Remaining work (in order)
 
-## Next steps
+### Step 3 remainder (client, all under `app/src/client`)
+1. **`state/kill-feed.ts`**: export `callsignForPlayer(playerId): string | undefined` (wraps the private `byPlayer` map — already fed from presence in main.tsx:655-664, self included).
+2. **`state/ship-lost.ts` (NEW)**: store `ShipLostMoment { callsign, killer, at }`, `SHIP_LOST_MS = 2000`, `showShipLost(m)`, `hideShipLost()`, `shipLostCurrent()`, `shipLostSubscribe(fn)` — the subscribe/emit idiom of the other `state/*.ts` (see kill-feed.ts as template).
+3. **`ui/ship-lost-overlay.tsx` (NEW)**: `<div id="ship-lost" role="alert">` full-screen overlay (warp-overlay.tsx is the styling template): "SHIP LOST" + the callsign + "Killed by <killer>" + "Respawning at nearest dock". `useEffect` timer hides after SHIP_LOST_MS; unmounts when null.
+4. **`main.tsx`**: in the combat_event handler (~line 878-903), after `ingestCombatEvent`: `if (event.kind === 'destroyed' && event.target === selfShipIdRef.current) showShipLost({ callsign: store.selfPlayer?.callsign ?? 'your ship', killer: callsignForPlayer(event.source.id) ?? event.source.id, at: Date.now() })` (only OUR ship shows the moment; AI killer → raw id). Render `<ShipLostOverlay />` next to `<WarpOverlay />` (~line 1483).
+5. **`world/remote-entities.ts`** (wreck impostor + killer marker): add `'wreck'` to `RENDERABLE_KINDS`; `RemoteInfo += killerId?`; new `wrecks` Map + `renderWreck(id, info, state, now)`: frozen `createShipRender(info.classId ?? 'scout', false, info.livery)` in a Group + additive fire-glow sphere (opacity flicker `0.25 + 0.15*sin(now*0.01)`), transform from interpolated state, `registerEntity(id, 'wreck')`, dispose on `drop()` (add wrecks to `drop` + `renderedIds`). Killer marker label: extend `LabelState` with `text?: string` (+ `opacityFor?: (dist)=>number`); in `labelStates` add a wreck candidate when `info.kind==='wreck'` (no callsign needed): text `▸ ${callsignForPlayer(info.killerId) ?? info.killerId ?? 'wreck'}`, opacity = dist ≤ 200 ? 1 : 0 (spec: visible within 200 m); in `applyLabels` use `s.text ?? s.callsign` for textContent. WRECK marker constants: `WRECK_KILLER_MARK_M = 200`.
+6. **Tests**: `state/ship-lost.test.ts` (show/subscribe/hide, template: kill-feed.test.ts). Optionally extend `world/remote-entities.test.ts` (wreck rendered + killer marker label state ≤200 m). Rerun `npx vitest run` full + `tsc --noEmit` + eslint/prettier.
 
-1. Update the 12 stale tests to expect immediate in-place respawn (entity `destroyed=false`, `docked=true`, `classId='scout'`, at the pad/home-dock; the wreck is the thing that lingers at the death spot):
-   - `src/server/shard/shard.damage.test.ts` (6): 'a killing hit destroys the ship' (line ~148 `expect(entity.destroyed).toBe(true)` — now falsy), 'the wreck and the frozen ship both ride the 10 Hz snapshot' (~206 — `ship-p1` is now the docked scout, wreck unchanged), 'double-destroy guard' (~226 — a second `applyHit` on the respawned ship now RETURNS a damage object and deals damage; by design, applyHit has no docked gate), 'a destroyed ship stops integrating and ignores inputs' (~260 — `enqueueInput` now returns true and the first input = take-off), 'the wreck expires after its 600 s ttl' (~284 — destroyed flag now falsy; rename the test — respawn already happened), 'bus swap (repair) revives' (~325 — respawn already ran; rework to destroy an `ai-ship` instead, since respawn is player-only, or rewrite assertions).
-   - `src/server/shard/shard.combat.test.ts` (2 failures), `src/server/shard/shard.combat.ws.test.ts` (1): same assumption.
-   - `src/server/shard/shard.weapons.ws.test.ts` (2): laser test "shields of <id> still 1, want 0.84" times out; missile test "projectileId undefined" — the victim's respawn/dock changed the timeline; re-check each scenario's expected victim state.
-   - `src/server/shard/shard.pvp.ws.test.ts` (1): "timeout: A lock on B" at line ~228 — B respawns docked and lockableShip now rejects docked targets; the lock must happen before the kill, or assert the new behavior.
-   - Respawn position for the `shard-damage-seed` systems: nearest of `padsForSystem(SEED, system)` (3D distance) or the `homeDockPosition(SEED, systemId)` fallback — probe which the seeded system has before writing position assertions.
-   - Re-run per file: `npx vitest run src/server/shard/shard.damage.test.ts` etc.
-2. Full unit suite: `cd /workspace/master/app && npx vitest run --exclude 'tests/e2e/**' --exclude 'tests/abuse/**'` (target ≈1341 green).
-3. `npx tsc --noEmit` + lint/prettier clean.
-4. Step 3 (NOT STARTED): client FX — explosion on death, brief slow-mo, 'SHIP LOST' overlay (the ~2 s presentation moment; the server respawn is immediate and the client just re-renders the same ship id as a scout), killer marker (skull) on the wreck — `wreck.killerId` already rides the wire. Client code under `app/src/client`.
-5. Step 4 (NOT STARTED): e2e scripted kill + screenshots to `.ralph/screenshots/TASK-49-*.png`.
-6. Close-out: set step pass flags + `passes: true` for TASK-49 in `.ralph/tasks.json`, add `.ralph/LOG.md` entry, update STRUCTURE.md, commit (Conventional Commit), then output `<promise>TASK-49:DONE</promise>`.
+### Step 4 (e2e)
+7. **Extend `tests/e2e/pvp-kill.spec.ts`** (all plumbing exists: ClaimPage, raw claim, `warpShip`, dev-teleport `/api/dev/teleport`, 22×LMB at 350 ms = 19-hit kill). Add a second test: same setup; after the kill — (a) B's page `#ship-lost` visible + contains the killer callsign → screenshot `.ralph/screenshots/TASK-49-1.png` (the moment); (b) A's page: `#remote-labels div` with text `▸ <aCallsign>` visible (wreck 60 m away < 200 m) → screenshot `TASK-49-2.png`; (c) `#ship-lost` hidden after ~2 s, B's ship is the docked respawned scout (docked indicator on B's page) → screenshot `TASK-49-3.png`. `test.setTimeout(150_000)`; `collectErrors` both pages. Run: `npm run test:e2e` (playwright.e2e.config.ts; the e2eServer fixture boots its own server — never alongside npm run dev). The existing TASK-47 test in that file must stay green.
 
-## Dead ends
+### Close-out
+8. Set the 4 step `pass: true` + `passes: true` for TASK-49 in `.ralph/tasks/TASK-49.json` AND `.ralph/tasks.json`; add `.ralph/logs/LOG.md` entry at top (date, summary, screenshot paths); check `.ralph/STRUCTURE.md` (new client files: state/ship-lost.ts, ui/ship-lost-overlay.tsx — exclude dotfiles/tests/config; probably no STRUCTURE change since those dirs exist); DELETE this handoff; commit (Conventional Commit); output `<promise>TASK-49:DONE</promise>`.
 
-- Ad-hoc probe: writing a scratch script to `/tmp/opencode` and running `npx tsx` on it failed (bash heredoc `Permission denied`, then tsx `Cannot find module`). If you need to probe seeded-system pads/dock positions, do it inside a scratch vitest test under `app/src/` instead.
-- Do NOT add the docked gate to `applyHit` to "fix" the double-destroy test — that's the intentional design (gate in `resolveHit` only); fix the test instead.
-
-## How to verify
-
-- `cd /workspace/master/app`
-- `npx vitest run src/server/shard/shard.destruction-respawn.test.ts` → 6/6 pass
-- `npx vitest run src/server/shard/shard.damage.test.ts src/server/shard/shard.combat.test.ts src/server/shard/shard.combat.ws.test.ts src/server/shard/shard.weapons.ws.test.ts src/server/shard/shard.pvp.ws.test.ts` → the 12 failures to clear
-- `npx vitest run --exclude 'tests/e2e/**' --exclude 'tests/abuse/**'` → full suite
-- `npx tsc --noEmit` → clean
-- eslint/prettier per package scripts (not re-run at handoff).
+## Dead ends / notes
+- Ad-hoc probe via `npx tsx` in /tmp/opencode failed earlier (heredoc Permission denied, module resolution) — probe via scratch vitest under `app/src/` if needed.
+- Do NOT add a docked gate to `applyHit` — resolveHit-only is the design; the double-destroy test encodes it.
+- `teleportForTesting` does NOT clear `docked` — ws/e2e tests that teleport ships into space must clear the flag or the safe-zone gate refuses every engagement (the one line each ws test now carries). In the e2e, the BROWSER clients take off via real input only if needed — check whether the aim-assist fire path (pvp-kill) worked before: it did pre-TASK-49 because pre-TASK-49 docked ships were targetable; POST-TASK-49 the pvp-kill e2e may itself need the teleported ships undocked (e.g. via a dev endpoint or an input frame) — verify the EXISTING TASK-47 e2e still passes first and fix it the same way if it breaks.
+- Wreck wire entity has NO callsign (only classId/livery/killerId/ttl) — label it via killerId only.
+- CombatFx camera: `boundCamera` captured once in the constructor (WorldManager camera is created once, scene-level fx group survives swapWorld) — no reattach needed.
