@@ -119,6 +119,15 @@ export function removeKillFeedEntry(id: number): void {
   emit(current.filter((e) => e.id !== id));
 }
 
+/**
+ * Player id → callsign (the SAME presence-fed index the KILLER resolver
+ * uses). Exposed for TASK-49's 'SHIP LOST' moment to name the killer;
+ * undefined for ids not in the roster (AI ships, drones — raw id fallback).
+ */
+export function callsignForPlayer(playerId: string): string | undefined {
+  return byPlayer.get(playerId);
+}
+
 /** The current entries (empty = nothing to render). */
 export function killFeedEntries(): KillFeedEntry[] {
   return current;

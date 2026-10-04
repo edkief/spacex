@@ -13,6 +13,7 @@ import {
   SHIP_LABEL_HEIGHT_M,
   type ShipRender,
 } from './remote-ships';
+import { callsignForPlayer } from '@client/state/kill-feed';
 
 /**
  * TASK-36: the remote-entity render layer — the on-foot multiplayer view.
@@ -64,7 +65,13 @@ export const GROUND_ITEM_COLORS: Record<string, string> = {
 };
 const GROUND_ITEM_DEFAULT_COLOR = '#9aa4b2';
 
-const RENDERABLE_KINDS = new Set(['character', 'groundItem', 'ship', 'ai-ship', 'drone']);
+const RENDERABLE_KINDS = new Set(['character', 'groundItem', 'ship', 'ai-ship', 'drone', 'wreck']);
+
+/** TASK-49: the wreck's killer marker is visible within this range (m). */
+export const WRECK_KILLER_MARK_M = 200;
+/** TASK-49: the wreck's fire-glow flicker (0.25 ± 0.15, sin at 0.01 rad/ms). */
+const WRECK_FIRE_BASE = 0.25;
+const WRECK_FIRE_WIGGLE = 0.15;
 
 export interface Projected {
   x: number;
@@ -76,6 +83,12 @@ export interface Projected {
 export interface LabelState {
   id: string;
   callsign: string;
+  /**
+   * TASK-49: the exact label text when it differs from the plain callsign
+   * (wreck killer markers render '▸ <killer>' — `callsign` stays the bare
+   * name for the data-attribute / dedup logic).
+   */
+  text?: string;
   x: number;
   y: number;
   opacity: number;
@@ -128,6 +141,8 @@ interface RemoteInfo {
   classId?: string;
   /** TASK-48.3: normalized hull (0..1) — a destroyed drone (hull 0) hides. */
   hull?: number;
+  /** TASK-49: the killing source's id (kind 'wreck' only — the marker). */
+  killerId?: string;
 }
 
 interface CharacterRender {
@@ -156,6 +171,20 @@ interface DroneRender {
 export const DRONE_SPIN_RAD_PER_MS = 0.002;
 
 /**
+ * TASK-49: a wreck impostor — the frozen ship mesh (the destroyed class
+ * silhouette, no physics, never re-tinted) plus an additive fire-glow
+ * sphere whose opacity flickers per frame.
+ */
+interface WreckRender {
+  group: THREE.Group;
+  ship: ShipRender;
+  /** The fire-glow mesh (its material is the flicker opacity target). */
+  glow: THREE.Mesh;
+  /** The fire-glow material. */
+  fire: THREE.MeshBasicMaterial;
+}
+
+/**
  * Pure (given nothing): the small hostile-drone mesh — a red octahedron with
  * an additive halo, lit-free like the rest of the placeholder world. Reuses
  * the AI-ship hostile trim so drones read as "hostile" at a glance.
@@ -180,6 +209,11 @@ export function buildDroneMesh(): {
   halo.position.y = 0.4;
   group.add(octa, halo);
   return { group, body, glow };
+}
+
+/** TASK-49: the wreck's killer marker text (a small '▸ A' above the wreck). */
+export function wreckLabelText(killer: string): string {
+  return `▸ ${killer}`;
 }
 
 function disposeObject(root: THREE.Object3D): void {
@@ -207,6 +241,8 @@ export class RemoteEntityLayer {
   private readonly ships = new Map<string, ShipRender>();
   /** TASK-48.3: hostile surface drones (kind 'drone'), one octahedron per id. */
   private readonly drones = new Map<string, DroneRender>();
+  /** TASK-49: wreck impostors (kind 'wreck'), frozen ship mesh + fire glow. */
+  private readonly wrecks = new Map<string, WreckRender>();
   /** The per-system world group the meshes attach to (null before the first swap). */
   private parent: THREE.Group | null = null;
   private projector: ((pos: { x: number; y: number; z: number }) => Projected | null) | null = null;
@@ -248,6 +284,7 @@ export class RemoteEntityLayer {
         resourceId: e.resourceId,
         classId: e.classId,
         hull: e.hull,
+        killerId: e.killerId,
       });
     }
     for (const id of [...this.infos.keys()]) {
@@ -269,6 +306,7 @@ export class RemoteEntityLayer {
       else if (info.kind === 'groundItem') this.renderGroundItem(id, info, state);
       else if (info.kind === 'ship' || info.kind === 'ai-ship') this.renderShip(id, info, state);
       else if (info.kind === 'drone') this.renderDrone(id, info, state, now);
+      else if (info.kind === 'wreck') this.renderWreck(id, info, state, now);
     }
     this.applyLabels(this.labelStates(now));
   }
@@ -290,10 +328,28 @@ export class RemoteEntityLayer {
       callsign: string;
       anchor: { x: number; y: number; z: number };
       character: boolean;
+      /** TASK-49: a wreck killer marker ('▸ <killer>', no callsign dedup). */
+      wreck?: boolean;
     }> = [];
     for (const [id, state] of states) {
       const info = this.infos.get(id);
-      if (!info || !info.callsign) continue;
+      if (!info) continue;
+      if (info.kind === 'wreck') {
+        // Wrecks carry no callsign — the marker is the killer's name
+        // (presence roster; AI / drone / unknown ids fall back to raw).
+        const killer = info.killerId
+          ? (callsignForPlayer(info.killerId) ?? info.killerId)
+          : 'wreck';
+        candidates.push({
+          id,
+          callsign: killer,
+          anchor: { x: state.pos.x, y: state.pos.y + SHIP_LABEL_HEIGHT_M, z: state.pos.z },
+          character: false,
+          wreck: true,
+        });
+        continue;
+      }
+      if (!info.callsign) continue;
       if (info.kind === 'character') {
         candidates.push({
           id,
@@ -311,15 +367,17 @@ export class RemoteEntityLayer {
       }
     }
     // Character wins per callsign (an on-foot player's docked ship stays unlabeled).
+    // Wrecks are exempt — their 'callsign' is the KILLER's, never the victim's.
     const withCharacter = new Set(candidates.filter((c) => c.character).map((c) => c.callsign));
     const out: LabelState[] = [];
     for (const c of candidates) {
-      if (!c.character && withCharacter.has(c.callsign)) continue;
+      if (!c.character && !c.wreck && withCharacter.has(c.callsign)) continue;
       const p = this.projector ? this.projector(c.anchor) : null;
       if (!p) {
         out.push({
           id: c.id,
           callsign: c.callsign,
+          text: c.wreck ? wreckLabelText(c.callsign) : undefined,
           x: 0,
           y: 0,
           opacity: 0,
@@ -328,13 +386,17 @@ export class RemoteEntityLayer {
         });
         continue;
       }
+      // Wrecks: full opacity inside the 200 m marker range, hard off beyond
+      // (and hidden entirely — a 0-opacity wreck marker is pointless).
+      const opacity = c.wreck ? (p.dist <= WRECK_KILLER_MARK_M ? 1 : 0) : labelOpacity(p.dist);
       out.push({
         id: c.id,
         callsign: c.callsign,
+        text: c.wreck ? wreckLabelText(c.callsign) : undefined,
         x: p.x,
         y: p.y,
-        opacity: labelOpacity(p.dist),
-        visible: true,
+        opacity,
+        visible: c.wreck ? opacity > 0 : true,
         dist: p.dist,
       });
     }
@@ -350,7 +412,23 @@ export class RemoteEntityLayer {
       ...this.groundItems.keys(),
       ...this.ships.keys(),
       ...this.drones.keys(),
+      ...this.wrecks.keys(),
     ];
+  }
+
+  /**
+   * TASK-49: the rendered wreck impostors with world position (dev probe /
+   * e2e — same pattern as shipProbes/droneProbes).
+   */
+  wreckProbes(): Array<{ id: string; pos: { x: number; y: number; z: number } }> {
+    const out: Array<{ id: string; pos: { x: number; y: number; z: number } }> = [];
+    for (const [id, r] of this.wrecks) {
+      out.push({
+        id,
+        pos: { x: r.group.position.x, y: r.group.position.y, z: r.group.position.z },
+      });
+    }
+    return out;
   }
 
   /**
@@ -507,6 +585,45 @@ export class RemoteEntityLayer {
     r.glow.opacity = 0.3 * opacity;
   }
 
+  /**
+   * TASK-49: the wreck impostor. The server streams the wreck as an
+   * ordinary (static) entity — this client renders a FROZEN copy of the
+   * destroyed ship's silhouette (created once from the wire classId, never
+   * re-tinted or moved beyond the interpolated transform) plus an additive
+   * fire-glow sphere with a slow opacity flicker. The killer marker label
+   * ('▸ <killer>', ≤ 200 m) rides the callsign overlay. No collision, no
+   * loot (v1).
+   */
+  private renderWreck(id: string, info: RemoteInfo, state: RemoteRenderState, now: number): void {
+    const classId = info.classId ?? 'scout';
+    let r = this.wrecks.get(id);
+    if (!r) {
+      const outer = new THREE.Group();
+      const ship = createShipRender(classId, false, info.livery);
+      outer.add(ship.group);
+      const fire = new THREE.MeshBasicMaterial({
+        color: '#ff7a3c',
+        transparent: true,
+        opacity: WRECK_FIRE_BASE,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const glow = new THREE.Mesh(new THREE.SphereGeometry(0.9, 12, 8), fire);
+      outer.add(glow);
+      this.parent?.add(outer);
+      r = { group: outer, ship, glow, fire };
+      this.wrecks.set(id, r);
+      registerEntity(id, 'wreck');
+    }
+    r.group.position.set(state.pos.x, state.pos.y, state.pos.z);
+    r.group.quaternion.set(state.quat.x, state.quat.y, state.quat.z, state.quat.w);
+    // The fire flicker is cosmetic (never gates gameplay); the stale/dimmed
+    // rule scales both the frozen mesh and the glow.
+    const opacity = state.dimmed ? DIMMED_OPACITY : state.stale ? STALE_OPACITY : 1;
+    setShipOpacity(r.ship, opacity);
+    r.fire.opacity = (WRECK_FIRE_BASE + WRECK_FIRE_WIGGLE * Math.sin(now * 0.01)) * opacity;
+  }
+
   private renderGroundItem(id: string, info: RemoteInfo, state: RemoteRenderState): void {
     let r = this.groundItems.get(id);
     if (!r) {
@@ -529,7 +646,7 @@ export class RemoteEntityLayer {
         el = document.createElement('div');
         el.className = 'remote-callsign';
         el.setAttribute('data-callsign', s.callsign);
-        el.textContent = s.callsign;
+        el.textContent = s.text ?? s.callsign;
         el.style.cssText =
           'position:absolute;left:0;top:0;transform:translate(-50%,-100%);' +
           'font:0.7rem ui-monospace, SFMono-Regular, Menlo, monospace;letter-spacing:0.06em;' +
@@ -575,6 +692,14 @@ export class RemoteEntityLayer {
       this.parent?.remove(d.group);
       disposeObject(d.group);
       this.drones.delete(id);
+    }
+    const w = this.wrecks.get(id);
+    if (w) {
+      this.parent?.remove(w.group);
+      disposeShipRender(w.ship);
+      w.glow.geometry.dispose();
+      w.fire.dispose();
+      this.wrecks.delete(id);
     }
     this.disposeLabel(id);
     unregisterEntity(id);

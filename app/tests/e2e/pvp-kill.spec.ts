@@ -176,3 +176,127 @@ test('A lasers B to the kill: both kill feeds show the white pvp entry', async (
   await contextA.close();
   await contextB.close();
 });
+
+/**
+ * TASK-49 — E2E: the death-and-recovery loop. Same kill as the TASK-47
+ * test, then: (a) B's page shows the 2 s 'SHIP LOST' moment naming A;
+ * (b) A's page shows the wreck's killer marker label '▸ A' (the wreck is
+ * 60 m ahead of A's nose — B is teleported along A's CURRENT forward
+ * vector, read from __SELF_SHIP__, so it is inside the chase camera's
+ * view); (c) the moment auto-hides and B's ship is the docked respawned
+ * scout (#docked-indicator).
+ */
+test('A kills B: SHIP LOST moment, wreck killer marker, docked scout respawn', async ({
+  browser,
+  e2eServer,
+}) => {
+  const { baseURL, apiPort } = e2eServer;
+  test.setTimeout(150_000);
+
+  // (1) A claims in the browser; B claims raw and warps into A's system.
+  const aCallsign = uniqueCallsign('wreck-a');
+  const bCallsign = uniqueCallsign('wreck-b');
+  const contextA = await browser.newContext();
+  const pageA = await contextA.newPage();
+  const { assertClean: assertCleanA } = collectErrors(pageA);
+  const claimA = new ClaimPage(pageA, baseURL);
+  await claimA.claim(aCallsign);
+  const sysId = await claimA.systemId();
+
+  const b = await claim(baseURL, bCallsign);
+  console.log(
+    `[pvp-kill/49] A=${aCallsign} B=${bCallsign} system=${sysId} Bhome=${b.homeSystemId}`,
+  );
+  await warpShip(apiPort, b, sysId);
+
+  // (2) Read A's CURRENT orientation, then dev-teleport A to the 60 km
+  //     space anchor with B 60 m ahead along A's forward vector (the
+  //     chase camera looks along it → the wreck lands in A's view).
+  const probeShip = async (): Promise<{
+    pos: { x: number; y: number; z: number };
+    rot: { x: number; y: number; z: number; w: number };
+  } | null> =>
+    pageA.evaluate(() => {
+      const r = (
+        window as unknown as { __SELF_SHIP__?: { probe: () => unknown } }
+      ).__SELF_SHIP__?.probe();
+      const probe = r as
+        | {
+            pos: { x: number; y: number; z: number } | null;
+            rot: { x: number; y: number; z: number; w: number } | null;
+          }
+        | undefined;
+      // null until the ship has spawned (rot non-null).
+      return probe?.rot ? { pos: probe.pos!, rot: probe.rot } : null;
+    });
+  await expect.poll(probeShip, { timeout: 20_000 }).not.toBe(null);
+  const r = (await probeShip())!;
+  // Ship forward = local +Z under the ship quat (the pose-math convention).
+  const { x: qx, y: qy, z: qz, w: qw } = r.rot;
+  const fwd = {
+    x: 2 * (qx * qz + qy * qw),
+    y: 2 * (qy * qz - qx * qw),
+    z: 1 - 2 * (qx * qx + qy * qy),
+  };
+  const A_POS = { x: 60_000, y: 60_000, z: 0 };
+  const B_POS = {
+    x: A_POS.x + 60 * fwd.x,
+    y: A_POS.y + 60 * fwd.y,
+    z: A_POS.z + 60 * fwd.z,
+  };
+  const a = await sessionOf(pageA);
+  await teleport(baseURL, a.token, A_POS.x, A_POS.y, A_POS.z);
+  await teleport(baseURL, b.token, B_POS.x, B_POS.y, B_POS.z);
+
+  // (3) B's browser joins A's system with the same token.
+  const contextB = await browser.newContext();
+  const pageB = await contextB.newPage();
+  const { assertClean: assertCleanB } = collectErrors(pageB);
+  await pageB.goto(baseURL);
+  await pageB.evaluate((s) => localStorage.setItem('drift.session.v1', JSON.stringify(s)), b);
+  await pageB.goto(`${baseURL}/?sys=${sysId}`);
+  await expect(pageB.locator('#sys-id')).toBeVisible({ timeout: 20_000 });
+  await pageA.waitForTimeout(1500);
+
+  // (4) A fires the real client path (22 LMB clicks at 350 ms — the 19th
+  //     hit is the kill). The moment watcher runs CONCURRENTLY: the 2 s
+  //     window must not close before the assertion catches it.
+  const box = await pageA.locator('#game-canvas').boundingBox();
+  if (!box) throw new Error('no bounding box for #game-canvas');
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  const momentVisible = expect(pageB.locator('#ship-lost')).toContainText(
+    `${bCallsign}Killed by ${aCallsign}`,
+    { timeout: 30_000 },
+  );
+  for (let i = 0; i < 22; i++) {
+    await pageA.mouse.click(cx, cy);
+    await pageA.waitForTimeout(350);
+  }
+  await momentVisible;
+  await pageB.screenshot({
+    path: path.join(__dirname, '../../../.ralph/screenshots/TASK-49-1.png'),
+  });
+
+  // (5) A's page: the wreck's killer marker label '▸ A' (60 m away, inside
+  //     the 200 m marker range and the chase camera's view).
+  await expect(pageA.locator('#remote-labels div', { hasText: `▸ ${aCallsign}` })).toBeVisible({
+    timeout: 20_000,
+  });
+  await pageA.screenshot({
+    path: path.join(__dirname, '../../../.ralph/screenshots/TASK-49-2.png'),
+  });
+
+  // (6) The moment auto-hides after 2 s and B's ship is the docked
+  //     respawned scout (the DOCKED indicator is up on B's page).
+  await expect(pageB.locator('#ship-lost')).toBeHidden({ timeout: 10_000 });
+  await expect(pageB.locator('#docked-indicator')).toBeVisible({ timeout: 15_000 });
+  await pageB.screenshot({
+    path: path.join(__dirname, '../../../.ralph/screenshots/TASK-49-3.png'),
+  });
+
+  assertCleanA();
+  assertCleanB();
+  await contextA.close();
+  await contextB.close();
+});

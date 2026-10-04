@@ -8,8 +8,11 @@ import {
   labelOpacity,
   MAX_CALLSIGN_LABELS,
   RemoteEntityLayer,
+  WRECK_KILLER_MARK_M,
+  wreckLabelText,
 } from './remote-entities';
 import { AI_SHIP_TRIM_COLOR } from './remote-ships';
+import { __resetKillFeed, indexKillFeedPlayers } from '@client/state/kill-feed';
 
 /**
  * TASK-36 step 4 (+ TASK-74): RemoteEntityLayer unit tests — label fade
@@ -533,5 +536,182 @@ describe('RemoteEntityLayer — drones (TASK-48.3)', () => {
     const glow = (group.children[1] as THREE.Mesh).material as THREE.MeshBasicMaterial;
     expect(body.opacity).toBe(0.25);
     expect(glow.opacity).toBeCloseTo(0.3 * 0.25, 5);
+  });
+});
+
+/**
+ * TASK-49: wreck impostors (kind 'wreck') — the frozen ship silhouette +
+ * a fire-glow flicker, with the killer's callsign as a small '▸ <killer>'
+ * marker label visible within WRECK_KILLER_MARK_M (200 m). Wrecks carry
+ * NO callsign on the wire — the killerId does.
+ */
+describe('RemoteEntityLayer — wrecks (TASK-49)', () => {
+  beforeEach(() => {
+    resetEntityRegistry();
+    __resetKillFeed();
+  });
+
+  function wreck(
+    id: string,
+    pos: { x: number; y: number; z: number },
+    extra: Partial<EntityState> = {},
+  ): EntityState {
+    return {
+      ...entity(id, 'wreck', pos),
+      classId: 'freighter',
+      livery: { hull: '#123456' },
+      ...extra,
+    };
+  }
+
+  it('renders a wreck as a frozen ship mesh + fire glow at the interpolated position', () => {
+    const layer = new RemoteEntityLayer();
+    const parent = new THREE.Group();
+    layer.setParent(parent);
+    layer.addSnapshot(
+      100,
+      [wreck('wreck:ship-b', { x: 0, y: 10, z: 0 }, { killerId: 'pl-a' })],
+      'me',
+    );
+    layer.addSnapshot(
+      300,
+      [wreck('wreck:ship-b', { x: 2, y: 10, z: 0 }, { killerId: 'pl-a' })],
+      'me',
+    );
+    // now=490 → target 290 → f=(290-100)/200=0.95 → x = 2*0.95 = 1.9
+    layer.renderFrame(490);
+    const outer = meshOf(parent)!;
+    expect(layer.renderedIds()).toEqual(['wreck:ship-b']);
+    expect(outer.position.x).toBeCloseTo(1.9, 5);
+    expect(outer.position.y).toBe(10);
+    // One frozen ship group + one additive fire-glow sphere.
+    expect(outer.children).toHaveLength(2);
+    expect(outer.children[1]).toBeInstanceOf(THREE.Mesh);
+    const fire = (outer.children[1] as THREE.Mesh).material as THREE.MeshBasicMaterial;
+    expect(fire.blending).toBe(THREE.AdditiveBlending);
+    expect(entityCounts().wreck).toBe(1);
+    expect(entityCounts().total).toBe(1);
+  });
+
+  it('the fire glow flickers per frame (opacity oscillates, position frozen)', () => {
+    const layer = new RemoteEntityLayer();
+    const parent = new THREE.Group();
+    layer.setParent(parent);
+    layer.addSnapshot(100, [wreck('wreck:1', { x: 5, y: 10, z: 0 })], 'me');
+    layer.renderFrame(110);
+    const outer = meshOf(parent)!;
+    const fire = (outer.children[1] as THREE.Mesh).material as THREE.MeshBasicMaterial;
+    const first = fire.opacity;
+    layer.renderFrame(110 + Math.PI / 0.01 / 2); // a quarter flicker period later
+    // sin has moved: the opacity changed, within the 0.25 ± 0.15 band.
+    expect(fire.opacity).not.toBe(first);
+    expect(fire.opacity).toBeGreaterThanOrEqual(0.1);
+    expect(fire.opacity).toBeLessThanOrEqual(0.4);
+    // The wreck itself is static (single sampled position, no drift).
+    expect(outer.position.x).toBe(5);
+  });
+
+  it('labels a wreck with the killer marker (callsign resolved, ▸ prefix)', () => {
+    const layer = new RemoteEntityLayer();
+    layer.setProjector(() => ({ x: 0, y: 0, dist: 60 }));
+    indexKillFeedPlayers([{ playerId: 'pl-a', callsign: 'Alpha' }]);
+    layer.addSnapshot(100, [wreck('wreck:1', V3, { killerId: 'pl-a' })], 'me');
+    layer.renderFrame(110);
+    const [state] = layer.labelStates(110);
+    expect(state).toMatchObject({
+      id: 'wreck:1',
+      callsign: 'Alpha',
+      text: wreckLabelText('Alpha'),
+      opacity: 1,
+      visible: true,
+    });
+  });
+
+  it('falls back to the raw killer id (AI / drones are not in the roster)', () => {
+    const layer = new RemoteEntityLayer();
+    layer.setProjector(() => ({ x: 0, y: 0, dist: 10 }));
+    layer.addSnapshot(
+      100,
+      [
+        wreck('wreck:1', V3, { killerId: 'ai-ship-7' }),
+        wreck('wreck:2', { x: 1, y: 0, z: 0 }), // no killerId
+      ],
+      'me',
+    );
+    layer.renderFrame(110);
+    const byId = new Map(layer.labelStates(111).map((s) => [s.id, s]));
+    expect(byId.get('wreck:1')?.text).toBe(wreckLabelText('ai-ship-7'));
+    expect(byId.get('wreck:2')?.text).toBe(wreckLabelText('wreck'));
+  });
+
+  it('shows the marker within 200 m and hides it beyond (hard off)', () => {
+    const layer = new RemoteEntityLayer();
+    const setDist = (d: number): void => layer.setProjector(() => ({ x: 0, y: 0, dist: d }));
+    layer.addSnapshot(100, [wreck('wreck:1', V3, { killerId: 'pl-a' })], 'me');
+    setDist(WRECK_KILLER_MARK_M);
+    layer.renderFrame(110);
+    expect(layer.labelStates(110)[0]).toMatchObject({ visible: true, opacity: 1 });
+    setDist(WRECK_KILLER_MARK_M + 1);
+    layer.renderFrame(120);
+    expect(layer.labelStates(120)[0]).toMatchObject({ visible: false, opacity: 0 });
+  });
+
+  it('wreck labels survive the character-preference dedup (the killer may be on foot)', () => {
+    const layer = new RemoteEntityLayer();
+    layer.setProjector(() => ({ x: 0, y: 0, dist: 5 }));
+    // Alpha killed the wreck, and Alpha is ALSO on foot nearby (his
+    // character carries his callsign) — the wreck marker must not be
+    // suppressed by the character-preference rule (that dedups a player's
+    // OWN ship label, not someone else's killer marker).
+    layer.addSnapshot(
+      100,
+      [
+        wreck('wreck:1', V3, { killerId: 'pl-a' }),
+        character('char-a', 'Alpha', { x: 1, y: 0, z: 0 }),
+      ],
+      'me',
+    );
+    layer.renderFrame(110);
+    const states = layer.labelStates(110);
+    expect(states.map((s) => s.id).sort()).toEqual(['char-a', 'wreck:1']);
+  });
+
+  it('removes a wreck when it leaves the snapshot (mesh + glow + registry + label)', () => {
+    const layer = new RemoteEntityLayer();
+    const parent = new THREE.Group();
+    layer.setParent(parent);
+    layer.addSnapshot(100, [wreck('wreck:1', V3, { killerId: 'pl-a' })], 'me');
+    layer.renderFrame(110);
+    expect(parent.children).toHaveLength(1);
+    expect(entityCounts().wreck).toBe(1);
+
+    // The 600 s ttl expiry: the next batch no longer carries the wreck.
+    layer.addSnapshot(200, [character('char-bob', 'bob', V3)], 'me');
+    layer.renderFrame(210);
+    expect(layer.renderedIds()).toEqual(['char-bob']);
+    expect(parent.children).toHaveLength(1);
+    expect(entityCounts().wreck).toBe(0);
+    expect(layer.wreckProbes()).toEqual([]);
+  });
+
+  it('applies the stale/dimmed opacity rule to the wreck (dimmed when the buffer starves)', () => {
+    const layer = new RemoteEntityLayer();
+    const parent = new THREE.Group();
+    layer.setParent(parent);
+    layer.addSnapshot(100, [wreck('wreck:1', V3)], 'me');
+    // 4.9 s since the last sample → dimmed (ship mesh + fire glow scale).
+    layer.renderFrame(5_000);
+    const outer = meshOf(parent)!;
+    const fire = (outer.children[1] as THREE.Mesh).material as THREE.MeshBasicMaterial;
+    expect(fire.opacity).toBeLessThan(0.15);
+    const shipMats: THREE.Material[] = [];
+    outer.children[0].traverse((o) => {
+      if (o instanceof THREE.Mesh) {
+        const m = o.material;
+        if (Array.isArray(m)) shipMats.push(...m);
+        else shipMats.push(m);
+      }
+    });
+    expect(shipMats.every((m) => m.opacity === 0.25)).toBe(true);
   });
 });

@@ -8,16 +8,19 @@ import { PlayerList } from '@client/hud/player-list';
 import { ToastStack } from '@client/hud/toast-stack';
 import { KillFeed } from '@client/hud/kill-feed';
 import {
+  callsignForPlayer,
   indexKillFeedEntities,
   indexKillFeedPlayers,
   pushKillEvent,
 } from '@client/state/kill-feed';
+import { showShipLost } from '@client/state/ship-lost';
 import { ChatLog } from '@client/hud/chat-log';
 import { createStarfield } from '@client/render/starfield';
 import { WorldManager } from '@client/world/WorldManager';
 import type { SelfShipInput } from '@client/world/self-ship';
 import { StarChart } from '@client/ui/star-chart';
 import { WarpOverlay } from '@client/ui/warp-overlay';
+import { ShipLostOverlay } from '@client/ui/ship-lost-overlay';
 import { ReentryTint } from '@client/ui/reentry-tint';
 import { DockedIndicator } from '@client/ui/docked-indicator';
 import { LeaveShipPrompt } from '@client/ui/leave-ship-prompt';
@@ -883,6 +886,18 @@ function App() {
       }
       // TASK-44: the threat ping feed (hit/destroyed on OUR ship).
       ingestCombatEvent(event, session?.playerId ?? null, Date.now());
+      // TASK-49: the 2 s 'SHIP LOST' moment — OUR ship only (the AI's own
+      // deaths never show it). The respawn is already server-side
+      // (immediate, nearest dock); this is pure presentation. The killer
+      // resolves to a callsign via the presence roster; AI / drone ids
+      // fall back to the raw id.
+      if (event.kind === 'destroyed' && event.target === selfShipIdRef.current) {
+        showShipLost({
+          callsign: store.selfPlayer?.callsign ?? 'your ship',
+          killer: callsignForPlayer(event.source.id) ?? event.source.id,
+          at: Date.now(),
+        });
+      }
       // TASK-46: the AI began acquiring OUR ship — the 'ACQUIRING' toast IS
       // the 1 s acquire delay: read it and break off (gameplay, not a cheat).
       if (event.kind === 'ai-acquiring' && event.target === selfShipIdRef.current) {
@@ -1481,6 +1496,8 @@ function App() {
         />
       )}
       <WarpOverlay />
+      {/* TASK-49: the 'SHIP LOST' moment (2 s, our ship destroyed). */}
+      <ShipLostOverlay />
       <ReentryTint />
       <DockedIndicator />
       <LeaveShipPrompt />
