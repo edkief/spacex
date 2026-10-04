@@ -3,7 +3,8 @@
   "pinTask": true,
   "timeouts": {
     "iterationMs": 2700000,
-    "inactivityMs": 600000
+    "inactivityMs": 600000,
+    "wrapUpMs": 1200000
   },
   "retries": {
     "providerRetriesPerIteration": 3,
