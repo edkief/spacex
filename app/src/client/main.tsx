@@ -23,6 +23,8 @@ import { DockedIndicator } from '@client/ui/docked-indicator';
 import { LeaveShipPrompt } from '@client/ui/leave-ship-prompt';
 import { InteractPrompt } from '@client/ui/interact-prompt';
 import { WeightBar } from '@client/ui/weight-bar';
+import { HazardHud } from '@client/ui/hazard-hud';
+import { clearHazard, setHazardFrame, type HazardFrame } from '@client/state/hazards';
 import { CargoPanel } from '@client/ui/cargo-panel';
 import { openCargoPanel } from '@client/state/cargo';
 import { DockPanel } from '@client/ui/dock-panel';
@@ -77,6 +79,7 @@ import type { WeaponId } from '@shared/weapons';
 import { RegimeWiring } from '@client/state/regime-wiring';
 import { CharacterPredictor, characterStateFromWire } from '@client/net/character-prediction';
 import { installCharDebug } from '@client/char-debug';
+import { installHazardDebug } from '@client/hazard-debug';
 import { installInteractDebug } from '@client/interact-debug';
 import { bindDepositsDebug, installDepositsDebug } from '@client/deposits-debug';
 import { bindSelfShipDebug, installSelfShipDebug } from '@client/self-ship-debug';
@@ -283,6 +286,13 @@ function useGameSession(
           openCargoPanel(p.hold, p.inventory ?? null);
           return;
         }
+        if (msg.type === 'hazard') {
+          // TASK-48.2: the server's per-player hazard frame (10 Hz while on
+          // foot) → the exposure HUD store. The server is the pool's
+          // authority (shared/world/hazards.ts); the client only renders.
+          setHazardFrame(msg.payload as HazardFrame);
+          return;
+        }
         if (msg.type === 'sell') {
           // TASK-40: the 'sell' RESULT frame (the WS alias of POST /api/ships/
           // sell — the server only ever sends the result form). The NEW stacks
@@ -397,6 +407,9 @@ function useGameSession(
         setDockedIndicator(false);
         // TASK-34: a warp must never carry a stale weight bar either.
         setInventory(null);
+        // TASK-48.2: a warp must never carry a stale hazard state either
+        // (the exposure pool is per-player, non-persistent, on-foot only).
+        clearHazard();
         // TASK-33: a system snapshot rebuilds the interaction target list
         // from ground truth (and resets any stale prompt state).
         onSnapshotEntities?.(snapshot.entities);
@@ -722,6 +735,9 @@ function App() {
         // feed the pose), and clears all on-foot state otherwise.
         onFootRef.current = false; // TASK-73: Q-drop gate (on foot only)
         store.setSelfOnFoot(false); // TASK-36: PlayerList icon (self row)
+        // TASK-48.2: back in the ship → the hazard frames stop; drop any
+        // stale exposure/hazard state (no on-foot pool while flying).
+        clearHazard();
         setInShip(self?.kind === 'ship'); // TASK-39: ship-HUD Cargo button
         // TASK-43: the weapon HUD tracks the SELF ship (classId for the
         // loadout, energy for the bar) + the fire handlers' ship refs.
@@ -1447,6 +1463,9 @@ function App() {
       <LeaveShipPrompt />
       <InteractPrompt text={interactPrompt} />
       <WeightBar />
+      {/* TASK-48.2: the hazard HUD (radiation meter + 'SHIELD BURN' /
+          'RECOVERING' prompts) — driven by the server's 'hazard' frame. */}
+      <HazardHud />
       {/* TASK-43: the weapon HUD stub (active weapon 1/2 + energy bar +
           denial prompts) — in-ship only (selfShip is null on foot). */}
       <TargetHud />
@@ -1652,6 +1671,8 @@ const claimStyles: Record<string, React.CSSProperties> = {
 installDriftDebug();
 // TASK-32: dev-only self-character probe hook (no-op in production builds).
 const charDebug = installCharDebug();
+// TASK-48.2: dev-only hazard probe hook (no-op in production builds).
+installHazardDebug();
 const interactDebug = installInteractDebug();
 // TASK-37: dev-only ore-rock probe hook (no-op in production builds).
 const depositsDebug = installDepositsDebug();

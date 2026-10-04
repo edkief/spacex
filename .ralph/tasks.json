@@ -539,7 +539,7 @@
     "title": "Client: hazard state store, exposure HUD, dev route, debug hook",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-48.2.json",
-    "passes": false,
+    "passes": true,
     "splitFrom": "TASK-48",
     "splitDepth": 1
   },

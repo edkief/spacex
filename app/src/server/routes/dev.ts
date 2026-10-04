@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 
 import { RESOURCE_IDS } from '@shared/inventory';
+import { hazardsFor } from '@shared/world/hazards';
 import { padsForSystem } from '@shared/world/pads';
 import { terminalsFor } from '@shared/world/terminals';
 import { generateStars } from '@shared/galaxy/stars';
@@ -28,6 +29,11 @@ import type { RouteDeps } from './callsigns';
  * - POST /api/dev/give       — TASK-34 e2e assist: grants inventory units to
  *   the caller (shard.giveInventoryForTesting — the real earn path is
  *   pickup/mining, TASK-38). No production surface, no persistence.
+ * - GET  /api/dev/hazard-target — TASK-48.2 e2e assist: the deterministic
+ *   FIRST storm cell (hazardsFor scan, star order, same style as pad-target)
+ *   as {systemId, planetId, hazardId, pos, radius}. Lets the e2e warp there
+ *   and teleport-char into it (drain the exposure pool) without hardcoding
+ *   seed-derived ids. No production surface, no persistence.
  */
 
 const teleportBody = z
@@ -76,6 +82,32 @@ export function registerDevRoutes(app: FastifyInstance, deps: RouteDeps): void {
     return reply
       .code(404)
       .send({ code: 'no-pad', message: 'no landable atmospheric planet in the seeded galaxy' });
+  });
+
+  // TASK-48.2 e2e assist: the deterministic FIRST storm cell in star order
+  // (hazardsFor is a pure seeded function — the same cells the shard
+  // enforces server-side). The e2e warps to the cell's system, disembarks,
+  // and teleports the on-foot character into it (POST /api/dev/teleport-char
+  // already exists below) to trigger the exposure drain.
+  app.get('/api/dev/hazard-target', async (req, reply) => {
+    const auth = await requireAuth(req, deps.sessions);
+    if (!auth.ok) return reply.code(401).send({ code: 'unauthorized', reason: auth.reason });
+    for (const star of generateStars(deps.galaxySeed)) {
+      const system = generateSystem(deps.galaxySeed, star.id);
+      const storm = hazardsFor(deps.galaxySeed, system).find((h) => h.kind === 'storm');
+      if (storm) {
+        return {
+          systemId: system.systemId,
+          planetId: storm.planetId,
+          hazardId: storm.hazardId,
+          pos: storm.pos,
+          radius: storm.radius,
+        };
+      }
+    }
+    return reply
+      .code(404)
+      .send({ code: 'no-hazard', message: 'no storm cell in the seeded galaxy' });
   });
 
   // TASK-40 e2e assist: the station SELL terminal's world position for the
