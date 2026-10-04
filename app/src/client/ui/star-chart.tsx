@@ -103,14 +103,9 @@ export function StarChart({ token, currentSystemId, onClose }: StarChartProps): 
     return warpSubscribe(apply);
   }, []);
 
-  // Escape closes the chart (the panel is the top-most UI while open).
-  React.useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  // TASK-53: Escape is owned by the global menu-stack handler in main.tsx
+  // (the chart rides the stack — ESC pops it, backing out one level when
+  // the menu is underneath). The CLOSE button below uses onClose.
 
   const selected = systems?.find((s) => s.systemId === selectedId) ?? null;
   const neighbor = selected?.neighbors.find((n) => n.to === currentSystemId);
@@ -212,7 +207,7 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid #2a3346',
     borderRadius: 12,
     background: 'rgba(13, 17, 26, 0.96)',
-    zIndex: 90,
+    zIndex: 111, // TASK-53: above the menu backdrop (110); panels sit at 112
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
     color: '#d6deeb',
   },
