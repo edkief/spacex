@@ -68,7 +68,11 @@ function pickSystems(): {
   for (const sys of systems) {
     const pads = padsForSystem(GALAXY_SEED, sys);
     if (pads.length === 0) continue;
-    A = { systemId: sys.systemId, pad: { ...pads[0].pos }, terminal: { ...terminalsFor(GALAXY_SEED, sys)[0].pos } };
+    A = {
+      systemId: sys.systemId,
+      pad: { ...pads[0].pos },
+      terminal: { ...terminalsFor(GALAXY_SEED, sys)[0].pos },
+    };
     break;
   }
   if (!A) throw new Error('no pad system in the seeded galaxy');
@@ -95,7 +99,13 @@ async function bootServer(dir: string) {
   const shipSwapBus = createShipSwapBus();
   const router: GalaxyRouter = createGalaxyRouter({ repo, galaxySeed: GALAXY_SEED, shipSwapBus });
   const app: FastifyInstance = buildServer(env);
-  registerApiRoutes(app, { repo, sessions, galaxySeed: GALAXY_SEED, shipSwapBus, galaxyRouter: router });
+  registerApiRoutes(app, {
+    repo,
+    sessions,
+    galaxySeed: GALAXY_SEED,
+    shipSwapBus,
+    galaxyRouter: router,
+  });
   const wsHandle = attachWebSocket(app, {
     path: env.WS_PATH,
     gateway: createRouterGateway(router),
@@ -177,7 +187,11 @@ async function main(): Promise<void> {
     assertions: [] as Array<{ name: string; pass: boolean; detail: string }>,
   };
   const assert = (name: string, pass: boolean, detail: string): void => {
-    (report.assertions as Array<{ name: string; pass: boolean; detail: string }>).push({ name, pass, detail });
+    (report.assertions as Array<{ name: string; pass: boolean; detail: string }>).push({
+      name,
+      pass,
+      detail,
+    });
     if (!pass) exitCode = 1;
   };
   let unhandledRejections = 0;
@@ -188,7 +202,9 @@ async function main(): Promise<void> {
   // --- players + clients -------------------------------------------------
   const players: Player[] = [];
   for (let i = 0; i < N_PLAYERS + 1; i++) {
-    players.push(await claim(server.httpUrl, `load-${SMOKE ? 's' : 'f'}-${String(i).padStart(2, '0')}`));
+    players.push(
+      await claim(server.httpUrl, `load-${SMOKE ? 's' : 'f'}-${String(i).padStart(2, '0')}`),
+    );
   }
   const roles: Role[] = [
     ...Array(8).fill('flying'),
@@ -220,7 +236,8 @@ async function main(): Promise<void> {
     shardA.teleportForTesting(p.playerId, A.pad);
     // Pad dock (surface regime, slow, at pad height) sets entity.padId — that
     // is what handleExitShip checks; the 'docked' flag is a different thing.
-    for (let i = 0; i < 150 && shardA.entities.get(p.shipId)?.padId === undefined; i++) await sleep(100);
+    for (let i = 0; i < 150 && shardA.entities.get(p.shipId)?.padId === undefined; i++)
+      await sleep(100);
     const shipEnt = shardA.entities.get(p.shipId);
     if (!shipEnt?.padId)
       throw new Error(`client ${c.id}: ship never pad-docked (regime=${shipEnt?.ship.regime})`);
@@ -284,10 +301,14 @@ async function main(): Promise<void> {
   // DIAG (temporary): permanent late-arrival listener on the warpers.
   for (const w of warpers) {
     w.on('warp_arrived', (p) =>
-      console.log(`[diag] warp_arrived client ${w.id} → ${(p as { systemId: string }).systemId} t=${Math.round(performance.now() - t0)}ms`),
+      console.log(
+        `[diag] warp_arrived client ${w.id} → ${(p as { systemId: string }).systemId} t=${Math.round(performance.now() - t0)}ms`,
+      ),
     );
     w.on('error', (p) =>
-      console.log(`[diag] error client ${w.id}: ${JSON.stringify(p)} t=${Math.round(performance.now() - t0)}ms`),
+      console.log(
+        `[diag] error client ${w.id}: ${JSON.stringify(p)} t=${Math.round(performance.now() - t0)}ms`,
+      ),
     );
   }
   const warpLog: Array<{ t: number; to: string; result: string }> = [];
@@ -296,7 +317,12 @@ async function main(): Promise<void> {
   let capDone = false;
   let warpIdx = 0;
   let reconnectDone = false;
-  const capProbe = { rejected: false, code: null as string | null, systemAConnections: 0, totalInShards: 0 };
+  const capProbe = {
+    rejected: false,
+    code: null as string | null,
+    systemAConnections: 0,
+    totalInShards: 0,
+  };
   let lastDiagSec = -1;
 
   const timer = setInterval(() => {
@@ -310,7 +336,9 @@ async function main(): Promise<void> {
       const b = server.router.active(B)?.shard.connections.size ?? 0;
       const total = server.router.stats().reduce((s, x) => s + x.players, 0);
       const fresh = clients
-        .map((c) => `${c.id}:${c.lastFrame ? Math.round(performance.now() - c.lastFrame.at) : '∞'}ms`)
+        .map(
+          (c) => `${c.id}:${c.lastFrame ? Math.round(performance.now() - c.lastFrame.at) : '∞'}ms`,
+        )
         .join(' ');
       console.log(`[diag] t=${Math.round(t)}ms A=${a} B=${b} total=${total} stale {${fresh}}`);
       if (diagSec === 15 && clients[0].lastRawSnapshot) {
@@ -333,7 +361,9 @@ async function main(): Promise<void> {
         capProbe.rejected = capProbe.code === 'system-full';
         capProbe.systemAConnections = server.router.active(A.systemId)!.shard.connections.size;
         capProbe.totalInShards = server.router.stats().reduce((s, x) => s + x.players, 0);
-        console.log(`[diag] cap probe: code=${capProbe.code} Aconns=${capProbe.systemAConnections} total=${capProbe.totalInShards}`);
+        console.log(
+          `[diag] cap probe: code=${capProbe.code} Aconns=${capProbe.systemAConnections} total=${capProbe.totalInShards}`,
+        );
         probe.close();
       })();
     }
@@ -368,9 +398,12 @@ async function main(): Promise<void> {
               const dups = frame.ids.length - new Set(frame.ids).size;
               const missing = players
                 .slice(0, N_PLAYERS)
-                .filter((p) => p.callsign !== players[12].callsign && p.callsign !== players[13].callsign)
-                .filter((p) => !frame.byCallsign.get(p.callsign)?.some((e) => e.kind === 'ship'))
-                .length;
+                .filter(
+                  (p) => p.callsign !== players[12].callsign && p.callsign !== players[13].callsign,
+                )
+                .filter(
+                  (p) => !frame.byCallsign.get(p.callsign)?.some((e) => e.kind === 'ship'),
+                ).length;
               consistency.push({ client: c.id, dups, missingShips: missing });
             }
           }
@@ -387,12 +420,15 @@ async function main(): Promise<void> {
   // --- report --------------------------------------------------------------
   const flyingRtt = clients
     .filter((c) => c.role === 'flying')
-    .reduce((acc, c) => {
-      const w = c.rttWindow();
-      acc.n += w.n;
-      acc.samples.push(...c.rtts);
-      return acc;
-    }, { n: 0, samples: [] as number[] });
+    .reduce(
+      (acc, c) => {
+        const w = c.rttWindow();
+        acc.n += w.n;
+        acc.samples.push(...c.rtts);
+        return acc;
+      },
+      { n: 0, samples: [] as number[] },
+    );
   const allSizes = clients.reduce((acc, c) => acc.concat(c.msgSizes), [] as number[]);
   report.clients = clients.map((c) => ({
     id: c.id,
@@ -400,15 +436,24 @@ async function main(): Promise<void> {
     snapshots: c.snapshotCount,
     snapshotRateHz: Number(c.snapshotRate(now).toFixed(2)),
     maxSnapshotGapMs: Math.round(c.maxSnapshotGapMs),
+    p50MsgBytes: percentile(c.msgSizes, 0.5),
     p95MsgBytes: percentile(c.msgSizes, 0.95),
+    maxMsgBytes: percentile(c.msgSizes, 1),
     rtt: c.rttWindow(),
     kicks: c.kickCodes,
     unexpectedErrors: c.unexpectedErrors,
     rejoinGapsMs: c.rejoinGapsMs.map(Math.round),
   }));
   report.aggregate = {
+    p50MsgBytes: percentile(allSizes, 0.5),
     p95MsgBytes: percentile(allSizes, 0.95),
-    flyingRtt: { p50: percentile(flyingRtt.samples, 0.5), p95: percentile(flyingRtt.samples, 0.95), max: percentile(flyingRtt.samples, 1), n: flyingRtt.n },
+    maxMsgBytes: percentile(allSizes, 1),
+    flyingRtt: {
+      p50: percentile(flyingRtt.samples, 0.5),
+      p95: percentile(flyingRtt.samples, 0.95),
+      max: percentile(flyingRtt.samples, 1),
+      n: flyingRtt.n,
+    },
     tickHz: Number((ticks / ((now - t0) / 1000)).toFixed(2)),
     maxStallStreak: maxStall,
     heapStartMb: Number(heapStart.toFixed(1)),
@@ -429,16 +474,40 @@ async function main(): Promise<void> {
   // --- assertions ----------------------------------------------------------
   const rates = clients.map((c) => c.snapshotRate(now));
   const minRate = Math.min(...rates);
-  assert('snapshot-rate', minRate >= 9.5, `min ${minRate.toFixed(2)} Hz across 16 clients (>= 9.5)`);
-  assert('cap-17th', capProbe.rejected && capProbe.systemAConnections === 16 && capProbe.totalInShards === 16, JSON.stringify(capProbe));
+  assert(
+    'snapshot-rate',
+    minRate >= 9.5,
+    `min ${minRate.toFixed(2)} Hz across 16 clients (>= 9.5)`,
+  );
+  assert(
+    'cap-17th',
+    capProbe.rejected && capProbe.systemAConnections === 16 && capProbe.totalInShards === 16,
+    JSON.stringify(capProbe),
+  );
   if (!SMOKE) {
     const worstGap = Math.max(...clients.map((c) => c.maxSnapshotGapMs));
-    assert('no-starvation', worstGap < 2_000, `worst snapshot gap ${Math.round(worstGap)} ms (< 2000)`);
-    assert('p95-msg-size', percentile(allSizes, 0.95) < 16 * 1024, `p95 ${percentile(allSizes, 0.95)} B (< 16384)`);
+    assert(
+      'no-starvation',
+      worstGap < 2_000,
+      `worst snapshot gap ${Math.round(worstGap)} ms (< 2000)`,
+    );
+    assert(
+      'p95-msg-size',
+      percentile(allSizes, 0.95) < 16 * 1024,
+      `p95 ${percentile(allSizes, 0.95)} B (< 16384)`,
+    );
     const rttP95 = percentile(flyingRtt.samples, 0.95);
-    assert('rtt-p95', rttP95 < 100, `flying p95 ${rttP95.toFixed(1)} ms (< 100), p50 ${percentile(flyingRtt.samples, 0.5).toFixed(1)} ms, n=${flyingRtt.n}`);
+    assert(
+      'rtt-p95',
+      rttP95 < 100,
+      `flying p95 ${rttP95.toFixed(1)} ms (< 100), p50 ${percentile(flyingRtt.samples, 0.5).toFixed(1)} ms, n=${flyingRtt.n}`,
+    );
     const tickHz = ticks / ((now - t0) / 1000);
-    assert('tick-rate', tickHz >= 15 && maxStall <= 5, `${tickHz.toFixed(2)} Hz (>= 15), max stall streak ${maxStall} (<= 5)`);
+    assert(
+      'tick-rate',
+      tickHz >= 15 && maxStall <= 5,
+      `${tickHz.toFixed(2)} Hz (>= 15), max stall streak ${maxStall} (<= 5)`,
+    );
     const kicked = clients.filter((c) => c.kickCodes.length > 0 || c.unexpectedErrors.length > 0);
     assert(
       'no-kicks',
@@ -450,12 +519,18 @@ async function main(): Promise<void> {
     const allRejoined = rejoinGaps.length === 4 && rejoinGaps.every((g) => g <= 3_000);
     const allConsistent =
       consistency.length === 4 && consistency.every((x) => x.dups === 0 && x.missingShips === 0);
-    assert('reconnect', allRejoined && allConsistent, `gaps=${JSON.stringify(rejoinGaps.map(Math.round))}ms, consistency=${JSON.stringify(consistency)}`);
+    assert(
+      'reconnect',
+      allRejoined && allConsistent,
+      `gaps=${JSON.stringify(rejoinGaps.map(Math.round))}ms, consistency=${JSON.stringify(consistency)}`,
+    );
   }
 
   const reportPath = path.join(os.tmpdir(), `drift-load-report-${Date.now()}.json`);
   fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
-  const failed = (report.assertions as Array<{ name: string; pass: boolean }>).filter((a) => !a.pass);
+  const failed = (report.assertions as Array<{ name: string; pass: boolean }>).filter(
+    (a) => !a.pass,
+  );
   console.log(`\nTASK-18 ${SMOKE ? 'SMOKE' : 'LOAD'} REPORT (${(now / 1000).toFixed(1)} s)`);
   for (const a of report.assertions as Array<{ name: string; pass: boolean; detail: string }>) {
     console.log(`  ${a.pass ? 'PASS' : 'FAIL'}  ${a.name}: ${a.detail}`);

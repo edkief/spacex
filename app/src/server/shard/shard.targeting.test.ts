@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Planet, SystemGen } from '@shared/galaxy/types';
-import type { EntityState } from '@shared/protocol/schemas';
+import { normalizeEntityState, type EntityState } from '@shared/protocol/schemas';
 import type { Vec3 } from '@shared/physics/vec';
 
 import { SystemShard } from './shard';
@@ -105,8 +105,10 @@ const errors = (sent: string[]): Record<string, unknown>[] =>
     .filter((m) => m.type === 'error')
     .map((m) => m.payload);
 
-const stateOf = (shard: SystemShard, id: string): EntityState | undefined =>
-  shard.snapshot().find((e) => e.id === id);
+const stateOf = (shard: SystemShard, id: string): EntityState | undefined => {
+  const wire = shard.snapshot().find((e) => e.id === id); // TASK-18: compressed wire form
+  return wire ? normalizeEntityState(wire) : undefined;
+};
 
 describe('handleTargetLock — accept/reject matrix', () => {
   it('valid lock stored: live ship, in range, in cone (boundary 500 m accepted)', () => {

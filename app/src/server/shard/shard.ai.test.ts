@@ -162,7 +162,7 @@ describe('shard rogue AI (TASK-45 AC)', () => {
     expect(rogue.energy).toBe(100);
     expect(lines.debug).toContain('rogue respawn');
     const [state] = shard.snapshot().filter((s) => s.id === entry.aiId);
-    expect(state?.hull).toBe(1);
+    expect(state?.hull ?? 1).toBe(1); // TASK-18: full hull rides the wire default
     expect(state?.ai).toBe(true);
     shard.stop();
   });

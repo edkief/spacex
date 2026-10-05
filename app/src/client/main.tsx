@@ -141,7 +141,13 @@ import { bindSelfShipDebug, installSelfShipDebug } from '@client/self-ship-debug
 import { bindRemoteShipsDebug, installRemoteShipsDebug } from '@client/remote-ships-debug';
 import { bindHazardWorldDebug, installHazardWorldDebug } from '@client/hazard-world-debug';
 import { installTransitionDebug } from '@client/test/transitionCycle';
-import type { ChatMessage, EntityState, InputPayload } from '@shared/protocol/schemas';
+import { normalizeEntityState } from '@shared/protocol/schemas';
+import type {
+  ChatMessage,
+  EntityState,
+  InputPayload,
+  WireEntityState,
+} from '@shared/protocol/schemas';
 import { inputToCharacterInput, shipInputToPayload } from '@shared/protocol/inputs';
 import { InputFrameSender, effectiveFlightPressed, shipInputKey } from '@client/input/flight-loop';
 import { ClientShipPredictor, shipStateFromWire } from '@client/net/prediction';
@@ -405,7 +411,12 @@ function useGameSession(
           // disembark the frozen docked ship STILL carries the callsign,
           // and the character is the player's active entity (its
           // flightRegime 'surface' drives the controls remap).
-          const entities = (msg.payload as { entities: EntityState[] }).entities;
+          // TASK-18: the wire entity_update is COMPRESSED (defaults omitted
+          // — see the entityStateSchema doc); re-apply them ONCE here so
+          // every downstream consumer sees the full normalized shape.
+          const entities = (msg.payload as { entities: WireEntityState[] }).entities.map(
+            normalizeEntityState,
+          );
           // TASK-33: the raycast's target list tracks every snapshot batch
           // (a deposit picked up by ANY player leaves this list within one
           // snapshot — the prompt hides with it).
@@ -492,6 +503,9 @@ function useGameSession(
       },
       onSnapshot: (snapshot, reconnect) => {
         if (cancelled) return;
+        // TASK-18: snapshots carry compressed wire entities — normalize once
+        // (join / warp arrival / reconnect resync all flow through here).
+        const entities = snapshot.entities.map(normalizeEntityState);
         if (reconnect && snapshot.systemId === systemIdRef.current) {
           // Same system: the world kept living while we were away.
           // Rebuild presence (unchanged set → no emit, list preserved) and
@@ -527,22 +541,19 @@ function useGameSession(
         clearHazard();
         // TASK-33: a system snapshot rebuilds the interaction target list
         // from ground truth (and resets any stale prompt state).
-        onSnapshotEntities?.(snapshot.entities);
+        onSnapshotEntities?.(entities);
         // TASK-31: a system snapshot is the ground truth for the player's
         // ACTIVE entity — on foot (character present, e.g. reconnect after a
         // disembark) the capsule stays; otherwise clear any stale on-foot
         // state (warp arrival, boot).
-        const charSelf = snapshot.entities.find(
+        const charSelf = entities.find(
           (e) => e.kind === 'character' && e.callsign === session.callsign,
         );
         onSelfEntity?.(
           charSelf ??
-            snapshot.entities.find(
-              (e) => e.kind !== 'character' && e.callsign === session.callsign,
-            ) ??
+            entities.find((e) => e.kind !== 'character' && e.callsign === session.callsign) ??
             null,
-          snapshot.entities.find((e) => e.kind === 'ship' && e.callsign === session.callsign) ??
-            null,
+          entities.find((e) => e.kind === 'ship' && e.callsign === session.callsign) ?? null,
         );
       },
     });

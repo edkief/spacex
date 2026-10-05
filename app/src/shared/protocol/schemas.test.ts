@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { messageSchemas, type EntityState, type StateSnapshot } from '@shared/protocol/schemas';
+import {
+  messageSchemas,
+  normalizeEntityState,
+  type EntityState,
+  type StateSnapshot,
+  type WireEntityState,
+} from '@shared/protocol/schemas';
 
 /**
  * Parametrized table: every message type must accept a valid example and
@@ -319,6 +325,83 @@ describe('message payload schemas', () => {
     expect(
       messageSchemas.state_snapshot.safeParse({ ...snapshot, chat: msgs.slice(0, 100) }).success,
     ).toBe(true);
+  });
+});
+
+/**
+ * TASK-18: wire compression — the static defaults are omitted on the wire
+ * and re-applied by normalizeEntityState. The frame stays a FULL state:
+ * every deviation from a default is still sent.
+ */
+describe('entity_state compression (TASK-18)', () => {
+  it('parses a fully compressed static deposit (zero vel/rot, no regime, full hull+shields)', () => {
+    const wire = {
+      id: 'deposit:sys:1',
+      kind: 'deposit',
+      pos: { x: 10320, y: 321, z: 300 },
+      classId: 'deposit',
+      quantity: 40,
+      resourceId: 'iron',
+    };
+    const parsed = messageSchemas.entity_update.safeParse({ entities: [wire] });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('parses a compressed player ship at rest (identity rot, null targetId, empty inventory omitted)', () => {
+    const wire = {
+      id: 'ship-uuid',
+      kind: 'ship',
+      pos: { x: 10250, y: 209, z: 175 },
+      regime: 'docked',
+      flightRegime: 'surface',
+      classId: 'scout',
+      callsign: 'drifter',
+      padId: 'pad-1',
+    };
+    expect(messageSchemas.entity_update.safeParse({ entities: [wire] }).success).toBe(true);
+  });
+
+  it('keeps sending deviations from the defaults (partial damage, real target, velocity)', () => {
+    const wire = {
+      ...entity,
+      vel: { x: 0.5, y: -1, z: 2 },
+      rot: { x: 0.1, y: 0, z: 0, w: 0.995 },
+      hull: 0.4,
+      targetId: 'ship-2',
+    };
+    const parsed = messageSchemas.entity_update.safeParse({ entities: [wire] });
+    expect(parsed.success).toBe(true);
+    const norm = normalizeEntityState(
+      (parsed as unknown as { data: { entities: [WireEntityState] } }).data.entities[0],
+    );
+    expect(norm.vel).toEqual({ x: 0.5, y: -1, z: 2 });
+    expect(norm.hull).toBe(0.4);
+    expect(norm.targetId).toBe('ship-2');
+    expect(norm.shields).toBe(1); // absent → full
+  });
+
+  it('normalizeEntityState re-applies every default', () => {
+    const wire: WireEntityState = { id: 'wreck-1', kind: 'wreck', pos: vec, classId: 'scout' };
+    const norm = normalizeEntityState(wire);
+    expect(norm.vel).toEqual({ x: 0, y: 0, z: 0 });
+    expect(norm.regime).toBe('sublight');
+    expect(norm.targetId).toBeNull();
+    expect(norm.hull).toBe(1);
+    expect(norm.shields).toBe(1);
+    expect(norm.rot).toBeUndefined(); // rot keeps its pre-existing optional contract
+  });
+
+  it('still rejects out-of-range values when present (compression never loosens validation)', () => {
+    expect(
+      messageSchemas.entity_update.safeParse({
+        entities: [{ id: 's', kind: 'ship', pos: vec, classId: 'scout', hull: 1.5 }],
+      }).success,
+    ).toBe(false);
+    expect(
+      messageSchemas.entity_update.safeParse({
+        entities: [{ id: 's', kind: 'ship', pos: vec, classId: 'scout', regime: 'hyperspace' }],
+      }).success,
+    ).toBe(false);
   });
 });
 

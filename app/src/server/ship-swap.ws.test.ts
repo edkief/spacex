@@ -121,8 +121,8 @@ describe('ship-swap broadcast (TASK-20, ws integration)', () => {
     expect(e.kind).toBe('ship');
     expect(e.classId).toBe('freighter');
     expect(e.regime).toBe('docked');
-    expect(e.hull).toBe(1);
-    expect(e.shields).toBe(1);
+    expect(e.hull ?? 1).toBe(1); // TASK-18: full hull/shields ride the wire defaults
+    expect(e.shields ?? 1).toBe(1);
     expect(e.callsign).toBe('swap-1');
     expect(e.pos).toEqual(homeDockPosition(GALAXY_SEED, p.homeSystemId));
     expect(bought.ship.id).not.toBe(p.shipId); // persisted row is a new ship

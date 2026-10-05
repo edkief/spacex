@@ -8,8 +8,8 @@ import {
   chatMessageSchema,
   messageSchemas,
   type ChatMessage,
-  type EntityState,
   type InputPayload,
+  type WireEntityState,
   type PayloadSchemas,
 } from '@shared/protocol/schemas';
 import { CHAT_HISTORY_MAX } from '@shared/chat';
@@ -254,7 +254,7 @@ export interface CreateSystemShardOptions {
     >;
   /** Keep in-shard entities in sync with dock purchases / livery changes. */
   shipSwapBus: ShipSwapBus;
-  persist?: (entities: EntityState[]) => void;
+  persist?: (entities: WireEntityState[]) => void;
   log?: ShardLogger;
   dtMs?: number;
   /** Injectable clock (tests use a fake now for destruction timestamps). */
@@ -301,7 +301,7 @@ export class SystemShard implements Shard {
   readonly connections = new Map<string, ConnState>();
   readonly entities = new Map<string, SimEntity>();
   readonly events = new EventEmitter();
-  readonly persist: (entities: EntityState[]) => void;
+  readonly persist: (entities: WireEntityState[]) => void;
   readonly histogram = new TickHistogram(2048);
 
   private readonly galaxySeed: string;
@@ -1794,8 +1794,8 @@ export class SystemShard implements Shard {
    * the quantity/discovered deltas). Dev-hook deposits (no depositSeq)
    * always ride (the e2e hooks place them anywhere).
    */
-  snapshot(): EntityState[] {
-    const out: EntityState[] = [];
+  snapshot(): WireEntityState[] {
+    const out: WireEntityState[] = [];
     let playerPos: Vec3[] | undefined;
     // TASK-44: targetId → the players locking it (the lock icon's wire data).
     const lockIcons = this.lockIconsByTarget();
@@ -2081,7 +2081,7 @@ export class SystemShard implements Shard {
   }
 
   private broadcast(): void {
-    let payload!: { entities: EntityState[] };
+    let payload!: { entities: WireEntityState[] };
     this.phase('snapshot-build', () => {
       payload = { entities: this.snapshot() };
     });
@@ -4183,24 +4183,53 @@ export type CargoTransferOutcome =
   | 'invalid-amount'
   | 'insufficient';
 
-/** Entity → wire EntityState (hull/shields normalized 0..1, regime mapped). */
-export function entityToState(e: SimEntity, targetedBy?: string[]): EntityState {
-  // Wire regimes v1: docked (at a dock or settled on a pad) vs sublight flight.
-  const regime: EntityState['regime'] = e.docked || e.ship.onPad || e.padId ? 'docked' : 'sublight';
-  const state: EntityState = {
+/**
+ * TASK-18: wire-compression helpers (the defaults contract lives on the
+ * entityStateSchema doc in shared/protocol/schemas). pos/vel/rot ride the
+ * wire at 3 decimals — ≤ 1 mm / rad error, invisible at sim scale, and the
+ * client reconciles against the authoritative frame every snapshot.
+ */
+const WIRE_ROUND = 1000;
+const roundWire = (n: number): number => Math.round(n * WIRE_ROUND) / WIRE_ROUND;
+const roundVec = (v: Vec3): Vec3 => ({ x: roundWire(v.x), y: roundWire(v.y), z: roundWire(v.z) });
+const roundQuat = (q: Quat): Quat => ({
+  x: roundWire(q.x),
+  y: roundWire(q.y),
+  z: roundWire(q.z),
+  w: roundWire(q.w),
+});
+/**
+ * Kinds with no regime of their own: never docked, never airborne, and no
+ * owner regime tracker reads them — regime / flightRegime ride the wire
+ * defaults instead of ~46 B per entity per frame.
+ */
+const STATIC_WIRE_KINDS = new Set(['deposit', 'terminal', 'groundItem', 'wreck', 'drone']);
+
+/** Entity → wire state (hull/shields normalized 0..1, TASK-18 compressed). */
+export function entityToState(e: SimEntity, targetedBy?: string[]): WireEntityState {
+  const state: WireEntityState = {
     id: e.id,
     kind: e.kind,
-    pos: e.ship.pos,
-    vel: e.ship.vel,
-    rot: e.ship.quat, // TASK-14: reconciliation + remote slerp
-    regime,
-    // TASK-25: the regime manager's flight regime (authoritative).
-    flightRegime: e.ship.regime,
-    hull: e.hull,
-    shields: e.shields,
-    targetId: e.targetId,
+    pos: roundVec(e.ship.pos),
     classId: e.classId,
   };
+  const vel = roundVec(e.ship.vel);
+  if (vel.x !== 0 || vel.y !== 0 || vel.z !== 0) state.vel = vel;
+  const quat = e.ship.quat;
+  if (quat.x !== 0 || quat.y !== 0 || quat.z !== 0 || quat.w !== 1) {
+    state.rot = roundQuat(quat); // TASK-14: reconciliation + remote slerp
+  }
+  if (!STATIC_WIRE_KINDS.has(e.kind)) {
+    // Wire regimes v1: docked (at a dock or settled on a pad) vs sublight.
+    state.regime = e.docked || e.ship.onPad || e.padId ? 'docked' : 'sublight';
+    // TASK-25: the regime manager's flight regime (authoritative) — only
+    // player entities carry it; no tracker reads an AI ship's regime
+    // (TASK-18 omits it).
+    if (e.kind !== 'ai-ship') state.flightRegime = e.ship.regime;
+  }
+  if (e.hull !== 1) state.hull = e.hull;
+  if (e.shields !== 1) state.shields = e.shields;
+  if (e.targetId) state.targetId = e.targetId;
   if (e.callsign) state.callsign = e.callsign;
   if (e.livery) state.livery = e.livery;
   // TASK-45: the rogue AI flag — the client marks these callsigns 'AI' in
@@ -4230,8 +4259,11 @@ export function entityToState(e: SimEntity, targetedBy?: string[]): EntityState 
   }
   // TASK-34: player-owned entities (ship + character) carry the inventory
   // so the client's weight bar updates within one snapshot of any change.
+  // TASK-18: omitted while empty — no stacks, zero weight.
   if (e.kind === 'ship' || e.kind === 'character') {
-    if (e.inventory !== undefined) state.inventory = toPlayerInventory(e.inventory);
+    if (e.inventory !== undefined && Object.keys(e.inventory).length > 0) {
+      state.inventory = toPlayerInventory(e.inventory);
+    }
   }
   // TASK-31: character entities carry their owner + the on-foot flag so
   // clients route the control target / camera off the same shape.

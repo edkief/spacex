@@ -248,7 +248,8 @@ describe('TASK-34: drop + partial pickup over live ws — two clients see it all
     const selfA = (dropA.payload as { entities: WireEntity[] }).entities.find(
       (e) => e.callsign === a.callsign && e.kind === 'character',
     )!;
-    expect(selfA.inventory).toEqual({ stacks: {}, weightUsed: 0 });
+    // TASK-18: an EMPTY inventory is omitted on the wire (its default is absence).
+    expect(selfA.inventory ?? { stacks: {}, weightUsed: 0 }).toEqual({ stacks: {}, weightUsed: 0 });
     expect(ca.messages.filter((m) => m.type === 'error')).toHaveLength(0);
 
     // B picks up: 37 u of iron leaves 3 u of room = exactly ONE crystal

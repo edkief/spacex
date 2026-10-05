@@ -150,7 +150,7 @@ describe('crash-restart (integration, step 3)', () => {
     // drag-free: a loaded ship coasts at its saved velocity, held input
     // cleared). last.vel may be up to one flush period newer than the row.
     expect(dist(e.vel, row!.velocity)).toBeLessThan(0.01);
-    expect(e.hull).toBeGreaterThan(0.99); // no damage happened; hull persisted at full
+    expect(e.hull ?? 1).toBeGreaterThan(0.99); // no damage happened; hull persisted at full (TASK-18: 1 = omitted)
     expect(e.regime).toBe('sublight');
   }, 60000);
 });

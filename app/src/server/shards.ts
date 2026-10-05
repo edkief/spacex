@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { WebSocket } from 'ws';
 import { encodeMessage } from '@shared/protocol';
-import type { EntityState } from '@shared/protocol/schemas';
+import type { WireEntityState } from '@shared/protocol/schemas';
 import { shipStats, type Livery, type ShipClass } from '@shared/ships';
 import type { Repository, ShipPosition } from '@server/db/repo';
 import type { Conn } from '@server/ws';
@@ -86,22 +86,30 @@ export function createShipSwapBus(): ShipSwapBus {
 const LIVERY_COLOR = /^#[0-9a-fA-F]{6}$/;
 
 /**
- * Persisted ship row → protocol EntityState. Hull/shields are normalized to
- * 0..1 against the class caps; the entity id may be overridden so a swap can
- * replace the in-system entity in place (same id, new class stats).
+ * Persisted ship row → protocol wire entity state. Hull/shields are
+ * normalized to 0..1 against the class caps; the entity id may be overridden
+ * so a swap can replace the in-system entity in place (same id, new class
+ * stats). TASK-18: the same wire compression as the shard's snapshot (zero
+ * vel / full hull+shields / null targetId ride their defaults).
  */
-export function shipToEntity(ship: ShipRowLike, cls: ShipClass, entityId?: string): EntityState {
-  const entity: EntityState = {
+export function shipToEntity(
+  ship: ShipRowLike,
+  cls: ShipClass,
+  entityId?: string,
+): WireEntityState {
+  const entity: WireEntityState = {
     id: entityId ?? ship.id,
     kind: 'ship',
     pos: { x: ship.position.x, y: ship.position.y, z: ship.position.z },
-    vel: { x: ship.velocity.x, y: ship.velocity.y, z: ship.velocity.z },
     regime: ship.state === 'docked' ? 'docked' : 'sublight',
-    hull: Math.min(1, cls.hull > 0 ? ship.hull / cls.hull : 0),
-    shields: Math.min(1, cls.shieldCapacity > 0 ? ship.shields / cls.shieldCapacity : 0),
-    targetId: null,
     classId: cls.id,
   };
+  const vel = { x: ship.velocity.x, y: ship.velocity.y, z: ship.velocity.z };
+  if (vel.x !== 0 || vel.y !== 0 || vel.z !== 0) entity.vel = vel;
+  const hull = Math.min(1, cls.hull > 0 ? ship.hull / cls.hull : 0);
+  const shields = Math.min(1, cls.shieldCapacity > 0 ? ship.shields / cls.shieldCapacity : 0);
+  if (hull !== 1) entity.hull = hull;
+  if (shields !== 1) entity.shields = shields;
   const livery: Record<string, string> = {};
   for (const [key, value] of Object.entries(ship.livery ?? {})) {
     if (typeof value === 'string' && LIVERY_COLOR.test(value)) livery[key] = value;

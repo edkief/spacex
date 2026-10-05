@@ -13,7 +13,8 @@ import {
   type ShipState,
 } from '@shared/physics/flight';
 import { shipStats } from '@shared/ships';
-import type { EntityState, InputPayload } from '@shared/protocol/schemas';
+import { normalizeEntityState } from '@shared/protocol/schemas';
+import type { InputPayload, WireEntityState } from '@shared/protocol/schemas';
 
 import { decodeMessage } from '@shared/protocol';
 import { CHAT_HISTORY_MAX } from '@shared/chat';
@@ -241,26 +242,34 @@ describe('SystemShard snapshots (TASK-13 step 3)', () => {
     expect(sends).toHaveLength(10);
     shard.stop();
 
-    const parsed = JSON.parse(sends[0]) as { type: string; payload: { entities: EntityState[] } };
+    const parsed = JSON.parse(sends[0]) as {
+      type: string;
+      payload: { entities: WireEntityState[] };
+    };
     expect(parsed.type).toBe('entity_update');
     // TASK-40: the shard now also spawns station terminal entities, so target
     // the ship by id instead of assuming it is the first entity in the buffer.
-    const e = parsed.payload.entities.find((x) => x.id === 'ship-p1')!;
-    expect(e).toBeDefined();
-    expect(e.kind).toBe('ship');
-    expect(e.classId).toBe('scout');
-    expect(e.callsign).toBe('Alpha');
-    expect(e.hull).toBe(0.5); // combat-ready state on the wire
-    expect(e.shields).toBe(0.25);
-    expect(e.targetId).toBeNull();
+    const wire = parsed.payload.entities.find((x) => x.id === 'ship-p1')!;
+    expect(wire).toBeDefined();
+    expect(wire.kind).toBe('ship');
+    expect(wire.classId).toBe('scout');
+    expect(wire.callsign).toBe('Alpha');
+    expect(wire.hull).toBe(0.5); // combat-ready state on the wire (deviation → sent)
+    expect(wire.shields).toBe(0.25);
+    // TASK-18: wire compression — the at-rest defaults are OMITTED on the wire
+    // and re-applied by normalizeEntityState (the consumer view).
+    expect(wire.targetId).toBeUndefined(); // nothing targeted → null by default
+    expect(normalizeEntityState(wire).targetId).toBeNull();
     // TASK-14: orientation on the wire (reconciliation angle + remote slerp).
-    expect(e.rot).toEqual({ x: 0, y: 0, z: 0, w: 1 }); // at rest → identity
+    expect(wire.rot).toBeUndefined(); // at rest → identity (omitted, default identity)
+    expect(wire.vel).toBeUndefined(); // at rest → zero (omitted)
+    expect(normalizeEntityState(wire).vel).toEqual({ x: 0, y: 0, z: 0 });
     // Every frame is the same serialized buffer (serialize once, share).
     // TASK-48: hazard drones orbit their cell, so their wire positions change
     // every tick — compare the buffer with the moving drone entities excluded.
     const withoutDrones = (raw: string) =>
       JSON.stringify(
-        (JSON.parse(raw) as { payload: { entities: EntityState[] } }).payload.entities.filter(
+        (JSON.parse(raw) as { payload: { entities: WireEntityState[] } }).payload.entities.filter(
           (x) => x.kind !== 'drone',
         ),
       );

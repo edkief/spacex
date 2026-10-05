@@ -1,6 +1,6 @@
 import type { EventEmitter } from 'node:events';
 
-import type { EntityState, InputPayload } from '@shared/protocol/schemas';
+import type { InputPayload, WireEntityState } from '@shared/protocol/schemas';
 import type { ShipState } from '@shared/physics/flight';
 import type { SimLoop } from './sim';
 
@@ -242,7 +242,7 @@ export interface Shard {
    * Save hook (TASK-63 wires the real persistence service). Called on stop()
    * with the final snapshot; no-op by default.
    */
-  persist: (entities: EntityState[]) => void;
+  persist: (entities: WireEntityState[]) => void;
 }
 
 /** Structured log surface the shard writes to (defaults to console). */

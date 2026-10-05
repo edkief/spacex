@@ -75,24 +75,45 @@ export type Quat = z.infer<typeof quatSchema>;
 export const liverySchema = z.record(z.string(), z.string().regex(/^#[0-9a-fA-F]{6}$/));
 export type Livery = z.infer<typeof liverySchema>;
 
-/** One shape for all snapshot traffic (spec technical note). */
+/**
+ * One shape for all snapshot traffic (spec technical note).
+ *
+ * TASK-18 (wire compression, 16-player load gate): the p95 entity_update
+ * at the v1 cap was ~26 KB vs the 16 KB acceptance bound. The 10 Hz frame
+ * carried unchanged, often-zeroed boilerplate for ~60 entities per system,
+ * so the STATIC defaults below are omitted on the wire and re-applied by
+ * consumers through `normalizeEntityState`:
+ * - `vel`        omitted when the entity is at rest        → {0,0,0}
+ * - `rot`        omitted when the quaternion is identity   → {0,0,0,1}
+ * - `regime` /   omitted for kinds that are never docked   → 'sublight' /
+ *   `flightRegime`    or airborne (ships/characters only)  (no authority)
+ * - `hull`       omitted at full hull                      → 1
+ * - `shields`    omitted at full shields                   → 1
+ * - `targetId`   omitted when nothing is targeted          → null
+ * - `inventory`  omitted when empty                        → (absent)
+ * Floats are rounded to 3 decimals (≤ 1 mm / rad — invisible at sim
+ * scale, and the client reconciles against the authoritative frame anyway).
+ * Every field is still sent whenever its value deviates from the default,
+ * so the frame stays a FULL state (no delta encoding).
+ */
 export const entityStateSchema = z
   .object({
     id: z.string().min(1),
     kind: z.enum(ENTITY_KINDS),
     pos: vec3Schema,
-    vel: vec3Schema,
+    vel: vec3Schema.optional(),
     /**
      * Orientation (TASK-14): client reconciliation (angle diff) and remote
-     * slerp need it. Optional on the wire for back-compat with v1 producers
-     * (the shard in this repo always sends it); consumers default to identity.
+     * slerp need it. Omitted when identity (TASK-18); consumers default to
+     * identity.
      */
     rot: quatSchema.optional(),
-    regime: z.enum(REGIMES),
+    regime: z.enum(REGIMES).optional(),
     /**
      * TASK-25: the regime manager's flight regime (authoritative; the
      * client's local regimeFor is prediction only and snaps to this after
-     * 500 ms of divergence). Optional for back-compat with v1 producers.
+     * 500 ms of divergence). Sent only for player entities (ship /
+     * character) — the ones whose owner's regime tracker reads it (TASK-18).
      */
     flightRegime: z.enum(FLIGHT_REGIMES).optional(),
     /**
@@ -100,9 +121,9 @@ export const entityStateSchema = z
      * landing pad — the pad's id. Optional for back-compat with v1 producers.
      */
     padId: z.string().min(1).optional(),
-    hull: finite.min(0).max(1),
-    shields: finite.min(0).max(1),
-    targetId: z.string().min(1).nullable(),
+    hull: finite.min(0).max(1).optional(),
+    shields: finite.min(0).max(1).optional(),
+    targetId: z.string().min(1).nullable().optional(),
     classId: z.string().min(1),
     callsign: z.string().min(1).max(24).optional(),
     livery: liverySchema.optional(),
@@ -159,6 +180,7 @@ export const entityStateSchema = z
      * TASK-34: the owner's inventory, set on player-owned entities (ship +
      * character) — {stacks: {resourceId: amount}, weightUsed}. The client
      * renders the weight bar from its OWN entity within one snapshot.
+     * Omitted while empty (TASK-18): no stacks and zero weight.
      */
     inventory: z
       .object({
@@ -169,7 +191,43 @@ export const entityStateSchema = z
       .optional(),
   })
   .strict();
-export type EntityState = z.infer<typeof entityStateSchema>;
+
+/** The LOOSE wire form (TASK-18): the compressible fields may be absent. */
+export type WireEntityState = z.infer<typeof entityStateSchema>;
+
+/**
+ * The normalized entity view every CONSUMER works with: the wire defaults
+ * re-applied (see the entityStateSchema doc). The client applies them once
+ * per batch at the ingest boundary; producers (the shard's snapshot) emit
+ * the wire form. Tests asserting on raw wire frames should normalize first
+ * or use the `?? <default>` form.
+ */
+export type EntityState = WireEntityState & {
+  vel: Vec3;
+  regime: Regime;
+  targetId: string | null;
+  hull: number;
+  shields: number;
+};
+
+const ZERO_VEL: Vec3 = { x: 0, y: 0, z: 0 };
+
+/**
+ * TASK-18: apply the wire-compression defaults (see entityStateSchema) —
+ * the ONE place consumers turn a loose wire entity into the full shape.
+ * `rot` stays optional (its identity default was the pre-existing contract;
+ * consumers apply it where they need it).
+ */
+export function normalizeEntityState(e: WireEntityState): EntityState {
+  return {
+    ...e,
+    vel: e.vel ?? ZERO_VEL,
+    regime: e.regime ?? 'sublight',
+    targetId: e.targetId ?? null,
+    hull: e.hull ?? 1,
+    shields: e.shields ?? 1,
+  };
+}
 
 export const resourceNodeSchema = z
   .object({

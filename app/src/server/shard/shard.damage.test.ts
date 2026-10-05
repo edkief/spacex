@@ -6,7 +6,8 @@ import { generateStars } from '@shared/galaxy/stars';
 import type { SystemGen } from '@shared/galaxy/types';
 import type { DamageSource } from '@shared/physics/damage';
 import type { Vec3 } from '@shared/physics/vec';
-import type { EntityState, InputPayload } from '@shared/protocol/schemas';
+import { normalizeEntityState } from '@shared/protocol/schemas';
+import type { InputPayload, WireEntityState } from '@shared/protocol/schemas';
 import { padsForSystem } from '@shared/world/pads';
 import { createShipSwapBus, type ShipRowLike } from '@server/shards';
 
@@ -233,8 +234,11 @@ describe('SystemShard.applyHit (TASK-23 step 2)', () => {
     vi.advanceTimersByTime(2 * TICK_DT_MS); // one snapshot
 
     const snapshot = sends.filter((s) => JSON.parse(s).type === 'entity_update').pop()!;
-    const entities = (JSON.parse(snapshot) as { payload: { entities: EntityState[] } }).payload
+    const wire = (JSON.parse(snapshot) as { payload: { entities: WireEntityState[] } }).payload
       .entities;
+    // TASK-18: assert on the NORMALIZED consumer view (the wire form omits
+    // at-rest / full-hull defaults).
+    const entities = wire.map(normalizeEntityState);
     const byId = new Map(entities.map((e) => [e.id, e]));
     // The SAME ship id is now the fresh starter scout, docked at the nearest
     // dock (the client re-renders the wire-stable id — TASK-49).
