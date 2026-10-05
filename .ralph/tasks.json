@@ -377,7 +377,7 @@
     "category": "performance",
     "specFilePath": ".ralph/tasks/TASK-30.1.json",
     "passes": false,
-    "reopened": "TASK-61 (2026-10-05): reference-hardware verification measured the 4 ms transition gate at 15-26 ms p99 (suite + isolated re-run, git 7b55e82) — see app/docs/performance.md FAIL register; TASK-61 stays open until this is green"
+    "reopened": "TASK-61 (2026-10-05): reference-hardware verification measured the 4 ms transition gate at 15-26 ms p99 (suite + isolated re-run, git 7b55e82) — see app/docs/performance.md FAIL register; TASK-61 stays open until this is green",
     "splitFrom": "TASK-30",
     "splitDepth": 1
   },
