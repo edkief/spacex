@@ -68,12 +68,14 @@ function main(): void {
     `TASK-58 render benchmark — AC-1 scene, ${BENCH_DEFAULT_FRAMES} frames (60 s @ 60 Hz), High preset`,
   );
 
+  collectGc();
   const baseline = runRenderBenchmark({ tuned: false });
   log(`\nBASELINE (pre-tuning: legacy 7-mesh ships, per-rock ore, uncapped FX)`);
   log(`  ${fmt(baseline)}`);
 
   const tunedRuns: RenderBenchmarkReport[] = [];
   for (let i = 1; i <= 5; i++) {
+    collectGc();
     const r = runRenderBenchmark({ tuned: true });
     tunedRuns.push(r);
     log(`\nTUNED run ${i}/5`);
