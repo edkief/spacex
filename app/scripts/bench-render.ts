@@ -29,6 +29,19 @@ import { PERF_PROFILES } from '../src/shared/perf';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
+/**
+ * AC-6 repeatability: the measured frame time is main-thread wall time,
+ * so in-run GC pauses count, and each run's disposed scene graph leaves
+ * garbage in the heap for the next run. A full collection before every
+ * run (the script runs with NODE_OPTIONS=--expose-gc, mirroring
+ * bench:transitions) gives all six runs an equivalent starting heap,
+ * keeping the cross-run p95 variance down.
+ */
+function collectGc(): void {
+  const gc = (globalThis as { gc?: () => void }).gc;
+  if (typeof gc === 'function') gc();
+}
+
 function fmt(r: RenderBenchmarkReport): string {
   return [
     `p50=${r.p50Ms}ms`,

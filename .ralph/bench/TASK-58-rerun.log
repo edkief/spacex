@@ -1,0 +1,14 @@
+
+> bench:render
+> NODE_OPTIONS=--expose-gc tsx scripts/bench-render.ts
+
+TASK-58 render benchmark — AC-1 scene, 3600 frames (60 s @ 60 Hz), High preset
+[perf] streaming backlog 13: dropping far-ring generation first (near LOD unaffected) { backlog: 13, farDropped: 37 }
+
+BASELINE (pre-tuning: legacy 7-mesh ships, per-rock ore, uncapped FX)
+  p50=1.118ms p95=1.826ms max=5.967ms spikes>50ms=0 draws=120p95/122max mats=71 tris=90720 fx(flash=1,sets=2,missiles=37) wall=60225ms
+[perf] streaming backlog 13: dropping far-ring generation first (near LOD unaffected) { backlog: 13, farDropped: 37 }
+
+TUNED run 1/5
+  p50=0.865ms p95=1.759ms max=2.891ms spikes>50ms=0 draws=94p95/96max mats=71 tris=87912 fx(flash=1,sets=2,missiles=37) wall=60114ms
+[perf] streaming backlog 13: dropping far-ring generation first (near LOD unaffected) { backlog: 13, farDropped: 37 }

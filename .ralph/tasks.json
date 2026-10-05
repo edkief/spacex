@@ -622,7 +622,7 @@
     "title": "First full 60 s benchmark run — stabilize the committed gates",
     "category": "performance",
     "specFilePath": ".ralph/tasks/TASK-58.1.json",
-    "passes": false,
+    "passes": true,
     "splitFrom": "TASK-58",
     "splitDepth": 1
   },
