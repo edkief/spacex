@@ -631,7 +631,7 @@
     "title": "Meet the >= 30 % delta, document perf.ts with real numbers, close out TASK-58",
     "category": "performance",
     "specFilePath": ".ralph/tasks/TASK-58.2.json",
-    "passes": false,
+    "passes": true,
     "splitFrom": "TASK-58",
     "splitDepth": 1
   },

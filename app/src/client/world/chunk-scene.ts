@@ -81,7 +81,7 @@ export class ChunkScene {
   /** Legacy mode: chunk key → its mesh. Merged mode: ring key → merged mesh. */
   private readonly meshes = new Map<string, THREE.Mesh>();
   /** Merged mode: chunk key → what it is mounted with (membership + dirty source). */
-  private readonly mounted = new Map<string, { ring: LodRing; biome: Biome | null }>();
+  private mounted = new Map<string, { ring: LodRing; biome: Biome | null }>();
   /** Merged mode: last built membership signature (null = rebuild needed). */
   private builtSignature: string | null = null;
   private readonly biomeMaterials = new Map<Biome, THREE.Material>();
@@ -130,11 +130,7 @@ export class ChunkScene {
    * Legacy path: one mesh per mounted chunk; an LOD ring change is a
    * geometry pointer swap on the same mesh (no pop-in, no rebuild).
    */
-  private syncLegacy(
-    playerX: number,
-    playerZ: number,
-    speed: number,
-  ): SceneTriangleStats {
+  private syncLegacy(playerX: number, playerZ: number, speed: number): SceneTriangleStats {
     const wanted = this.streamer.mountable(playerX, playerZ, speed);
     const wantKeys = new Set(wanted.map((w) => w.entry.key));
 
@@ -174,11 +170,7 @@ export class ChunkScene {
    * and rebuilds the merged ring geometries ONLY when it changed — steady
    * state (the AC-1 at-rest window) is a plain membership walk.
    */
-  private syncMerged(
-    playerX: number,
-    playerZ: number,
-    speed: number,
-  ): SceneTriangleStats {
+  private syncMerged(playerX: number, playerZ: number, speed: number): SceneTriangleStats {
     const wanted = this.streamer.mountable(playerX, playerZ, speed);
     const next = new Map<string, { ring: LodRing; biome: Biome | null }>();
     const stats: SceneTriangleStats = { near: 0, mid: 0, far: 0, mounted: 0 };
@@ -215,7 +207,10 @@ export class ChunkScene {
     }
     this.meshes.clear();
 
-    const groups = new Map<string, Array<{ entry: CachedChunk; ring: LodRing; biome: Biome | null }>>();
+    const groups = new Map<
+      string,
+      Array<{ entry: CachedChunk; ring: LodRing; biome: Biome | null }>
+    >();
     for (const [key, info] of this.mounted) {
       const entry = this.streamer.getCached(key);
       if (!entry) continue;
@@ -290,10 +285,7 @@ function signatureFor(membership: Map<string, { ring: LodRing; biome: Biome | nu
     .join(';');
 }
 
-function ringGeometry(
-  entry: CachedChunk,
-  ring: LodRing,
-): THREE.BufferGeometry | null {
+function ringGeometry(entry: CachedChunk, ring: LodRing): THREE.BufferGeometry | null {
   const g = entry.built.geometries;
   if (ring === 'near') return g.near;
   if (ring === 'mid') return g.mid;

@@ -354,20 +354,73 @@ describe('ChunkScene tuned merged path (TASK-58.2, merged: true)', () => {
     expect(meshes(scene)).toHaveLength(exp.groupKeys.size);
   });
 
-  it('handleEvict marks the scene dirty — the next sync rebuilds without the chunk', () => {
-    warmToNearBlock();
-    scene.sync(PX, PZ, 0);
-    const before = scene.mountedCount;
-    scene.handleEvict(chunkKey(0, 0));
-    // Eviction drops the chunk immediately; the mesh rebuild is deferred
-    // to the next sync (the streamer already disposed the geometry).
-    expect(scene.mountedCount).toBe(before - 1);
-    const t = scene.sync(PX, PZ, 0);
-    const exp = expectedMerged(PX, PZ);
-    expect(t.mounted).toBe(before - 1);
-    expect(meshes(scene)).toHaveLength(exp.groupKeys.size);
+  it('LRU eviction rebuilds the ring groups without the evicted chunk', () => {
+    // The live wiring: the streamer disposes an evicted chunk's geometry and
+    // notifies the scene via onChunkEvict. A small LRU cap forces a REAL
+    // eviction (the victim is always a non-active cached chunk — eviction
+    // never touches the active set), so the chunk leaves the mountable set
+    // and the merged groups rebuild from the pre-built mips without it.
+    // (A direct handleEvict() on a still-mountable chunk is deliberately
+    // undone by the next sync in the merged path: membership is
+    // streamer-driven every frame — the streamer owns the lifecycle.)
+    // The scene must exist before the streamer (its onChunkEvict callback
+    // targets it) but the streamer must exist before the scene — a mutable
+    // holder bridges the cycle (eviction only fires in update(), long
+    // after both are wired).
+    const evictSceneRef: { current: ChunkScene | null } = { current: null };
+    const evictedKeys: string[] = [];
+    const evictStreamer = new ChunkStreamer(SEED, PLANET, {
+      lruCap: 16,
+      onChunkEvict: (key) => {
+        evictedKeys.push(key);
+        evictSceneRef.current?.handleEvict(key);
+      },
+    });
+    const evictScene = new ChunkScene(evictStreamer, {
+      monitor: new FrameMonitor(),
+      reportBudget: false,
+    });
+    evictSceneRef.current = evictScene;
+
+    // Frame-slice until the near block is ready AND the LRU has evicted
+    // (cached > lruCap with a non-active victim).
+    let stats = evictStreamer.update(PX, PZ, 0);
+    let frames = 0;
+    while (evictedKeys.length === 0 || !evictStreamer.isReady(chunkKey(0, 0))) {
+      if (++frames > MAX_WAIT_FRAMES) {
+        throw new Error(
+          `eviction wait stuck after ${MAX_WAIT_FRAMES} frames (cached=${stats.ready}, evicted=${evictedKeys.length})`,
+        );
+      }
+      stats = evictStreamer.update(PX, PZ, 0);
+    }
+    expect(evictedKeys.length).toBeGreaterThan(0);
+
+    // The evicted chunk is gone from the cache…
+    for (const key of evictedKeys) expect(evictStreamer.getCached(key)).toBeUndefined();
+    // …and the next sync agrees with the streamer's mountable set (which no
+    // longer contains it): the merged groups carry the re-derived tally and
+    // mesh count.
+    const t = evictScene.sync(PX, PZ, 0);
+    const exp = { near: 0, mid: 0, far: 0, mounted: 0 };
+    const groupKeys = new Set<string>();
+    for (const w of evictStreamer.mountable(PX, PZ, 0)) {
+      const g =
+        w.ring === 'near'
+          ? w.entry.built.geometries.near
+          : w.ring === 'mid'
+            ? w.entry.built.geometries.mid
+            : w.entry.built.geometries.far;
+      if (!g) continue;
+      exp[w.ring] += RING_TRIANGLES[w.ring];
+      exp.mounted += 1;
+      groupKeys.add(`${w.ring}:${w.entry.built.chunk?.biome ?? 'far'}`);
+    }
+    expect(t).toEqual(exp);
+    expect(evictScene.mountedCount).toBe(exp.mounted);
+    expect(meshes(evictScene)).toHaveLength(groupKeys.size);
     // Unknown keys are a no-op (the streamer owns disposal).
-    expect(() => scene.handleEvict('999,999')).not.toThrow();
+    expect(() => evictScene.handleEvict('999,999')).not.toThrow();
   });
 
   it('reports the per-ring tally to the monitor and the surface-tris gauge', () => {
