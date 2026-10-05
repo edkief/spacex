@@ -14,6 +14,7 @@ const MOCK_STATS: FrameStats = {
   frameTimeP50Ms: 16.21,
   frameTimeP95Ms: 22.35,
   frameTimeP99Ms: 31.02,
+  maxFrameMs: 31.02,
   drawCalls: 12,
   triangles: 84_210,
   entities: 7,
