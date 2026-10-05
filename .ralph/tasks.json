@@ -654,7 +654,7 @@
     "title": "16-player 30-minute load/stability test",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-18.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-61",

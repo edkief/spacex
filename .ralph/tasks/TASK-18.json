@@ -17,25 +17,25 @@
       "step": 1,
       "description": "Load harness",
       "details": "tests/load/harness.ts: client role scripts (deterministic input patterns), RTT measurement (send input with a monotonic counter, match the server's lastAppliedSeq echo, timestamp delta), the snapshot rate counter, the entity-count consistency checker (per client: a set of entity ids, assert no dups + expected membership).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Scenario run",
       "details": "The 5-minute scenario per acceptance (roles + the t=2 min reconnect wave + the 17th-client cap probe at t=1 min); collect all metrics into a JSON report (printed + written to a tmp file).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Assertions + tuning loop",
       "details": "Assert every acceptance metric from the report; if the server fails (RTT or tick rate), take the TASK-60 per-phase table, apply the next optimization, re-run — repeat until green (the load test is the gate that validates the in-process tuning under real I/O).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Commit",
       "details": "load (5 min) + load:smoke (30 s) scripts; record the final metrics for TASK-61; commit.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-17", "TASK-36", "TASK-47", "TASK-60"],

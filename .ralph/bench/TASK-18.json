@@ -1,0 +1,472 @@
+{
+  "mode": "full",
+  "startedAt": "2026-10-05T18:07:32.237Z",
+  "durationMs": 300000,
+  "systems": {
+    "A": "9fd8374aba96ae4d",
+    "B": "951a877c32dd9e1c"
+  },
+  "assertions": [
+    {
+      "name": "snapshot-rate",
+      "pass": true,
+      "detail": "min 10.00 Hz across 16 clients (>= 9.5)"
+    },
+    {
+      "name": "cap-17th",
+      "pass": true,
+      "detail": "{\"rejected\":true,\"code\":\"system-full\",\"systemAConnections\":16,\"totalInShards\":16}"
+    },
+    {
+      "name": "no-starvation",
+      "pass": true,
+      "detail": "worst snapshot gap 230 ms (< 2000)"
+    },
+    {
+      "name": "p95-msg-size",
+      "pass": true,
+      "detail": "p95 15281 B (< 16384)"
+    },
+    {
+      "name": "rtt-p95",
+      "pass": true,
+      "detail": "flying p95 92.3 ms (< 100), p50 50.9 ms, n=23936"
+    },
+    {
+      "name": "tick-rate",
+      "pass": true,
+      "detail": "20.00 Hz (>= 15), max stall streak 1 (<= 5)"
+    },
+    {
+      "name": "no-kicks",
+      "pass": true,
+      "detail": "kicked=[], unhandledRejections=0"
+    },
+    {
+      "name": "heap",
+      "pass": true,
+      "detail": "delta -0.1 MB (< 30)"
+    },
+    {
+      "name": "reconnect",
+      "pass": true,
+      "detail": "gaps=[20,4,6,4]ms, consistency=[{\"client\":8,\"dups\":0,\"missingShips\":0},{\"client\":9,\"dups\":0,\"missingShips\":0},{\"client\":10,\"dups\":0,\"missingShips\":0},{\"client\":11,\"dups\":0,\"missingShips\":0}]"
+    }
+  ],
+  "clients": [
+    {
+      "id": 0,
+      "role": "flying",
+      "snapshots": 3041,
+      "snapshotRateHz": 10,
+      "maxSnapshotGapMs": 181,
+      "p50MsgBytes": 304,
+      "p95MsgBytes": 15283,
+      "maxMsgBytes": 16237,
+      "rtt": {
+        "p50": 50.05226599999878,
+        "p95": 91.47807100001955,
+        "max": 121.53736400000344,
+        "n": 2992
+      },
+      "kicks": [],
+      "unexpectedErrors": [],
+      "rejoinGapsMs": []
+    },
+    {
+      "id": 1,
+      "role": "flying",
+      "snapshots": 3041,
+      "snapshotRateHz": 10,
+      "maxSnapshotGapMs": 181,
+      "p50MsgBytes": 304,
+      "p95MsgBytes": 15283,
+      "maxMsgBytes": 16237,
+      "rtt": {
+        "p50": 50.159078000011505,
+        "p95": 91.63302800001111,
+        "max": 121.47386100000585,
+        "n": 2992
+      },
+      "kicks": [],
+      "unexpectedErrors": [],
+      "rejoinGapsMs": []
+    },
+    {
+      "id": 2,
+      "role": "flying",
+      "snapshots": 3040,
+      "snapshotRateHz": 10,
+      "maxSnapshotGapMs": 181,
+      "p50MsgBytes": 304,
+      "p95MsgBytes": 15284,
+      "maxMsgBytes": 16237,
+      "rtt": {
+        "p50": 50.40204800000356,
+        "p95": 91.88774400000693,
+        "max": 121.54673500001081,
+        "n": 2992
+      },
+      "kicks": [],
+      "unexpectedErrors": [],
+      "rejoinGapsMs": []
+    },
+    {
+      "id": 3,
+      "role": "flying",
+      "snapshots": 3039,
+      "snapshotRateHz": 10,
+      "maxSnapshotGapMs": 181,
+      "p50MsgBytes": 304,
+      "p95MsgBytes": 15284,
+      "maxMsgBytes": 16237,
+      "rtt": {
+        "p50": 50.67415599999367,
+        "p95": 92.1456799999869,
+        "max": 121.63800400000764,
+        "n": 2992
+      },
+      "kicks": [],
+      "unexpectedErrors": [],
+      "rejoinGapsMs": []
+    },
+    {
+      "id": 4,
+      "role": "flying",
+      "snapshots": 3038,
+      "snapshotRateHz": 10,
+      "maxSnapshotGapMs": 181,
+      "p50MsgBytes": 304,
+      "p95MsgBytes": 15284,
+      "maxMsgBytes": 16237,
+      "rtt": {
+        "p50": 50.93196000001626,
+        "p95": 92.36420899999212,
+        "max": 121.7336370000121,
+        "n": 2992
+      },
+      "kicks": [],
+      "unexpectedErrors": [],
+      "rejoinGapsMs": []
+    },
+    {
+      "id": 5,
+      "role": "flying",
+      "snapshots": 3037,
+      "snapshotRateHz": 10,
+      "maxSnapshotGapMs": 181,
+      "p50MsgBytes": 304,
+      "p95MsgBytes": 15284,
+      "maxMsgBytes": 16237,
+      "rtt": {
+        "p50": 51.17858999999589,
+        "p95": 92.57947599998442,
+        "max": 121.81952000000456,
+        "n": 2992
+      },
+      "kicks": [],
+      "unexpectedErrors": [],
+      "rejoinGapsMs": []
+    },
+    {
+      "id": 6,
+      "role": "flying",
+      "snapshots": 3037,
+      "snapshotRateHz": 10,
+      "maxSnapshotGapMs": 181,
+      "p50MsgBytes": 304,
+      "p95MsgBytes": 15284,
+      "maxMsgBytes": 16237,
+      "rtt": {
+        "p50": 51.38112399994861,
+        "p95": 92.80796299999929,
+        "max": 121.90401800000109,
+        "n": 2992
+      },
+      "kicks": [],
+      "unexpectedErrors": [],
+      "rejoinGapsMs": []
+    },
+    {
+      "id": 7,
+      "role": "flying",
+      "snapshots": 3036,
+      "snapshotRateHz": 10,
+      "maxSnapshotGapMs": 181,
+      "p50MsgBytes": 304,
+      "p95MsgBytes": 15284,
+      "maxMsgBytes": 16237,
+      "rtt": {
+        "p50": 51.60679200000595,
+        "p95": 93.00974099998712,
+        "max": 121.98585000001185,
+        "n": 2992
+      },
+      "kicks": [],
+      "unexpectedErrors": [],
+      "rejoinGapsMs": []
+    },
+    {
+      "id": 8,
+      "role": "foot",
+      "snapshots": 3034,
+      "snapshotRateHz": 10,
+      "maxSnapshotGapMs": 181,
+      "p50MsgBytes": 301,
+      "p95MsgBytes": 15087,
+      "maxMsgBytes": 16237,
+      "rtt": {
+        "p50": 50.175921000001836,
+        "p95": 90.76351399999112,
+        "max": 122.0656650000019,
+        "n": 2992
+      },
+      "kicks": [],
+      "unexpectedErrors": [],
+      "rejoinGapsMs": [
+        20
+      ]
+    },
+    {
+      "id": 9,
+      "role": "foot",
+      "snapshots": 3034,
+      "snapshotRateHz": 10,
+      "maxSnapshotGapMs": 181,
+      "p50MsgBytes": 301,
+      "p95MsgBytes": 15087,
+      "maxMsgBytes": 16237,
+      "rtt": {
+        "p50": 50.43375900000683,
+        "p95": 90.9090889999643,
+        "max": 122.15014299999166,
+        "n": 2992
+      },
+      "kicks": [],
+      "unexpectedErrors": [],
+      "rejoinGapsMs": [
+        4
+      ]
+    },
+    {
+      "id": 10,
+      "role": "foot",
+      "snapshots": 3033,
+      "snapshotRateHz": 10,
+      "maxSnapshotGapMs": 136,
+      "p50MsgBytes": 301,
+      "p95MsgBytes": 15087,
+      "maxMsgBytes": 16237,
+      "rtt": {
+        "p50": 50.73738000000594,
+        "p95": 91.12103200002457,
+        "max": 122.23177600000054,
+        "n": 2992
+      },
+      "kicks": [],
+      "unexpectedErrors": [],
+      "rejoinGapsMs": [
+        6
+      ]
+    },
+    {
+      "id": 11,
+      "role": "foot",
+      "snapshots": 3033,
+      "snapshotRateHz": 10,
+      "maxSnapshotGapMs": 136,
+      "p50MsgBytes": 301,
+      "p95MsgBytes": 15087,
+      "maxMsgBytes": 16237,
+      "rtt": {
+        "p50": 50.97784700000193,
+        "p95": 91.37807199999224,
+        "max": 122.32217099999252,
+        "n": 2992
+      },
+      "kicks": [],
+      "unexpectedErrors": [],
+      "rejoinGapsMs": [
+        4
+      ]
+    },
+    {
+      "id": 12,
+      "role": "warper",
+      "snapshots": 3031,
+      "snapshotRateHz": 10,
+      "maxSnapshotGapMs": 230,
+      "p50MsgBytes": 306,
+      "p95MsgBytes": 15450,
+      "maxMsgBytes": 16237,
+      "rtt": {
+        "p50": 0,
+        "p95": 0,
+        "max": 0,
+        "n": 0
+      },
+      "kicks": [],
+      "unexpectedErrors": [],
+      "rejoinGapsMs": []
+    },
+    {
+      "id": 13,
+      "role": "warper",
+      "snapshots": 3031,
+      "snapshotRateHz": 10,
+      "maxSnapshotGapMs": 177,
+      "p50MsgBytes": 306,
+      "p95MsgBytes": 15450,
+      "maxMsgBytes": 16566,
+      "rtt": {
+        "p50": 0,
+        "p95": 0,
+        "max": 0,
+        "n": 0
+      },
+      "kicks": [],
+      "unexpectedErrors": [],
+      "rejoinGapsMs": []
+    },
+    {
+      "id": 14,
+      "role": "idle",
+      "snapshots": 3030,
+      "snapshotRateHz": 10,
+      "maxSnapshotGapMs": 136,
+      "p50MsgBytes": 305,
+      "p95MsgBytes": 15387,
+      "maxMsgBytes": 16237,
+      "rtt": {
+        "p50": 0,
+        "p95": 0,
+        "max": 0,
+        "n": 0
+      },
+      "kicks": [],
+      "unexpectedErrors": [],
+      "rejoinGapsMs": []
+    },
+    {
+      "id": 15,
+      "role": "idle",
+      "snapshots": 3029,
+      "snapshotRateHz": 10,
+      "maxSnapshotGapMs": 136,
+      "p50MsgBytes": 305,
+      "p95MsgBytes": 15387,
+      "maxMsgBytes": 16237,
+      "rtt": {
+        "p50": 0,
+        "p95": 0,
+        "max": 0,
+        "n": 0
+      },
+      "kicks": [],
+      "unexpectedErrors": [],
+      "rejoinGapsMs": []
+    }
+  ],
+  "aggregate": {
+    "p50MsgBytes": 303,
+    "p95MsgBytes": 15281,
+    "maxMsgBytes": 16566,
+    "flyingRtt": {
+      "p50": 50.91044099999999,
+      "p95": 92.27898400000413,
+      "max": 121.98585000001185,
+      "n": 23936
+    },
+    "tickHz": 20,
+    "maxStallStreak": 1,
+    "heapStartMb": 38.3,
+    "heapEndMb": 38.5,
+    "heapDeltaMb": 0.1,
+    "unhandledRejections": 0,
+    "capProbe": {
+      "rejected": true,
+      "code": "system-full",
+      "systemAConnections": 16,
+      "totalInShards": 16
+    },
+    "warps": [
+      {
+        "t": 90076.54070000001,
+        "to": "951a877c32dd9e1c",
+        "result": "ok"
+      },
+      {
+        "t": 90076.54070000001,
+        "to": "951a877c32dd9e1c",
+        "result": "ok"
+      },
+      {
+        "t": 150006.197448,
+        "to": "9fd8374aba96ae4d",
+        "result": "ok"
+      },
+      {
+        "t": 150006.197448,
+        "to": "9fd8374aba96ae4d",
+        "result": "ok"
+      },
+      {
+        "t": 210010.88055499998,
+        "to": "951a877c32dd9e1c",
+        "result": "ok"
+      },
+      {
+        "t": 210010.88055499998,
+        "to": "951a877c32dd9e1c",
+        "result": "ok"
+      },
+      {
+        "t": 270018.29853900004,
+        "to": "9fd8374aba96ae4d",
+        "result": "ok"
+      },
+      {
+        "t": 270018.29853900004,
+        "to": "9fd8374aba96ae4d",
+        "result": "ok"
+      }
+    ],
+    "reconnect": {
+      "gapsMs": [
+        20,
+        4,
+        6,
+        4
+      ],
+      "consistency": [
+        {
+          "client": 8,
+          "dups": 0,
+          "missingShips": 0
+        },
+        {
+          "client": 9,
+          "dups": 0,
+          "missingShips": 0
+        },
+        {
+          "client": 10,
+          "dups": 0,
+          "missingShips": 0
+        },
+        {
+          "client": 11,
+          "dups": 0,
+          "missingShips": 0
+        }
+      ]
+    },
+    "tickHistogram": {
+      "p95Ms": 6.04,
+      "trimmedP95Ms": 5.87,
+      "min": 0.46128600000520237,
+      "max": 29.89236999998684,
+      "samples": 2048
+    }
+  }
+}
