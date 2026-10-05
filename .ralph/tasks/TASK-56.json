@@ -15,25 +15,25 @@
       "step": 1,
       "description": "Claims screen",
       "details": "ClaimsScreen: the panel per spec; the availability check: GET /api/callsigns/availability?callsign= (new tiny endpoint, debounced 500 ms, rate-limited via TASK-65); on claim: POST /api/callsigns → store the token (localStorage 'drift.token') → the app boot goes straight to join (home system from the response).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Boot flow + session restore",
       "details": "app boot: token? → /api/session (200 → join last/home system; 401 → clear token → claims with the expired message) → the join flow (TASK-12) → the spawn is the home-system dock (the starter ship is already docked there, TASK-20).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Guidance state machine",
       "details": "src/client/ui/guidance.ts: steps + event detection (subscribes to: docked state, disembark, first pickup, first sale); the furthest-reached step in localStorage ('drift.guidance'); the hint line component (bottom-center, X to dismiss all); the 'You are drifting' finale auto-hides after 5 s.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Tests + e2e",
       "details": "All listed; the two e2e flows (fresh claim + refresh restore). Run full suite + e2e.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-10", "TASK-20", "TASK-53", "TASK-51"],

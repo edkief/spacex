@@ -15,7 +15,7 @@ export class ClaimPage extends BasePage {
 
   constructor(page: ConstructorParameters<typeof BasePage>[0], base: string) {
     super(page, base);
-    this.callsignInput = page.getByLabel(/callsign/i);
+    this.callsignInput = page.locator('#callsign-input');
     this.joinButton = page.getByRole('button', { name: /claim/i });
     this.playerList = page.locator('#player-list');
   }

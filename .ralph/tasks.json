@@ -615,7 +615,7 @@
     "title": "First-run experience: single load, callsign, onboarding",
     "category": "ui-ux",
     "specFilePath": ".ralph/tasks/TASK-56.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-58",
