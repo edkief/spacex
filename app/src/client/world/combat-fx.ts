@@ -296,7 +296,9 @@ export class CombatFx {
 
   /** The stretched-lifetime switch (e2e: `documentElement.dataset.fxSlow`). */
   private stretched(): boolean {
-    return this.slow || document?.documentElement?.dataset.fxSlow === '1';
+    // `typeof` guard (not `?.`): `document` is UNDECLARED in Node bench runs.
+    if (this.slow) return true;
+    return typeof document !== 'undefined' && document.documentElement?.dataset?.fxSlow === '1';
   }
 
   /** One laser shot: additive line nose→to (60 ms) + a muzzle spark. */
