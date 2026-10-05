@@ -11,6 +11,8 @@
     "snapshot:update": "tsx scripts/gen-galaxy-snapshots.ts",
     "snapshot:update:flight": "tsx scripts/gen-flight-fixtures.ts",
     "test:e2e": "playwright test --config playwright.e2e.config.ts",
+    "load": "NODE_OPTIONS=--expose-gc tsx tests/load/harness.ts",
+    "load:smoke": "NODE_OPTIONS=--expose-gc tsx tests/load/harness.ts --smoke",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . && prettier --check .",
     "start": "node dist-server/index.js",
