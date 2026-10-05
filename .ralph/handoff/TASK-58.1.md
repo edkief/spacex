@@ -1,40 +1,49 @@
-# TASK-58.1 handoff (iteration 23, ran out of time ~04:21)
+# TASK-58.1 handoff (iteration 24, ran out of time ~05:12)
 
 ## Status
-Step 1 (full green: typecheck / lint / 178-file unit suite) is DONE and committed (e7edb34). Step 2 got its FIRST EVER end-to-end `npm run bench:render` run — it completed all 6 runs but exited 1, and I diagnosed WHY (three distinct driver bugs, none of them the committed gates). Step 3 (gates green + numbers committed) not started.
+Steps 1-2 are DONE and verified: all three driver bugs fixed, and the first truly honest 60 s `npm run bench:render` was executed and recorded. Three of the five committed gates are now green (no-spike, p95 spread 8.5 %, triangles 88 k). The two budget gates — draws < 120 (measured 133) and materials < 40 (measured 72) — fail on the REAL AC-1 scene under the committed FX/scene design: this is the DECIDE candidate the previous handoff flagged, not a driver bug. Step 3 (gates green + numbers committed) not done.
 
 ## Done
-- **Step 1 complete (committed e7edb34)**: fixed 23 eslint errors (mostly unused imports/vars across bench driver, tests, shared modules); added `argsIgnorePattern: '^_'` to eslint.config.js (the underscore-arg style in settings-panel tests is pre-existing codebase style — the config lacked the convention, so DON'T rename those args); 2 remote-entities tests rewritten to assert the merged-ship (TASK-58) vertex-color livery/trim semantics (`shipVertexColors`/`colorIs` helpers, linear-working-space compare). Verified: `npm run typecheck` + `npm run lint` + `npm run test` → 178 files, 1593 passed / 1 skipped (ran twice, green both times).
-- **First real 60 s bench run executed** (`npm run bench:render`, log was /tmp/bench-render-1.log, uncommitted record in `.ralph/bench/TASK-58.json` — `pass: false`, will be overwritten by a later run). Results:
-  - BASELINE: p95=0.283ms max=0.391ms spikes=0 draws=175p95/177max mats=90 tris=91530 wall≈1235ms
-  - TUNED (all 5): p95 0.262–0.323ms, spikes=0, draws=149p95/151max, mats=90, tris=88722, wall≈0.7s each
-  - FAILURES: draws 151 ≥ 120 and materials 90 ≥ 40 (every tuned run) + p95 spread 20.9 % ≥ 20 %.
+All driver fixes are in `app/src/client/test/renderBenchmark.ts` ONLY (uncommitted; no combat-fx / chunk / tally-module changes):
+1. **60 Hz pacing** — new `paceToRealTime` option (default `true`) + `sleepUntil()` (Atomics.wait on a SharedArrayBuffer slot, re-checked against the deadline). Frame N starts at `loopStart + N/60 s`; sleep is outside the begin/end-frame window. Each 3600-frame run now takes ~60.1 s wall.
+2. **FX slow-mo stuck** — fixed by pacing alone (sim time == real time now). Debris `sets=2` (was 40), missiles bounded. NO combat-fx.ts change needed or made.
+3. **Frustum-culled tally** — the renderer.info stand-in now builds the camera frustum per frame (`setFromProjectionMatrix` from `projectionMatrix * matrixWorldInverse` after `updateMatrixWorld()`) and counts only draw objects whose `boundingSphere` intersects (respects `frustumCulled === false`), matching three.js. Draws fell 151→133 vs the unculled scene-graph tally.
+4. **Determinism** — missile spawn phases from `new Rng(seedFromString(`${seed}:${starId}:missiles`))` (`@shared/random`); the `Math.random()` is gone.
+
+Full bench run executed (log `/tmp/bench-render-2.log`; recorded to `.ralph/bench/TASK-58.json`, `pass: false`):
+- BASELINE: p50=0.559 p95=1.059 max=3.622 spikes=0 draws=157p95/159max mats=72 tris=90794 wall=60.2 s
+- TUNED 1-5: p95=1.689/1.689…1.841 ms, spikes=0 every run, draws=131p95/133max, mats=72, tris=87986, wall≈60.1 s each
+- p95 spread across 5 tuned: **8.5 % < 20 % ✓** (was 20.9 % noise unpaced)
+- FAILURES (every tuned run): **draws 133 ≥ 120** and **mats 72 ≥ 40** only.
+- Delta note (NOT a gate this task — TASK-58.2's): p95 went 1.059→1.689 ms, i.e. the legacy baseline is FASTER in main-thread ms on this headless proxy while winning draws (157→131). The CPU proxy favors the legacy path here; don't chase it this task.
 
 ## Working tree
-- Committed: e7edb34 (all of step 1). Since then: `app/src/client/world/remote-entities.test.ts` prettier-reformatted only (no functional change, lint green) — uncommitted, and untracked `.ralph/bench/TASK-58.json` (failed-run record).
-- Everything builds: typecheck ✓, lint ✓, unit tests ✓ (full suite, 2×). Debug instrumentation I used was REMOVED from `app/src/client/test/renderBenchmark.ts` before this handoff; the file is back to its committed state + the step-1 lint fixes.
-- Kill nothing: no dev server or background process is left running.
+- Committed so far: e5ac88f (prev WIP: prettier refresh + first unpaced bench record).
+- Uncommitted since: `app/src/client/test/renderBenchmark.ts` (all fixes above), `.ralph/bench/TASK-58.json` (paced-run record, `pass: false`), this handoff.
+- Builds/verified: `npm run typecheck` ✓, `npm run lint` ✓, CI bench test ✓ (~11 s, paced). Full `npm run test`: 177 files / 1592 passed / 1 skipped plus ONE flaky failure in `src/client/ui/combat-hud/combat-hud.test.tsx` ("per-frame projection stays under the hud budget", line 400 `stats.warnings` — a single rAF tick beat the ~1 ms hud budget on a machine hot after the 7-min bench; passes in isolation, not a regression from this diff).
+- No background processes left (bench finished; no dev server).
 
 ## Next steps
-The run exposed three driver bugs (fix ONLY in `app/src/client/test/renderBenchmark.ts` / `scripts/bench-render.ts`; NO scene tuning, NO new passes):
+The remaining failures are structural, not driver bugs:
+- **mats=72 vs < 40**: the FX pool recycles material *objects* but each live FX piece holds its own material *instance* — 16 tracers × (body+trail) = 32 instances at steady state alone, plus debris pieces, ships, biomes, discs, sky/stars. Unreachable below 40 without either sharing ONE material instance per FX type (a `combat-fx.ts` change = new FX tuning, out of this task's scope) or re-scoping what "materials" counts.
+- **draws=133 vs < 120**: ~40 chunk meshes surviving frustum cull (13 active + far-ring horizon impostors) + 16 merged ships + 32 tracer objects + debris + ore instances + hazard quads + sky/stars.
 
-1. **The driver does not pace frames to 60 Hz.** 60 s of simulation runs in ~0.7–1.2 s wall (each `runRenderBenchmark` call: 3600 frames back-to-back). Spec expects ~60 s wall/run. Consequences: (a) frame times are sub-ms timer noise → the p95-spread gate (AC-6) compares 0.262–0.323 ms values, so 20.9 % "spread" is noise; (b) FX time is decoupled from real time (below). FIX: pace the loop in `runRenderBenchmark` — target wall time per frame `frameIndex / BENCH_FRAME_HZ * 1000` from run start (sleep/spin between frames, `setTimeout` or a busy `Atomics.wait`/`Date.now()` loop; ~16.7 ms/frame). Keep `wallTimeoutMs` (180 s/run) — it will now be realistic. Re-run after this; p95/spread/spikes become meaningful and the spread gate should stop tripping.
-2. **FX slow-mo is stuck ON in the bench.** `CombatFx.frame(simMs)` advances its virtual `fxTime` by `simMs` deltas, but `armSlowMo()`/`timeScale` read `performance.now()` (real time). Unpaced, explosions fire every 3 s SIM ≈ 50 ms REAL, so the 1 s real-time slow-mo window never expires → `timeScale` stays 0.3 the whole run → 3 s-FX-time debris lives ≈10 s of sim → the capped 4 debris SETS (40 pieces) + 16 tracer pairs (32 objects) sit in the scene permanently. This is why draws grow 90→151 and materials 29→90 over the run (I measured per-frame tallies: f=29 calls=90/mats=29 → f=599 calls=138/mats=77, still climbing at 3600). Fixing (1) makes sim-time == real-time and this resolves itself; verify after the re-run.
-3. **Scene is 50 mounted chunks, not the AC-1 "13 chunks".** Warm-up asserts `mountedCount >= BENCH_MOUNT_TARGET (13)` but the streamer's steady state at high-preset LOD radii (512/2048/8000 m) is `mountedCount = 50` (incl. far-ring impostors) — "streaming backlog 13 / farDropped 37" log lines confirm. The 50-chunk tally (≈42 calls / 9 mats for the chunk scene alone, measured at frame 359) plus FX is what pushes over the < 120 / < 40 budgets. Decide after re-running with pacing: the budgets in `PERF_PROFILES.high.budgets` were "bench-run-1"-derived placeholders (perf.ts comments say so), and this task's gates are the *committed* ones in `scripts/bench-render.ts` — if the paced, steady-state scene still exceeds draws < 120 / mats < 40, the honest fix within scope is either (a) making the bench scene match its documented AC-1 description (e.g. cap mounts at the 13 near/mid chunks, or frustum-cull the tally like a real renderer — I prototyped a frustum-culled tally variant, it was removed; far chunks behind the camera were ~35 of the 50) or (b) revisiting which numbers the gates should compare (that touches the "no new tuning" line — if truly ambiguous, that is the one DECIDE candidate). Do NOT merge chunk meshes or add passes (TASK-58.2's job).
+This is the DECIDE the previous handoff predicted. Options for the human:
+- **(A) Revise the two budgets** in `app/src/shared/perf.ts` `PERF_PROFILES.high.budgets` to the measured steady state (draws ~140, mats ~80) — perf.ts comments already say the numbers are "bench-run-1" placeholders; touches the "no new tuning" line, hence DECIDE.
+- **(B) Match the bench scene to AC-1's documented description**: cap the mountable set at the 13 active chunks (driver-side: stop adding far-ring impostor entries from `streamer.mountable()` in the driver's warm-up/sync) — in scope as a driver fix; frustum cull + 13 chunks may get draws < 120, but mats still needs the FX-instance question.
+- **(C) Commit the run as-is** (exit-1 record) and hand the two budgets to TASK-58.2.
+If told (B): edit the driver's `chunkScene.sync` input or filter `mountable()` results to the active set, re-run `npm run bench:render` (~7 min) and see where draws/mats land; if (A): edit the two numbers + comment, re-run, exit 0.
 
-Also noted (minor, in scope): missile spawn phases use `Math.random()` in the driver (renderBenchmark.ts, `missiles.push({ phase: Math.random() * ... })`) — a benchmark should be deterministic; seed it (e.g. `Rng` from `@shared/random`).
-
-Then: `npm run bench:render` until exit 0; keep the 10 s CI test green (`npx vitest run src/client/test/render-benchmark.test.ts`); if frames > 50 ms appear once paced and GC is the cause, mirror `NODE_OPTIONS=--expose-gc` into the `bench:render` package.json script (the task spec explicitly allows this); commit `.ralph/bench/TASK-58.json`; final `npm run test`; close out (passes:true, LOG.md, tasks.json steps).
+Then, to close: `npm run bench:render` until exit 0 (~7 min); `npx vitest run src/client/test/render-benchmark.test.ts` green; final `npm run test` (~2 min; if combat-hud flakes, re-run that file in isolation and note it); set `passes: true` + all three step flags in `.ralph/tasks.json` / `TASK-58.1.json`; LOG.md entry; delete this handoff; commit; output the promise.
 
 ## Dead ends
-- Sub-millisecond "frame times" are not a machine problem — the driver is unpaced (see Next steps 1); don't chase GC or machine perf before pacing.
-- The materials=90 baseline-vs-tuned parity is NOT a tally bug: legacy per-ship materials (16×3=48) vs merged (3 shared) is real, but FX + 50 chunks + labels drown the difference; per-subtree tallies (measured) attribute it as above.
-- Don't rename the `_url`/`_init` args in settings-panel.test.tsx — the lint fix belongs in eslint config (done in e7edb34).
-- `document?.` in Node code throws ReferenceError (old finding, still true) — keep `typeof` guards.
+- (Carried over) Sub-millisecond frame times were the unpaced driver (now fixed). Don't rename `_url`/`_init` args in settings-panel tests (fix lived in eslint config). `document?.` in Node code throws ReferenceError — keep `typeof` guards in bench-path code.
+- **New**: pacing + frustum culling CANNOT get materials < 40 — the committed FX pool design allocates one material instance per live FX piece (32 tracer instances at steady state). Don't try to "fix" the material tally to share pooled instances; that would change what the number measures.
+- **New**: `combat-hud.test.tsx` hud-budget test flakes when the machine is hot (right after the 7-min bench). Not a regression — verify in isolation before touching it.
+- **New**: do not chase the p95 DELTA (legacy baseline is faster in CPU-ms on this headless proxy) — the delta is TASK-58.2's and is not a failure gate here.
 
 ## How to verify
-1. `cd app && npm run typecheck && npm run lint` → green (currently so).
-2. `npm run test` → 178 files, 1593 passed / 1 skipped, ~2 min (currently so).
-3. Paced driver re-run: `npm run bench:render` (~8–10 min now that runs are paced) — watch the printed table: want spikes=0, draws<120, mats<40, tris<500k per tuned run, spread<20 %, exit 0.
-4. `npx vitest run src/client/test/render-benchmark.test.ts` (10 s CI variant) stays green.
-5. `.ralph/bench/TASK-58.json` shows `pass: true` with baseline + 5 tuned runs → commit it.
+1. `cd app && npm run typecheck && npm run lint` → green.
+2. `npx vitest run src/client/test/render-benchmark.test.ts` → green in ~11 s (paced 10 s variant).
+3. `npm run bench:render` → ~7 min; current state exit 1 with ONLY the draws/mats gate failures (numbers in "Done" above).
+4. `.ralph/bench/TASK-58.json` holds the paced baseline + 5 tuned runs (`pass: false` until a gate fix).

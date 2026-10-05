@@ -22,6 +22,17 @@
  * numbers are a proxy (AC-2: the ≥ 30 % worst-case delta is the
  * machine-independent success; absolute fps is TASK-61's).
  *
+ * Paced to REAL time (60 s of sim = 60 s of wall by default,
+ * `paceToRealTime`): frame times then measure actual main-thread work, and
+ * the FX layer's real-time slow-mo window (performance.now) stays
+ * proportional to the simulated combat — an unpaced run fired every 3 s of
+ * SIM in 50 ms of REAL, so the 1 s slow-mo never expired and the debris
+ * tail sat in the scene for the whole run.
+ *
+ * The tally is FRUSTUM-culled like the renderer (three.js frustum-culls
+ * every mesh/line/points object per frame; renderer.info counts what was
+ * actually drawn, not what is in the scene graph).
+ *
  * `tuned: true` (default) runs the TASK-58 pipeline (merged ships,
  * instanced ore, the FX material pool, the profile's FX caps);
  * `tuned: false` is the PRE-tuning baseline (legacy 7-mesh ships, per-rock
@@ -34,6 +45,7 @@ import * as THREE from 'three';
 import { generateSystem } from '@shared/galaxy/system';
 import type { Vec3 } from '@shared/physics/vec';
 import { padsForSystem } from '@shared/world/pads';
+import { Rng, seedFromString } from '@shared/random';
 import { PERF_PROFILES, type FxCaps } from '@shared/perf';
 import type { EntityState, Livery } from '@shared/protocol/schemas';
 import { ChunkStreamer } from '@client/world/chunks';
@@ -95,6 +107,12 @@ export interface RenderBenchmarkOptions {
   monitor?: FrameMonitor;
   /** Wall-clock cap (fail fast, default 180 s). */
   wallTimeoutMs?: number;
+  /**
+   * Pace the loop to real time (default true — 60 s of sim = 60 s of wall).
+   * Required for the FX slow-mo window (real-time) to stay proportional to
+   * the simulated combat and for the frame times to measure actual work.
+   */
+  paceToRealTime?: boolean;
   /** AC1-style per-frame hook (optional). */
   onFrame?: (frameIndex: number, stats: FrameStats) => void;
 }
@@ -291,6 +309,8 @@ export function runRenderBenchmark(options: RenderBenchmarkOptions = {}): Render
     bornFrame: number;
   }
   let missiles: Missile[] = [];
+  // Deterministic spawn phases (a benchmark must not use Math.random).
+  const missileRng = new Rng(seedFromString(`${seed}:${starId}:missiles`));
   const missileAt = (m: Missile, frame: number): { pos: Vec3; vel: Vec3 } => {
     const ang = m.phase + ((frame - m.bornFrame) / BENCH_FRAME_HZ) * 0.25;
     const r = 200 + ((frame - m.bornFrame) / BENCH_FRAME_HZ) * 25;
@@ -318,19 +338,38 @@ export function runRenderBenchmark(options: RenderBenchmarkOptions = {}): Render
   let maxMissiles = 0;
   let frameIndex = 0;
 
+  // The renderer draws only what is inside the camera frustum (three.js
+  // frustum-culls every mesh/line/points object before dispatch), so the
+  // renderer.info stand-in tallies the SAME set — the scene-graph total
+  // would over-count everything behind the camera (the far-ring horizon).
+  const tallyFrustum = new THREE.Frustum();
+  const tallyProj = new THREE.Matrix4();
+  const tallySphere = new THREE.Sphere();
+  const inTallyFrustum = (obj: THREE.Object3D): boolean => {
+    const g = (obj as THREE.Mesh).geometry as THREE.BufferGeometry | undefined;
+    if (!g || g.boundingSphere === null) return true;
+    tallySphere.copy(g.boundingSphere).applyMatrix4(obj.matrixWorld);
+    return tallyFrustum.intersectsSphere(tallySphere);
+  };
+
   const tallyScene = (): { calls: number; triangles: number; materials: number } => {
+    // The renderer does this before every dispatch (world matrices + frustum).
+    threeScene.updateMatrixWorld();
+    camera.updateMatrixWorld();
+    tallyProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    tallyFrustum.setFromProjectionMatrix(tallyProj);
+
     let calls = 0;
     let triangles = 0;
     const materials = new Set<THREE.Material>();
     const tri = (g: THREE.BufferGeometry): number =>
       g.getIndex() ? g.index!.count / 3 : (g.getAttribute('position')?.count ?? 0);
-    const visit = (obj: THREE.Object3D, visibleFromRoot: boolean): void => {
+    const visit = (obj: THREE.Object3D): void => {
       if (!obj.visible) return;
-      const vis = visibleFromRoot;
       const mesh = obj as THREE.Mesh;
       const points = (obj as THREE.Points).isPoints;
       const line = (obj as THREE.Line).isLine;
-      if (points || line || mesh.isMesh) {
+      if ((points || line || mesh.isMesh) && (obj.frustumCulled === false || inTallyFrustum(obj))) {
         calls += 1;
         const g = (obj as THREE.Mesh).geometry as THREE.BufferGeometry | undefined;
         if (g && !points && !line) triangles += tri(g);
@@ -338,14 +377,23 @@ export function runRenderBenchmark(options: RenderBenchmarkOptions = {}): Render
         if (Array.isArray(m)) m.forEach((x) => materials.add(x));
         else if (m) materials.add(m);
       }
-      for (const child of obj.children) visit(child, vis && obj.visible);
+      for (const child of obj.children) visit(child);
     };
-    visit(threeScene, true);
+    visit(threeScene);
     return { calls, triangles, materials: materials.size };
   };
 
+  // Pacing: frame N starts at loopStart + N/60 s (no faster than 60 Hz; a
+  // spike just delays the next frame — the run lengthens, it never
+  // compresses sim). The sleep is OUTSIDE the begin/end frame window, so
+  // the measured frame time stays the main-thread work of the frame.
+  const paceToRealTime = options.paceToRealTime ?? true;
+  const frameWallMs = 1000 / BENCH_FRAME_HZ;
+  const loopStart = performance.now();
+
   try {
     for (frameIndex = 0; frameIndex < frames; frameIndex++) {
+      if (paceToRealTime) sleepUntil(loopStart + frameIndex * frameWallMs);
       simMs = frameIndex * (1000 / BENCH_FRAME_HZ);
       monitor.beginFrame();
 
@@ -378,7 +426,7 @@ export function runRenderBenchmark(options: RenderBenchmarkOptions = {}): Render
         if (missiles.length < MISSILE_COUNT) {
           missiles.push({
             id: `m-${frameIndex}-${missiles.length}`,
-            phase: Math.random() * Math.PI * 2,
+            phase: missileRng.nextRange(0, Math.PI * 2),
             bornFrame: frameIndex,
           });
         }
@@ -520,4 +568,18 @@ export function runRenderBenchmark(options: RenderBenchmarkOptions = {}): Render
 
 function round3(ms: number): number {
   return Math.round(ms * 1000) / 1000;
+}
+
+/**
+ * Synchronous sleep until a performance.now() deadline (the driver is a
+ * synchronous API — Atomics.wait blocks the bench thread without burning
+ * a core; spurious early wakes are re-checked against the deadline).
+ */
+const paceSlot = new Int32Array(new SharedArrayBuffer(4));
+function sleepUntil(deadlineMs: number): void {
+  for (;;) {
+    const remaining = deadlineMs - performance.now();
+    if (remaining <= 0) return;
+    Atomics.wait(paceSlot, 0, 0, remaining);
+  }
 }
