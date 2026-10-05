@@ -11,6 +11,34 @@ import type { ShipSwapBus } from '@server/shards';
 import type { SessionService } from '@server/auth/session';
 import type { GalaxyRouter } from '@server/galaxy/router';
 
+/** TASK-56: availability-probe rate limit (per client IP). */
+const AVAILABILITY_RATE = 10; // requests/second sustained
+const AVAILABILITY_BURST = 20; // instant allowance before 429
+
+const availabilityQuery = z.object({ callsign: z.string().min(1).max(32) }).strict();
+
+/** Refill-on-read token bucket for one client (mirrors ratelimit.ts' bucket). */
+class AvailabilityBucket {
+  private tokens: number;
+  private last: number;
+
+  constructor(private readonly now: () => number) {
+    this.tokens = AVAILABILITY_BURST;
+    this.last = this.now();
+  }
+
+  take(): boolean {
+    const t = this.now();
+    this.tokens = Math.min(AVAILABILITY_BURST, this.tokens + ((t - this.last) / 1000) * AVAILABILITY_RATE);
+    this.last = t;
+    if (this.tokens >= 1) {
+      this.tokens -= 1;
+      return true;
+    }
+    return false;
+  }
+}
+
 export interface RouteDeps {
   repo: Repository;
   sessions: SessionService;
@@ -72,5 +100,34 @@ export function registerCallsignRoutes(app: FastifyInstance, deps: RouteDeps): v
       homeSystemId,
       shipId: ship.id,
     });
+  });
+
+  /**
+   * GET /api/callsigns/availability?callsign= — the claims screen's live
+   * availability probe (TASK-56). Kept dumb by design: format check + unique
+   * check, rate-limited per client IP (10/s, burst 20 → 429). The debouncing
+   * (500 ms) lives client-side.
+   */
+  const buckets = new Map<string, AvailabilityBucket>();
+  app.get('/api/callsigns/availability', async (req, reply) => {
+    const parsed = availabilityQuery.safeParse(req.query);
+    if (!parsed.success) {
+      return reply.code(400).send({ code: 'invalid-callsign', message: 'callsign query required' });
+    }
+    const key = req.ip;
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = new AvailabilityBucket(Date.now);
+      buckets.set(key, bucket);
+    }
+    if (!bucket.take()) {
+      return reply.code(429).send({ code: 'rate-limited', message: 'too many availability probes' });
+    }
+    const format = callsignSchema.safeParse(parsed.data.callsign);
+    if (!format.success) {
+      return { available: false as const, reason: 'invalid-format' as const };
+    }
+    const existing = await deps.repo.findPlayerByCallsign(format.data);
+    return { available: existing === undefined, reason: existing === undefined ? undefined : 'taken' };
   });
 }

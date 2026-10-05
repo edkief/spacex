@@ -182,6 +182,10 @@ describe('GET /api/session', () => {
     expect(body.credits).toBe(500);
     expect(body.homeSystemId).toMatch(/^[0-9a-f]{16}$/);
     expect(body.shipId).toMatch(/^[0-9a-f-]{36}$/);
+    // TASK-56: the client's token→/api/session boot flow needs the player id
+    // (targeting self-resolution); last-system memory is null in v1.
+    expect(body.playerId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(body.lastSystemId).toBeNull();
   });
 
   it('returns 401 with a structured error when the header is missing or malformed', async () => {
@@ -234,5 +238,57 @@ describe('GET /api/session', () => {
     const res = await sessionOf(foxtrotToken);
     expect(res.statusCode).toBe(401);
     expect(res.json()).toEqual({ code: 'unauthenticated', reason: 'expired-token' });
+  });
+});
+
+describe('GET /api/callsigns/availability (TASK-56)', () => {
+  it('reports taken / free / invalid-format (uniqueness is case-insensitive)', async () => {
+    expect((await claim('Hotel-5')).statusCode).toBe(201);
+    const taken = await app.inject({
+      method: 'GET',
+      url: '/api/callsigns/availability?callsign=Hotel-5',
+    });
+    expect(taken.statusCode).toBe(200);
+    expect(taken.json()).toEqual({ available: false, reason: 'taken' });
+    const free = await app.inject({
+      method: 'GET',
+      url: '/api/callsigns/availability?callsign=Whiskey-1',
+    });
+    expect(free.statusCode).toBe(200);
+    expect(free.json()).toEqual({ available: true });
+    // Case-insensitive: the stored callsign is lowercase.
+    const dupCase = await app.inject({
+      method: 'GET',
+      url: '/api/callsigns/availability?callsign=HOTEL-5',
+    });
+    expect(dupCase.json()).toEqual({ available: false, reason: 'taken' });
+    // Invalid format (too short) is a 200 with the format reason, not an error.
+    const invalid = await app.inject({
+      method: 'GET',
+      url: '/api/callsigns/availability?callsign=ab',
+    });
+    expect(invalid.statusCode).toBe(200);
+    expect(invalid.json()).toEqual({ available: false, reason: 'invalid-format' });
+  });
+
+  it('rejects a missing callsign query with 400', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/callsigns/availability' });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ code: 'invalid-callsign' });
+  });
+
+  it('rate-limits per IP: 429 once the burst bucket is drained', async () => {
+    let saw429 = false;
+    for (let i = 0; i < 60 && !saw429; i++) {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/callsigns/availability?callsign=Delta-9',
+      });
+      if (res.statusCode === 429) {
+        saw429 = true;
+        expect(res.json()).toMatchObject({ code: 'rate-limited' });
+      }
+    }
+    expect(saw429).toBe(true);
   });
 });

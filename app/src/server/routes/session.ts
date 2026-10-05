@@ -21,7 +21,13 @@ export function registerSessionRoutes(app: FastifyInstance, deps: RouteDeps): vo
     return {
       callsign: player.callsign,
       credits: player.credits,
+      // TASK-56: the client's boot flow (token → /api/session → join) needs
+      // the player id (targeting 'targetedBy' resolution).
+      playerId: player.id,
       homeSystemId: player.homeSystemId,
+      // TASK-56: last-system memory (v1: always null — the client joins the
+      // home system; the field exists now so v2 needs no schema change).
+      lastSystemId: null,
       shipId: ship.id,
       // TASK-55: the player's persisted settings — a fresh machine / first
       // join gets the factory defaults (the repo normalizes the empty row).
