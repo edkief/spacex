@@ -1,5 +1,5 @@
 {
-  "date": "2026-10-05T10:22:42.841Z",
+  "date": "2026-10-05T09:34:53.023Z",
   "scene": {
     "ships": 16,
     "chunks": 13,
@@ -11,162 +11,162 @@
   "baseline": {
     "tuned": false,
     "frames": 3600,
-    "p50Ms": 0.994,
-    "p95Ms": 1.715,
-    "p99Ms": 2.4,
-    "maxMs": 2.802,
+    "p50Ms": 1.118,
+    "p95Ms": 1.826,
+    "p99Ms": 2.803,
+    "maxMs": 5.967,
     "spikes50Ms": 0,
-    "drawCallsMax": 114,
-    "drawCallsP95": 112,
+    "drawCallsMax": 122,
+    "drawCallsP95": 120,
     "materialsMax": 71,
     "trianglesMax": 90720,
     "maxLaserFlashes": 1,
     "maxDebrisSets": 2,
     "maxMissiles": 37,
     "stageMs": {
-      "remoteFeedMs": 400.497,
-      "fxMs": 302.269,
-      "remoteRenderMs": 723.042,
-      "surfaceMs": 938.772,
-      "oreMs": 91.682,
-      "tallyMs": 1457.452
+      "remoteFeedMs": 413.492,
+      "fxMs": 301.729,
+      "remoteRenderMs": 774.393,
+      "surfaceMs": 829.62,
+      "oreMs": 149.344,
+      "tallyMs": 1766.056
     },
-    "wallMs": 60317
+    "wallMs": 60225
   },
   "tunedRuns": [
     {
       "tuned": true,
       "frames": 3600,
-      "p50Ms": 1.045,
-      "p95Ms": 1.82,
-      "p99Ms": 2.328,
-      "maxMs": 3.064,
+      "p50Ms": 0.865,
+      "p95Ms": 1.759,
+      "p99Ms": 1.965,
+      "maxMs": 2.891,
       "spikes50Ms": 0,
-      "drawCallsMax": 88,
-      "drawCallsP95": 86,
+      "drawCallsMax": 96,
+      "drawCallsP95": 94,
       "materialsMax": 71,
       "trianglesMax": 87912,
       "maxLaserFlashes": 1,
       "maxDebrisSets": 2,
       "maxMissiles": 37,
       "stageMs": {
-        "remoteFeedMs": 342.133,
-        "fxMs": 295.685,
-        "remoteRenderMs": 695.531,
-        "surfaceMs": 925.111,
-        "oreMs": 295.31,
-        "tallyMs": 1563.135
+        "remoteFeedMs": 324.468,
+        "fxMs": 276.777,
+        "remoteRenderMs": 651.667,
+        "surfaceMs": 723.743,
+        "oreMs": 277.822,
+        "tallyMs": 1434.276
       },
-      "wallMs": 60218
+      "wallMs": 60114
     },
     {
       "tuned": true,
       "frames": 3600,
-      "p50Ms": 1.237,
-      "p95Ms": 2.052,
-      "p99Ms": 2.573,
-      "maxMs": 3.06,
+      "p50Ms": 1.111,
+      "p95Ms": 1.762,
+      "p99Ms": 2.197,
+      "maxMs": 2.528,
       "spikes50Ms": 0,
-      "drawCallsMax": 88,
-      "drawCallsP95": 86,
+      "drawCallsMax": 96,
+      "drawCallsP95": 94,
       "materialsMax": 71,
       "trianglesMax": 87912,
       "maxLaserFlashes": 1,
       "maxDebrisSets": 2,
       "maxMissiles": 37,
       "stageMs": {
-        "remoteFeedMs": 359.637,
-        "fxMs": 308.374,
-        "remoteRenderMs": 746.194,
-        "surfaceMs": 940.077,
-        "oreMs": 296.465,
-        "tallyMs": 1657.442
+        "remoteFeedMs": 304.756,
+        "fxMs": 282.819,
+        "remoteRenderMs": 688.585,
+        "surfaceMs": 737.166,
+        "oreMs": 291.994,
+        "tallyMs": 1606.485
       },
-      "wallMs": 60196
+      "wallMs": 60128
     },
     {
       "tuned": true,
       "frames": 3600,
-      "p50Ms": 1.159,
-      "p95Ms": 1.796,
-      "p99Ms": 2.237,
-      "maxMs": 2.75,
+      "p50Ms": 1.043,
+      "p95Ms": 1.602,
+      "p99Ms": 2.013,
+      "maxMs": 4.621,
       "spikes50Ms": 0,
-      "drawCallsMax": 88,
-      "drawCallsP95": 86,
+      "drawCallsMax": 96,
+      "drawCallsP95": 94,
       "materialsMax": 71,
       "trianglesMax": 87912,
       "maxLaserFlashes": 1,
       "maxDebrisSets": 2,
       "maxMissiles": 37,
       "stageMs": {
-        "remoteFeedMs": 351.841,
-        "fxMs": 294.965,
-        "remoteRenderMs": 692.685,
-        "surfaceMs": 869.338,
-        "oreMs": 290.509,
-        "tallyMs": 1620.412
+        "remoteFeedMs": 298.467,
+        "fxMs": 283.485,
+        "remoteRenderMs": 726.414,
+        "surfaceMs": 754.706,
+        "oreMs": 299.691,
+        "tallyMs": 1528.786
       },
-      "wallMs": 60223
+      "wallMs": 60127
     },
     {
       "tuned": true,
       "frames": 3600,
-      "p50Ms": 1.188,
-      "p95Ms": 1.842,
-      "p99Ms": 2.458,
-      "maxMs": 3.383,
+      "p50Ms": 0.883,
+      "p95Ms": 1.612,
+      "p99Ms": 2.115,
+      "maxMs": 2.524,
       "spikes50Ms": 0,
-      "drawCallsMax": 88,
-      "drawCallsP95": 86,
+      "drawCallsMax": 96,
+      "drawCallsP95": 94,
       "materialsMax": 71,
       "trianglesMax": 87912,
       "maxLaserFlashes": 1,
       "maxDebrisSets": 2,
       "maxMissiles": 37,
       "stageMs": {
-        "remoteFeedMs": 369.817,
-        "fxMs": 291.147,
-        "remoteRenderMs": 693.414,
-        "surfaceMs": 876.025,
-        "oreMs": 283.267,
-        "tallyMs": 1611.877
+        "remoteFeedMs": 287.055,
+        "fxMs": 273.897,
+        "remoteRenderMs": 681.385,
+        "surfaceMs": 686.03,
+        "oreMs": 257.761,
+        "tallyMs": 1483.617
       },
-      "wallMs": 60228
+      "wallMs": 60108
     },
     {
       "tuned": true,
       "frames": 3600,
-      "p50Ms": 1.196,
-      "p95Ms": 1.946,
-      "p99Ms": 3.282,
-      "maxMs": 4.348,
+      "p50Ms": 1.095,
+      "p95Ms": 1.753,
+      "p99Ms": 2.341,
+      "maxMs": 3.756,
       "spikes50Ms": 0,
-      "drawCallsMax": 88,
-      "drawCallsP95": 86,
+      "drawCallsMax": 96,
+      "drawCallsP95": 94,
       "materialsMax": 71,
       "trianglesMax": 87912,
       "maxLaserFlashes": 1,
       "maxDebrisSets": 2,
       "maxMissiles": 37,
       "stageMs": {
-        "remoteFeedMs": 370.668,
-        "fxMs": 303.431,
-        "remoteRenderMs": 717.841,
-        "surfaceMs": 927.631,
-        "oreMs": 310.767,
-        "tallyMs": 1786.025
+        "remoteFeedMs": 278.714,
+        "fxMs": 280.059,
+        "remoteRenderMs": 699.554,
+        "surfaceMs": 690.273,
+        "oreMs": 263.576,
+        "tallyMs": 1608.566
       },
-      "wallMs": 60224
+      "wallMs": 60127
     }
   ],
   "p95": {
-    "spread": 0.1353637901861252,
-    "mean": 1.8912
+    "spread": 0.09425070688030156,
+    "mean": 1.6976
   },
   "delta": {
-    "p95": -0.04723032069970843,
-    "max": -0.5517487508922198
+    "p95": 0.12267250821467687,
+    "max": 0.22557399027987252
   },
   "pass": true
 }
