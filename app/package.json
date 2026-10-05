@@ -13,6 +13,7 @@
     "test:e2e": "playwright test --config playwright.e2e.config.ts",
     "load": "NODE_OPTIONS=--expose-gc tsx tests/load/harness.ts",
     "load:smoke": "NODE_OPTIONS=--expose-gc tsx tests/load/harness.ts --smoke",
+    "perf:report": "node scripts/perf-report.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . && prettier --check .",
     "start": "node dist-server/index.js",

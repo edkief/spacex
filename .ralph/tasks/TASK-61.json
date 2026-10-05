@@ -2,47 +2,52 @@
   "id": "TASK-61",
   "title": "Reference hardware verification (desktop + phone)",
   "category": "performance",
-  "description": "Run the full performance suite (transition hitches, render benchmark, tick benchmark, load smoke) on the reference desktop and the reference phone, and record the official v1 performance numbers — the gate that signs off SC-3 and SC-4.",
+  "description": "Run the full performance suite (transition hitches, render benchmark, tick benchmark, load smoke) on the reference desktop and the reference phone, and record the official v1 performance numbers \u2014 the gate that signs off SC-3 and SC-4.",
   "acceptanceCriteria": [
-    "Reference hardware is defined (documented in the report): desktop = a mid-2020s laptop (e.g., M2/Intel i5 class, integrated or entry-GPU, 16 GB) — the 'reference desktop'; phone = a mid-range 2023+ phone (8 GB, mid SoC) — the 'reference phone'; if a specific device is unavailable, the closest available one is used and named in the report (no silent substitution)",
-    "On the reference desktop: the transition benchmark (TASK-30) passes its 4 ms budget; the render benchmark (TASK-58) holds 60 fps (median ≤ 16.7 ms, p95 ≤ 20 ms, no > 50 ms frames) in the 16-entity worst case at the High preset; the tick benchmark (TASK-60) holds p95 < 30 ms; the load smoke (TASK-18) holds the snapshot rate + RTT rules",
-    "On the reference phone: the Mobile profile (TASK-59) holds ≥ 30 fps (median ≤ 33 ms) in the render benchmark's reduced scene (the 16-entity worst case, Mobile profile, no atmosphere dome); the full keyboard-only loop (TASK-54, Mobile forced) completes without a dropped frame > 100 ms",
-    "The report (docs/performance.md): a table per benchmark × device: {metric, budget, measured, pass/fail, device, date, git sha}; the SC-3 (60 fps desktop) and SC-4 (30 fps mobile floor) verdicts stated explicitly from the table",
-    "Any FAIL is a blocker: the failing benchmark's owning task is re-opened (a follow-up task is NOT created here — the fix goes back to the owner); the report lists each fail with its owner task id",
-    "The suite is runnable by a human in < 30 min per device: a single script npm run perf:report <device-tag> that runs the four benchmarks + the phone loop (phone via a Chrome remote-debugging connection or a local Android build — whichever is available in the environment; if phone testing is impossible in this environment, the phone section is marked BLOCKED-PENDING-DEVICE with the exact commands to run later, and SC-4 is reported as UNVERIFIED, not passed)",
+    "Reference hardware is defined (documented in the report): desktop = a mid-2020s laptop (e.g., M2/Intel i5 class, integrated or entry-GPU, 16 GB) \u2014 the 'reference desktop'; phone = a mid-range 2023+ phone (8 GB, mid SoC) \u2014 the 'reference phone'; if a specific device is unavailable, the closest available one is used and named in the report (no silent substitution)",
+    "On the reference desktop: the transition benchmark (TASK-30) passes its 4 ms budget; the render benchmark (TASK-58) holds 60 fps (median \u2264 16.7 ms, p95 \u2264 20 ms, no > 50 ms frames) in the 16-entity worst case at the High preset; the tick benchmark (TASK-60) holds p95 < 30 ms; the load smoke (TASK-18) holds the snapshot rate + RTT rules",
+    "On the reference phone: the Mobile profile (TASK-59) holds \u2265 30 fps (median \u2264 33 ms) in the render benchmark's reduced scene (the 16-entity worst case, Mobile profile, no atmosphere dome); the full keyboard-only loop (TASK-54, Mobile forced) completes without a dropped frame > 100 ms",
+    "The report (docs/performance.md): a table per benchmark \u00d7 device: {metric, budget, measured, pass/fail, device, date, git sha}; the SC-3 (60 fps desktop) and SC-4 (30 fps mobile floor) verdicts stated explicitly from the table",
+    "Any FAIL is a blocker: the failing benchmark's owning task is re-opened (a follow-up task is NOT created here \u2014 the fix goes back to the owner); the report lists each fail with its owner task id",
+    "The suite is runnable by a human in < 30 min per device: a single script npm run perf:report <device-tag> that runs the four benchmarks + the phone loop (phone via a Chrome remote-debugging connection or a local Android build \u2014 whichever is available in the environment; if phone testing is impossible in this environment, the phone section is marked BLOCKED-PENDING-DEVICE with the exact commands to run later, and SC-4 is reported as UNVERIFIED, not passed)",
     "Report committed; all desktop numbers recorded; phone numbers recorded or the explicit BLOCKED note present; npm run test green (the unit/e2e suites pass on the dev machine as before)"
   ],
   "steps": [
     {
       "step": 1,
       "description": "Device identification + setup",
-      "details": "Identify the available desktop (the dev machine if it matches the reference class, else the closest + note); attempt the phone (Android via ADB/remote debugging, or iOS via Safari remote inspection — document the method); if no phone is reachable, prepare the exact commands + the BLOCKED note for later.",
-      "pass": false
+      "details": "Identify the available desktop (the dev machine if it matches the reference class, else the closest + note); attempt the phone (Android via ADB/remote debugging, or iOS via Safari remote inspection \u2014 document the method); if no phone is reachable, prepare the exact commands + the BLOCKED note for later.",
+      "pass": true
     },
     {
       "step": 2,
       "description": "Run the suite (desktop)",
-      "details": "npm run perf:report desktop — runs: bench:transitions (TASK-30), bench:render (TASK-58), bench:tick (TASK-60), load:smoke (TASK-18); collect the JSON outputs; assemble the report table.",
-      "pass": false
+      "details": "npm run perf:report desktop \u2014 runs: bench:transitions (TASK-30), bench:render (TASK-58), bench:tick (TASK-60), load:smoke (TASK-18); collect the JSON outputs; assemble the report table.",
+      "pass": true
     },
     {
       "step": 3,
       "description": "Run the suite (phone)",
       "details": "Same script tagged phone (the Mobile profile forced, the reduced render scene, the keyboard-only loop); if blocked, write the BLOCKED section with commands.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Report + verdicts",
-      "details": "docs/performance.md per the acceptance format; the SC-3/SC-4 verdicts; any FAILs listed with owner task ids (those tasks stay open — this task does not close them); commit the report + the perf:report script.",
-      "pass": false
+      "details": "docs/performance.md per the acceptance format; the SC-3/SC-4 verdicts; any FAILs listed with owner task ids (those tasks stay open \u2014 this task does not close them); commit the report + the perf:report script.",
+      "pass": true
     }
   ],
-  "dependencies": ["TASK-30", "TASK-58", "TASK-59", "TASK-18"],
+  "dependencies": [
+    "TASK-30",
+    "TASK-58",
+    "TASK-59",
+    "TASK-18"
+  ],
   "estimatedComplexity": "medium",
   "technicalNotes": [
     "This task is measurement + reporting, not fixing: if something fails, the owner task is re-opened (the PRD's success criteria are signed off here and only here).",
-    "The perf:report script makes the verification repeatable for post-v1 hardware — it is infrastructure, not a one-off.",
+    "The perf:report script makes the verification repeatable for post-v1 hardware \u2014 it is infrastructure, not a one-off.",
     "A BLOCKED-PENDING-DEVICE phone section is an honest outcome; a fabricated pass is not."
   ]
 }

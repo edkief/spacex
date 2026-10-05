@@ -1,0 +1,331 @@
+
+> bench:transitions
+> NODE_OPTIONS=--expose-gc tsx scripts/bench-transitions.ts
+
+-391.6858705297457
+-391.6858705297457
+-391.6858705297457
+-391.6858705297457
+-391.6858705297457
+-391.6858705297457
+-391.6858705297457
+-391.6858705297457
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+[perf] streaming backlog 8: dropping far-ring generation first (near LOD unaffected) { backlog: 8, farDropped: 37 }
+[perf] streaming backlog 19: dropping far-ring generation first (near LOD unaffected) { backlog: 19, farDropped: 0 }
+[perf] perf budget exceeded: "transition:atmosphere-to-surface" took 19.09 ms (budget 4 ms) {
+  name: 'transition:atmosphere-to-surface',
+  measuredMs: 19.086718000000197,
+  budgetMs: 4
+}
+[perf] perf budget exceeded: "transition:surface-to-atmosphere" took 10.66 ms (budget 4 ms) {
+  name: 'transition:surface-to-atmosphere',
+  measuredMs: 10.658445000000661,
+  budgetMs: 4
+}
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+[perf] streaming backlog 20: dropping far-ring generation first (near LOD unaffected) { backlog: 20, farDropped: 1 }
+[perf] streaming backlog 19: dropping far-ring generation first (near LOD unaffected) { backlog: 19, farDropped: 0 }
+[perf] perf budget exceeded: "transition:atmosphere-to-surface" took 16.96 ms (budget 4 ms) {
+  name: 'transition:atmosphere-to-surface',
+  measuredMs: 16.960997999998277,
+  budgetMs: 4
+}
+[perf] perf budget exceeded: "transition:surface-to-atmosphere" took 10.47 ms (budget 4 ms) {
+  name: 'transition:surface-to-atmosphere',
+  measuredMs: 10.473315000000715,
+  budgetMs: 4
+}
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+[perf] streaming backlog 21: dropping far-ring generation first (near LOD unaffected) { backlog: 21, farDropped: 1 }
+[perf] streaming backlog 19: dropping far-ring generation first (near LOD unaffected) { backlog: 19, farDropped: 0 }
+[perf] perf budget exceeded: "transition:atmosphere-to-surface" took 14.74 ms (budget 4 ms) {
+  name: 'transition:atmosphere-to-surface',
+  measuredMs: 14.739969000000114,
+  budgetMs: 4
+}
+[perf] perf budget exceeded: "transition:surface-to-atmosphere" took 8.49 ms (budget 4 ms) {
+  name: 'transition:surface-to-atmosphere',
+  measuredMs: 8.492074000001507,
+  budgetMs: 4
+}
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+[perf] streaming backlog 23: dropping far-ring generation first (near LOD unaffected) { backlog: 23, farDropped: 0 }
+[perf] streaming backlog 19: dropping far-ring generation first (near LOD unaffected) { backlog: 19, farDropped: 0 }
+[perf] perf budget exceeded: "transition:atmosphere-to-surface" took 19.17 ms (budget 4 ms) {
+  name: 'transition:atmosphere-to-surface',
+  measuredMs: 19.167122000000063,
+  budgetMs: 4
+}
+[perf] perf budget exceeded: "transition:surface-to-atmosphere" took 11.36 ms (budget 4 ms) {
+  name: 'transition:surface-to-atmosphere',
+  measuredMs: 11.358014999999112,
+  budgetMs: 4
+}
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+[perf] streaming backlog 20: dropping far-ring generation first (near LOD unaffected) { backlog: 20, farDropped: 1 }
+[perf] streaming backlog 19: dropping far-ring generation first (near LOD unaffected) { backlog: 19, farDropped: 0 }
+[perf] perf budget exceeded: "transition:atmosphere-to-surface" took 16.83 ms (budget 4 ms) {
+  name: 'transition:atmosphere-to-surface',
+  measuredMs: 16.831173999998192,
+  budgetMs: 4
+}
+[perf] perf budget exceeded: "transition:surface-to-atmosphere" took 10.93 ms (budget 4 ms) {
+  name: 'transition:surface-to-atmosphere',
+  measuredMs: 10.930084000002447,
+  budgetMs: 4
+}
+run 1: worst-p99=[14.74, 19.17, 16.83] median=16.83ms
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+[perf] streaming backlog 21: dropping far-ring generation first (near LOD unaffected) { backlog: 21, farDropped: 1 }
+[perf] streaming backlog 19: dropping far-ring generation first (near LOD unaffected) { backlog: 19, farDropped: 0 }
+[perf] perf budget exceeded: "transition:atmosphere-to-surface" took 14.76 ms (budget 4 ms) {
+  name: 'transition:atmosphere-to-surface',
+  measuredMs: 14.76382699999973,
+  budgetMs: 4
+}
+[perf] perf budget exceeded: "transition:surface-to-atmosphere" took 10.87 ms (budget 4 ms) {
+  name: 'transition:surface-to-atmosphere',
+  measuredMs: 10.873330999999745,
+  budgetMs: 4
+}
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+[perf] streaming backlog 21: dropping far-ring generation first (near LOD unaffected) { backlog: 21, farDropped: 1 }
+[perf] streaming backlog 19: dropping far-ring generation first (near LOD unaffected) { backlog: 19, farDropped: 0 }
+[perf] perf budget exceeded: "transition:atmosphere-to-surface" took 17.34 ms (budget 4 ms) {
+  name: 'transition:atmosphere-to-surface',
+  measuredMs: 17.342046000000906,
+  budgetMs: 4
+}
+[perf] perf budget exceeded: "transition:surface-to-atmosphere" took 13.25 ms (budget 4 ms) {
+  name: 'transition:surface-to-atmosphere',
+  measuredMs: 13.248975000001577,
+  budgetMs: 4
+}
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+[perf] streaming backlog 20: dropping far-ring generation first (near LOD unaffected) { backlog: 20, farDropped: 1 }
+[perf] streaming backlog 19: dropping far-ring generation first (near LOD unaffected) { backlog: 19, farDropped: 0 }
+[perf] perf budget exceeded: "transition:atmosphere-to-surface" took 21.04 ms (budget 4 ms) {
+  name: 'transition:atmosphere-to-surface',
+  measuredMs: 21.037517000005465,
+  budgetMs: 4
+}
+[perf] perf budget exceeded: "transition:surface-to-atmosphere" took 12.59 ms (budget 4 ms) {
+  name: 'transition:surface-to-atmosphere',
+  measuredMs: 12.594392000000227,
+  budgetMs: 4
+}
+run 2: worst-p99=[14.76, 17.34, 21.04] median=17.34ms
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+[perf] streaming backlog 9: dropping far-ring generation first (near LOD unaffected) { backlog: 9, farDropped: 37 }
+[perf] streaming backlog 19: dropping far-ring generation first (near LOD unaffected) { backlog: 19, farDropped: 0 }
+[perf] perf budget exceeded: "transition:atmosphere-to-surface" took 17.79 ms (budget 4 ms) {
+  name: 'transition:atmosphere-to-surface',
+  measuredMs: 17.790665999997408,
+  budgetMs: 4
+}
+[perf] perf budget exceeded: "transition:surface-to-atmosphere" took 9.78 ms (budget 4 ms) {
+  name: 'transition:surface-to-atmosphere',
+  measuredMs: 9.784837000003144,
+  budgetMs: 4
+}
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+[perf] streaming backlog 22: dropping far-ring generation first (near LOD unaffected) { backlog: 22, farDropped: 1 }
+[perf] streaming backlog 19: dropping far-ring generation first (near LOD unaffected) { backlog: 19, farDropped: 0 }
+[perf] perf budget exceeded: "transition:atmosphere-to-surface" took 23.97 ms (budget 4 ms) {
+  name: 'transition:atmosphere-to-surface',
+  measuredMs: 23.967387999996543,
+  budgetMs: 4
+}
+[perf] perf budget exceeded: "transition:surface-to-atmosphere" took 12.87 ms (budget 4 ms) {
+  name: 'transition:surface-to-atmosphere',
+  measuredMs: 12.86929600000364,
+  budgetMs: 4
+}
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+[perf] streaming backlog 20: dropping far-ring generation first (near LOD unaffected) { backlog: 20, farDropped: 1 }
+[perf] streaming backlog 19: dropping far-ring generation first (near LOD unaffected) { backlog: 19, farDropped: 0 }
+[perf] perf budget exceeded: "transition:atmosphere-to-surface" took 18.71 ms (budget 4 ms) {
+  name: 'transition:atmosphere-to-surface',
+  measuredMs: 18.705235999999744,
+  budgetMs: 4
+}
+[perf] perf budget exceeded: "transition:surface-to-atmosphere" took 21.84 ms (budget 4 ms) {
+  name: 'transition:surface-to-atmosphere',
+  measuredMs: 21.84450199999806,
+  budgetMs: 4
+}
+run 3: worst-p99=[17.79, 23.97, 21.84] median=21.84ms
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+[perf] streaming backlog 8: dropping far-ring generation first (near LOD unaffected) { backlog: 8, farDropped: 37 }
+[perf] streaming backlog 19: dropping far-ring generation first (near LOD unaffected) { backlog: 19, farDropped: 0 }
+[perf] perf budget exceeded: "transition:atmosphere-to-surface" took 19.94 ms (budget 4 ms) {
+  name: 'transition:atmosphere-to-surface',
+  measuredMs: 19.944702999999105,
+  budgetMs: 4
+}
+[perf] perf budget exceeded: "transition:surface-to-atmosphere" took 9.24 ms (budget 4 ms) {
+  name: 'transition:surface-to-atmosphere',
+  measuredMs: 9.242101000001536,
+  budgetMs: 4
+}
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+[perf] streaming backlog 20: dropping far-ring generation first (near LOD unaffected) { backlog: 20, farDropped: 1 }
+[perf] streaming backlog 19: dropping far-ring generation first (near LOD unaffected) { backlog: 19, farDropped: 0 }
+[perf] perf budget exceeded: "transition:atmosphere-to-surface" took 20.93 ms (budget 4 ms) {
+  name: 'transition:atmosphere-to-surface',
+  measuredMs: 20.92989499999775,
+  budgetMs: 4
+}
+[perf] perf budget exceeded: "transition:surface-to-atmosphere" took 11.67 ms (budget 4 ms) {
+  name: 'transition:surface-to-atmosphere',
+  measuredMs: 11.669184000002396,
+  budgetMs: 4
+}
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+[perf] streaming backlog 20: dropping far-ring generation first (near LOD unaffected) { backlog: 20, farDropped: 1 }
+[perf] streaming backlog 19: dropping far-ring generation first (near LOD unaffected) { backlog: 19, farDropped: 0 }
+[perf] perf budget exceeded: "transition:atmosphere-to-surface" took 19.36 ms (budget 4 ms) {
+  name: 'transition:atmosphere-to-surface',
+  measuredMs: 19.36095199999795,
+  budgetMs: 4
+}
+[perf] perf budget exceeded: "transition:surface-to-atmosphere" took 9.72 ms (budget 4 ms) {
+  name: 'transition:surface-to-atmosphere',
+  measuredMs: 9.72053399999527,
+  budgetMs: 4
+}
+run 4: worst-p99=[19.95, 20.93, 19.36] median=19.95ms
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+[perf] streaming backlog 24: dropping far-ring generation first (near LOD unaffected) { backlog: 24, farDropped: 0 }
+[perf] streaming backlog 19: dropping far-ring generation first (near LOD unaffected) { backlog: 19, farDropped: 0 }
+[perf] perf budget exceeded: "transition:atmosphere-to-surface" took 16.08 ms (budget 4 ms) {
+  name: 'transition:atmosphere-to-surface',
+  measuredMs: 16.079879999988712,
+  budgetMs: 4
+}
+[perf] perf budget exceeded: "transition:surface-to-atmosphere" took 10.50 ms (budget 4 ms) {
+  name: 'transition:surface-to-atmosphere',
+  measuredMs: 10.495026999995694,
+  budgetMs: 4
+}
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+[perf] streaming backlog 20: dropping far-ring generation first (near LOD unaffected) { backlog: 20, farDropped: 1 }
+[perf] streaming backlog 19: dropping far-ring generation first (near LOD unaffected) { backlog: 19, farDropped: 0 }
+[perf] perf budget exceeded: "transition:atmosphere-to-surface" took 20.33 ms (budget 4 ms) {
+  name: 'transition:atmosphere-to-surface',
+  measuredMs: 20.333966999990633,
+  budgetMs: 4
+}
+[perf] perf budget exceeded: "transition:surface-to-atmosphere" took 12.46 ms (budget 4 ms) {
+  name: 'transition:surface-to-atmosphere',
+  measuredMs: 12.464400999996695,
+  budgetMs: 4
+}
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+[perf] streaming backlog 23: dropping far-ring generation first (near LOD unaffected) { backlog: 23, farDropped: 0 }
+[perf] streaming backlog 19: dropping far-ring generation first (near LOD unaffected) { backlog: 19, farDropped: 0 }
+[perf] perf budget exceeded: "transition:atmosphere-to-surface" took 18.71 ms (budget 4 ms) {
+  name: 'transition:atmosphere-to-surface',
+  measuredMs: 18.71032900000131,
+  budgetMs: 4
+}
+[perf] perf budget exceeded: "transition:surface-to-atmosphere" took 17.21 ms (budget 4 ms) {
+  name: 'transition:surface-to-atmosphere',
+  measuredMs: 17.205492999993965,
+  budgetMs: 4
+}
+run 5: worst-p99=[16.08, 20.33, 18.71] median=18.71ms
+worst-p99 medians: 16.83, 17.34, 21.84, 19.95, 18.71 ms | mean=18.93ms spread=26.5% (strict gate 20%: n/a) | session CPU floor=39%
+
+recorded numbers (dev machine, TASK-30):
+  per-run worst-p99 medians (ms): 16.831, 17.342, 21.845, 19.945, 18.710
+  strict 20% gate: spread 26.5% (dev-machine clause applied)
+  session CPU jitter floor: 39.1%
+  space-to-atmosphere: frames=440 tagged=5 baseline=0.001ms (phase-steady) worstDelta=0.019ms p99=0.019ms
+  atmosphere-to-surface: frames=698 tagged=204 baseline=7.589ms (streaming-control) worstDelta=28.34ms p99=18.71ms
+  disembark: frames=36 tagged=36 baseline=0.094ms (idle) worstDelta=0.993ms p99=0.993ms
+  walk-10m: frames=200 tagged=0 baseline=0.096ms (phase-steady) worstDelta=2.122ms p99=0.122ms
+  re-enter: frames=36 tagged=36 baseline=0.094ms (idle) worstDelta=0.334ms p99=0.334ms
+  surface-to-atmosphere: frames=250 tagged=4 baseline=7.589ms (streaming-control) worstDelta=17.205ms p99=17.205ms
+  atmosphere-to-space: frames=440 tagged=5 baseline=0.133ms (phase-steady) worstDelta=0.121ms p99=0.121ms
+  streaming control: p50=0.271ms p95=22.895ms busyP50=7.589ms frames=360
+  idle baselines: space p50=0.001 p95=0.001 | atmosphere p50=0.005 p95=0.005 | surface p50=0.094 p95=0.112
+  pad near ring ready 867 frames before arrival | maxFrame=36.059ms worstDelta=28.34ms wall=4562ms
+
+bench:transitions FAILED (75 problem(s)):
+  - run 1 cycle 1: atmosphere-to-surface p99 delta 14.74 ms >= 4 ms (worst frame {"transition":"atmosphere-to-surface","frameIndex":1310,"baselineMs":9.446,"measuredMs":26.124,"deltaMs":16.678})
+  - run 1 cycle 1: atmosphere-to-surface emitted 1 budget warning(s)
+  - run 1 cycle 1: surface-to-atmosphere p99 delta 8.492 ms >= 4 ms (worst frame {"transition":"surface-to-atmosphere","frameIndex":2310,"baselineMs":9.446,"measuredMs":17.938,"deltaMs":8.492})
+  - run 1 cycle 1: surface-to-atmosphere emitted 1 budget warning(s)
+  - run 1 cycle 1: 2 total budget warning(s)
+  - run 1 cycle 2: atmosphere-to-surface p99 delta 19.167 ms >= 4 ms (worst frame {"transition":"atmosphere-to-surface","frameIndex":1161,"baselineMs":6.827,"measuredMs":32.551,"deltaMs":25.724})
+  - run 1 cycle 2: atmosphere-to-surface emitted 1 budget warning(s)
+  - run 1 cycle 2: surface-to-atmosphere p99 delta 11.358 ms >= 4 ms (worst frame {"transition":"surface-to-atmosphere","frameIndex":2310,"baselineMs":6.827,"measuredMs":18.185,"deltaMs":11.358})
+  - run 1 cycle 2: surface-to-atmosphere emitted 1 budget warning(s)
+  - run 1 cycle 2: 2 total budget warning(s)
+  - run 1 cycle 3: atmosphere-to-surface p99 delta 16.831 ms >= 4 ms (worst frame {"transition":"atmosphere-to-surface","frameIndex":1308,"baselineMs":7.996,"measuredMs":30.785,"deltaMs":22.789})
+  - run 1 cycle 3: atmosphere-to-surface emitted 1 budget warning(s)
+  - run 1 cycle 3: surface-to-atmosphere p99 delta 10.93 ms >= 4 ms (worst frame {"transition":"surface-to-atmosphere","frameIndex":2310,"baselineMs":7.996,"measuredMs":18.926,"deltaMs":10.93})
+  - run 1 cycle 3: surface-to-atmosphere emitted 1 budget warning(s)
+  - run 1 cycle 3: 2 total budget warning(s)
+  - run 2 cycle 1: atmosphere-to-surface p99 delta 14.764 ms >= 4 ms (worst frame {"transition":"atmosphere-to-surface","frameIndex":1312,"baselineMs":8.665,"measuredMs":27.891,"deltaMs":19.226})
+  - run 2 cycle 1: atmosphere-to-surface emitted 1 budget warning(s)
+  - run 2 cycle 1: surface-to-atmosphere p99 delta 10.873 ms >= 4 ms (worst frame {"transition":"surface-to-atmosphere","frameIndex":2310,"baselineMs":8.665,"measuredMs":19.538,"deltaMs":10.873})
+  - run 2 cycle 1: surface-to-atmosphere emitted 1 budget warning(s)
+  - run 2 cycle 1: 2 total budget warning(s)
+  - run 2 cycle 2: atmosphere-to-surface p99 delta 17.342 ms >= 4 ms (worst frame {"transition":"atmosphere-to-surface","frameIndex":1312,"baselineMs":7.211,"measuredMs":28.971,"deltaMs":21.76})
+  - run 2 cycle 2: atmosphere-to-surface emitted 1 budget warning(s)
+  - run 2 cycle 2: surface-to-atmosphere p99 delta 13.249 ms >= 4 ms (worst frame {"transition":"surface-to-atmosphere","frameIndex":2310,"baselineMs":7.211,"measuredMs":20.46,"deltaMs":13.249})
+  - run 2 cycle 2: surface-to-atmosphere emitted 1 budget warning(s)
+  - run 2 cycle 2: 2 total budget warning(s)
+  - run 2 cycle 3: atmosphere-to-surface p99 delta 21.038 ms >= 4 ms (worst frame {"transition":"atmosphere-to-surface","frameIndex":1313,"baselineMs":7.97,"measuredMs":36.816,"deltaMs":28.846})
+  - run 2 cycle 3: atmosphere-to-surface emitted 1 budget warning(s)
+  - run 2 cycle 3: surface-to-atmosphere p99 delta 12.594 ms >= 4 ms (worst frame {"transition":"surface-to-atmosphere","frameIndex":2310,"baselineMs":7.97,"measuredMs":20.564,"deltaMs":12.594})
+  - run 2 cycle 3: surface-to-atmosphere emitted 1 budget warning(s)
+  - run 2 cycle 3: 2 total budget warning(s)
+  - run 3 cycle 1: atmosphere-to-surface p99 delta 17.791 ms >= 4 ms (worst frame {"transition":"atmosphere-to-surface","frameIndex":1312,"baselineMs":7.787,"measuredMs":28.337,"deltaMs":20.55})
+  - run 3 cycle 1: atmosphere-to-surface emitted 1 budget warning(s)
+  - run 3 cycle 1: surface-to-atmosphere p99 delta 9.785 ms >= 4 ms (worst frame {"transition":"surface-to-atmosphere","frameIndex":2310,"baselineMs":7.787,"measuredMs":17.572,"deltaMs":9.785})
+  - run 3 cycle 1: surface-to-atmosphere emitted 1 budget warning(s)
+  - run 3 cycle 1: 2 total budget warning(s)
+  - run 3 cycle 2: atmosphere-to-surface p99 delta 23.967 ms >= 4 ms (worst frame {"transition":"atmosphere-to-surface","frameIndex":1329,"baselineMs":7.282,"measuredMs":34.883,"deltaMs":27.601})
+  - run 3 cycle 2: atmosphere-to-surface emitted 1 budget warning(s)
+  - run 3 cycle 2: surface-to-atmosphere p99 delta 12.869 ms >= 4 ms (worst frame {"transition":"surface-to-atmosphere","frameIndex":2310,"baselineMs":7.282,"measuredMs":20.151,"deltaMs":12.869})
+  - run 3 cycle 2: surface-to-atmosphere emitted 1 budget warning(s)
+  - run 3 cycle 2: 2 total budget warning(s)
+  - run 3 cycle 3: atmosphere-to-surface p99 delta 18.705 ms >= 4 ms (worst frame {"transition":"atmosphere-to-surface","frameIndex":1311,"baselineMs":7.973,"measuredMs":27.736,"deltaMs":19.763})
+  - run 3 cycle 3: atmosphere-to-surface emitted 1 budget warning(s)
+  - run 3 cycle 3: surface-to-atmosphere p99 delta 21.845 ms >= 4 ms (worst frame {"transition":"surface-to-atmosphere","frameIndex":2457,"baselineMs":7.973,"measuredMs":29.818,"deltaMs":21.845})
+  - run 3 cycle 3: surface-to-atmosphere emitted 1 budget warning(s)
+  - run 3 cycle 3: 2 total budget warning(s)
+  - run 4 cycle 1: atmosphere-to-surface p99 delta 19.945 ms >= 4 ms (worst frame {"transition":"atmosphere-to-surface","frameIndex":1305,"baselineMs":7.687,"measuredMs":37.974,"deltaMs":30.287})
+  - run 4 cycle 1: atmosphere-to-surface emitted 1 budget warning(s)
+  - run 4 cycle 1: surface-to-atmosphere p99 delta 9.242 ms >= 4 ms (worst frame {"transition":"surface-to-atmosphere","frameIndex":2310,"baselineMs":7.687,"measuredMs":16.929,"deltaMs":9.242})
+  - run 4 cycle 1: surface-to-atmosphere emitted 1 budget warning(s)
+  - run 4 cycle 1: 2 total budget warning(s)
+  - run 4 cycle 2: atmosphere-to-surface p99 delta 20.93 ms >= 4 ms (worst frame {"transition":"atmosphere-to-surface","frameIndex":1305,"baselineMs":7.037,"measuredMs":28.687,"deltaMs":21.65})
+  - run 4 cycle 2: atmosphere-to-surface emitted 1 budget warning(s)
+  - run 4 cycle 2: surface-to-atmosphere p99 delta 11.669 ms >= 4 ms (worst frame {"transition":"surface-to-atmosphere","frameIndex":2310,"baselineMs":7.037,"measuredMs":18.706,"deltaMs":11.669})
+  - run 4 cycle 2: surface-to-atmosphere emitted 1 budget warning(s)
+  - run 4 cycle 2: 2 total budget warning(s)
+  - run 4 cycle 3: atmosphere-to-surface p99 delta 19.361 ms >= 4 ms (worst frame {"transition":"atmosphere-to-surface","frameIndex":1215,"baselineMs":7.798,"measuredMs":33.248,"deltaMs":25.45})
+  - run 4 cycle 3: atmosphere-to-surface emitted 1 budget warning(s)
+  - run 4 cycle 3: surface-to-atmosphere p99 delta 9.721 ms >= 4 ms (worst frame {"transition":"surface-to-atmosphere","frameIndex":2310,"baselineMs":7.798,"measuredMs":17.519,"deltaMs":9.721})
+  - run 4 cycle 3: surface-to-atmosphere emitted 1 budget warning(s)
+  - run 4 cycle 3: 2 total budget warning(s)
+  - run 5 cycle 1: atmosphere-to-surface p99 delta 16.08 ms >= 4 ms (worst frame {"transition":"atmosphere-to-surface","frameIndex":1315,"baselineMs":7.689,"measuredMs":29.282,"deltaMs":21.593})
+  - run 5 cycle 1: atmosphere-to-surface emitted 1 budget warning(s)
+  - run 5 cycle 1: surface-to-atmosphere p99 delta 10.495 ms >= 4 ms (worst frame {"transition":"surface-to-atmosphere","frameIndex":2310,"baselineMs":7.689,"measuredMs":18.184,"deltaMs":10.495})
+  - run 5 cycle 1: surface-to-atmosphere emitted 1 budget warning(s)
+  - run 5 cycle 1: 2 total budget warning(s)
+  - run 5 cycle 2: atmosphere-to-surface p99 delta 20.334 ms >= 4 ms (worst frame {"transition":"atmosphere-to-surface","frameIndex":1318,"baselineMs":8.032,"measuredMs":33.555,"deltaMs":25.523})
+  - run 5 cycle 2: atmosphere-to-surface emitted 1 budget warning(s)
+  - run 5 cycle 2: surface-to-atmosphere p99 delta 12.464 ms >= 4 ms (worst frame {"transition":"surface-to-atmosphere","frameIndex":2310,"baselineMs":8.032,"measuredMs":20.496,"deltaMs":12.464})
+  - run 5 cycle 2: surface-to-atmosphere emitted 1 budget warning(s)
+  - run 5 cycle 2: 2 total budget warning(s)
+  - run 5 cycle 3: atmosphere-to-surface p99 delta 18.71 ms >= 4 ms (worst frame {"transition":"atmosphere-to-surface","frameIndex":1312,"baselineMs":7.589,"measuredMs":35.929,"deltaMs":28.34})
+  - run 5 cycle 3: atmosphere-to-surface emitted 1 budget warning(s)
+  - run 5 cycle 3: surface-to-atmosphere p99 delta 17.205 ms >= 4 ms (worst frame {"transition":"surface-to-atmosphere","frameIndex":2310,"baselineMs":7.589,"measuredMs":24.794,"deltaMs":17.205})
+  - run 5 cycle 3: surface-to-atmosphere emitted 1 budget warning(s)
+  - run 5 cycle 3: 2 total budget warning(s)

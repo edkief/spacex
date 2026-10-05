@@ -12,7 +12,10 @@ Excludes dotfiles, tests, and config.
 │   │   ├── gen-surface-fixture.ts  # regenerates the TASK-5 golden chunk fixture
 │   │   ├── gen-galaxy-snapshots.ts # npm run snapshot:update — regenerates the 6 TASK-6 snapshot fixtures
 │   │   ├── gen-flight-fixtures.ts  # npm run snapshot:update:flight — regenerates the 2 TASK-22 golden trajectory fixtures
-│   │   └── dev-test.mjs            # TASK-70: npm run dev:test — vite + tsx server on env/ random ports with tmp DB for the e2e fixture
+│   │   ├── dev-test.mjs            # TASK-70: npm run dev:test — vite + tsx server on env/ random ports with tmp DB for the e2e fixture
+│   │   └── perf-report.mjs         # TASK-61: npm run perf:report <desktop|phone> — runs the 4 benchmarks (+ phone keyboard loop), artifacts → .ralph/perf/
+│   ├── docs/
+│   │   └── performance.md          # TASK-61: reference-hardware report — device table, benchmark × budget × measured × pass/fail, SC-1/3/4/5 verdicts, FAIL register
 │   ├── smoke-task1.mjs       # TASK-1 Playwright smoke script (chromium screenshot)
 │   ├── smoke-task10.mjs      # TASK-10 live smoke: REST claim/session + WS token auth over the :3000 proxy
 │   ├── smoke-task13.mjs      # TASK-13 live smoke: shard join + 10 Hz snapshots + input integration + stale seq over the :3000 proxy

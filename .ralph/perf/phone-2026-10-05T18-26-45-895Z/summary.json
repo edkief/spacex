@@ -1,0 +1,15 @@
+{
+  "device": "phone",
+  "deviceTag": "phone",
+  "date": "2026-10-05T18:26:45.910Z",
+  "gitSha": "7b55e823da364f997bea0ca7a6a86b4717a5b4b9",
+  "machine": {
+    "platform": "linux",
+    "arch": "x64",
+    "cpus": 4,
+    "ramGb": 15,
+    "cpu": "Intel(R) N100"
+  },
+  "benches": {},
+  "blocked": "PENDING-DEVICE"
+}

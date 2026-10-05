@@ -1,0 +1,36 @@
+
+> bench:tick
+> NODE_OPTIONS=--expose-gc tsx tests/bench/tickWorstCase.ts
+
+
+TASK-60 worst-case tick bench — 120 s, seed tick-bench-seed
+scene: 16 conns (8 firing / 4 foot / 4 idle) + 10 AI (5 near, 5 far) + 20 ground items + 30 deposits
+ticks: 2399 (19.99 Hz effective) · entities: 238 · snapshot bytes: 353830175
+
+tick histogram:
+  p50  = 1.261 ms   (budget < 15)
+  p95  = 3.201 ms   (budget < 30)
+  max  = 35.984 ms   (budget < 60, rare spikes tolerated)
+
+per-phase tick cost (summed over the run; top-3 marked):
+  TOP 1: hazards                   828.8 ms total · 0.3455 ms/tick · 26.4% · max 2.575
+  TOP 2: characters                604.6 ms total · 0.2520 ms/tick · 19.3% · max 83.064
+  TOP 3: projectiles               505.8 ms total · 0.2108 ms/tick · 16.1% · max 7.022
+       : ships                     391.0 ms total · 0.1630 ms/tick · 12.5% · max 3.893
+       : snapshot-serialize        295.6 ms total · 0.1232 ms/tick · 9.4% · max 3.377
+       : snapshot-build            265.6 ms total · 0.1107 ms/tick · 8.5% · max 2.072
+       : sweep                     141.4 ms total · 0.0590 ms/tick · 4.5% · max 0.632
+       : ai                         75.7 ms total · 0.0316 ms/tick · 2.4% · max 1.739
+       : broadcast-send             13.0 ms total · 0.0054 ms/tick · 0.4% · max 0.641
+       : mining                     12.3 ms total · 0.0051 ms/tick · 0.4% · max 0.185
+
+budgets:
+  PASS  p50 1.26 ms < 15
+  PASS  p95 3.20 ms < 30
+  PASS  max 35.98 ms (budget < 60 unless rare)  (1/2399 ticks over budget (rare spikes tolerated))
+  PASS  effective rate 19.99 Hz ≥ 15
+  PASS  catch-up streak 1 ≤ 5
+  PASS  heap growth 0.7 MB < 20 MB (after warm-up + final GC)
+  PASS  peak in-flight missiles 16 reached the cap (16)  (the volley (16 concurrent) engaged the cap)
+
+TASK-60: ALL BUDGETS GREEN

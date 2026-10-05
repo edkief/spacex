@@ -1,0 +1,43 @@
+
+> bench:render
+> NODE_OPTIONS=--expose-gc tsx scripts/bench-render.ts
+
+TASK-58 render benchmark — AC-1 scene, 3600 frames (60 s @ 60 Hz), High preset
+[perf] streaming backlog 13: dropping far-ring generation first (near LOD unaffected) { backlog: 13, farDropped: 37 }
+
+BASELINE (pre-tuning: legacy 7-mesh ships, per-rock ore, uncapped FX)
+  p50=0.942ms p95=1.598ms max=3.314ms spikes>50ms=0 draws=120p95/122max mats=71 tris=90720 fx(flash=1,sets=2,missiles=37) wall=60213ms
+[perf] streaming backlog 13: dropping far-ring generation first (near LOD unaffected) { backlog: 13, farDropped: 37 }
+
+TUNED run 1/5
+  p50=0.879ms p95=1.581ms max=2.762ms spikes>50ms=0 draws=86p95/88max mats=71 tris=87912 fx(flash=1,sets=2,missiles=37) wall=60219ms
+[perf] streaming backlog 13: dropping far-ring generation first (near LOD unaffected) { backlog: 13, farDropped: 37 }
+
+TUNED run 2/5
+  p50=1.069ms p95=1.842ms max=3.192ms spikes>50ms=0 draws=86p95/88max mats=71 tris=87912 fx(flash=1,sets=2,missiles=37) wall=60221ms
+[perf] streaming backlog 13: dropping far-ring generation first (near LOD unaffected) { backlog: 13, farDropped: 37 }
+
+TUNED run 3/5
+  p50=1.142ms p95=1.828ms max=5.319ms spikes>50ms=0 draws=86p95/88max mats=71 tris=87912 fx(flash=1,sets=2,missiles=37) wall=60202ms
+[perf] streaming backlog 13: dropping far-ring generation first (near LOD unaffected) { backlog: 13, farDropped: 37 }
+
+TUNED run 4/5
+  p50=0.984ms p95=1.742ms max=3.676ms spikes>50ms=0 draws=86p95/88max mats=71 tris=87912 fx(flash=1,sets=2,missiles=37) wall=60202ms
+[perf] streaming backlog 13: dropping far-ring generation first (near LOD unaffected) { backlog: 13, farDropped: 37 }
+
+TUNED run 5/5
+  p50=1.099ms p95=1.959ms max=3.059ms spikes>50ms=0 draws=86p95/88max mats=71 tris=87912 fx(flash=1,sets=2,missiles=37) wall=60206ms
+
+p95 across 5 tuned runs: [1.581, 1.842, 1.828, 1.742, 1.959] ms — spread 21.1 % (budget < 20 %)
+
+DELTA vs baseline (AC-2: ≥ 30 % worst-case frame-time reduction)
+  p95:  1.598 ms → 1.581 ms  (1.1 % reduction)
+  max:  3.314 ms → 5.319 ms  (-60.5 % reduction)
+  draws p95: 120 → 86 (AC-3: < 120)
+  materials: 71 → 71 (AC-3: < 80)
+  triangles: 90720 → 87912 (AC-4: < 500000)
+
+FAIL:
+  - p95 spread 21.1 % ≥ 20 % (AC-6 repeatability)
+
+recorded → /workspace/master/.ralph/bench/TASK-58.json
