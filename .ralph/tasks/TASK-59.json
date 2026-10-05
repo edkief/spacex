@@ -16,25 +16,25 @@
       "step": 1,
       "description": "Mobile profile entry",
       "details": "Add 'mobile' to PERF_PROFILES (TASK-58) with the spec numbers; the streaming pipeline + FX registry + starfield already read from the profile (TASK-58's design) — verify each subsystem honors the mobile values (chunk rings, FX caps, star count, label cap).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Detection + settings row",
       "details": "detectProfile() (the navigator heuristic, pure function — testable); Settings gains deviceProfile: 'auto'|'desktop'|'mobile'; the effective profile = the override or the detection; applied at world load (the WorldManager reads it on loadWorld — the warp transition is the re-init path, TASK-8).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Margin benchmark + e2e",
       "details": "Headless: run the benchmark scene at High and Mobile (forced), assert the ≥ 1.5x margin; the reduced-FX e2e: force Mobile, run the keyboard-only loop (TASK-54) — all gameplay assertions pass, the FX registry counter shows reduced counts.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Verify",
       "details": "All tests; record the headless numbers for TASK-61; commit.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-58"],

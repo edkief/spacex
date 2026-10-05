@@ -2,7 +2,7 @@ import path from 'node:path';
 import { expect, test } from './fixtures';
 import { collectErrors, uniqueCallsign } from './helpers';
 import { RawWsClient } from './raw-ws';
-import { installMouseEventGuard, keyboardWarp, sweepUntil } from './keyboard-only.spec';
+import { installMouseEventGuard, keyboardWarp, sweepUntil } from './keyboard-helpers';
 
 /**
  * TASK-59 — the mobile rendering floor, e2e:
@@ -204,8 +204,10 @@ test('mobile profile forced: the keyboard-only gameplay loop runs (reduced FX, n
   await installMouseEventGuard(page);
   await page.goto(baseURL);
 
-  // (1) CLAIM — form + Enter (keyboard).
+  // (1) CLAIM — form + Enter (keyboard). Wait for the debounced availability
+  // probe first: the submit button is disabled until it lands (TASK-56).
   await page.fill('#callsign-input', callsign);
+  await expect(page.locator('#claims-status')).toHaveText('available', { timeout: 10_000 });
   await page.keyboard.press('Enter');
   await expect(page.locator('#player-list')).toContainText(`${callsign} (you)`, {
     timeout: 15_000,

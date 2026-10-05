@@ -78,7 +78,12 @@ describe('GET /api/players/settings (TASK-55)', () => {
     const token = await claim('Bravo-1');
     const res = await get(token);
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ quality: 'high', sensitivity: 1, 'reduced-motion': false });
+    expect(res.json()).toEqual({
+      quality: 'high',
+      sensitivity: 1,
+      'reduced-motion': false,
+      deviceProfile: 'auto',
+    });
   });
 
   it('is 401 without a bearer token', async () => {
@@ -93,10 +98,20 @@ describe('PUT /api/players/settings (TASK-55)', () => {
     const token = await claim('Charlie-2');
     const res = await put(token, { quality: 'low' });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ quality: 'low', sensitivity: 1, 'reduced-motion': false });
+    expect(res.json()).toEqual({
+      quality: 'low',
+      sensitivity: 1,
+      'reduced-motion': false,
+      deviceProfile: 'auto',
+    });
     // The merge is cumulative: a later partial keeps the earlier field.
     const res2 = await put(token, { 'reduced-motion': true });
-    expect(res2.json()).toEqual({ quality: 'low', sensitivity: 1, 'reduced-motion': true });
+    expect(res2.json()).toEqual({
+      quality: 'low',
+      sensitivity: 1,
+      'reduced-motion': true,
+      deviceProfile: 'auto',
+    });
   });
 
   it('rejects a bad quality preset with a 400', async () => {
@@ -138,12 +153,14 @@ describe('persistence round trip (TASK-55)', () => {
       quality: 'low',
       sensitivity: 0.7,
       'reduced-motion': false,
+      deviceProfile: 'auto',
     });
     // And the direct GET agrees.
     expect((await get(token)).json()).toEqual({
       quality: 'low',
       sensitivity: 0.7,
       'reduced-motion': false,
+      deviceProfile: 'auto',
     });
   });
 
@@ -158,6 +175,7 @@ describe('persistence round trip (TASK-55)', () => {
       quality: 'high',
       sensitivity: 1,
       'reduced-motion': false,
+      deviceProfile: 'auto',
     });
   });
 });

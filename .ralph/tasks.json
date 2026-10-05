@@ -640,7 +640,7 @@
     "title": "Mobile rendering profile (30 fps floor)",
     "category": "performance",
     "specFilePath": ".ralph/tasks/TASK-59.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-60",
