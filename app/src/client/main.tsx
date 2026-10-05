@@ -2,6 +2,17 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { HealthPayload } from '@shared/health';
 import { ClientSession, type ClaimedSession, type ConnectionState } from '@client/net/session';
+// TASK-56: the boot flow (stored token → /api/session → join) + the claims
+// screen (the only entry to a session) + the first-launch guidance line.
+import {
+  clearStoredSession,
+  readStoredCallsign,
+  readStoredToken,
+  restoreSession,
+} from '@client/net/session-boot';
+import { ClaimsScreen } from '@client/ui/claims-screen';
+import { GuidanceHint } from '@client/ui/guidance-hint';
+import { guidanceEvent } from '@client/ui/guidance';
 import { PresenceStore } from '@client/net/presence';
 import { ChatStore } from '@client/net/chat';
 import { PlayerList } from '@client/hud/player-list';
@@ -187,31 +198,6 @@ async function fetchHealth(): Promise<HealthPayload | null> {
   }
 }
 
-const SESSION_KEY = 'drift.session.v1';
-
-function readSession(): ClaimedSession | null {
-  try {
-    const raw = localStorage.getItem(SESSION_KEY);
-    if (!raw) return null;
-    const s = JSON.parse(raw) as Partial<ClaimedSession>;
-    if (
-      typeof s.token === 'string' &&
-      typeof s.playerId === 'string' &&
-      typeof s.callsign === 'string' &&
-      typeof s.homeSystemId === 'string'
-    ) {
-      return s as ClaimedSession;
-    }
-  } catch {
-    // corrupt entry — fall through to the claim form
-  }
-  return null;
-}
-
-function saveSession(s: ClaimedSession): void {
-  localStorage.setItem(SESSION_KEY, JSON.stringify(s));
-}
-
 function wsUrl(): string {
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${proto}//${window.location.host}/ws`;
@@ -393,6 +379,8 @@ function useGameSession(
           applySellResult(sp.balance, sp.hold, sp.inventory);
           setCredits(sp.balance);
           pushCreditFloat(`+${sp.earned} cr`);
+          // TASK-56: the FIRST sale plays the guidance's finale.
+          if (sp.sold > 0) guidanceEvent('sale');
           return;
         }
         if (msg.type === 'mining') {
@@ -438,7 +426,14 @@ function useGameSession(
           }
           // TASK-29.3: DOCKED indicator — visible exactly while the wire
           // regime is 'docked' with a padId set.
+          const wasDocked = dockedIndicator();
           if (self) setDockedIndicator(isDocked(self.regime, self.padId));
+          // TASK-56: guidance events from the docked TRANSITIONS (the
+          // machine ignores the spawn-dock itself — see ui/guidance.ts).
+          const becameDocked = dockedIndicator();
+          if (becameDocked !== wasDocked) {
+            guidanceEvent(becameDocked ? 'docked' : 'undocked');
+          }
           // TASK-51: the ship HUD's single input — the server's self ship
           // entity (10 Hz truth, the client never displays a prediction as
           // fact). On foot (self = character) the HUD clears (unmounts).
@@ -459,6 +454,11 @@ function useGameSession(
           // TASK-34: weight bar — the server's self entity carries the
           // inventory (updates within one snapshot of any pickup/drop).
           setInventory(self?.inventory ?? null);
+          // TASK-56: the FIRST pickup (any weight on the person) advances
+          // the guidance to the 'load + sell' step.
+          if (self?.inventory && self.inventory.weightUsed > 0) {
+            guidanceEvent('pickup');
+          }
           return;
         }
         if (msg.type === 'combat_event') {
@@ -557,70 +557,6 @@ function useGameSession(
   return { systemId, connState, regimeWiring };
 }
 
-/** Minimal callsign claim form; on success the session boots automatically. */
-function ClaimForm({
-  onClaimed,
-  error,
-}: {
-  onClaimed: (s: ClaimedSession) => void;
-  error: string | null;
-}) {
-  const [callsign, setCallsign] = React.useState('');
-  const [busy, setBusy] = React.useState(false);
-  const [fail, setFail] = React.useState<string | null>(null);
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    setFail(null);
-    try {
-      const res = await fetch('/api/callsigns', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ callsign }),
-      });
-      const body = (await res.json()) as Partial<ClaimedSession> & { code?: string };
-      if (!res.ok || !body.token || !body.playerId || !body.homeSystemId) {
-        setFail(`claim failed: ${body.code ?? res.status}`);
-        return;
-      }
-      const session = body as ClaimedSession;
-      saveSession(session);
-      onClaimed(session);
-    } catch {
-      setFail('claim failed: server unreachable');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <form onSubmit={submit} style={claimStyles.card}>
-      <label style={claimStyles.label} htmlFor="callsign-input">
-        CALLSIGN
-      </label>
-      <input
-        id="callsign-input"
-        style={claimStyles.input}
-        value={callsign}
-        onChange={(e) => setCallsign(e.target.value)}
-        placeholder="3-16 alphanumerics"
-        maxLength={16}
-        autoComplete="off"
-        spellCheck={false}
-      />
-      <button id="join-button" type="submit" style={claimStyles.button} disabled={busy}>
-        {busy ? 'JOINING…' : 'JOIN THE DRIFT'}
-      </button>
-      {(fail || error) && (
-        <p style={claimStyles.error} role="alert">
-          {fail ?? error}
-        </p>
-      )}
-    </form>
-  );
-}
-
 /**
  * Minimal React shell. React owns the DOM UI (HUD/menu placeholder) only;
  * the three.js renderer will take over the canvas, which is mounted outside
@@ -637,8 +573,39 @@ function App() {
   React.useEffect(() => {
     serverSeedRef.current = serverSeed;
   }, [serverSeed]);
-  const [session, setSession] = React.useState<ClaimedSession | null>(readSession);
+  // TASK-56: the boot flow. A stored token resolves against GET /api/session
+  // BEFORE the session state ever exists: 200 → straight into the game (no
+  // intermediate screen); 401/expired/network → silently back to the claims
+  // screen, the old callsign shown disabled (v1 has no recovery).
+  const [session, setSession] = React.useState<ClaimedSession | null>(null);
+  const [booting, setBooting] = React.useState(() => readStoredToken() !== null);
+  const [expiredCallsign, setExpiredCallsign] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const token = readStoredToken();
+      if (!token) {
+        setBooting(false);
+        return;
+      }
+      const callsign = readStoredCallsign();
+      const result = await restoreSession(token);
+      if (cancelled) return;
+      if (result.ok) {
+        setSession(result.session);
+      } else {
+        // Expired/invalid token: clear it, back to the claims screen — the
+        // old callsign pre-filled and disabled (no error wall).
+        clearStoredSession();
+        setExpiredCallsign(callsign);
+      }
+      setBooting(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   // TASK-33: the interaction pre-filter (own-ship prompt) needs the callsign
   // without re-running the []-dep rAF/key effects when the session boots.
   const sessionCallsignRef = React.useRef('');
@@ -913,8 +880,11 @@ function App() {
     serverSeedRef,
     (msg) => {
       setError(msg);
-      setSession(null); // token may be stale → back to the claim form
-      localStorage.removeItem(SESSION_KEY);
+      // Token may be stale → back to the claims screen (the old callsign is
+      // shown disabled — the TASK-56 expired path).
+      setExpiredCallsign(session?.callsign ?? expiredCallsign);
+      setSession(null);
+      clearStoredSession();
     },
     // TASK-28.1: live atmosphere view. A CLOSURE that reads worldRef.current
     // only when invoked (on WS entity_updates, post-mount) — worldRef is
@@ -942,6 +912,9 @@ function App() {
         // ON FOOT: the predictor must SURVIVE every 10 Hz self update — the
         // prediction loop owns it between snapshots (clearing it here would
         // stop on-foot input entirely after the first snapshot).
+        // TASK-56: the FIRST disembark advances the guidance (a player who
+        // walks off the spawn pad without flying still needs the ore hint).
+        if (!onFootRef.current) guidanceEvent('disembark');
         onFootRef.current = true; // TASK-73: Q-drop gate (on foot only)
         // TASK-73: disembark drops the ship predictor (the shared seq
         // counter survives — re-entry re-seeds the predictor, not the seq).
@@ -1854,19 +1827,59 @@ function App() {
             SYSTEMS (M)
           </button>
         )}
-        {!session && (
-          <ClaimForm
-            onClaimed={(s) => {
-              setError(null);
-              setSession(s);
+        {!session &&
+          (booting ? (
+            <p
+              id="session-restoring"
+              style={{
+                position: 'fixed',
+                inset: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#94a3b8',
+                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                fontSize: 13,
+                letterSpacing: '0.12em',
+                zIndex: 120,
+              }}
+            >
+              RESTORING SESSION…
+            </p>
+          ) : (
+            <ClaimsScreen
+              expiredCallsign={expiredCallsign}
+              onClaimed={(s) => {
+                setError(null);
+                setExpiredCallsign(null);
+                setSession(s);
+              }}
+            />
+          ))}
+        {error && !session && (
+          <p
+            role="alert"
+            style={{
+              position: 'fixed',
+              bottom: 14,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              color: '#f87171',
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+              fontSize: 12,
+              zIndex: 121,
             }}
-            error={error}
-          />
+          >
+            {error}
+          </p>
         )}
       </div>
       {systemId && (
         <ChatLog store={chatStore} onSend={(text) => clientRef.current?.send('chat', { text })} />
       )}
+      {/* TASK-56: the first-launch hint line (bottom-center, above the
+          prompt) — self-hides after the finale / X / its 5-minute window. */}
+      {systemId && session && <GuidanceHint />}
       <PlayerList store={store} />
       <ToastStack store={store} />
       {/* TASK-54: the ONE aria-live surface — HUD summary + announcements,
@@ -2105,34 +2118,6 @@ const overlayStyles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
     fontFamily: 'inherit',
   },
-};
-
-const claimStyles: Record<string, React.CSSProperties> = {
-  card: { marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' },
-  label: {
-    fontSize: '0.7rem',
-    letterSpacing: '0.12em',
-    color: '#8b97ab',
-    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-  },
-  input: {
-    background: '#0b0e14',
-    border: '1px solid #2a3346',
-    borderRadius: 6,
-    color: '#d6deeb',
-    padding: '0.4rem 0.6rem',
-    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-  },
-  button: {
-    background: '#1d2739',
-    border: '1px solid #2a3346',
-    borderRadius: 6,
-    color: '#d6deeb',
-    padding: '0.4rem 0.6rem',
-    letterSpacing: '0.08em',
-    cursor: 'pointer',
-  },
-  error: { margin: 0, color: '#f87171', fontSize: '0.8rem' },
 };
 
 // TASK-71: dev-only determinism debug hook (no-op in production builds).

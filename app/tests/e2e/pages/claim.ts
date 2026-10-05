@@ -2,19 +2,21 @@ import { expect, type Locator } from '@playwright/test';
 import { BasePage } from '../base-page';
 
 /**
- * Callsign-claim screen (TASK-70 page object). The claim form is the only
- * entry point to a session: POST /api/callsigns → token → WS join, all done
- * by the app automatically after a successful claim.
+ * Callsign-claim screen (TASK-70, reworked in TASK-56 into the centered
+ * claims panel with the live availability check). The claim form is the
+ * only entry point to a session: POST /api/callsigns → token → WS join,
+ * all done by the app automatically after a successful claim.
  */
 export class ClaimPage extends BasePage {
   readonly callsignInput: Locator;
+  /** The Claim button (enabled once the debounced availability probe passes). */
   readonly joinButton: Locator;
   readonly playerList: Locator;
 
   constructor(page: ConstructorParameters<typeof BasePage>[0], base: string) {
     super(page, base);
     this.callsignInput = page.getByLabel(/callsign/i);
-    this.joinButton = page.getByRole('button', { name: /join/i });
+    this.joinButton = page.getByRole('button', { name: /claim/i });
     this.playerList = page.locator('#player-list');
   }
 

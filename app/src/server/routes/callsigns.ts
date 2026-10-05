@@ -29,7 +29,10 @@ class AvailabilityBucket {
 
   take(): boolean {
     const t = this.now();
-    this.tokens = Math.min(AVAILABILITY_BURST, this.tokens + ((t - this.last) / 1000) * AVAILABILITY_RATE);
+    this.tokens = Math.min(
+      AVAILABILITY_BURST,
+      this.tokens + ((t - this.last) / 1000) * AVAILABILITY_RATE,
+    );
     this.last = t;
     if (this.tokens >= 1) {
       this.tokens -= 1;
@@ -121,13 +124,18 @@ export function registerCallsignRoutes(app: FastifyInstance, deps: RouteDeps): v
       buckets.set(key, bucket);
     }
     if (!bucket.take()) {
-      return reply.code(429).send({ code: 'rate-limited', message: 'too many availability probes' });
+      return reply
+        .code(429)
+        .send({ code: 'rate-limited', message: 'too many availability probes' });
     }
     const format = callsignSchema.safeParse(parsed.data.callsign);
     if (!format.success) {
       return { available: false as const, reason: 'invalid-format' as const };
     }
     const existing = await deps.repo.findPlayerByCallsign(format.data);
-    return { available: existing === undefined, reason: existing === undefined ? undefined : 'taken' };
+    return {
+      available: existing === undefined,
+      reason: existing === undefined ? undefined : 'taken',
+    };
   });
 }
