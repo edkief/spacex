@@ -218,15 +218,23 @@ async function main(): Promise<void> {
     if (c.role !== 'foot') continue;
     const p = players[c.id];
     shardA.teleportForTesting(p.playerId, A.pad);
-    for (let i = 0; i < 150 && shardA.entities.get(p.shipId)?.docked !== true; i++) await sleep(100);
+    // Pad dock (surface regime, slow, at pad height) sets entity.padId — that
+    // is what handleExitShip checks; the 'docked' flag is a different thing.
+    for (let i = 0; i < 150 && shardA.entities.get(p.shipId)?.padId === undefined; i++) await sleep(100);
+    const shipEnt = shardA.entities.get(p.shipId);
+    if (!shipEnt?.padId)
+      throw new Error(`client ${c.id}: ship never pad-docked (regime=${shipEnt?.ship.regime})`);
     c.send('exit_ship', { shipId: p.shipId });
-    for (
-      let i = 0;
-      i < 100 && !c.lastFrame?.byCallsign.get(p.callsign)?.some((e) => e.kind === 'character');
-      i++
-    )
-      await sleep(100);
-    const charPos = { ...shardA.entities.get(`char:${p.playerId}`)!.ship.pos };
+    const charKey = `char:${p.playerId}`;
+    for (let i = 0; i < 100 && !shardA.entities.has(charKey); i++) await sleep(100);
+    const charEnt = shardA.entities.get(charKey);
+    if (!charEnt)
+      throw new Error(
+        `exit_ship did not create a character for client ${c.id}: ` +
+          `errs=${JSON.stringify(c.errCodes)} ship={padId:${shipEnt.padId} ` +
+          `regime:${shipEnt.ship.regime} disembarked:${shipEnt.disembarked}}`,
+      );
+    const charPos = { ...charEnt.ship.pos };
     const deposits = [
       shardA.addDepositForTesting({ x: charPos.x + 1, y: charPos.y, z: charPos.z }, 300, 'iron'),
       shardA.addDepositForTesting({ x: charPos.x + 2, y: charPos.y, z: charPos.z }, 300, 'iron'),
