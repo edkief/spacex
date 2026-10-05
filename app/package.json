@@ -4,6 +4,7 @@
     "dev:test": "node scripts/dev-test.mjs",
     "build": "vite build",
     "test": "vitest run",
+    "bench:tick": "NODE_OPTIONS=--expose-gc tsx tests/bench/tickWorstCase.ts",
     "bench:transitions": "NODE_OPTIONS=--expose-gc tsx scripts/bench-transitions.ts",
     "bench:render": "NODE_OPTIONS=--expose-gc tsx scripts/bench-render.ts",
     "bench:mobile": "tsx scripts/bench-mobile-margin.ts",

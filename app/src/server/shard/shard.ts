@@ -139,8 +139,10 @@ import { TickHistogram } from './histogram';
 import { TerrainContext } from './terrain';
 import { lineOfSight, resolveHit, type ResolveHitOutcome } from './combat';
 import {
+  DORMANT_RANGE_M,
   createAiState,
   makeWaypoints,
+  patrolStep,
   resetAiState,
   stepAi,
   tickRng,
@@ -204,6 +206,25 @@ function isQuat(value: unknown): value is Quat {
   return ['x', 'y', 'z', 'w'].every((k) => typeof q[k] === 'number' && Number.isFinite(q[k]));
 }
 
+/**
+ * TASK-60: the named phases of one tick (the per-phase profile table the
+ * worst-case benchmark logs). 'sweep' = ttl expiries + rogue respawns + the
+ * input drain (latest-wins consumption happens inside the ships loop, which
+ * is timed as 'ships'); 'projectiles' covers lock release + fire intents +
+ * missile flight + deposit discovery.
+ */
+export type TickPhase =
+  | 'sweep'
+  | 'ships'
+  | 'characters'
+  | 'hazards'
+  | 'mining'
+  | 'ai'
+  | 'projectiles'
+  | 'snapshot-build'
+  | 'snapshot-serialize'
+  | 'broadcast-send';
+
 export interface CreateSystemShardOptions {
   systemId: string;
   /** Galaxy seed — regenerates the system's planets and surface chunks. */
@@ -238,6 +259,19 @@ export interface CreateSystemShardOptions {
   dtMs?: number;
   /** Injectable clock (tests use a fake now for destruction timestamps). */
   now?: () => number;
+  /**
+   * TASK-60: optional per-phase tick profiler. When set, each phase of the
+   * tick reports its wall-clock cost (ms) after it runs — the worst-case
+   * benchmark (tests/bench/tickWorstCase.ts) accumulates these into the
+   * per-phase table (AC 3). Undefined in production: zero overhead.
+   */
+  phaseProfile?: (phase: TickPhase, ms: number) => void;
+  /**
+   * TASK-60: benchmark seam — false runs the pre-tuning baseline (every
+   * rogue runs the full state machine regardless of distance, no dormant
+   * fast path). Default true (the tuned path).
+   */
+  dormantAi?: boolean;
   /**
    * TASK-46: skip the seeded rogue AI roster (default false — real shards
    * always spawn their rogues). The benchmark seam: the AI-cost delta
@@ -379,6 +413,10 @@ export class SystemShard implements Shard {
   private connSeq = 0;
   private offBus: (() => void) | undefined;
   private snapshotSizeWarned = false;
+  /** TASK-60: the optional per-phase profiler (undefined = no timing). */
+  private readonly phaseProfile?: (phase: TickPhase, ms: number) => void;
+  /** TASK-60: dormant-AI fast path enabled (default; benchmark seam). */
+  private readonly dormantAi: boolean;
 
   constructor(options: CreateSystemShardOptions) {
     this.systemId = options.systemId;
@@ -387,6 +425,8 @@ export class SystemShard implements Shard {
     this.repo = options.repo;
     this.log = options.log ?? defaultLogger;
     this.now = options.now ?? (() => Date.now());
+    this.phaseProfile = options.phaseProfile;
+    this.dormantAi = options.dormantAi ?? true;
     this.dt = (options.dtMs ?? TICK_DT_MS) / 1000;
     this.wreckTtlTicks = Math.max(1, Math.round(WRECK_TTL_MS / (options.dtMs ?? TICK_DT_MS)));
     this.groundItemTtlTicks = Math.max(
@@ -1483,6 +1523,34 @@ export class SystemShard implements Shard {
         // the TASK-45 respawn sweep just reset the entity in place: PATROL again
         resetAiState(state, rng, rogue.patrolCenter, rogue.patrolRadius, now);
       }
+      // TASK-60: dormant AI — a PATROL rogue farther than DORMANT_RANGE_M
+      // from EVERY live player costs ~0: the patrol input is recomputed at
+      // 1 Hz (every 20th tick) and cached; no aggro scan, no state machine.
+      // The ship still integrates every tick on the cached input. Within
+      // range (or in any non-patrol mode) the full machine runs below.
+      if (this.dormantAi && state.mode === 'patrol' && players.length > 0) {
+        let minDist = Infinity;
+        for (const p of players) {
+          const d = vecLength(vecSub(p.pos, entity.ship.pos));
+          if (d < minDist) minDist = d;
+        }
+        if (minDist > DORMANT_RANGE_M) {
+          if (!state.dormantInput || tick % 20 === 0) {
+            state.dormantInput = patrolStep(state, entity.ship, shipStats(entity.classId));
+          }
+          entity.ship = integrateShip(
+            entity.ship,
+            state.dormantInput,
+            this.dt,
+            entity.ship.regime,
+            undefined,
+            shipStats(entity.classId),
+          );
+          entity.energy = regenEnergy(entity.energy ?? ENERGY_MAX, this.dt);
+          continue;
+        }
+        state.dormantInput = undefined; // woke up: the full machine runs below
+      }
       const world: AiWorld = {
         tick,
         nowMs: now,
@@ -1744,24 +1812,40 @@ export class SystemShard implements Shard {
     return out;
   }
 
+  /**
+   * TASK-60: run `fn` as one named tick phase — measured only while a
+   * profiler is set (the worst-case benchmark); zero overhead in production.
+   */
+  private phase(phase: TickPhase, fn: () => void): void {
+    const p = this.phaseProfile;
+    if (!p) {
+      fn();
+      return;
+    }
+    const t0 = performance.now();
+    fn();
+    p(phase, performance.now() - t0);
+  }
+
   /** One sim tick: drain inputs, integrate, snapshot on even ticks. */
   private tick(tick: number): void {
     const t0 = performance.now();
 
-    // TASK-23: expire static wrecks (600 s ttl) — bounds the entity count.
-    // TASK-43: projectiles manage their OWN ttl (updateProjectiles decrements
-    // AND detonates on contact — the sweep must not double-decrement them).
-    for (const [id, entity] of this.entities) {
-      if (entity.kind === 'projectile') continue;
-      if (entity.ttl !== undefined && --entity.ttl === 0) this.entities.delete(id);
-    }
+    this.phase('sweep', () => {
+      // TASK-23: expire static wrecks (600 s ttl) — bounds the entity count.
+      // TASK-43: projectiles manage their OWN ttl (updateProjectiles decrements
+      // AND detonates on contact — the sweep must not double-decrement them).
+      for (const [id, entity] of this.entities) {
+        if (entity.kind === 'projectile') continue;
+        if (entity.ttl !== undefined && --entity.ttl === 0) this.entities.delete(id);
+      }
 
-    // TASK-45: rogue respawns — a destroyed ai-ship resets IN PLACE at its
-    // spawnPos once now() reaches its respawnAtMs (the tick is the timer —
-    // no setTimeout in the shard). Same wire id: clients keep the entity,
-    // no join event; stale target locks auto-release via tickTargetLocks.
-    const now = this.now();
-    for (const [id, rogue] of this.rogues) {
+      // TASK-45: rogue respawns — a destroyed ai-ship resets IN PLACE at its
+      // spawnPos once now() reaches its respawnAtMs (the tick is the timer —
+      // no setTimeout in the shard). Same wire id: clients keep the entity,
+      // no join event; stale target locks auto-release via tickTargetLocks.
+      const now = this.now();
+      for (const [id, rogue] of this.rogues) {
       if (rogue.respawnAtMs === undefined || now < rogue.respawnAtMs) continue;
       const entity = this.entities.get(id);
       rogue.respawnAtMs = undefined;
@@ -1774,8 +1858,10 @@ export class SystemShard implements Shard {
       entity.ship.vel = { x: 0, y: 0, z: 0 };
       entity.energy = ENERGY_MAX;
       this.log.debug('rogue respawn', { id, classId: entity.classId });
-    }
+      }
+    });
 
+    this.phase('ships', () => {
     // Integrate EVERY player ship — connected or not. A ship whose owner
     // has no live connection is IDLE (TASK-17): its held frame was cleared
     // when the owner left, so it coasts on zero input and the world keeps
@@ -1823,12 +1909,16 @@ export class SystemShard implements Shard {
       // disembarked (the idle tick keeps regenerating, spec note).
       entity.energy = regenEnergy(entity.energy ?? ENERGY_MAX, this.dt);
     }
+    });
 
+    this.phase('hazards', () => {
     // TASK-48: hazard exposure — drain (storm 2/s, rad 5/s) / regen (5/s
     // outside) per on-foot player BEFORE the character integration, so a
     // knock-down (exposure 0 → 5 s 'recovering') freezes THAT tick's input.
     this.stepHazardExposure();
+    });
 
+    this.phase('characters', () => {
     // TASK-32: integrate the on-foot characters (one per disembarked
     // player). SAME input frames as ships — the owner's active entity kind
     // decides the integrator (the ship loop skips disembarked ships, so the
@@ -1877,21 +1967,29 @@ export class SystemShard implements Shard {
       // the character — so it mirrors the ship's stacks every tick).
       this.syncCharacterInventory(entity.playerId);
     }
+    });
 
+    this.phase('hazards', () => {
     // TASK-48: hostile drones — patrol their seeded cells, aggro the nearest
     // on-foot player (< 80 m), hit for 3 through the damage pipeline (2 s
     // cadence, ≤ 30 m), respawn 180 s after a kill. Ships are never targets.
     this.stepDrones();
+    });
 
+    this.phase('mining', () => {
     // TASK-38: advance the active mining channels (the server clock is the
     // award authority — awards, cancellations and the 10 Hz progress echo).
     this.updateMining(tick);
+    });
 
+    this.phase('ai', () => {
     // TASK-46: rogue AI — state machine inputs via the same integrateShip,
     // fire intents through the same pipeline (runs before the fire sweeps so
     // AI missiles spawn + fly this tick, like a player's queued fire).
     this.stepAiShips(tick);
+    });
 
+    this.phase('projectiles', () => {
     // TASK-44: auto-release stale target locks BEFORE firing, so missile
     // preference and the snapshot's `targetedBy` never see a dead lock.
     this.tickTargetLocks();
@@ -1904,6 +2002,7 @@ export class SystemShard implements Shard {
 
     // TASK-37: deposit discovery (any player within 50 m flips the flag).
     this.sweepDiscovery();
+    });
 
     // 10 Hz snapshot: every 2nd tick, serialize ONCE, share the buffer.
     if (tick % SNAPSHOT_EVERY_TICKS === 0 && this.entities.size > 0 && this.connections.size > 0) {
@@ -1982,7 +2081,10 @@ export class SystemShard implements Shard {
   }
 
   private broadcast(): void {
-    const payload = { entities: this.snapshot() };
+    let payload!: { entities: EntityState[] };
+    this.phase('snapshot-build', () => {
+      payload = { entities: this.snapshot() };
+    });
     // Validate once against the wire contract (dev safety; cheap at 10 Hz).
     const check = messageSchemas.entity_update.safeParse(payload);
     if (!check.success) {
@@ -1992,7 +2094,10 @@ export class SystemShard implements Shard {
       return;
     }
     // Serialize ONCE; every in-system connection receives this same buffer.
-    const buffer = encodeMessage('entity_update', payload);
+    let buffer!: string;
+    this.phase('snapshot-serialize', () => {
+      buffer = encodeMessage('entity_update', payload);
+    });
     const bytes = buffer.length;
     if (bytes > SNAPSHOT_WARN_BYTES) {
       if (!this.snapshotSizeWarned) {
@@ -2002,7 +2107,9 @@ export class SystemShard implements Shard {
     } else if (this.snapshotSizeWarned) {
       this.snapshotSizeWarned = false;
     }
-    for (const conn of this.connections.values()) conn.send(buffer);
+    this.phase('broadcast-send', () => {
+      for (const conn of this.connections.values()) conn.send(buffer);
+    });
   }
 
   /**

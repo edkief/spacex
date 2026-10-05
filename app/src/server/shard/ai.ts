@@ -59,6 +59,15 @@ export const DISENGAGE_HULL_FRACTION = 0.25;
 export const DISENGAGE_DURATION_MS = 30_000;
 /** Past this distance the target is out-ranged and the AI gives up (back to PATROL). */
 export const LOST_TARGET_RANGE_M = 1_200;
+/**
+ * TASK-60: a PATROL-mode rogue this far from the NEAREST live player goes
+ * dormant — the patrol input is recomputed at 1 Hz (every 20th tick) and
+ * cached instead of running the full state machine (no aggro scan). Within
+ * this range the full machine runs. 2 km is 3x the aggro range (600 m), so
+ * a player closing at max speed has seconds of reaction time before the AI
+ * can wake and acquire.
+ */
+export const DORMANT_RANGE_M = 2_000;
 /** Patrol speed as a fraction of the class max speed (AC: 0.5x). */
 export const PATROL_SPEED_FACTOR = 0.5;
 /** Waypoints per patrol loop. */
@@ -82,6 +91,12 @@ export interface AiState {
   lastPlayerFireAtMs: number;
   lastPlayerFireBy: string | null;
   lastModeChangeAtMs: number;
+  /**
+   * TASK-60: the CACHED dormant patrol input (undefined when awake). The
+   * shard's dormant fast path recomputes it at 1 Hz and feeds the same
+   * integrateShip — the ship still flies, only the state machine sleeps.
+   */
+  dormantInput?: ShipInput;
 }
 
 /** Minimal view of one targetable player ship (rogues never target rogues). */
@@ -190,6 +205,7 @@ export function resetAiState(
   state.lastPlayerFireAtMs = 0;
   state.lastPlayerFireBy = null;
   state.lastModeChangeAtMs = nowMs;
+  state.dormantInput = undefined;
 }
 
 function clampUnit(x: number): number {
@@ -256,10 +272,15 @@ function toPatrol(state: AiState, nowMs: number): void {
   state.targetId = null;
   state.acquireStartedAtMs = 0;
   state.lastModeChangeAtMs = nowMs;
+  state.dormantInput = undefined; // waking up: the cached dormant input is stale
 }
 
-/** One patrol tick: steer the waypoint loop at 0.5x max speed (AC). */
-function patrolStep(state: AiState, ship: ShipState, stats: ShipClass): ShipInput {
+/**
+ * One patrol tick: steer the waypoint loop at 0.5x max speed (AC).
+ * TASK-60: exported so the shard's DORMANT fast path can recompute the
+ * cached patrol input at 1 Hz without running the full state machine.
+ */
+export function patrolStep(state: AiState, ship: ShipState, stats: ShipClass): ShipInput {
   let wp = state.waypoints[state.waypointIdx % state.waypoints.length];
   if (vecLength(vecSub(wp, ship.pos)) <= WAYPOINT_REACH_M) {
     state.waypointIdx = (state.waypointIdx + 1) % state.waypoints.length;
