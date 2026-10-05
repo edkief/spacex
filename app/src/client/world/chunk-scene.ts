@@ -15,11 +15,13 @@
  * shared biome material) — a ring per planet is a handful of draw calls
  * instead of up to 13. A ring's chunk geometries are merged into a single
  * BufferGeometry the first time the mounted (key → ring, material) set
- * CHANGES; steady state (the AC-1 at-rest window) never rebuilds — the
- * per-frame cost is the same membership walk as the legacy path. Any
- * mount / unmount / LOD swap / eviction marks the scene dirty and the
- * merged geometries are rebuilt from the pre-built mips (chunk geometries
- * stay owned by the streamer — the merge copies their attribute data).
+ * CHANGES — and only the (ring, material) groups whose membership changed
+ * are rebuilt (per-group signatures), never all of them at once. Steady
+ * state (the AC-1 at-rest window) never rebuilds — the per-frame cost is
+ * the same membership walk as the legacy path. Any mount / unmount / LOD
+ * swap / eviction marks the scene dirty; changed groups are rebuilt from
+ * the pre-built mips (chunk geometries stay owned by the streamer — the
+ * merge copies their attribute data).
  *
  * Per frame the scene also reports its triangle tally by LOD ring to the
  * frame monitor (per-category counters, TASK-57 extension) and checks the
@@ -82,8 +84,24 @@ export class ChunkScene {
   private readonly meshes = new Map<string, THREE.Mesh>();
   /** Merged mode: chunk key → what it is mounted with (membership + dirty source). */
   private mounted = new Map<string, { ring: LodRing; biome: Biome | null }>();
-  /** Merged mode: last built membership signature (null = rebuild needed). */
-  private builtSignature: string | null = null;
+  /** Merged mode: last synced membership (for the per-frame structural diff). */
+  private prevMounted: Map<string, { ring: LodRing; biome: Biome | null }> | null = null;
+  /** Merged mode: group key → built member signature (per-group dirty check). */
+  private readonly builtGroupSigs = new Map<string, string>();
+  /**
+   * Merged mode: `chunkKey:ring` → world-translated position+index copy of
+   * that mip, plus the source geometry it was packed from (an impostor→full
+   * upgrade replaces the entry's geometry under the same key — a stale copy
+   * is rebuilt when the source identity changes). Built once per (chunk,
+   * ring) and reused by every merged rebuild — the per-rebuild cost is the
+   * merge copy, not a fresh clone of each member. The `normal` attribute
+   * is dropped: the scene's materials are unlit (MeshBasicMaterial) and
+   * never read it, so the merged buffer carries only what the draw uses.
+   */
+  private readonly translatedCache = new Map<
+    string,
+    { geo: THREE.BufferGeometry; src: THREE.BufferGeometry }
+  >();
   private readonly biomeMaterials = new Map<Biome, THREE.Material>();
   private readonly farMaterial: THREE.Material;
 
@@ -184,9 +202,10 @@ export class ChunkScene {
       stats.mounted += 1;
     }
 
-    // Membership changed? (mount, unmount, LOD swap, or biome change)
-    const signature = signatureFor(next);
-    if (signature !== this.builtSignature) {
+    // Membership changed? (mount, unmount, LOD swap, or biome change) — a
+    // plain structural diff: no per-frame string building or sorting.
+    if (membershipChanged(this.prevMounted, next)) {
+      this.prevMounted = next;
       this.mounted = next;
       this.rebuildRingMeshes();
     }
@@ -194,19 +213,16 @@ export class ChunkScene {
   }
 
   /**
-   * Rebuild every (ring, material) group from the pre-built mips: one
-   * merged BufferGeometry per group, chunk geometries translated to world
-   * position and copied (the streamer keeps owning the originals).
+   * Rebuild the (ring, material) groups whose membership CHANGED since the
+   * last build: one merged BufferGeometry per rebuilt group, chunk
+   * geometries translated to world position and copied (the streamer keeps
+   * owning the originals). Unchanged groups keep their merged mesh — during
+   * streaming a frame typically touches one or two rings, so a full
+   * all-groups rebuild (the previous behaviour) wasted most of its clone +
+   * merge work on groups whose membership was identical. Vanished groups
+   * (their membership emptied) have the merged geometry disposed.
    */
   private rebuildRingMeshes(): void {
-    // Drop the old merged meshes — the merged geometries are ours to free
-    // (the chunk geometries they were merged from belong to the streamer).
-    for (const mesh of this.meshes.values()) {
-      this.group.remove(mesh);
-      mesh.geometry.dispose();
-    }
-    this.meshes.clear();
-
     const groups = new Map<
       string,
       Array<{ entry: CachedChunk; ring: LodRing; biome: Biome | null }>
@@ -220,29 +236,92 @@ export class ChunkScene {
       else groups.set(gk, [{ entry, ...info }]);
     }
 
+    // Drop vanished groups — the merged geometry is ours to free.
+    for (const gk of [...this.builtGroupSigs.keys()]) {
+      if (groups.has(gk)) continue;
+      const mesh = this.meshes.get(gk);
+      if (mesh) {
+        this.group.remove(mesh);
+        mesh.geometry.dispose();
+        this.meshes.delete(gk);
+      }
+      this.builtGroupSigs.delete(gk);
+    }
+
     for (const [gk, members] of groups) {
+      const sig = members
+        .map((m) => m.entry.key)
+        .sort()
+        .join(',');
+      if (this.builtGroupSigs.get(gk) === sig) continue; // membership unchanged
+      const prev = this.meshes.get(gk);
+      if (prev) {
+        this.group.remove(prev);
+        prev.geometry.dispose();
+        this.meshes.delete(gk);
+      }
       const [, biomeKey] = gk.split(':') as [string, string];
       const biome = biomeKey === 'far' ? null : (biomeKey as Biome);
-      const translated = members.map(({ entry, ring }) => {
-        const src = ringGeometry(entry, ring)!;
-        const copy = src.clone();
-        copy.translate(entry.chunkX * 320, 0, entry.chunkZ * 320);
-        return copy;
-      });
-      const geometry = mergeGeometries(translated, false)!;
-      for (const copy of translated) copy.dispose(); // the merge owns its data now
+      const geometry = mergeGeometries(
+        members.map(({ entry, ring }) => this.translatedFor(entry, ring)),
+        false,
+      )!;
       const mesh = new THREE.Mesh(geometry, this.materialFor(biome));
       mesh.frustumCulled = true;
       this.group.add(mesh);
       this.meshes.set(gk, mesh);
+      this.builtGroupSigs.set(gk, sig);
     }
-    this.builtSignature = signatureFor(this.mounted);
+  }
+
+  /**
+   * World-translated position+index copy of a chunk mip, cached per
+   * (chunk, ring). The streamer keeps owning the original; this copy is
+   * the scene's and survives across merged rebuilds.
+   */
+  private translatedFor(entry: CachedChunk, ring: LodRing): THREE.BufferGeometry {
+    const cacheKey = `${entry.key}:${ring}`;
+    const src = ringGeometry(entry, ring)!;
+    const hit = this.translatedCache.get(cacheKey);
+    if (hit && hit.src === src) return hit.geo;
+    if (hit) hit.geo.dispose(); // source replaced (impostor→full upgrade)
+    const copy = new THREE.BufferGeometry();
+    const offset = entry.chunkX * 320;
+    const offsetZ = entry.chunkZ * 320;
+    // Re-pack positions with the chunk offset baked in (the original is
+    // chunk-local); normals are dropped — unlit materials never read them.
+    const pos = src.getAttribute('position');
+    const packed = new Float32Array(pos.count * 3);
+    for (let v = 0; v < pos.count; v++) {
+      packed[v * 3] = pos.getX(v) + offset;
+      packed[v * 3 + 1] = pos.getY(v);
+      packed[v * 3 + 2] = pos.getZ(v) + offsetZ;
+    }
+    copy.setAttribute('position', new THREE.BufferAttribute(packed, 3));
+    const index = src.getIndex();
+    if (index) copy.setIndex(index.clone());
+    copy.computeBoundingSphere();
+    this.translatedCache.set(cacheKey, { geo: copy, src });
+    return copy;
+  }
+
+  /** Drop the translated copies of an evicted chunk (the scene frees them). */
+  private releaseTranslated(key: string): void {
+    for (const ring of ['near', 'mid', 'far'] as const) {
+      const cacheKey = `${key}:${ring}`;
+      const hit = this.translatedCache.get(cacheKey);
+      if (hit) {
+        hit.geo.dispose();
+        this.translatedCache.delete(cacheKey);
+      }
+    }
   }
 
   /** LRU eviction: the streamer disposed the geometry; drop the chunk. */
   handleEvict(key: string): void {
     if (this.merged) {
-      if (this.mounted.delete(key)) this.builtSignature = null; // rebuild next sync
+      this.releaseTranslated(key);
+      if (this.mounted.delete(key)) this.prevMounted = null; // diff next sync
       return;
     }
     const mesh = this.meshes.get(key);
@@ -270,19 +349,32 @@ export class ChunkScene {
     for (const m of this.biomeMaterials.values()) m.dispose();
     this.farMaterial.dispose();
     this.biomeMaterials.clear();
-    if (this.merged) for (const mesh of this.meshes.values()) mesh.geometry.dispose();
+    if (this.merged) {
+      for (const mesh of this.meshes.values()) mesh.geometry.dispose();
+      for (const { geo } of this.translatedCache.values()) geo.dispose();
+    }
     this.meshes.clear();
     this.mounted.clear();
-    this.builtSignature = null;
+    this.builtGroupSigs.clear();
+    this.translatedCache.clear();
+    this.prevMounted = null;
   }
 }
 
-/** Sorted `key:ring:biome` entries — a cheap membership equality signature. */
-function signatureFor(membership: Map<string, { ring: LodRing; biome: Biome | null }>): string {
-  return [...membership.entries()]
-    .map(([key, { ring, biome }]) => `${key}:${ring}:${biome ?? 'far'}`)
-    .sort()
-    .join(';');
+/**
+ * Structural membership diff (no string building / sorting — this runs
+ * every frame). null prev = first sync (treat as changed).
+ */
+function membershipChanged(
+  prev: Map<string, { ring: LodRing; biome: Biome | null }> | null,
+  next: Map<string, { ring: LodRing; biome: Biome | null }>,
+): boolean {
+  if (prev === null || prev.size !== next.size) return true;
+  for (const [key, info] of next) {
+    const p = prev.get(key);
+    if (!p || p.ring !== info.ring || p.biome !== info.biome) return true;
+  }
+  return false;
 }
 
 function ringGeometry(entry: CachedChunk, ring: LodRing): THREE.BufferGeometry | null {
