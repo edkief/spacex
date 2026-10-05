@@ -1,44 +1,38 @@
 # TASK-18 handoff — 16-player 30-minute load/stability test
 
 ## Status
-The p95-msg-size failure (the last RED assertion, 25.4 KB vs 16 KB) is **fixed and smoke-verified**: the wire format was compressed (committed in this worktree — see `git log`, `perf(TASK-18)` commit). Smoke run (35.5 s, real server + 16 real sockets) is GREEN: snapshot-rate 9.96 Hz, cap-17th holds, **p95 14,914 B / max 15,243 B (< 16,384)** — report `/tmp/drift-load-report-1791221675401.json`. The 5-min full run has NOT been re-run with the compression (one 5-min invocation is all that's left, plus the close-out bookkeeping). Unit suite: 7 wire-contract test files updated; full `npm run test` not yet re-run post-fix (tsc clean; the two visible failure files + 3 more fixed and lint/prettier clean).
+Implementation is COMPLETE and smoke-verified: the last RED assertion (p95-msg-size, 25.4 KB vs the 16 KB gate) is fixed by compressing the 10 Hz `entity_update` wire (commit `1eeb9de`), and the 35.5 s smoke run is GREEN with **p95 14,914 B / max 15,243 B** — all that remains is the 5-minute full run, a full unit-suite re-run, and the close-out bookkeeping (one invocation of work).
 
-## Done (this iteration — wire compression)
-**Root fix (option 1+2 from the prior handoff, one coherent protocol change):**
-- `shared/protocol/schemas.ts` — `entityStateSchema` compressible fields are now `.optional()`: `vel` (omitted at rest → {0,0,0}), `rot` (already optional, still identity-defaulted), `regime` (omitted for static kinds → 'sublight'), `flightRegime` (only player ship/character entities carry it now — no tracker reads drone/deposit/wreck/terminal/groundItem regimes), `hull`/`shields` (omitted at 1), `targetId` (omitted → null), `inventory` (omitted while empty). New `WireEntityState` (loose wire form) vs `EntityState` (normalized consumer view) + `normalizeEntityState()` — the ONE place defaults are re-applied. Full contract documented in the schema's block comment (floats ride at 3 decimals, ≤ 1 mm / rad; frame stays a FULL state, no delta encoding; deviations are always sent).
-- `server/shard/shard.ts` `entityToState` — emits the compressed wire form: zero vel / identity rot / full hull+shields / null targetId / empty inventory omitted; `STATIC_WIRE_KINDS = {deposit, terminal, groundItem, wreck, drone}` skip regime+flightRegime; `ai-ship` skips flightRegime (keeps regime); pos/vel/rot rounded to 3 decimals. `snapshot()`/`broadcast()`/`persist` signatures are now `WireEntityState[]`.
-- `server/shards.ts` `shipToEntity` (swap/livery single-entity broadcasts) — same compression.
-- `client/main.tsx` — normalizes ONCE per batch at both ingest boundaries: the 10 Hz `entity_update` handler and `onSnapshot` (join / warp_arrived / reconnect resync all flow through it). Every downstream consumer (prediction, regime wiring, HUD, raycast, presence, targeting, remote entities) sees the full normalized shape unchanged.
-- `server/shard/types.ts`, `server/galaxy/router.ts` snapshot pass-through — types updated (router passes the wire form straight into `enter_system`, which the client normalizes).
-- **Measured:** t=15 s frame 24.5 KB → 15.6 KB (median); smoke p95 14.9 KB / max 15.2 KB. Biggest cuts: 26 drones × ~325 B boilerplate, 9 deposits, 3 terminals, 16 ships' empty inventories/identity rots/null targetIds.
+## Done
+Everything in the prior handoff (harness, foot-setup/dock-wait fix, the 10 s `'ping'` idle heartbeat vs the server's 45 s inbound-activity keepalive, `invalid-target` as an expected combat error, the size root-cause) PLUS this iteration's wire compression — all committed as `1eeb9de perf(TASK-18): compress the 10 Hz entity_update wire`:
 
-**Test updates (wire-contract tests now assert the compressed form or normalize first):**
-- `shared/protocol/schemas.test.ts` — NEW describe 'entity_state compression (TASK-18)': fully-compressed static deposit parses; compressed at-rest player ship parses; deviations still sent + normalize round-trip; every default re-applied; validation NOT loosened (hull 1.5 / bad regime still rejected).
-- `shard.test.ts` (10 Hz shared-buffer test) — asserts `targetId`/`rot`/`vel` are ABSENT on the wire for the at-rest ship + normalize() re-applies; shared-buffer check now over `WireEntityState`.
-- `shard.damage.test.ts` (wreck+respawn wire test) — asserts on `normalizeEntityState(...)` of the wire batch.
-- `shard.targeting.test.ts` `stateOf` — normalizes the wire snapshot entry.
-- `shard.ai.test.ts`, `ship-swap.ws.test.ts` — `e.hull ?? 1`, `e.shields ?? 1`.
-- `crash-restart.test.ts` — `e.hull ?? 1 > 0.99`.
-- `galaxy/inventory.ws.test.ts` — empty inventory asserted as `?? {stacks:{},weightUsed:0}` (now omitted on the wire).
-- `tests/load/harness.ts` — report gains `p50MsgBytes`/`maxMsgBytes` per client + aggregate (for the size picture in TASK-61).
+- `app/src/shared/protocol/schemas.ts` — `entityStateSchema`: `vel`, `regime`, `hull`, `shields`, `targetId`, `inventory` now `.optional()` (`rot`/`flightRegime` already were). New types: `WireEntityState` (loose wire form, `z.infer` of the schema) vs `EntityState` (normalized consumer view, with `vel`/`regime`/`targetId`/`hull`/`shields` required) + `normalizeEntityState()` — the ONE place defaults are re-applied. Contract documented in the schema's block comment: zero vel → omitted, identity rot → omitted, static kinds skip regime/flightRegime, full hull/shields (1) omitted, null targetId omitted, empty inventory omitted, floats ride at 3 decimals (≤ 1 mm / rad). The frame stays a FULL state — deviations are always sent, no delta encoding.
+- `app/src/server/shard/shard.ts` — `entityToState` emits the compressed form (helpers `roundVec`/`roundQuat`, `STATIC_WIRE_KINDS = {deposit, terminal, groundItem, wreck, drone}` skip regime+flightRegime; `ai-ship` keeps regime but skips flightRegime). `snapshot()`, `broadcast()`, `persist` signatures → `WireEntityState[]`.
+- `app/src/server/shards.ts` — `shipToEntity` (swap/livery single-entity broadcasts) uses the same compression.
+- `app/src/server/shard/types.ts` — `Shard.persist` type updated.
+- `app/src/client/main.tsx` — normalizes ONCE per batch at both ingest boundaries: the 10 Hz `entity_update` handler (`entities.map(normalizeEntityState)`) and `onSnapshot` (join / warp_arrived / reconnect resync all flow through it). Every downstream consumer (prediction, regime wiring, HUD, raycast, presence, targeting, remote entities) is unchanged.
+- Wire-contract test updates (7 files): `schemas.test.ts` (NEW describe `entity_state compression (TASK-18)` — compressed static deposit parses, compressed at-rest ship parses, deviations still sent + normalize round-trip, all defaults re-applied, validation NOT loosened: hull 1.5 / bad regime still rejected); `shard.test.ts` (at-rest ship: `targetId`/`rot`/`vel` ABSENT on the wire, normalize re-applies); `shard.damage.test.ts` (asserts on normalized wire batch); `shard.targeting.test.ts` (`stateOf` normalizes); `shard.ai.test.ts` + `ship-swap.ws.test.ts` (`e.hull ?? 1`); `crash-restart.test.ts` (`e.hull ?? 1`); `galaxy/inventory.ws.test.ts` (empty inventory now `?? {stacks:{},weightUsed:0}`).
+- `app/tests/load/harness.ts` — report gains `p50MsgBytes`/`maxMsgBytes` per client + aggregate.
 
-## Pre-existing environment flake (NOT this task's)
-`src/client/test/transitionCycle.test.ts` 'keeps every transition under the 4 ms budget' fails on THIS machine (p99 delta 19–44 ms vs 4 ms) — verified failing IDENTICALLY at pristine HEAD 9cfecc0 via git-stash (3/3 runs). It's the documented load-flake family (wall-clock headless-render p99 on the 4-core shared VM; LOG entries for TASK-60/TASK-59 document the same). Pure client benchmark, imports nothing from the touched files. Do not chase it here.
+## Working tree
+CLEAN — everything is committed (`1eeb9de` on top of `9cfecc0`). `npx tsc --noEmit` clean at commit time. eslint + prettier clean on all touched files. `npm run load:smoke` GREEN after the change (35.5 s: snapshot-rate 9.96 Hz, cap-17th holds, p95 14,914 B / max 15,243 B — report `/tmp/drift-load-report-1791221675401.json`; /tmp is ephemeral, the numbers are in this handoff). NOT yet re-run after the change: the full 5-min `npm run load` and the full `npm run test` unit suite. Note: `src/client/test/transitionCycle.test.ts` (the 4 ms transition-budget bench) fails on THIS machine with ~19–44 ms p99 deltas — it fails IDENTICALLY at pristine HEAD (verified by git-stash, 3/3 runs) and is the documented load-flake family (wall-clock headless render on this 4-core shared VM; LOG entries for TASK-60/TASK-59 record the same). It imports nothing from the touched files. Do not chase it.
 
-## Next steps (small — one 5-min run + bookkeeping)
-1. `cd app && npx tsc --noEmit` (clean at commit time) and `npm run test` — expect all green EXCEPT the transitionCycle flake above; if any NEW failure appears, it's a missed wire-default assertion — fix with `?? <default>` / normalize first.
-2. `npm run load` (5 min). Expect all 9 PASS (p95-msg-size now ~15 KB — headroom is ~1.2 KB to the bound; if p95 creeps over 16 KB in the full run due to more combat entities (projectiles/ground items), the next knob is the same pattern: omit `energy` when 100, or round pos to 2 decimals — both ~trivial in entityToState + the schema doc).
-3. Record final metrics for TASK-61 (report JSON in /tmp; LOG entry cites it).
-4. Close out per the original plan: set steps 1–4 `pass: true` in `.ralph/tasks/TASK-18.json`, `"passes": true` in `.ralph/tasks.json`, LOG.md entry + bump 'Tasks Completed', **delete this handoff**, Conventional Commit.
+## Next steps
+In order (one invocation):
+1. `cd app && npx tsc --noEmit` (expect clean) and `npm run test` — expect all green EXCEPT the transitionCycle flake above. If any NEW failure appears it is a missed wire-default assertion; fix it the same way as the 7 files listed under Done (`?? <default>` or normalize first — never by re-adding the field to the wire).
+2. `npm run load` (5 min, real server + 16 real sockets). Expect all 9 assertions PASS. Headroom over the 16,384 B bound is ~1.2 KB (smoke max was 15,243). If p95 creeps over 16 KB in the full run (more combat: projectiles, ground items, damaged entities), the next knobs, same pattern in `entityToState` + the schema doc: omit `energy` when it is 100, or round pos/vel to 2 decimals.
+3. Record the final metrics (the report JSON lands in `/tmp/drift-load-report-*.json`; cite p50/p95/max message bytes, RTT percentiles, tick histogram, heap delta for TASK-61).
+4. Close out: set steps 1–4 `pass: true` in `.ralph/tasks/TASK-18.json`, `"passes": true` for TASK-18 in `.ralph/tasks.json`, LOG.md entry at top + bump 'Tasks Completed', **delete this handoff file in the same commit**, Conventional Commit.
 
-## Decisions (do not relitigate)
-- Compressing the wire (omitting static defaults + 3-decimal rounding) IS the tuning: TASK-18's step 3 says "assert every acceptance metric; if the server fails, apply the next optimization, re-run" — the snapshot-size optimization is in-task.
-- `targetId: null` / `hull: 1` / empty inventory are OMITTED, not zeroed — the normalized view re-applies them; no consumer may read a wire field without normalizing (the two ingest points in main.tsx are the only boundaries).
-- `'invalid-target'` is an EXPECTED error in the combat role. Warper/idle clients keep the 10 s `'ping'` heartbeat (server 45 s keepalive is correct production behavior). Warpers have no gameplay driver between warps.
-- AI ships keep `regime` (sublight/docked is cheap and truthful) but drop `flightRegime` (no consumer reads it).
+## Dead ends
+- The p95 size was NOT a harness artifact, NOT projectile bursts, NOT a single client — it was steady-state boilerplate on ~60 entities per 10 Hz frame (root-caused in the prior handoff; see `/tmp/snap-sample.json` if it still exists: 24.5 KB frame = 26 drones × ~325 B + 16 ships + 9 deposits + 3 terminals, each carrying zero vel / identity quat / full hull+shields / null targetId / regime fields).
+- Delta encoding / a custom binary frame was rejected as too large a change (step-3 says "apply the next optimization" — the static-default omission IS the optimization, and it passes the gate with ~1.2 KB to spare).
+- Making `rot` required-normalized in `EntityState` broke many test call sites for nothing — its identity-default contract predated this task and consumers already handle it; `normalizeEntityState` leaves `rot` optional by design.
+- Pre-existing, not mine: `transitionCycle.test.ts` budget failure (see Working tree).
 
-## Dead ends (cumulative)
-- WARP loop: `join_system` into a foreign system deadlocks; production flow is join HOME → `warp` to A.
-- The foot-setup crash was the dock wait checking `docked` vs `padId`, not a wire/shard desync.
-- The idle-client drop was the WS 45 s inbound-activity keepalive (silent `terminate()`), not a shard/router bug.
-- p95 size was NOT a harness artifact, NOT projectile bursts — it was steady-state boilerplate on ~60 entities per 10 Hz frame.
+## How to verify
+- `cd app && npx tsc --noEmit` — clean at commit time.
+- `npm run load:smoke` — PASS snapshot-rate (9.96 Hz), PASS cap-17th, RESULT: GREEN; report lines `p50MsgBytes`/`p95MsgBytes`/`maxMsgBytes` (measured 304 / 14,914 / 15,243).
+- `npm run load` — 5 min; ALL 9 assertions must PASS (this is the outstanding gate).
+- `npm run test` — unit suite; only the documented transitionCycle environment flake should be red on this VM.
+- Wire compression unit proof: `npx vitest run src/shared/protocol/schemas.test.ts` — the `entity_state compression (TASK-18)` describe.
