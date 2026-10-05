@@ -1,0 +1,81 @@
+{"time":"2026-10-04T10:12:51.150Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-04T10:22:51.536Z","level":"info","message":"agent left no handoff; wrote one from what the loop saw","fields":{"path":".ralph/handoff/TASK-48.4.md"}}
+{"time":"2026-10-04T10:22:51.537Z","level":"warn","message":"retrying iteration","fields":{"iteration":3,"attempt":1,"reason":"timeout","detail":"Iteration exceeded its 45m budget; Wrap-up exceeded its 10m budget"}}
+{"time":"2026-10-04T11:06:41.849Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":3}}
+{"time":"2026-10-04T11:43:10.512Z","level":"info","message":"compacting the conversation to fit the context window"}
+{"time":"2026-10-04T11:50:07.500Z","level":"info","message":"conversation compacted","fields":{"compactions":1}}
+{"time":"2026-10-04T11:51:44.678Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-04T11:55:16.598Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-49.md"}}
+{"time":"2026-10-04T11:55:19.773Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":4}}
+{"time":"2026-10-04T12:36:34.925Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":5}}
+{"time":"2026-10-04T13:19:12.509Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":6}}
+{"time":"2026-10-04T14:04:14.681Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-04T14:09:25.958Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-50.md"}}
+{"time":"2026-10-04T14:09:29.248Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":7}}
+{"time":"2026-10-04T14:29:56.793Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":8}}
+{"time":"2026-10-04T15:14:59.186Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-04T15:19:49.834Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-51.md"}}
+{"time":"2026-10-04T15:19:53.500Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":9}}
+{"time":"2026-10-04T15:28:35.321Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":10}}
+{"time":"2026-10-04T16:13:37.922Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-04T16:23:38.301Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-52.md"}}
+{"time":"2026-10-04T16:23:38.301Z","level":"warn","message":"retrying iteration","fields":{"iteration":11,"attempt":1,"reason":"timeout","detail":"Iteration exceeded its 45m budget; Wrap-up exceeded its 10m budget"}}
+{"time":"2026-10-04T16:27:53.842Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":11}}
+{"time":"2026-10-04T17:12:56.277Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-04T17:20:52.464Z","level":"info","message":"agent left no handoff; wrote one from what the loop saw","fields":{"path":".ralph/handoff/TASK-53.md"}}
+{"time":"2026-10-04T17:20:55.751Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":12}}
+{"time":"2026-10-04T18:05:58.469Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-04T18:10:49.263Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":13}}
+{"time":"2026-10-04T18:10:49.265Z","level":"warn","message":"waiting for a person: answer in the web UI or with `ralph respond`","fields":{"kind":"blocked","task":"TASK-53","about":"not applicable — task not complete, handoff written per time limit"}}
+{"time":"2026-10-04T21:05:12.105Z","level":"info","message":"web UI action","fields":{"action":"resume","request":"20261004-092238-1","delivered":"loop"}}
+{"time":"2026-10-04T21:05:12.275Z","level":"info","message":"a person answered","fields":{"kind":"blocked","action":"resume","by":"ui"}}
+{"time":"2026-10-04T21:12:21.827Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":14}}
+{"time":"2026-10-04T21:57:23.935Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-04T22:07:24.233Z","level":"info","message":"agent left no handoff; wrote one from what the loop saw","fields":{"path":".ralph/handoff/TASK-54.md"}}
+{"time":"2026-10-04T22:07:24.233Z","level":"warn","message":"retrying iteration","fields":{"iteration":15,"attempt":1,"reason":"timeout","detail":"Iteration exceeded its 45m budget; Wrap-up exceeded its 10m budget"}}
+{"time":"2026-10-04T22:50:19.805Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":15}}
+{"time":"2026-10-04T23:28:13.193Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":16}}
+{"time":"2026-10-05T00:13:15.515Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-05T00:19:24.043Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-55.md"}}
+{"time":"2026-10-05T00:19:27.460Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":17}}
+{"time":"2026-10-05T00:33:01.875Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":18}}
+{"time":"2026-10-05T01:18:04.802Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-05T01:24:41.984Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-56.md"}}
+{"time":"2026-10-05T01:24:45.259Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":19}}
+{"time":"2026-10-05T01:39:29.276Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":20}}
+{"time":"2026-10-05T02:24:31.916Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-05T02:32:53.820Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-58.md"}}
+{"time":"2026-10-05T02:32:58.571Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":21}}
+{"time":"2026-10-05T03:18:01.000Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-05T03:21:35.786Z","level":"info","message":"agent left no handoff; wrote one from what the loop saw","fields":{"path":".ralph/handoff/TASK-58.md"}}
+{"time":"2026-10-05T03:21:39.158Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":22}}
+{"time":"2026-10-05T03:21:39.160Z","level":"info","message":"asking the agent to propose a split","fields":{"task":"TASK-58","folder":".ralph/split/TASK-58"}}
+{"time":"2026-10-05T03:29:47.101Z","level":"info","message":"split the task","fields":{"task":"TASK-58","into":"TASK-58.1,TASK-58.2","committed":true}}
+{"time":"2026-10-05T04:14:47.467Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-05T04:23:11.661Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-58.1.md"}}
+{"time":"2026-10-05T04:23:15.259Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":23}}
+{"time":"2026-10-05T04:45:05.785Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-05T05:08:17.797Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-05T05:14:11.638Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-58.1.md"}}
+{"time":"2026-10-05T05:14:14.876Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":24}}
+{"time":"2026-10-05T05:14:14.878Z","level":"warn","message":"waiting for a person: answer in the web UI or with `ralph respond`","fields":{"kind":"stalled","task":"TASK-58.1","about":"TASK-58.1 ran out of time 2 times after being split from TASK-58; stall.maxSplitDepth (1) allows no further split, so split it by hand (handoff: .ralph/handoff/TASK-58.1.md)"}}
+{"time":"2026-10-05T06:38:44.670Z","level":"info","message":"web UI action","fields":{"action":"resume","request":"20261004-092238-2","delivered":"loop"}}
+{"time":"2026-10-05T06:38:44.830Z","level":"info","message":"a person answered","fields":{"kind":"stalled","action":"resume","by":"ui"}}
+{"time":"2026-10-05T07:19:13.025Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":25}}
+{"time":"2026-10-05T07:19:13.026Z","level":"warn","message":"waiting for a person: answer in the web UI or with `ralph respond`","fields":{"kind":"decide","task":"TASK-58.1","about":"TASK-58.1's only red gate is materials 71 ≥ 40 (committed per-piece FX/hazard material instances). Revise the materials budget in perf.ts (40 → ~80, data-only) vs. add a material-sharing tuning pass …"}}
+{"time":"2026-10-05T08:27:40.580Z","level":"info","message":"web UI action","fields":{"action":"answer","request":"20261004-092238-3","delivered":"loop"}}
+{"time":"2026-10-05T08:27:40.940Z","level":"info","message":"a person answered","fields":{"kind":"decide","action":"answer","by":"ui"}}
+{"time":"2026-10-05T08:30:09.433Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":26}}
+{"time":"2026-10-05T09:19:31.060Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-05T09:29:31.292Z","level":"info","message":"agent left no handoff; wrote one from what the loop saw","fields":{"path":".ralph/handoff/TASK-58.1.md"}}
+{"time":"2026-10-05T09:29:31.293Z","level":"warn","message":"retrying iteration","fields":{"iteration":30,"attempt":1,"reason":"timeout","detail":"Iteration exceeded its 45m budget; Wrap-up exceeded its 10m budget"}}
+{"time":"2026-10-05T10:02:30.496Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":30}}
+{"time":"2026-10-05T10:47:32.697Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-05T10:57:33.097Z","level":"info","message":"agent left no handoff; wrote one from what the loop saw","fields":{"path":".ralph/handoff/TASK-58.2.md"}}
+{"time":"2026-10-05T10:57:33.098Z","level":"warn","message":"retrying iteration","fields":{"iteration":31,"attempt":1,"reason":"timeout","detail":"Iteration exceeded its 45m budget; Wrap-up exceeded its 10m budget"}}
+{"time":"2026-10-05T11:40:04.076Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":31}}
+{"time":"2026-10-05T11:56:35.010Z","level":"info","message":"web UI action","fields":{"action":"stop","mode":"after-iteration","run":"20261004-092238"}}
+{"time":"2026-10-05T11:56:35.533Z","level":"warn","message":"stop requested: stopping after the current iteration"}
+{"time":"2026-10-05T12:25:07.249Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-05T12:30:42.439Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-59.md"}}
+{"time":"2026-10-05T12:30:46.045Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":32}}
