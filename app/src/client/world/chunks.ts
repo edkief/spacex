@@ -28,10 +28,38 @@ import {
 import { perfWarn } from '@client/perf/logger';
 import type { Planet } from '@shared/galaxy/types';
 
-/** LOD ring boundaries (meters, player to chunk CENTER). */
+/** LOD ring boundaries (meters, player to chunk CENTER) — the HIGH preset. */
 export const LOD_NEAR_MAX_M = 512;
 export const LOD_MID_MAX_M = 2_048;
 export const LOD_FAR_MAX_M = 8_000;
+
+/**
+ * TASK-55: the LIVE LOD radii (the SettingsBridge). The module constants
+ * above are the high-preset DEFAULTS; `setLodRadii` re-points the ring
+ * classifier at the active quality preset's radii (lodRadiiFor, TASK-55).
+ * The streamer reads these on EVERY generation, so a preset change
+ * re-tunes the pipeline with no re-init: NEW chunks (and impostor→full
+ * upgrades) use the new radii, and existing chunks keep their built LOD
+ * until regenerated (mountable() never downgrades a full build to the
+ * impostor quad — no pop).
+ */
+const liveLod: { nearMaxM: number; midMaxM: number; farMaxM: number } = {
+  nearMaxM: LOD_NEAR_MAX_M,
+  midMaxM: LOD_MID_MAX_M,
+  farMaxM: LOD_FAR_MAX_M,
+};
+
+/** Re-point the ring classifier (TASK-55 preset change — live, no re-init). */
+export function setLodRadii(r: { nearMaxM: number; midMaxM: number; farMaxM: number }): void {
+  liveLod.nearMaxM = r.nearMaxM;
+  liveLod.midMaxM = r.midMaxM;
+  liveLod.farMaxM = r.farMaxM;
+}
+
+/** The live radii (a copy — the e2e dev hook reads this). */
+export function lodRadii(): { nearMaxM: number; midMaxM: number; farMaxM: number } {
+  return { ...liveLod };
+}
 
 /** LRU cap: 400 chunks stays under 100 MB of geometry (see RING_BYTES). */
 export const DEFAULT_LRU_CAP = 400;
@@ -82,11 +110,11 @@ export function chunkCenterOffset(
   };
 }
 
-/** LOD ring for a player→chunk-center distance (m). */
+/** LOD ring for a player→chunk-center distance (m; the LIVE radii). */
 export function lodRingForDistance(d: number): RingWithNone {
-  if (d <= LOD_NEAR_MAX_M) return 'near';
-  if (d <= LOD_MID_MAX_M) return 'mid';
-  if (d <= LOD_FAR_MAX_M) return 'far';
+  if (d <= liveLod.nearMaxM) return 'near';
+  if (d <= liveLod.midMaxM) return 'mid';
+  if (d <= liveLod.farMaxM) return 'far';
   return 'none';
 }
 
@@ -140,6 +168,19 @@ export function activeSet(playerX: number, playerZ: number, speed: number): Acti
   }
   out.sort((a, b) => a.distance - b.distance);
   return out;
+}
+
+/**
+ * TASK-55: keep an existing chunk's built LOD when a preset change
+ * re-classifies it into the far ring (the no-pop rule). A full build
+ * (mid geometry present) keeps at least 'mid'; impostor-only entries are
+ * unaffected. Exported for the unit tests.
+ */
+export function keepBuiltLod(
+  built: { geometries: { mid: unknown; far: unknown } },
+  ring: 'near' | 'mid' | 'far',
+): 'near' | 'mid' | 'far' {
+  return ring === 'far' && built.geometries.mid !== null ? 'mid' : ring;
 }
 
 /** One cached (ready) chunk entry of the LRU. */
@@ -260,7 +301,11 @@ export class ChunkStreamer {
     for (const a of activeSet(playerX, playerZ, speed)) {
       const entry = this.cached.get(chunkKey(a.chunkX, a.chunkZ));
       if (!entry) continue;
-      const ring = lodRingForChunk(a.chunkX, a.chunkZ, playerX, playerZ);
+      let ring = lodRingForChunk(a.chunkX, a.chunkZ, playerX, playerZ);
+      // TASK-55: a preset change re-classifies distances live — a chunk
+      // BUILT as full terrain keeps its LOD until regenerated (never
+      // downgraded to the impostor quad; no pop).
+      if (ring === 'far') ring = keepBuiltLod(entry.built, ring);
       if (ring === 'near' || ring === 'mid' || ring === 'far') {
         entry.lastAccessFrame = this.frame;
         out.push({ entry, ring });
@@ -271,6 +316,10 @@ export class ChunkStreamer {
       if (seen.has(entry.key)) continue;
       if (lodRingForChunk(entry.chunkX, entry.chunkZ, playerX, playerZ) !== 'far') continue;
       entry.lastAccessFrame = this.frame;
+      // Horizon: the impostor quad by design (a full build OUTSIDE the
+      // active window still mounts as the cheap far quad — the no-pop rule
+      // above applies to the active set only; mounting full terrain at
+      // 8 km breaks the triangle budget).
       out.push({ entry, ring: 'far' });
       seen.add(entry.key);
     }

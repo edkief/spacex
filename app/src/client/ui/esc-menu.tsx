@@ -2,9 +2,7 @@ import React from 'react';
 
 import { menuSubscribe, topSurface } from '@client/state/menu';
 import { useFocusTrap } from '@client/ui/focus-trap';
-import { SETTING_KEYS } from '@shared/settings';
-import { setSetting } from '@client/a11y/reduced-motion';
-import { useReducedMotion } from '@client/a11y/use-reduced-motion';
+import { SettingsPanel } from '@client/ui/settings-panel';
 
 /**
  * The ESC menu (TASK-53) — the centered modal shell: Resume / Systems
@@ -22,6 +20,8 @@ export interface EscMenuProps {
   callsign: string;
   /** The credit balance (the credits store; null until it is seeded). */
   credits: number | null;
+  /** The session bearer token (the settings panel's PUTs; null pre-boot). */
+  token: string | null;
   onResume: () => void;
   onSystems: () => void;
   onShips: () => void;
@@ -44,7 +44,6 @@ const ITEM_STYLE: React.CSSProperties = {
 
 export function EscMenu(props: EscMenuProps): React.ReactElement {
   const [showSettings, setShowSettings] = React.useState(false);
-  const reducedMotion = useReducedMotion();
   const rootRef = React.useRef<HTMLDivElement | null>(null);
   // The trap is live only while the menu is the TOP surface (a panel opened
   // from the menu takes the trap; the menu's is paused underneath).
@@ -104,31 +103,7 @@ export function EscMenu(props: EscMenuProps): React.ReactElement {
       >
         SETTINGS
       </button>
-      {showSettings && (
-        <>
-          {/* TASK-54: the reduced-motion toggle (immediate effect — the FX
-              gate, the threat ping and the warp overlay subscribe). The
-              shared key lives in @shared/settings (TASK-55 owns persistence
-              + the rest of the settings surface). */}
-          <button
-            id="reduced-motion-toggle"
-            type="button"
-            role="switch"
-            aria-checked={reducedMotion}
-            onClick={() => setSetting(SETTING_KEYS.reducedMotion, !reducedMotion)}
-            style={ITEM_STYLE}
-          >
-            REDUCED MOTION: {reducedMotion ? 'ON' : 'OFF'}
-          </button>
-          <p
-            id="esc-menu-settings-stub"
-            role="status"
-            style={{ margin: '0.4rem 0 0', fontSize: '0.7rem', opacity: 0.65 }}
-          >
-            Quality presets and key remap land in TASK-55.
-          </p>
-        </>
-      )}
+      {showSettings && <SettingsPanel token={props.token} />}
       <div
         id="esc-menu-footer"
         style={{

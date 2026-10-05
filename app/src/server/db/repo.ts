@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { SHIP_CLASSES } from '@shared/ships';
 import { parseInventoryJson } from '@shared/inventory';
+import { normalizeSettings, type Settings } from '@shared/settings';
 import type { Db } from './client';
 import {
   CallsignTakenError,
@@ -127,6 +128,14 @@ export interface Repository {
   getPlayerInventory(playerId: string): Promise<Record<string, number>>;
   /** TASK-34: persist the player's inventory stacks (shard flush cadence). */
   updatePlayerInventory(playerId: string, stacks: Record<string, number>): Promise<void>;
+  /**
+   * TASK-55: read the player's settings as a well-formed Settings row
+   * (factory defaults when empty or corrupt — the raw JSON is validated
+   * here, one definition for the read sites).
+   */
+  getPlayerSettings(playerId: string): Promise<Settings>;
+  /** TASK-55: persist the player's settings (the PUT endpoint is the only writer). */
+  updatePlayerSettings(playerId: string, settings: Settings): Promise<void>;
   /**
    * TASK-40: persist the ship's cargo-hold stacks (ships.cargo JSON) in ONE
    * UPDATE — the sell path writes it inside the same transaction as its
@@ -382,6 +391,23 @@ export function createRepo(db: Db, tables: Schema): Repository {
       await d
         .update(t.players)
         .set({ inventory: JSON.stringify(stacks) })
+        .where(eq(t.players.id, playerId));
+    },
+
+    async getPlayerSettings(playerId) {
+      const rows = await d
+        .select({ settings: t.players.settings })
+        .from(t.players)
+        .where(eq(t.players.id, playerId))
+        .limit(1);
+      // normalizeSettings handles empty/corrupt rows (→ factory defaults).
+      return normalizeSettings(rows[0]?.settings);
+    },
+
+    async updatePlayerSettings(playerId, settings) {
+      await d
+        .update(t.players)
+        .set({ settings: JSON.stringify(settings) })
         .where(eq(t.players.id, playerId));
     },
 

@@ -49,6 +49,19 @@ describe('inputToCharacterInput (TASK-32)', () => {
     });
   });
 
+  it('the 0.5x sensitivity edge: a scaled full-hold demand (±0.5) still registers a turn', () => {
+    // TASK-55: the client scales the yaw demand by the sensitivity into
+    // [±0.5, ±2] — the inclusive threshold keeps the minimum preset turning
+    // (and sub-threshold noise, 0 < |yaw| < 0.5, stays off).
+    expect(inputToCharacterInput(frame({ yaw: 0.5 })).right).toBe(true);
+    expect(inputToCharacterInput(frame({ yaw: -0.5 })).left).toBe(true);
+    expect(inputToCharacterInput(frame({ yaw: 2 })).right).toBe(true);
+    expect(inputToCharacterInput(frame({ yaw: 0.49 }))).toMatchObject({
+      left: false,
+      right: false,
+    });
+  });
+
   it('action string: run / jump / the combined run+jump', () => {
     expect(inputToCharacterInput(frame({ action: 'run' }))).toMatchObject({
       run: true,

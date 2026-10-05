@@ -147,6 +147,8 @@ export const players = sqliteTable('players', {
   createdAt: text('created_at').notNull(),
   // TASK-34: inventory JSON (raw text — parsed via sanitizeInventory).
   inventory: text('inventory').notNull().default('{}'),
+  // TASK-55: settings JSON (raw text — parsed via normalizeSettings).
+  settings: text('settings').notNull().default('{}'),
 });
 
 export const ships = sqliteTable(
@@ -259,6 +261,8 @@ export const pgPlayers = pgTable('players', {
   createdAt: timestamptz('created_at').notNull(),
   // TASK-34: inventory JSON (raw text — parsed via sanitizeInventory).
   inventory: pgText('inventory').notNull().default('{}'),
+  // TASK-55: settings JSON (raw text — parsed via normalizeSettings).
+  settings: pgText('settings').notNull().default('{}'),
 });
 
 export const pgShips = pgTable(

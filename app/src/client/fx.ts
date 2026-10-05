@@ -1,6 +1,7 @@
 import type { PayloadSchemas } from '@shared/protocol/schemas';
 import type { Vec3 } from '@shared/physics/vec';
-import { isReducedMotion } from '@client/a11y/reduced-motion';
+import { PRESETS } from '@shared/settings';
+import { isReducedMotion, settingsState } from '@client/a11y/reduced-motion';
 
 export type CombatEvent = PayloadSchemas['combat_event'];
 
@@ -28,8 +29,22 @@ function fx(world: FxWorld, fn: () => void): void {
     fxCounts.skipped += 1;
     return;
   }
+  // TASK-55: the quality preset's fxQuality scales the FX SPAWN RATE — each
+  // gated effect only fires when the roll beats the multiplier (1.0 =
+  // always, 0.3 = ~30 %). The multiplier is read LIVE off the settings
+  // store (the SettingsBridge: a preset switch re-tunes FX next event, no
+  // re-init).
+  if (Math.random() >= fxSpawnRate()) {
+    fxCounts.skipped += 1;
+    return;
+  }
   fxCounts.played += 1;
   fn();
+}
+
+/** The active FX spawn-rate multiplier (the preset's fxQuality). */
+export function fxSpawnRate(): number {
+  return PRESETS[settingsState().quality].fxQuality;
 }
 
 /**

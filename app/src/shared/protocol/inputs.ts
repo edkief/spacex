@@ -54,7 +54,9 @@ export function shipInputToPayload(seq: number, input: ShipInput): InputPayload 
  * (TASK-32). The SAME 'input' message drives both regimes — the server
  * routes by the player's active entity kind, so no protocol change:
  * - forward/back ride the thrust axis (W/S → +1/−1),
- * - left/right ride the yaw axis (A/D → −1/+1),
+ * - left/right ride the yaw axis (A/D → ±1, or ±0.5..±2 when the client's
+ *   TASK-55 sensitivity scales the demand — the 0.5 INCLUSIVE threshold is
+ *   what keeps the 0.5x preset still registering a turn),
  * - run/jump ride the `action` string ('run', 'jump', or the combined
  *   'run+jump' while both are held — the surface analogue of 'vtol').
  * Fire/lock stay reserved (combat, TASK-43/44).
@@ -64,8 +66,12 @@ export function inputToCharacterInput(input: InputPayload): CharacterInput {
   return {
     forward: input.thrust > 0.5,
     back: input.thrust < -0.5,
-    left: input.yaw < -0.5,
-    right: input.yaw > 0.5,
+    // INCLUSIVE: the TASK-55 sensitivity scales the client's yaw demand into
+    // [±0.5, ±2] — at the 0.5x minimum a full-hold demand is exactly 0.5
+    // and must still turn (the server's turn RATE stays the v1 constant;
+    // magnitude-scaled turning lands with mouse look).
+    left: input.yaw <= -0.5,
+    right: input.yaw >= 0.5,
     run: action === 'run' || action === 'run+jump',
     jump: action === 'jump' || action === 'run+jump',
   };

@@ -23,6 +23,9 @@ export function registerSessionRoutes(app: FastifyInstance, deps: RouteDeps): vo
       credits: player.credits,
       homeSystemId: player.homeSystemId,
       shipId: ship.id,
+      // TASK-55: the player's persisted settings — a fresh machine / first
+      // join gets the factory defaults (the repo normalizes the empty row).
+      settings: await deps.repo.getPlayerSettings(player.id),
     };
   });
 

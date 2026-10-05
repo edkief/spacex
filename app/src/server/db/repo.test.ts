@@ -363,7 +363,7 @@ describe('migrations', () => {
   it('apply once on a fresh file, then are idempotent', () => {
     const file = path.join(dir, 'fresh.db');
     const raw = new BetterSQLite3(file);
-    expect(migrateSqlite(raw)).toBe(5); // 000000..000004 (init / ship_persistence / player_inventory / deposits / ship_cargo)
+    expect(migrateSqlite(raw)).toBe(6); // 000000..000005 (init / ship_persistence / player_inventory / deposits / ship_cargo / player_settings)
     expect(migrateSqlite(raw)).toBe(0); // tracked in _migrations: nothing to do
     const tables = raw
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")

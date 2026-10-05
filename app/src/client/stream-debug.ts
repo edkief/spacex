@@ -17,7 +17,7 @@
 
 import * as THREE from 'three';
 import { FrameMonitor } from '@client/perf/frameMonitor';
-import { activeSet, chunkKey, ChunkStreamer } from '@client/world/chunks';
+import { activeSet, chunkKey, ChunkStreamer, lodRadii } from '@client/world/chunks';
 import { ChunkScene, type SceneTriangleStats } from '@client/world/chunk-scene';
 import { generateSystem } from '@shared/galaxy/system';
 import devSeed from '@shared/galaxy/__fixtures__/surface-dev-seed-chunk00.json';
@@ -42,6 +42,13 @@ export interface StreamBenchmarkResult {
 export interface StreamDebug {
   /** Render the 13-chunk default-LOD benchmark scene, report, dispose. */
   surfaceBenchmark(): StreamBenchmarkResult;
+  /**
+   * The LIVE LOD radii (m) of the streaming pipeline (TASK-55) — the
+   * e2e reads this after a quality-preset change to verify the live
+   * re-tune (no reload): high 512/2048/8000, medium 512/1536/6000,
+   * low 384/1024/4000.
+   */
+  lodRadii(): { nearMaxM: number; midMaxM: number; farMaxM: number };
 }
 
 declare global {
@@ -57,7 +64,10 @@ declare global {
  */
 export function installStreamDebug(): void {
   if (!import.meta.env.DEV) return;
-  window.__STREAM__ = { surfaceBenchmark: () => surfaceBenchmark() };
+  window.__STREAM__ = {
+    surfaceBenchmark: () => surfaceBenchmark(),
+    lodRadii: () => lodRadii(),
+  };
 }
 
 /**

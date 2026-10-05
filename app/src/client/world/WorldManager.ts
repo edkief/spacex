@@ -11,6 +11,8 @@ import type { Regime } from '@shared/regime';
 import type { EntityState } from '@shared/protocol/schemas';
 import { padsForSystem, type PadInfo } from '@shared/world/pads';
 import { createBackground } from '@client/render/starfield';
+import { PRESETS } from '@shared/settings';
+import { settingsState } from '@client/a11y/reduced-motion';
 import { CombatFx } from '@client/world/combat-fx';
 import { depositsFor } from '@shared/world/deposits';
 import { OreRockLayer, type OreRockView } from './ore-rocks';
@@ -386,7 +388,14 @@ export class WorldManager {
       heightAt: () => this.rigPadHeight,
     });
 
-    this.background = createBackground(seed);
+    // TASK-55: the star count is the ACTIVE quality preset's starCount —
+    // read live off the settings store (a world is (re)built per system,
+    // so a preset change takes effect on the next world build — the
+    // SettingsBridge's "new ones use the new params" contract).
+    this.background = createBackground(
+      seed,
+      PRESETS[settingsState().quality].starCount,
+    );
     // TASK-28.1: the skybox fades OUT under the atmosphere dome. The sky
     // starts fully opaque; its opacity (like the dome's haze) is driven by
     // the ONE shared haze number in setAtmosphereView, so the two never

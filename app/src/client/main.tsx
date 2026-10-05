@@ -17,6 +17,8 @@ import {
   pushKillEvent,
 } from '@client/state/kill-feed';
 import { announce } from '@client/a11y/announcement-queue';
+import { applySettings, settingsState } from '@client/a11y/reduced-motion';
+import { normalizeSettings, scaleLookDemand, type Settings } from '@shared/settings';
 import { LiveRegion } from '@client/a11y/live-region';
 import { showShipLost } from '@client/state/ship-lost';
 import { ChatLog } from '@client/hud/chat-log';
@@ -1453,7 +1455,10 @@ function App() {
       if (!p || !world) return;
       const pressed = pressedRef.current;
       const thrust = (pressed.has('w') ? 1 : 0) - (pressed.has('s') ? 1 : 0);
-      const yaw = (pressed.has('d') ? 1 : 0) - (pressed.has('a') ? 1 : 0);
+      // TASK-55: the sensitivity scales the LOOK demand (read LIVE off the
+      // store each frame — the next input frame picks up a slider change).
+      const yaw = ((pressed.has('d') ? 1 : 0) - (pressed.has('a') ? 1 : 0)) *
+        settingsState().sensitivity;
       const run = pressed.has('Shift');
       const jump = pressed.has(' ');
       const action = run && jump ? 'run+jump' : run ? 'run' : jump ? 'jump' : undefined;
@@ -1567,7 +1572,13 @@ function App() {
       const pressed = effectiveFlightPressed(pressedRef.current, {
         chartOpen: chartOpenRef.current,
       });
-      const input = regimeWiring.remapper.readInput(pressed);
+      // TASK-55: sensitivity scales the flight LOOK channels (yaw/pitch/
+      // roll) — read LIVE off the store each frame (next input frame),
+      // thrust / VTOL untouched.
+      const input = scaleLookDemand(
+        regimeWiring.remapper.readInput(pressed),
+        settingsState().sensitivity,
+      );
       const nonzero =
         input.thrust !== 0 ||
         input.yaw !== 0 ||
@@ -1642,6 +1653,32 @@ function App() {
         if (body.credits !== undefined && !cancelled) setCredits(body.credits);
       } catch {
         // server unreachable — the counter stays hidden until a sale lands
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
+
+  // TASK-55: restore the player's persisted settings on session boot (GET
+  // /api/players/settings). A never-saved player gets the factory defaults
+  // (the server normalizes the empty row). applySettings re-tunes the
+  // pipeline LIVE (the LOD radii for a restored Low preset update without
+  // a reload — same path as a click in the settings panel). A boot fetch
+  // failure just keeps the local (default) settings.
+  React.useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/players/settings', {
+          headers: { authorization: `Bearer ${session.token}` },
+        });
+        if (!res.ok) return;
+        const body = (await res.json()) as Partial<Settings>;
+        if (!cancelled) applySettings(normalizeSettings(body));
+      } catch {
+        // server unreachable — keep the local (default) settings
       }
     })();
     return () => {
@@ -1858,6 +1895,7 @@ function App() {
         <EscMenu
           callsign={session.callsign}
           credits={balance}
+          token={session.token}
           onResume={closeTopSurface}
           onSystems={() => {
             openChart();

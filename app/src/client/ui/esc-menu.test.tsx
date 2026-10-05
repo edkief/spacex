@@ -3,15 +3,17 @@
  * TASK-53: the ESC menu — the centered modal shell (Resume / Systems /
  * Ships / Settings + the credits + callsign footer). Resume / Systems /
  * Ships call back to the menu stack (main.tsx owns the pops and the
- * chart/panel opens); Settings is the TASK-55 stub (toggles a status
- * line). The "world keeps moving" note is on the surface (multiplayer:
- * no pause, by design).
+ * chart/panel opens); Settings opens the TASK-55 SettingsPanel (the four
+ * sections: quality / sensitivity / reduced motion / keybinds). The
+ * "world keeps moving" note is on the surface (multiplayer: no pause, by
+ * design).
  */
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { __resetMenu, openMenu } from '@client/state/menu';
+import { __resetSettings } from '@client/a11y/reduced-motion';
 
 import { EscMenu } from './esc-menu';
 
@@ -27,6 +29,7 @@ function renderMenu(over: Partial<Parameters<typeof EscMenu>[0]> = {}): HTMLDivE
       <EscMenu
         callsign={over.callsign ?? 'Raven'}
         credits={over.credits === undefined ? 120 : over.credits}
+        token={over.token ?? null}
         onResume={over.onResume ?? (() => {})}
         onSystems={over.onSystems ?? (() => {})}
         onShips={over.onShips ?? (() => {})}
@@ -45,7 +48,10 @@ const click = (el: HTMLDivElement, id: string): void => {
   });
 };
 
-beforeEach(() => __resetMenu());
+beforeEach(() => {
+  __resetMenu();
+  __resetSettings();
+});
 
 afterEach(() => {
   for (const root of roots) act(() => root.unmount());
@@ -94,15 +100,22 @@ describe('EscMenu (TASK-53)', () => {
     expect(onShips).toHaveBeenCalledTimes(1);
   });
 
-  it('Settings toggles the TASK-55 stub line (aria-pressed tracks it)', () => {
+  it('Settings toggles the TASK-55 panel (aria-pressed tracks it)', () => {
     const el = renderMenu();
     const btn = el.querySelector<HTMLButtonElement>('#esc-menu-settings');
     expect(btn?.getAttribute('aria-pressed')).toBe('false');
-    expect(el.querySelector('#esc-menu-settings-stub')).toBeNull();
+    expect(el.querySelector('#settings-panel')).toBeNull();
     click(el, '#esc-menu-settings');
     expect(el.querySelector('#esc-menu-settings')?.getAttribute('aria-pressed')).toBe('true');
-    expect(el.querySelector('#esc-menu-settings-stub')?.textContent).toContain('TASK-55');
+    // The four sections: quality presets, the sensitivity slider, the
+    // reduced-motion toggle, the keybind list (+ the reset button).
+    expect(el.querySelector('#settings-panel')).not.toBeNull();
+    expect(el.querySelector('#settings-quality-low')).not.toBeNull();
+    expect(el.querySelector('#settings-sensitivity-slider')).not.toBeNull();
+    expect(el.querySelector('#reduced-motion-toggle')).not.toBeNull();
+    expect(el.querySelector('#settings-keybinds')).not.toBeNull();
+    expect(el.querySelector('#settings-reset')).not.toBeNull();
     click(el, '#esc-menu-settings');
-    expect(el.querySelector('#esc-menu-settings-stub')).toBeNull();
+    expect(el.querySelector('#settings-panel')).toBeNull();
   });
 });
