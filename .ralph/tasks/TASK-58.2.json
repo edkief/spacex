@@ -1,0 +1,41 @@
+{
+  "id": "TASK-58.2",
+  "title": "Meet the >= 30 % delta, document perf.ts with real numbers, close out TASK-58",
+  "category": "performance",
+  "description": "With the benchmark stable (TASK-58.1) and real numbers recorded in .ralph/bench/TASK-58.json, this task closes TASK-58: verifies (or earns) the >= 30 % worst-case frame-time reduction vs the pre-tuning baseline, rewrites the perf.ts 'bench-run-1' placeholder comments with the real recorded numbers, and does the close-out bookkeeping. At most ONE further tuning pass is in scope — the per-LOD-ring chunk-mesh merge, the only pass from the original spec step 2 that was never implemented.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Delta check against the recorded numbers",
+      "details": "Run npm run bench:render (or read the last committed run in .ralph/bench/TASK-58.json, re-running if stale) and check the DELTA block: >= 30 % reduction in worst-case frame time (max frame time, and report the p95 delta) of the best tuned run vs the untuned baseline. If met, go straight to step 3. If not met, do step 2.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "One more tuning pass if (and only if) the delta misses: merge chunk meshes per LOD ring",
+      "details": "In app/src/client/world/chunk-scene.ts the scene currently holds ONE MESH PER MOUNTED CHUNK (13 chunks = up to 13 draw calls, one material per biome shared via materialFor() plus the far impostor material). Merge them per LOD ring so a ring per planet is one draw call where the shared biome materials allow it (a single merged geometry per ring with per-vertex material index, or at most one mesh per distinct material in the ring — pick the simplest that cuts the tally meaningfully). Keep the per-chunk path behind a flag (same pattern as merged: false in remote-ships.ts and instanced: false in ore-rocks.ts) so the baseline stays reproducible, and thread the flag through app/src/client/test/renderBenchmark.ts. Update/extend the existing chunk tests (chunk-scene.test.ts, chunks.test.ts). This is the last allowed code change — if the delta still misses after it, stop: record the achieved numbers and proceed to step 3.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "perf.ts: replace the 'bench-run-1' placeholders with the real numbers",
+      "details": "src/shared/perf.ts (124 lines) currently cites 'bench-run-1' for the tuned values but that run had never happened. Rewrite those comments (LOD radii, instanceBatches, fxCaps, label caps, budgets) with the numbers actually recorded in .ralph/bench/TASK-58.json, documenting each number's origin (the benchmark run + which AC it set) per the original spec step 3 / AC-5. If any tuned value in PERF_PROFILES.high should change to hold a gate, change it here as data and re-run the bench to confirm. The table stays data, read by the client via the SettingsBridge pattern (TASK-55); a future mobile profile (TASK-59) is a new entry, not a code change.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Record TASK-61 numbers + close-out",
+      "details": "Confirm .ralph/bench/TASK-58.json contains: the AC-1 scene description, baseline run, 5 tuned runs, p95 spread, delta, pass flag — committed. If the dev machine could not hold 60 fps (median > 16.7 ms or p95 > 20 ms), that is allowed per AC-2: the absolute numbers are the record, and the handoff/task log must state TASK-61 (reference hardware) is the verification point. Final verification: npm run typecheck, npm run lint, npm run test all green; the 10 s CI test green; npm run bench:render exits 0. Update .ralph/handoff/TASK-58.md with the final status and the recorded numbers. Commit.",
+      "pass": false
+    }
+  ],
+  "acceptanceCriteria": [
+    "The >= 30 % worst-case frame-time reduction vs the untuned baseline is met (or, if no further pass remains after the chunk merge, the achieved delta is recorded as the final number with TASK-61 flagged for reference-hardware verification)",
+    "All committed bench gates still exit 0: no-spike rule, < 120 draw calls, < 40 materials, < 500 k triangles, < 20 % p95 spread across the 5 tuned runs",
+    "src/shared/perf.ts documents every tuned number with the benchmark run that set it — no remaining 'bench-run-1' placeholders pointing at a run that did not happen",
+    ".ralph/bench/TASK-58.json committed with the final numbers (baseline, 5 tuned runs, p95 spread, delta) for TASK-61; if the dev machine cannot hold 60 fps, the absolute numbers are recorded and TASK-61 is flagged in the handoff",
+    "At most one new tuning pass (the per-LOD-ring chunk-mesh merge in chunk-scene.ts), legacy path kept behind a flag, covered by tests",
+    "npm run typecheck, npm run lint, npm run test (including the 10 s CI bench test) all green; npm run bench:render exits 0; working tree clean, one commit"
+  ],
+  "notes": "Depends on TASK-58.1: it needs the stable benchmark and the recorded .ralph/bench/TASK-58.json before any of this makes sense. Do NOT start it if the bench script does not yet exit 0.\n\nContext from the original TASK-58 spec that this task completes: AC-2 (delta >= 30 % is the machine-independent success criterion; 60 fps absolute is the TASK-61 stretch goal), AC-5 (tuning is data in src/shared/perf.ts, each number's origin documented), AC-6 (repeatability already gated by the script), AC-7 (numbers recorded for TASK-61, npm run test green). The original spec step 2 tuning order was: (1) instancing — DONE, (2) chunk-mesh merge per LOD ring — the only one not done, (3) material pool — DONE, (4) FX caps — DONE, (5) points-cloud starfield — DONE (starfield.ts is already a single THREE.Points cloud).\n\nTiming reference: full suite ~118 s, bench:render ~8-10 min wall. Budget the rest for the delta check, comment rewrite and close-out — keep the chunk merge (step 2, only if needed) small and tested, following the existing flag pattern (merged: false / instanced: false)."
+}

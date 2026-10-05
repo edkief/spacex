@@ -618,11 +618,22 @@
     "passes": true
   },
   {
-    "id": "TASK-58",
-    "title": "LOD/impostor tuning to draw and memory budgets",
+    "id": "TASK-58.1",
+    "title": "First full 60 s benchmark run — stabilize the committed gates",
     "category": "performance",
-    "specFilePath": ".ralph/tasks/TASK-58.json",
-    "passes": false
+    "specFilePath": ".ralph/tasks/TASK-58.1.json",
+    "passes": false,
+    "splitFrom": "TASK-58",
+    "splitDepth": 1
+  },
+  {
+    "id": "TASK-58.2",
+    "title": "Meet the >= 30 % delta, document perf.ts with real numbers, close out TASK-58",
+    "category": "performance",
+    "specFilePath": ".ralph/tasks/TASK-58.2.json",
+    "passes": false,
+    "splitFrom": "TASK-58",
+    "splitDepth": 1
   },
   {
     "id": "TASK-59",
