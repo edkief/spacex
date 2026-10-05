@@ -65,7 +65,7 @@ const get = (token: string) =>
     url: '/api/players/settings',
     headers: { authorization: `Bearer ${token}` },
   });
-const put = (token: string, body: unknown) =>
+const put = (token: string, body: Record<string, unknown>) =>
   app.inject({
     method: 'PUT',
     url: '/api/players/settings',

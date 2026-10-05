@@ -154,18 +154,18 @@ export function normalizeSettings(raw: unknown): Settings {
       return { ...DEFAULT_SETTINGS };
     }
   }
-  obj = (obj ?? {}) as Record<string, unknown>;
-  const quality: QualityPreset = QUALITY_PRESETS.includes(obj.quality as QualityPreset)
-    ? (obj.quality as QualityPreset)
+  const o = (obj ?? {}) as Record<string, unknown>;
+  const quality: QualityPreset = QUALITY_PRESETS.includes(o.quality as QualityPreset)
+    ? (o.quality as QualityPreset)
     : DEFAULT_SETTINGS.quality;
   return {
     quality,
     sensitivity: clampSensitivity(
-      typeof obj.sensitivity === 'number' ? obj.sensitivity : DEFAULT_SETTINGS.sensitivity,
+      typeof o.sensitivity === 'number' ? o.sensitivity : DEFAULT_SETTINGS.sensitivity,
     ),
     [SETTING_KEYS.reducedMotion]:
-      typeof obj[SETTING_KEYS.reducedMotion] === 'boolean'
-        ? (obj[SETTING_KEYS.reducedMotion] as boolean)
+      typeof o[SETTING_KEYS.reducedMotion] === 'boolean'
+        ? (o[SETTING_KEYS.reducedMotion] as boolean)
         : DEFAULT_SETTINGS[SETTING_KEYS.reducedMotion],
   };
 }

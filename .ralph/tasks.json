@@ -608,7 +608,7 @@
     "title": "Settings: quality presets, remap, persistence",
     "category": "ui-ux",
     "specFilePath": ".ralph/tasks/TASK-55.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-56",

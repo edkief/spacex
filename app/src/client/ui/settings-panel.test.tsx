@@ -89,7 +89,9 @@ describe('SettingsPanel (TASK-55)', () => {
   });
 
   it('the slider is debounced 300 ms: 5 rapid drags → 1 PUT (at the latest value)', async () => {
-    const putSpy = vi.fn(async () => true);
+    const putSpy = vi.fn(
+      async (_url: string, _init: { method?: string; body?: string }): Promise<boolean> => true,
+    );
     vi.stubGlobal('fetch', putSpy);
     const el = renderPanel();
     for (const v of [0.8, 1.1, 1.6, 1.9, 2.0]) {
@@ -103,22 +105,26 @@ describe('SettingsPanel (TASK-55)', () => {
     const [url, init] = putSpy.mock.calls[0];
     expect(url).toBe('/api/players/settings');
     expect(init.method).toBe('PUT');
-    expect(JSON.parse(init.body)).toEqual({ sensitivity: 2 });
+    expect(JSON.parse(init.body ?? '')).toEqual({ sensitivity: 2 });
     // The local store applied the LAST drag immediately (live).
     expect(settingsState().sensitivity).toBe(2);
   });
 
   it('the reduced-motion toggle persists immediately (no debounce)', async () => {
-    const putSpy = vi.fn(async () => true);
+    const putSpy = vi.fn(
+      async (_url: string, _init: { method?: string; body?: string }): Promise<boolean> => true,
+    );
     vi.stubGlobal('fetch', putSpy);
     const el = renderPanel();
     click(el, '#reduced-motion-toggle');
     expect(putSpy).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(putSpy.mock.calls[0][1].body)).toEqual({ 'reduced-motion': true });
+    expect(JSON.parse(putSpy.mock.calls[0][1].body ?? '')).toEqual({ 'reduced-motion': true });
   });
 
   it('Reset sends ONE PUT with all three defaults and re-tunes the pipeline', async () => {
-    const putSpy = vi.fn(async () => true);
+    const putSpy = vi.fn(
+      async (_url: string, _init: { method?: string; body?: string }): Promise<boolean> => true,
+    );
     vi.stubGlobal('fetch', putSpy);
     const el = renderPanel();
     // Dirty the local state first (the pipeline rides along).
@@ -126,7 +132,7 @@ describe('SettingsPanel (TASK-55)', () => {
     expect(lodRadii()).toEqual(lodRadiiFor('low'));
     click(el, '#settings-reset');
     expect(putSpy).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(putSpy.mock.calls[0][1].body)).toEqual({
+    expect(JSON.parse(putSpy.mock.calls[0][1].body ?? '')).toEqual({
       quality: 'high',
       sensitivity: 1,
       'reduced-motion': false,
@@ -135,7 +141,9 @@ describe('SettingsPanel (TASK-55)', () => {
   });
 
   it('with no token the panel applies changes locally but sends nothing', () => {
-    const putSpy = vi.fn(async () => true);
+    const putSpy = vi.fn(
+      async (_url: string, _init: { method?: string; body?: string }): Promise<boolean> => true,
+    );
     vi.stubGlobal('fetch', putSpy);
     const el = renderPanel(null);
     click(el, '#settings-quality-low');

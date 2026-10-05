@@ -392,10 +392,7 @@ export class WorldManager {
     // read live off the settings store (a world is (re)built per system,
     // so a preset change takes effect on the next world build — the
     // SettingsBridge's "new ones use the new params" contract).
-    this.background = createBackground(
-      seed,
-      PRESETS[settingsState().quality].starCount,
-    );
+    this.background = createBackground(seed, PRESETS[settingsState().quality].starCount);
     // TASK-28.1: the skybox fades OUT under the atmosphere dome. The sky
     // starts fully opaque; its opacity (like the dome's haze) is driven by
     // the ONE shared haze number in setAtmosphereView, so the two never

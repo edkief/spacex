@@ -1457,8 +1457,8 @@ function App() {
       const thrust = (pressed.has('w') ? 1 : 0) - (pressed.has('s') ? 1 : 0);
       // TASK-55: the sensitivity scales the LOOK demand (read LIVE off the
       // store each frame — the next input frame picks up a slider change).
-      const yaw = ((pressed.has('d') ? 1 : 0) - (pressed.has('a') ? 1 : 0)) *
-        settingsState().sensitivity;
+      const yaw =
+        ((pressed.has('d') ? 1 : 0) - (pressed.has('a') ? 1 : 0)) * settingsState().sensitivity;
       const run = pressed.has('Shift');
       const jump = pressed.has(' ');
       const action = run && jump ? 'run+jump' : run ? 'run' : jump ? 'jump' : undefined;

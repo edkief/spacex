@@ -234,7 +234,9 @@ export const deposits = sqliteTable(
     remaining: integer('remaining').notNull(),
     discovered: integer('discovered', { mode: 'boolean' }).notNull().default(false),
   },
-  (t) => [sqlitePrimaryKey({ name: 'pk_deposits_system_seq', columns: [t.systemId, t.depositSeq] })],
+  (t) => [
+    sqlitePrimaryKey({ name: 'pk_deposits_system_seq', columns: [t.systemId, t.depositSeq] }),
+  ],
 );
 
 export const sqliteTables = {

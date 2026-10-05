@@ -18,28 +18,31 @@
       "step": 1,
       "description": "Settings model + presets",
       "details": "src/shared/settings.ts: Settings type {quality: 'high'|'medium'|'low', sensitivity: number, reducedMotion: boolean}; PRESETS map with the param table; clamps; the streaming pipeline (TASK-26) reads its params from a live SettingsBridge (a mutable ref the client updates — no re-init).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Endpoints + persistence",
       "details": "GET/PUT /api/players/settings (auth, zod: quality enum, sensitivity 0.5-2.0 clamped, reducedMotion boolean); repo JSON column; loaded on session establish (the /api/session response gains settings — the claims screen's first join uses defaults).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Panel UI",
       "details": "SettingsPanel (the TASK-53 shell): preset buttons, the sensitivity slider (debounced 300 ms PUT), the reduced-motion toggle (immediate), the keybind list (static), Reset button; live application via the SettingsBridge.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Tests + e2e",
       "details": "All listed; e2e quality change with the dev-hook read. Run full suite + e2e.",
-      "pass": false
+      "pass": true
     }
   ],
-  "dependencies": ["TASK-57", "TASK-53"],
+  "dependencies": [
+    "TASK-57",
+    "TASK-53"
+  ],
   "estimatedComplexity": "medium",
   "technicalNotes": [
     "No key rebinding in v1 (scope cut) — the keybind list is informational; the input map (TASK-25) stays fixed.",
