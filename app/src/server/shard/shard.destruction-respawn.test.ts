@@ -135,7 +135,7 @@ describe('destruction → respawn (the full death-and-recovery loop)', () => {
     const shard = makeShard();
     const a: string[] = [];
     const b: string[] = [];
-    const eA = shipAt(shard, 'p1', { x: 60000, y: 60000, z: 0 }, 'interceptor', a);
+    shipAt(shard, 'p1', { x: 60000, y: 60000, z: 0 }, 'interceptor', a);
     const eB = shipAt(shard, 'p2', { x: 60060, y: 60000, z: 0 }, 'scout', b);
     warmup(shard);
 
@@ -233,7 +233,10 @@ describe('docked invulnerability (the safe zone)', () => {
     shipAt(shard, 'p1', { x: 0, y: 0, z: 0 }, 'interceptor', a);
     // B is DOCKED (a ship its player left — disembarked ships are frozen on
     // the pad). A aims a laser dead at it.
-    const eB = shipAt(shard, 'p2', { x: 0, y: 0, z: 100 }, 'scout', b, { docked: true, disembarked: true });
+    const eB = shipAt(shard, 'p2', { x: 0, y: 0, z: 100 }, 'scout', b, {
+      docked: true,
+      disembarked: true,
+    });
     warmup(shard);
 
     shard.handleFire('p1', { weapon: 'laser', targetId: 'ship-p2' });
@@ -290,7 +293,7 @@ describe('wreck lifecycle', () => {
     const b: string[] = [];
     const c: string[] = [];
     shipAt(shard, 'p1', { x: 60000, y: 60000, z: 0 }, 'interceptor', a);
-    const eB = shipAt(shard, 'p2', { x: 60060, y: 60000, z: 0 }, 'scout', b);
+    shipAt(shard, 'p2', { x: 60060, y: 60000, z: 0 }, 'scout', b);
     shipAt(shard, 'p3', { x: 60000, y: 60060, z: 0 }, 'scout', c); // observer
     warmup(shard);
 
@@ -301,7 +304,9 @@ describe('wreck lifecycle', () => {
     // The OBSERVER C saw the destroyed event AND the wreck (with A's killer
     // marker) in its snapshot — the same wreck B's death produced.
     expect(combat(c).some((e) => e.kind === 'destroyed' && e.target === 'ship-p2')).toBe(true);
-    const seen = snapshots(c).flatMap((s) => s.entities).find((e) => e.id === 'wreck:ship-p2');
+    const seen = snapshots(c)
+      .flatMap((s) => s.entities)
+      .find((e) => e.id === 'wreck:ship-p2');
     expect(seen).toBeDefined();
     expect(seen!.killerId).toBe('p1');
     shard.stop();

@@ -19,7 +19,6 @@ import {
   INVENTORY_MAX_WEIGHT,
   RESOURCE_WEIGHTS,
   inventoryWeight,
-  isResourceId,
   sanitizeInventory,
   type InventoryStacks,
   type ResourceId,

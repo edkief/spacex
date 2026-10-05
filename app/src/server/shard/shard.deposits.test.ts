@@ -6,7 +6,6 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDb } from '@server/db/client';
 import { createRepo } from '@server/db/repo';
 import { sqliteTables } from '@server/db/schema';
-import { generateSystem } from '@shared/galaxy/system';
 import { quatIdentity, type Vec3 } from '@shared/physics/vec';
 import type { Planet, SystemGen } from '@shared/galaxy/types';
 import { MINING_UNIT_MS } from '@shared/mining';

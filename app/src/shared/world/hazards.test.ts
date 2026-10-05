@@ -79,23 +79,26 @@ describe('hazardsFor: seeded placement (TASK-48 AC)', () => {
     },
   );
 
-  it.each(SYSTEMS.map((s) => s.systemId))('%s: no hazard disc inside the 300 m pad safe zone', (systemId) => {
-    const system = SYSTEMS.find((s) => s.systemId === systemId)!;
-    const hazards = hazardsFor(SEED, system);
-    const pads = padsForSystem(SEED, system);
-    for (const h of hazards) {
-      const planetPads = pads.filter((p) => p.planetId === h.planetId);
-      for (const pad of planetPads) {
-        const d = Math.hypot(h.pos.x - pad.pos.x, h.pos.z - pad.pos.z);
-        // The CENTER rule (AC: ≥ 300 m) — the derivation enforces the
-        // stronger whole-disc rule (d - radius ≥ 300 m).
-        expect(d, `${h.hazardId} vs ${pad.padId}`).toBeGreaterThanOrEqual(HAZARD_SAFE_ZONE_M);
-        expect(d - h.radius, `${h.hazardId} disc edge vs ${pad.padId}`).toBeGreaterThanOrEqual(
-          HAZARD_SAFE_ZONE_M - 1e-9,
-        );
+  it.each(SYSTEMS.map((s) => s.systemId))(
+    '%s: no hazard disc inside the 300 m pad safe zone',
+    (systemId) => {
+      const system = SYSTEMS.find((s) => s.systemId === systemId)!;
+      const hazards = hazardsFor(SEED, system);
+      const pads = padsForSystem(SEED, system);
+      for (const h of hazards) {
+        const planetPads = pads.filter((p) => p.planetId === h.planetId);
+        for (const pad of planetPads) {
+          const d = Math.hypot(h.pos.x - pad.pos.x, h.pos.z - pad.pos.z);
+          // The CENTER rule (AC: ≥ 300 m) — the derivation enforces the
+          // stronger whole-disc rule (d - radius ≥ 300 m).
+          expect(d, `${h.hazardId} vs ${pad.padId}`).toBeGreaterThanOrEqual(HAZARD_SAFE_ZONE_M);
+          expect(d - h.radius, `${h.hazardId} disc edge vs ${pad.padId}`).toBeGreaterThanOrEqual(
+            HAZARD_SAFE_ZONE_M - 1e-9,
+          );
+        }
       }
-    }
-  });
+    },
+  );
 
   it.each(SYSTEMS.map((s) => s.systemId))('%s: min cell spacing ≥ 250 m per planet', (systemId) => {
     const system = SYSTEMS.find((s) => s.systemId === systemId)!;

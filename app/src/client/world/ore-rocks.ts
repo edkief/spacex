@@ -138,7 +138,10 @@ export class OreRockLayer {
   /** Wire-only (dev-hook) deposits, keyed by WIRE entity id. */
   private externals = new Map<string, ExternalDeposit>();
   /** Every rock id and its current visibility (views() + the instanced fill). */
-  private readonly rockState = new Map<string, { pos: { x: number; y: number; z: number }; resourceId: ResourceId; visible: boolean }>();
+  private readonly rockState = new Map<
+    string,
+    { pos: { x: number; y: number; z: number }; resourceId: ResourceId; visible: boolean }
+  >();
   private parent: THREE.Object3D | null = null;
   private readonly tempMatrix = new THREE.Matrix4();
 

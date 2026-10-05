@@ -63,49 +63,56 @@ export const LIMITER_REGISTRY: Readonly<Record<StatefulHandler, LimiterEntry>> =
   fire: {
     handler: 'fire',
     kind: 'spam-lock',
-    bound: `${FIRE_SPAM_LIMIT} fire-intents/s per connection → ${WEAPON_LOCK_MS} ms lockout; ` +
+    bound:
+      `${FIRE_SPAM_LIMIT} fire-intents/s per connection → ${WEAPON_LOCK_MS} ms lockout; ` +
       `per-weapon fireRate cooldown (sim, single writer) + energy cost; ` +
       `every intent also passes the ${MESSAGE_RATE} msg/s inbound bucket`,
   },
   mine: {
     handler: 'mine',
     kind: 'server-cadence',
-    bound: `a unit is awarded only on the server's ${MINING_UNIT_MS} ms channel tick; ` +
+    bound:
+      `a unit is awarded only on the server's ${MINING_UNIT_MS} ms channel tick; ` +
       `mine-start/tick/stop messages are idempotent state, never awards; ` +
       `the ${MESSAGE_RATE} msg/s inbound bucket bounds the spam itself`,
   },
   sell: {
     handler: 'sell',
     kind: 'inbound-token-bucket',
-    bound: `${MESSAGE_RATE} msg/s, burst ${MESSAGE_BURST} per connection; ` +
+    bound:
+      `${MESSAGE_RATE} msg/s, burst ${MESSAGE_BURST} per connection; ` +
       `the handler re-validates funding from live state, so a sell can never ` +
       `credit more than the source stack holds (repeated sells are capped, not duplicated)`,
   },
   interact: {
     handler: 'interact',
     kind: 'inbound-token-bucket',
-    bound: `${MESSAGE_RATE} msg/s, burst ${MESSAGE_BURST} per connection; ` +
+    bound:
+      `${MESSAGE_RATE} msg/s, burst ${MESSAGE_BURST} per connection; ` +
       `per-kind range + ownership + regime validation in the shard ` +
       `(${VIOLATION_LIMIT} rate-limit violations in ${VIOLATION_WINDOW_MS} ms → 4009 kick)`,
   },
   chat: {
     handler: 'chat',
     kind: 'chat-window',
-    bound: `ChatLimiter: ${CHAT_MAX_CHARS} chars, ${CHAT_WINDOW_MAX} messages per ` +
+    bound:
+      `ChatLimiter: ${CHAT_MAX_CHARS} chars, ${CHAT_WINDOW_MAX} messages per ` +
       `${CHAT_WINDOW_MS} ms sliding window per connection; violations escalate ` +
       `(${VIOLATION_LIMIT} in ${VIOLATION_WINDOW_MS} ms → 4009 kick)`,
   },
   warp: {
     handler: 'warp',
     kind: 'serialization',
-    bound: `per-connection async queue: exactly ONE warp in flight, later requests ` +
+    bound:
+      `per-connection async queue: exactly ONE warp in flight, later requests ` +
       `are serialized and re-validated (target == current system → rejected); ` +
       `target validated against the registry + the ${MAX_PLAYERS_PER_SYSTEM} player cap`,
   },
   join: {
     handler: 'join',
     kind: 'occupancy-cap',
-    bound: `at most ${MAX_PLAYERS_PER_SYSTEM} connected players per shard ` +
+    bound:
+      `at most ${MAX_PLAYERS_PER_SYSTEM} connected players per shard ` +
       `(join_system into a full shard → system-full, the player stays put); ` +
       `protocol v${PROTOCOL_VERSION} handshake gate before any join`,
   },

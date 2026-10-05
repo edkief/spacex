@@ -10,7 +10,7 @@
  * placement mix (TASK-37: iron 40 / copper 30 / rare-earth 20 / crystal 10).
  */
 
-import { RESOURCE_IDS, RESOURCE_WEIGHTS, type ResourceId } from './inventory';
+import { RESOURCE_IDS, type ResourceId } from './inventory';
 import type { Rng } from './random';
 
 /** Catalog entry for one resource. */

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { generateSystem } from '../galaxy/system';
 import { RESOURCE_CATALOG, pickResource } from '../resources';
-import { RESOURCE_IDS, RESOURCE_WEIGHTS, type ResourceId } from '../inventory';
+import { RESOURCE_IDS, RESOURCE_WEIGHTS } from '../inventory';
 import { Rng, seedFromString } from '../random';
 import {
   DEPOSIT_AMOUNT_MAX,
@@ -17,7 +17,11 @@ import {
 const SEED = 'deposits-test-seed';
 
 /** Three distinct real systems of one galaxy (different star ids). */
-const SYSTEMS = [generateSystem(SEED, 'star-a'), generateSystem(SEED, 'star-b'), generateSystem(SEED, 'star-c')];
+const SYSTEMS = [
+  generateSystem(SEED, 'star-a'),
+  generateSystem(SEED, 'star-b'),
+  generateSystem(SEED, 'star-c'),
+];
 
 /** The eligible (solid) planets of a system, in orbital order. */
 const eligiblePlanets = (systemId: string) =>
@@ -40,29 +44,35 @@ describe('depositsFor: seeded placement (TASK-37 AC)', () => {
     },
   );
 
-  it.each(SYSTEMS.map((s) => s.systemId))('%s: ≤ 120 deposits, amounts 10..50, undiscovered, known resources, solid planets only', (systemId) => {
-    const system = SYSTEMS.find((s) => s.systemId === systemId)!;
-    const deps = depositsFor(SEED, system);
-    expect(deps.length).toBeLessThanOrEqual(DEPOSIT_MAX_PER_SYSTEM);
-    expect(deps.length).toBeGreaterThan(0);
-    const planetIds = new Set(eligiblePlanets(systemId).map((p) => p.id));
-    for (const d of deps) {
-      expect(d.amount).toBeGreaterThanOrEqual(DEPOSIT_AMOUNT_MIN);
-      expect(d.amount).toBeLessThanOrEqual(DEPOSIT_AMOUNT_MAX);
-      expect(d.discovered).toBe(false);
-      expect(RESOURCE_IDS).toContain(d.resourceId);
-      expect(planetIds).toContain(d.planetId);
-      expect(d.depositId).toBe(`${systemId}:${d.depositSeq}`);
-      expect(Number.isFinite(d.pos.x)).toBe(true);
-      expect(Number.isFinite(d.pos.y)).toBe(true);
-      expect(Number.isFinite(d.pos.z)).toBe(true);
-    }
-    // depositSeq is a 0-based contiguous sequence (the DB key suffix).
-    expect(deps.map((d) => d.depositSeq)).toEqual(deps.map((_, i) => i));
-  });
+  it.each(SYSTEMS.map((s) => s.systemId))(
+    '%s: ≤ 120 deposits, amounts 10..50, undiscovered, known resources, solid planets only',
+    (systemId) => {
+      const system = SYSTEMS.find((s) => s.systemId === systemId)!;
+      const deps = depositsFor(SEED, system);
+      expect(deps.length).toBeLessThanOrEqual(DEPOSIT_MAX_PER_SYSTEM);
+      expect(deps.length).toBeGreaterThan(0);
+      const planetIds = new Set(eligiblePlanets(systemId).map((p) => p.id));
+      for (const d of deps) {
+        expect(d.amount).toBeGreaterThanOrEqual(DEPOSIT_AMOUNT_MIN);
+        expect(d.amount).toBeLessThanOrEqual(DEPOSIT_AMOUNT_MAX);
+        expect(d.discovered).toBe(false);
+        expect(RESOURCE_IDS).toContain(d.resourceId);
+        expect(planetIds).toContain(d.planetId);
+        expect(d.depositId).toBe(`${systemId}:${d.depositSeq}`);
+        expect(Number.isFinite(d.pos.x)).toBe(true);
+        expect(Number.isFinite(d.pos.y)).toBe(true);
+        expect(Number.isFinite(d.pos.z)).toBe(true);
+      }
+      // depositSeq is a 0-based contiguous sequence (the DB key suffix).
+      expect(deps.map((d) => d.depositSeq)).toEqual(deps.map((_, i) => i));
+    },
+  );
 
   it.each(SYSTEMS.map((s) => s.systemId))('%s: min spacing ≥ 200 m per planet', (systemId) => {
-    const deps = depositsFor(SEED, SYSTEMS.find((s) => s.systemId === systemId)!);
+    const deps = depositsFor(
+      SEED,
+      SYSTEMS.find((s) => s.systemId === systemId)!,
+    );
     const byPlanet = new Map<string, typeof deps>();
     for (const d of deps) {
       const arr = byPlanet.get(d.planetId) ?? [];
@@ -73,20 +83,27 @@ describe('depositsFor: seeded placement (TASK-37 AC)', () => {
       for (let i = 0; i < arr.length; i++) {
         for (let j = i + 1; j < arr.length; j++) {
           const dist = Math.hypot(arr[i].pos.x - arr[j].pos.x, arr[i].pos.z - arr[j].pos.z);
-          expect(dist, `deposits ${arr[i].depositId}/${arr[j].depositId}`).toBeGreaterThanOrEqual(DEPOSIT_MIN_SPACING_M);
+          expect(dist, `deposits ${arr[i].depositId}/${arr[j].depositId}`).toBeGreaterThanOrEqual(
+            DEPOSIT_MIN_SPACING_M,
+          );
         }
       }
     }
   });
 
-  it.each(SYSTEMS.map((s) => s.systemId))('%s: every deposit sits on the terrain surface (heightAt ≈ pos.y ± 0.5)', (systemId) => {
-    const system = SYSTEMS.find((s) => s.systemId === systemId)!;
-    for (const d of depositsFor(SEED, system)) {
-      const planet = system.planets.find((p) => p.id === d.planetId)!;
-      const h = planetHeightAt(SEED, planet, d.pos.x, d.pos.z);
-      expect(Math.abs(h - d.pos.y), `${d.depositId}: ${h} vs ${d.pos.y}`).toBeLessThanOrEqual(0.5);
-    }
-  });
+  it.each(SYSTEMS.map((s) => s.systemId))(
+    '%s: every deposit sits on the terrain surface (heightAt ≈ pos.y ± 0.5)',
+    (systemId) => {
+      const system = SYSTEMS.find((s) => s.systemId === systemId)!;
+      for (const d of depositsFor(SEED, system)) {
+        const planet = system.planets.find((p) => p.id === d.planetId)!;
+        const h = planetHeightAt(SEED, planet, d.pos.x, d.pos.z);
+        expect(Math.abs(h - d.pos.y), `${d.depositId}: ${h} vs ${d.pos.y}`).toBeLessThanOrEqual(
+          0.5,
+        );
+      }
+    },
+  );
 });
 
 describe('resource catalog (TASK-37 AC)', () => {
@@ -126,6 +143,3 @@ describe('resource catalog (TASK-37 AC)', () => {
     }
   });
 });
-
-/** Keep the ResourceId import live (used by the catalog contract above). */
-type _assert = Record<ResourceId, number>;

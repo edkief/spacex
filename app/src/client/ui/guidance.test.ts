@@ -61,7 +61,7 @@ describe('guidanceAdvance (the pure machine)', () => {
   });
 
   it('the first sale plays the finale, which auto-hides after 5 s', () => {
-    let s = guidanceAdvance(initialGuidance(), 'sale', T0);
+    const s = guidanceAdvance(initialGuidance(), 'sale', T0);
     expect(s.furthest).toBe(4);
     expect(s.finaleAt).toBe(T0);
     expect(guidanceVisibleStep(s, T0)).toBe(3); // 'You are drifting. Good luck.'

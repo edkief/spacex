@@ -65,7 +65,9 @@ describe('InteractableRegistry', () => {
     const reg = createInteractableRegistry();
     const { send, frames } = sendMock();
     reg.release(target('dep-1', F), send);
-    expect(frames).toEqual([{ type: 'interact', payload: { targetId: 'dep-1', action: 'mine-stop' } }]);
+    expect(frames).toEqual([
+      { type: 'interact', payload: { targetId: 'dep-1', action: 'mine-stop' } },
+    ]);
     // A tap-only kind (no onRelease) releases as a silent no-op…
     frames.length = 0;
     reg.release(target('ship-1', F, { kind: 'ship', callsign: 'pilot' }), send);
@@ -129,7 +131,9 @@ describe('InteractableRegistry', () => {
     // 'open-cargo' interact action; everywhere else 'enter_ship'.
     const { send, frames } = sendMock();
     reg.dispatch(docked, 4, send);
-    expect(frames).toEqual([{ type: 'interact', payload: { targetId: 'ship-1', action: 'open-cargo' } }]);
+    expect(frames).toEqual([
+      { type: 'interact', payload: { targetId: 'ship-1', action: 'open-cargo' } },
+    ]);
     frames.length = 0;
     reg.dispatch(docked, 2, send);
     expect(frames).toEqual([{ type: 'enter_ship', payload: { shipId: 'ship-1' } }]);

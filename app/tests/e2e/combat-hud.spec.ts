@@ -78,10 +78,9 @@ test('combat HUD: target box + bracket, kill feed entry, weapon readout', async 
   // children), so Playwright's toBeVisible (non-empty box) never passes on
   // it — assert the rAF-driven display state directly.
   await expect
-    .poll(
-      () => page.locator('#target-bracket').evaluate((el) => el.style.display === 'block'),
-      { timeout: 3_000 },
-    )
+    .poll(() => page.locator('#target-bracket').evaluate((el) => el.style.display === 'block'), {
+      timeout: 3_000,
+    })
     .toBe(true);
 
   // Scripted kill: the 'kill' combat_event (killer = the caller) feeds the

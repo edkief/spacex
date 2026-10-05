@@ -80,14 +80,13 @@ export type ResolveHitCode =
   | 'self-target'
   | 'unknown-source'
   | 'unknown-target'
-  | 'dead-target'
-  | /**
+  | 'dead-target' /**
    * TASK-49: a DOCKED ship is a safe zone — weapons pass over it, it is never
    * a valid target (the dock is invulnerable in v1). A docked ship is only
    * one its player has left (disembark freezes it on the pad), so this is the
    * guard that "a ship destroyed while the player is on foot" cannot happen.
    */
-  'docked'
+  | 'docked'
   | 'out-of-range'
   | 'no-line-of-sight';
 

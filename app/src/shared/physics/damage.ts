@@ -25,9 +25,7 @@ import { shipStats } from '../ships';
  * exposure pool through the same pipeline (the math ignores the source).
  */
 export type DamageSource =
-  | { kind: 'player'; id: string }
-  | { kind: 'ai'; id: string }
-  | { kind: 'drone'; id: string };
+  { kind: 'player'; id: string } | { kind: 'ai'; id: string } | { kind: 'drone'; id: string };
 
 /**
  * The combat state the damage model needs: remaining hull and shield

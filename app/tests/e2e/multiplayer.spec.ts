@@ -244,7 +244,7 @@ test("client A sees client B's ship projected through the chase camera", async (
     h: number;
   } | null> => {
     // Everything window-touching runs INSIDE evaluate (node has no window).
-    return (await pageA.evaluate((target: string) => {
+    return await pageA.evaluate((target: string) => {
       const ships = window.__REMOTE_SHIPS__?.probe() ?? [];
       const bShip = ships.find((s) => s.callsign === target);
       if (!bShip || !bShip.screen) return null;
@@ -257,7 +257,7 @@ test("client A sees client B's ship projected through the chase camera", async (
         w: window.innerWidth,
         h: window.innerHeight,
       };
-    }, bCallsign));
+    }, bCallsign);
   };
   await expect
     .poll(() => probeB(), {

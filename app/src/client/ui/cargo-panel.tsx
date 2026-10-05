@@ -2,11 +2,7 @@ import React from 'react';
 
 import type { ResourceId } from '@shared/inventory';
 import type { Livery } from '@shared/ships';
-import {
-  cargoPanel,
-  cargoPanelSubscribe,
-  type CargoPanelState,
-} from '@client/state/cargo';
+import { cargoPanel, cargoPanelSubscribe, type CargoPanelState } from '@client/state/cargo';
 import { ShipPanel, type PanelShipView } from '@client/ui/ship-panel';
 
 /**

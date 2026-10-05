@@ -27,7 +27,9 @@ describe('stepMiningChannel (the server-clock award math)', () => {
     });
     // Even far past the first cadence, a FRESH 1.5 s since the last award
     // is still required (the anchor is the last award, not the start).
-    expect(stepMiningChannel(channel({ lastAwardAt: T0 + 9_000 }), T0 + 9_000 + 1_499, 5, {}, 'iron')).toEqual({
+    expect(
+      stepMiningChannel(channel({ lastAwardAt: T0 + 9_000 }), T0 + 9_000 + 1_499, 5, {}, 'iron'),
+    ).toEqual({
       kind: 'idle',
     });
   });
@@ -52,11 +54,13 @@ describe('stepMiningChannel (the server-clock award math)', () => {
   });
 
   it('any resource type awards its own stacks (the deposit carries the resource)', () => {
-    expect(stepMiningChannel(channel(), T0 + MINING_UNIT_MS, 3, { iron: 2 }, 'rare-earth')).toEqual({
-      kind: 'awarded',
-      stacks: { iron: 2, 'rare-earth': 1 },
-      depleted: false,
-    });
+    expect(stepMiningChannel(channel(), T0 + MINING_UNIT_MS, 3, { iron: 2 }, 'rare-earth')).toEqual(
+      {
+        kind: 'awarded',
+        stacks: { iron: 2, 'rare-earth': 1 },
+        depleted: false,
+      },
+    );
   });
 
   it('at the weight cap the due award is HELD as "full" (caller keeps the anchor)', () => {

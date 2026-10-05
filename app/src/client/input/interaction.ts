@@ -52,7 +52,11 @@ export interface InteractableEntry {
    * TASK-39: `distance` rides along for the same proximity sub-actions the
    * prompt shows.
    */
-  onInteract: (target: InteractableTarget, distance: number | undefined, send: InteractSend) => void;
+  onInteract: (
+    target: InteractableTarget,
+    distance: number | undefined,
+    send: InteractSend,
+  ) => void;
   /**
    * TASK-38: the hold-release half (E up): deposits end their mining
    * channel ('mine-stop' — a cancel). Kinds with no hold (a tap is the
@@ -201,7 +205,11 @@ export function resolveInteract(
   if (!entry) return null;
   // TASK-39: the prompt may branch on the raycast's distance (the ship's
   // proximity sub-prompts: Open cargo vs Enter ship).
-  return { target: hit.target, text: entry.prompt(hit.target, hit.distance), distance: hit.distance };
+  return {
+    target: hit.target,
+    text: entry.prompt(hit.target, hit.distance),
+    distance: hit.distance,
+  };
 }
 
 /**

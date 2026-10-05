@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
   CHAR_GRAVITY,
-  CHAR_GROUND_FRICTION,
   CHAR_JUMP_VELOCITY,
   CHAR_RUN_SPEED,
   CHAR_TERRAIN_LERP_SPEED,
@@ -30,14 +29,14 @@ function distance(a: Vec3, b: Vec3): number {
   return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 }
 
-const FLAT = (x: number, z: number) => 0;
+const FLAT = () => 0;
 
 /** Integrate `secs` of flat-ground physics at 20 Hz, returning the path. */
 function simulate(
   secs: number,
   input: CharacterInput,
   dt = 0.05,
-  heightAt = FLAT,
+  heightAt: (x: number, z: number) => number = FLAT,
   initial: CharacterState = restCharacterState({ x: 0, y: 0, z: 0 }),
 ): CharacterState[] {
   const out: CharacterState[] = [];
@@ -105,7 +104,8 @@ describe('integrateCharacter: speeds (TASK-32 step 1)', () => {
 
   it('no input: a moving character decelerates at 8 u/s² (ground friction)', () => {
     let s = restCharacterState({ x: 0, y: 0, z: 0 });
-    for (let i = 0; i < 10; i++) s = integrateCharacter(s, { ...ZERO_CHARACTER_INPUT, forward: true, run: true }, 0.05, FLAT);
+    for (let i = 0; i < 10; i++)
+      s = integrateCharacter(s, { ...ZERO_CHARACTER_INPUT, forward: true, run: true }, 0.05, FLAT);
     // Holding the key for 0.5 s → exactly run speed…
     expect(Math.hypot(s.vel.x, s.vel.z)).toBeCloseTo(CHAR_RUN_SPEED, 6);
     // …then release: 6 − 8t, floored at 0.

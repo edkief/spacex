@@ -14,10 +14,7 @@ import React from 'react';
 const FOCUSABLE_SELECTOR =
   'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
-export function useFocusTrap(
-  ref: React.RefObject<HTMLElement | null>,
-  active: boolean,
-): void {
+export function useFocusTrap(ref: React.RefObject<HTMLElement | null>, active: boolean): void {
   React.useEffect(() => {
     if (!active) return;
     const el = ref.current;

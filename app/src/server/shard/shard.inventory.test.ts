@@ -97,7 +97,11 @@ function makeEntity(playerId: string, pos: Vec3): SimEntity {
  * SAME pad position → their characters spawn at the SAME position (0 m
  * apart, comfortably inside the 3 m reach).
  */
-function onFoot(shard: SystemShard, playerId: string, send: (buffer: string) => void = () => void 0) {
+function onFoot(
+  shard: SystemShard,
+  playerId: string,
+  send: (buffer: string) => void = () => void 0,
+) {
   const entity = makeEntity(playerId, { ...PAD.pos });
   entity.padId = PAD.padId; // pad-docked (the approach loop is another task's proof)
   shard.addEntity(entity);

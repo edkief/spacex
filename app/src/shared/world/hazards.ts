@@ -287,7 +287,14 @@ export function hazardsFor(
     const planetPads = pads
       .filter((p) => p.planetId === planet.id)
       .map((p) => ({ x: p.pos.x, z: p.pos.z }));
-    const cells = scatterPlanet(galaxySeed, system.systemId, planet, index, HAZARD_MAX_PER_PLANET, planetPads);
+    const cells = scatterPlanet(
+      galaxySeed,
+      system.systemId,
+      planet,
+      index,
+      HAZARD_MAX_PER_PLANET,
+      planetPads,
+    );
     for (const { pos, radius } of cells) {
       const kind = HAZARD_KINDS[rngInt(kindRng, HAZARD_KINDS.length)];
       out.push({

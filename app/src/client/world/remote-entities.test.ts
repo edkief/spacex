@@ -221,6 +221,24 @@ describe('RemoteEntityLayer', () => {
   });
 });
 
+/**
+ * The vertex colors of a merged (TASK-58) ship — the livery/trim zones live
+ * in the per-ship color buffer, read back as linear working-space colors.
+ */
+function shipVertexColors(group: THREE.Group): THREE.Color[] {
+  const mesh = group.children[0] as THREE.Mesh;
+  const attr = mesh.geometry.getAttribute('color') as THREE.BufferAttribute;
+  const out: THREE.Color[] = [];
+  for (let i = 0; i < attr.count; i++) out.push(new THREE.Color().fromBufferAttribute(attr, i));
+  return out;
+}
+
+/** Component-equality against a hex (both sides in linear working space). */
+function colorIs(c: THREE.Color, hex: string): boolean {
+  const ref = new THREE.Color(hex);
+  return Math.abs(c.r - ref.r) < 1e-6 && Math.abs(c.g - ref.g) < 1e-6 && Math.abs(c.b - ref.b) < 1e-6;
+}
+
 /** The unique zone materials of one ship group (hull / accent / trim). */
 function shipMats(group: THREE.Group): THREE.MeshStandardMaterial[] {
   const mats = new Set<THREE.Material>();
@@ -277,13 +295,17 @@ describe('RemoteEntityLayer — ships (TASK-74)', () => {
     layer.addSnapshot(100, [ship('s-bob', 'bob', V3, { livery: { hull: '#112233' } })], 'me');
     layer.renderFrame(110);
     const firstGroup = parent.children[0] as THREE.Group;
-    expect(shipMats(firstGroup).some((m) => m.color.getHexString() === '112233')).toBe(true);
+    // TASK-58 merged ship: the livery rides the per-ship VERTEX-COLOR buffer
+    // (the material is one of three shared state materials).
+    const firstMesh = firstGroup.children[0] as THREE.Mesh;
+    expect(shipVertexColors(firstGroup).some((c) => colorIs(c, '#112233'))).toBe(true);
 
-    // New livery, same classId: SAME group instance, recolor only.
+    // New livery, same classId: SAME group AND geometry instance, recolor only.
     layer.addSnapshot(200, [ship('s-bob', 'bob', V3, { livery: { hull: '#445566' } })], 'me');
     layer.renderFrame(210);
     expect(parent.children[0]).toBe(firstGroup);
-    expect(shipMats(firstGroup).some((m) => m.color.getHexString() === '445566')).toBe(true);
+    expect((firstGroup.children[0] as THREE.Mesh).geometry).toBe(firstMesh.geometry);
+    expect(shipVertexColors(firstGroup).some((c) => colorIs(c, '#445566'))).toBe(true);
   });
 
   it('rebuilds the mesh when the classId changes (a ship swap)', () => {
@@ -349,15 +371,14 @@ describe('RemoteEntityLayer — ships (TASK-74)', () => {
       'me',
     );
     layer.renderFrame(110);
-    const aiRed = AI_SHIP_TRIM_COLOR.slice(1);
-    // The ai-ship carries exactly ONE material in the hostile trim color…
-    const aiMats = shipMats(parent.children[1] as THREE.Group);
-    expect(aiMats.filter((m) => m.color.getHexString() === aiRed)).toHaveLength(1);
-    // …and the player ship has none of them (class-default trim instead).
-    const playerMats = shipMats(parent.children[0] as THREE.Group);
-    expect(playerMats.filter((m) => m.color.getHexString() === aiRed)).toHaveLength(0);
-    // Zone materials are transparent — the stale/dimmed opacity rule works.
-    expect(aiMats.every((m) => m.transparent)).toBe(true);
+    // TASK-58 merged ships: the trim ZONE is a vertex-color range, so the
+    // hostile accent is asserted on the ai-ship's color buffer (its trim
+    // vertices) — the shared state material stays class-neutral.
+    expect(shipVertexColors(parent.children[1] as THREE.Group).some((c) => colorIs(c, AI_SHIP_TRIM_COLOR))).toBe(true);
+    // …and the player ship carries it nowhere (class-default trim instead).
+    expect(shipVertexColors(parent.children[0] as THREE.Group).some((c) => colorIs(c, AI_SHIP_TRIM_COLOR))).toBe(false);
+    // The state materials are transparent — the stale/dimmed opacity rule works.
+    expect(shipMats(parent.children[1] as THREE.Group).every((m) => m.transparent)).toBe(true);
   });
 
   it('applies the stale/dimmed opacity rule to ship materials (dimmed when the buffer starves)', () => {

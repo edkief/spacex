@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { BENCH_SPIKE_MS, runRenderBenchmark } from './renderBenchmark';
+import { runRenderBenchmark } from './renderBenchmark';
 
 /**
  * TASK-58 AC-6: the fast CI version of the render benchmark — 10 s of the

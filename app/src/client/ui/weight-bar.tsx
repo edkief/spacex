@@ -1,10 +1,6 @@
 import React from 'react';
 
-import {
-  inventory,
-  inventorySubscribe,
-  type InventoryView,
-} from '@client/state/inventory';
+import { inventory, inventorySubscribe, type InventoryView } from '@client/state/inventory';
 import { INVENTORY_MAX_WEIGHT, listStacks, RESOURCE_WEIGHTS } from '@shared/inventory';
 
 /**

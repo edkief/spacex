@@ -162,11 +162,7 @@ async function arriveAtPad(client: WsTestClient, player: Claimed): Promise<void>
   await client.next((m) => m.type === 'enter_system', 'enter_system (home)');
   if (player.homeSystemId !== PAD.systemId) {
     send('warp', { destinationSystemId: PAD.systemId });
-    await client.next(
-      (m) => m.type === 'warp_arrived',
-      'warp_arrived (pad system)',
-      10_000,
-    );
+    await client.next((m) => m.type === 'warp_arrived', 'warp_arrived (pad system)', 10_000);
   }
 }
 
@@ -231,11 +227,13 @@ describe('TASK-34: drop + partial pickup over live ws — two clients see it all
 
     // BOTH clients see the ground item appear in the same snapshot stream,
     // with its resource + quantity.
-    const seesItem = (q: number): ((m: WsEnvelope) => boolean) => (m) =>
-      m.type === 'entity_update' &&
-      ((m.payload as { entities: WireEntity[] }).entities ?? []).some(
-        (e) => e.kind === 'groundItem' && e.resourceId === 'crystal' && e.quantity === q,
-      );
+    const seesItem =
+      (q: number): ((m: WsEnvelope) => boolean) =>
+      (m) =>
+        m.type === 'entity_update' &&
+        ((m.payload as { entities: WireEntity[] }).entities ?? []).some(
+          (e) => e.kind === 'groundItem' && e.resourceId === 'crystal' && e.quantity === q,
+        );
     const dropA = await ca.next(seesItem(2), 'groundItem visible (A)', 10_000);
     const dropB = await cb.next(seesItem(2), 'groundItem visible (B)', 10_000);
     const itemA = (dropA.payload as { entities: WireEntity[] }).entities.find(

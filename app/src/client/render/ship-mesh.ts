@@ -194,9 +194,11 @@ function silhouetteParts(): PartDef[] {
     rotX = 0,
     rotZ = 0,
   ): PartDef => {
-    const m = new THREE.Matrix4().makeTranslation(x, y, z).multiply(
-      new THREE.Matrix4().makeRotationX(rotX).multiply(new THREE.Matrix4().makeRotationZ(rotZ)),
-    );
+    const m = new THREE.Matrix4()
+      .makeTranslation(x, y, z)
+      .multiply(
+        new THREE.Matrix4().makeRotationX(rotX).multiply(new THREE.Matrix4().makeRotationZ(rotZ)),
+      );
     const geometry = src.clone().applyMatrix4(m);
     src.dispose(); // the clone owns its data now
     return { geometry, zone, matrix: m };

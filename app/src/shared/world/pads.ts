@@ -91,7 +91,11 @@ export function padsForSystem(
     const pad = chunk.landingPads[0];
     // Chunk (0,0) of a landable planet always has exactly one pad (TASK-5);
     // the fallback keeps the list total if a foreign/corrupt chunk ever lacks it.
-    const padId = pad?.id ?? hash2(chunkSeed(galaxySeed, planet.id, 0, 0), seedFromString('pad')).toString(16).padStart(16, '0');
+    const padId =
+      pad?.id ??
+      hash2(chunkSeed(galaxySeed, planet.id, 0, 0), seedFromString('pad'))
+        .toString(16)
+        .padStart(16, '0');
     const anchor = planetAnchor(index);
     const x = anchor.x + (pad ? pad.x : (CHUNK_SIZE >> 1) * CELL_SIZE_M);
     const z = anchor.z + (pad ? pad.z : (CHUNK_SIZE >> 1) * CELL_SIZE_M);
@@ -101,7 +105,10 @@ export function padsForSystem(
     const cX = Math.floor(worldCellX / CHUNK_SIZE);
     const cZ = Math.floor(worldCellZ / CHUNK_SIZE);
     const hChunk = generateSurfaceChunk(galaxySeed, planet, cX, cZ);
-    const h = hChunk.heightmap[(worldCellZ - cZ * CHUNK_SIZE) * CHUNK_SIZE + (worldCellX - cX * CHUNK_SIZE)];
+    const h =
+      hChunk.heightmap[
+        (worldCellZ - cZ * CHUNK_SIZE) * CHUNK_SIZE + (worldCellX - cX * CHUNK_SIZE)
+      ];
     out.push({
       padId,
       planetId: planet.id,
@@ -179,7 +186,12 @@ export function applyVtolAssist(vel: Vec3): Vec3 {
  * The sim's heightAt (flight model AND regime machine) wraps TerrainContext
  * with this, so the pad is flat for physics, regime, and docking alike.
  */
-export function padSurfaceHeight(x: number, z: number, groundY: number, pad: PadInfo | undefined): number {
+export function padSurfaceHeight(
+  x: number,
+  z: number,
+  groundY: number,
+  pad: PadInfo | undefined,
+): number {
   if (!pad) return groundY;
   const d = Math.hypot(x - pad.pos.x, z - pad.pos.z);
   if (d >= PAD_FLAT_BLEND_OUTER_M) return groundY;

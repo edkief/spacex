@@ -119,7 +119,11 @@ export interface DropResult {
  * owned (0 owned → dropped 0). Zero-amount stacks are removed from the
  * result (the persisted shape stays sparse). Pure.
  */
-export function dropFrom(stacks: InventoryStacks, resourceId: ResourceId, amount: number): DropResult {
+export function dropFrom(
+  stacks: InventoryStacks,
+  resourceId: ResourceId,
+  amount: number,
+): DropResult {
   if (amount <= 0) return { stacks, dropped: 0, remaining: 0 };
   const owned = stacks[resourceId] ?? 0;
   const dropped = Math.min(owned, amount);

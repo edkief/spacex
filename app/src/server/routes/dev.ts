@@ -159,7 +159,9 @@ export function registerDevRoutes(app: FastifyInstance, deps: RouteDeps): void {
           ? padsForSystem(deps.galaxySeed, system).find((p) => p.planetId === planet.id)
           : undefined;
       const terminal =
-        system && pad ? terminalsFor(deps.galaxySeed, system).find((t) => t.padId === pad.padId) : undefined;
+        system && pad
+          ? terminalsFor(deps.galaxySeed, system).find((t) => t.padId === pad.padId)
+          : undefined;
       if (!terminal) {
         return reply
           .code(404)

@@ -93,9 +93,7 @@ describe('shared inventory model (TASK-34)', () => {
       { resourceId: 'iron', amount: 1 },
       { resourceId: 'crystal', amount: 2 },
     ]);
-    expect(listStacks({ crystal: 1, iron: 0 })).toEqual([
-      { resourceId: 'crystal', amount: 1 },
-    ]);
+    expect(listStacks({ crystal: 1, iron: 0 })).toEqual([{ resourceId: 'crystal', amount: 1 }]);
     expect(listStacks(emptyInventory())).toEqual([]);
   });
 

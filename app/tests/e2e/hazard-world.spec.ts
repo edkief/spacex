@@ -21,10 +21,7 @@ import { ClaimPage } from './pages/claim';
  * so the home system is deterministic and is known to carry hazards + a
  * drone cell — both assertions are safe (non-empty), never exact counts.
  */
-test('hazard discs derived + drones render, world boots clean', async ({
-  browser,
-  e2eServer,
-}) => {
+test('hazard discs derived + drones render, world boots clean', async ({ browser, e2eServer }) => {
   const callsign = uniqueCallsign('hzd');
   const context = await browser.newContext();
   const page = await context.newPage();

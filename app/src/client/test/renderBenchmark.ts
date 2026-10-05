@@ -32,7 +32,6 @@
 import * as THREE from 'three';
 
 import { generateSystem } from '@shared/galaxy/system';
-import { systemRegimePlanets } from '@shared/galaxy/planets';
 import type { Vec3 } from '@shared/physics/vec';
 import { padsForSystem } from '@shared/world/pads';
 import { PERF_PROFILES, type FxCaps } from '@shared/perf';
@@ -151,7 +150,11 @@ function shipEntity(s: OrbitShip, simMs: number): EntityState {
   };
   // Velocity = tangent to the orbit (speed ORBIT_SPEED).
   const vel = { x: -Math.sin(ang) * ORBIT_SPEED, y: 0, z: Math.cos(ang) * ORBIT_SPEED };
-  const m = new THREE.Matrix4().lookAt(new THREE.Vector3(0, 0, 0), new THREE.Vector3(vel.x, 0, vel.z), new THREE.Vector3(0, 1, 0));
+  const m = new THREE.Matrix4().lookAt(
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(vel.x, 0, vel.z),
+    new THREE.Vector3(0, 1, 0),
+  );
   const q = new THREE.Quaternion().setFromRotationMatrix(m);
   return {
     id: s.id,
@@ -182,7 +185,9 @@ export function runRenderBenchmark(options: RenderBenchmarkOptions = {}): Render
   const monitor = options.monitor ?? new FrameMonitor();
   const wallTimeoutMs = options.wallTimeoutMs ?? 180_000;
   const profile = PERF_PROFILES.high;
-  const caps: FxCaps = tuned ? profile.fxCaps : { laserFlashes: 9999, missiles: 16, debrisSets: 9999 };
+  const caps: FxCaps = tuned
+    ? profile.fxCaps
+    : { laserFlashes: 9999, missiles: 16, debrisSets: 9999 };
   const wallStart = performance.now();
 
   const system = generateSystem(seed, starId);
@@ -305,7 +310,7 @@ export function runRenderBenchmark(options: RenderBenchmarkOptions = {}): Render
     tallyMs: 0,
   };
   const drawCallsPerFrame: number[] = [];
-  let tallyTriangles = 0;
+  let tallyTriangles: number;
   let materialsMax = 0;
   let trianglesMax = 0;
   let maxLaserFlashes = 0;
@@ -318,7 +323,7 @@ export function runRenderBenchmark(options: RenderBenchmarkOptions = {}): Render
     let triangles = 0;
     const materials = new Set<THREE.Material>();
     const tri = (g: THREE.BufferGeometry): number =>
-      g.getIndex() ? g.index!.count / 3 : g.getAttribute('position')?.count ?? 0;
+      g.getIndex() ? g.index!.count / 3 : (g.getAttribute('position')?.count ?? 0);
     const visit = (obj: THREE.Object3D, visibleFromRoot: boolean): void => {
       if (!obj.visible) return;
       const vis = visibleFromRoot;
@@ -343,7 +348,6 @@ export function runRenderBenchmark(options: RenderBenchmarkOptions = {}): Render
     for (frameIndex = 0; frameIndex < frames; frameIndex++) {
       simMs = frameIndex * (1000 / BENCH_FRAME_HZ);
       monitor.beginFrame();
-      const t0 = performance.now();
 
       // ---- 1. remote feed (10 Hz): ships + drones + the missile set ----
       if (frameIndex % 6 === 0) {
@@ -351,7 +355,7 @@ export function runRenderBenchmark(options: RenderBenchmarkOptions = {}): Render
         const entities: EntityState[] = ships.map((s) => shipEntity(s, simMs));
         for (const id of droneIds) {
           const i = Number(id.split('-')[1]);
-          const ang = (i / DRONE_COUNT) * Math.PI * 2 + simMs / 1000 * 0.1;
+          const ang = (i / DRONE_COUNT) * Math.PI * 2 + (simMs / 1000) * 0.1;
           entities.push({
             id,
             kind: 'drone',
@@ -467,10 +471,7 @@ export function runRenderBenchmark(options: RenderBenchmarkOptions = {}): Render
       );
       options.onFrame?.(frameIndex, monitor.getFrameStats());
 
-      if (
-        frameIndex % 120 === 119 &&
-        performance.now() - wallStart > wallTimeoutMs
-      ) {
+      if (frameIndex % 120 === 119 && performance.now() - wallStart > wallTimeoutMs) {
         throw new Error(
           `TASK-58: benchmark exceeded the ${wallTimeoutMs} ms wall budget at frame ${frameIndex}`,
         );
@@ -485,7 +486,6 @@ export function runRenderBenchmark(options: RenderBenchmarkOptions = {}): Render
   }
 
   const stats = monitor.getFrameStats();
-  const drawSorted = [...drawCallsPerFrame].sort((a, b) => a - b);
   const p95 = (arr: number[], p: number): number => {
     if (arr.length === 0) return 0;
     const s = [...arr].sort((a, b) => a - b);

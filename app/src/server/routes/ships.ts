@@ -311,12 +311,10 @@ export function registerShipRoutes(app: FastifyInstance, deps: RouteDeps): void 
     }
     const active = deps.galaxyRouter?.active(ship.position.systemId);
     if (!active) {
-      return reply
-        .code(409)
-        .send({
-          code: 'not-in-system',
-          message: 'ship system has no active shard — sell from in-system',
-        });
+      return reply.code(409).send({
+        code: 'not-in-system',
+        message: 'ship system has no active shard — sell from in-system',
+      });
     }
 
     const result = await active.shard.handleSell(player.id, parsed.data);
@@ -325,12 +323,10 @@ export function registerShipRoutes(app: FastifyInstance, deps: RouteDeps): void 
     }
     switch (result.code) {
       case 'invalid-resource':
-        return reply
-          .code(400)
-          .send({
-            code: 'invalid-resource',
-            message: `unknown resource ${parsed.data.resourceId}`,
-          });
+        return reply.code(400).send({
+          code: 'invalid-resource',
+          message: `unknown resource ${parsed.data.resourceId}`,
+        });
       case 'invalid-amount':
         return reply
           .code(400)
@@ -345,12 +341,10 @@ export function registerShipRoutes(app: FastifyInstance, deps: RouteDeps): void 
           message: `sell from your inventory requires standing within ${TERMINAL_RANGE_M} m of a station terminal`,
         });
       case 'insufficient':
-        return reply
-          .code(422)
-          .send({
-            code: 'insufficient',
-            message: 'not enough of that resource in the selected source',
-          });
+        return reply.code(422).send({
+          code: 'insufficient',
+          message: 'not enough of that resource in the selected source',
+        });
       case 'unknown-ship':
         return reply.code(404).send({ code: 'no-ship', message: 'player has no ship in-system' });
       default:
