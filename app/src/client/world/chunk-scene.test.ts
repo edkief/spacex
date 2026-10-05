@@ -38,7 +38,7 @@ function meshOf(scene: ChunkScene, cx: number, cz: number): THREE.Mesh {
   return mesh as THREE.Mesh;
 }
 
-describe('ChunkScene (TASK-26 step 2)', () => {
+describe('ChunkScene legacy per-chunk path (TASK-26 step 2, merged: false)', () => {
   let monitor: FrameMonitor;
   let warned: string[];
   let streamer: ChunkStreamer;
@@ -49,7 +49,7 @@ describe('ChunkScene (TASK-26 step 2)', () => {
     warned = [];
     setPerfLogSink((message) => warned.push(message));
     streamer = new ChunkStreamer(SEED, PLANET, {});
-    scene = new ChunkScene(streamer, { monitor });
+    scene = new ChunkScene(streamer, { monitor, merged: false });
   });
 
   afterEach(() => setPerfLogSink(null)); // restore the default console sink
@@ -189,5 +189,195 @@ describe('ChunkScene (TASK-26 step 2)', () => {
     scene.sync(PX, PZ, 0);
     expect(warned.filter((w) => w.includes('"surface-tris"'))).toHaveLength(1);
     expect(monitor.getGaugeStats('surface-tris').maxValue).toBe(t.near + t.mid + t.far);
+  });
+});
+
+describe('ChunkScene tuned merged path (TASK-58.2, merged: true)', () => {
+  let monitor: FrameMonitor;
+  let streamer: ChunkStreamer;
+  let scene: ChunkScene;
+
+  beforeEach(() => {
+    monitor = new FrameMonitor(); // fresh instance — never the app-wide singleton
+    setPerfLogSink(null);
+    streamer = new ChunkStreamer(SEED, PLANET, {});
+    scene = new ChunkScene(streamer, { monitor }); // merged is the default
+    expect(scene).toBeInstanceOf(ChunkScene);
+  });
+
+  /** Frame-slice the streamer until the 3x3 near block is ready. */
+  function warmToNearBlock() {
+    let stats = streamer.update(PX, PZ, 0);
+    const block = [
+      [-1, -1],
+      [0, 0],
+      [1, 1],
+    ] as const;
+    let frames = 0;
+    while (!block.every(([cx, cz]) => streamer.isReady(chunkKey(cx, cz)))) {
+      if (++frames > MAX_WAIT_FRAMES) {
+        const missing = block
+          .filter(([cx, cz]) => !streamer.isReady(chunkKey(cx, cz)))
+          .map(([cx, cz]) => `(${cx},${cz})`)
+          .join(' ');
+        throw new Error(
+          `warmToNearBlock stuck after ${MAX_WAIT_FRAMES} frames: ${missing} not ready (pending=${stats.pending})`,
+        );
+      }
+      stats = streamer.update(PX, PZ, 0);
+    }
+    return stats;
+  }
+
+  /**
+   * Independently re-derive the merged contract: the per-ring tally and the
+   * distinct (ring, biome) group keys — a chunk that is not built for its
+   * ring (null geometry) is skipped, mirroring the scene.
+   */
+  function expectedMerged(px: number, pz: number) {
+    const exp = { near: 0, mid: 0, far: 0, mounted: 0 };
+    const groupKeys = new Set<string>();
+    for (const w of streamer.mountable(px, pz, 0)) {
+      const g =
+        w.ring === 'near'
+          ? w.entry.built.geometries.near
+          : w.ring === 'mid'
+            ? w.entry.built.geometries.mid
+            : w.entry.built.geometries.far;
+      if (!g) continue;
+      exp[w.ring] += RING_TRIANGLES[w.ring];
+      exp.mounted += 1;
+      groupKeys.add(`${w.ring}:${w.entry.built.chunk?.biome ?? 'far'}`);
+    }
+    return { exp, groupKeys };
+  }
+
+  const meshes = (s: ChunkScene) =>
+    s.group.children.filter((c) => c instanceof THREE.Mesh) as THREE.Mesh[];
+
+  it('mounts every chunk as one merged mesh per (ring, biome) group', () => {
+    warmToNearBlock();
+    const stats = scene.sync(PX, PZ, 0);
+    const { exp, groupKeys } = expectedMerged(PX, PZ);
+
+    // One group per distinct (ring, biome) — strictly fewer meshes than
+    // chunks whenever biomes repeat within a ring.
+    expect(groupKeys.size).toBeLessThan(exp.mounted);
+    expect(meshes(scene)).toHaveLength(groupKeys.size);
+    // Every chunk is mounted (mountedCount counts CHUNKS, not meshes).
+    expect(scene.mountedCount).toBe(exp.mounted);
+    expect(scene.meshCount).toBe(groupKeys.size);
+    // The per-ring triangle tally is unchanged by the merge.
+    expect(stats).toEqual(exp);
+    // Each merged mesh uses the shared biome/far material and carries the
+    // whole group's triangles (its index counts the group's quads).
+    for (const mesh of meshes(scene)) {
+      expect(mesh.material).toBeInstanceOf(THREE.MeshBasicMaterial);
+      const tri = mesh.geometry.getIndex()!.count / 3;
+      expect(tri).toBeGreaterThan(0);
+    }
+    const total = meshes(scene).reduce((a, m) => a + m.geometry.getIndex()!.count / 3, 0);
+    expect(total).toBe(exp.near + exp.mid + exp.far);
+  });
+
+  it('rebuilds nothing while the mounted (key → ring, material) set is stable', () => {
+    warmToNearBlock();
+    scene.sync(PX, PZ, 0);
+    const first = meshes(scene).map((m) => ({ mesh: m, geometry: m.geometry }));
+    expect(first.length).toBeGreaterThan(0);
+
+    // Many steady-state frames: same mesh objects, same geometries, no
+    // rebuild (the AC-1 at-rest window is a membership walk only).
+    for (let i = 0; i < 20; i++) {
+      const stats = scene.sync(PX, PZ, 0);
+      expect(stats.mounted).toBe(scene.mountedCount);
+    }
+    const second = meshes(scene);
+    expect(second).toHaveLength(first.length);
+    for (const f of first) {
+      const m = second.find((x) => x === f.mesh);
+      expect(m, 'mesh object survives steady-state frames').toBeDefined();
+      expect(m!.geometry).toBe(f.geometry);
+    }
+  });
+
+  it('rebuilds the ring groups when a chunk changes LOD ring', () => {
+    warmToNearBlock();
+    scene.sync(PX, PZ, 0);
+    let waitFrames = 0;
+    while (!streamer.isReady(chunkKey(2, 0))) {
+      if (++waitFrames > MAX_WAIT_FRAMES) {
+        throw new Error(
+          `LOD-swap wait stuck after ${MAX_WAIT_FRAMES} frames: chunk (2,0) not ready (pending=${streamer.pendingCount})`,
+        );
+      }
+      streamer.update(PX, PZ, 0);
+    }
+    const t1 = scene.sync(PX, PZ, 0);
+    const e1 = expectedMerged(PX, PZ);
+    expect(t1).toEqual(e1.exp);
+    expect(t1.mid).toBeGreaterThan(0);
+    expect(meshes(scene)).toHaveLength(e1.groupKeys.size);
+
+    // Move east to chunk (1,0)'s center: chunk (2,0) is now NEAR — the
+    // near group's geometry must be rebuilt with (2,0)'s near mip inside.
+    const nearBefore = meshes(scene).map((m) => m.geometry);
+    scene.sync(480, 160, 0);
+    const e2 = expectedMerged(480, 160);
+    const t2 = scene.sync(480, 160, 0);
+    expect(t2).toEqual(e2.exp);
+    expect(meshes(scene)).toHaveLength(e2.groupKeys.size);
+    // Some merged geometry changed (the near group absorbed chunk (2,0)).
+    expect(meshes(scene).some((m) => !nearBefore.includes(m.geometry))).toBe(true);
+    // The rebuilt groups still carry the full tally.
+    const total = meshes(scene).reduce((a, m) => a + m.geometry.getIndex()!.count / 3, 0);
+    expect(total).toBe(t2.near + t2.mid + t2.far);
+  });
+
+  it('unmounts when chunks leave the mountable set and re-mounts them back', () => {
+    warmToNearBlock();
+    scene.sync(PX, PZ, 0);
+    const first = scene.mountedCount;
+    expect(first).toBeGreaterThanOrEqual(9);
+
+    // Fly > 8 km away: nothing in the (frozen) cache is within draw distance.
+    const t = scene.sync(12_000, 160, 0);
+    expect(scene.mountedCount).toBe(0);
+    expect(t.mounted).toBe(0);
+    expect(meshes(scene)).toHaveLength(0);
+
+    // Fly back: the cached chunks re-mount (rebuild from the pre-built mips).
+    const t2 = scene.sync(PX, PZ, 0);
+    const exp = expectedMerged(PX, PZ);
+    expect(scene.mountedCount).toBe(first);
+    expect(t2).toEqual(exp.exp);
+    expect(meshes(scene)).toHaveLength(exp.groupKeys.size);
+  });
+
+  it('handleEvict marks the scene dirty — the next sync rebuilds without the chunk', () => {
+    warmToNearBlock();
+    scene.sync(PX, PZ, 0);
+    const before = scene.mountedCount;
+    scene.handleEvict(chunkKey(0, 0));
+    // Eviction drops the chunk immediately; the mesh rebuild is deferred
+    // to the next sync (the streamer already disposed the geometry).
+    expect(scene.mountedCount).toBe(before - 1);
+    const t = scene.sync(PX, PZ, 0);
+    const exp = expectedMerged(PX, PZ);
+    expect(t.mounted).toBe(before - 1);
+    expect(meshes(scene)).toHaveLength(exp.groupKeys.size);
+    // Unknown keys are a no-op (the streamer owns disposal).
+    expect(() => scene.handleEvict('999,999')).not.toThrow();
+  });
+
+  it('reports the per-ring tally to the monitor and the surface-tris gauge', () => {
+    warmToNearBlock();
+    const t = scene.sync(PX, PZ, 0);
+    expect(monitor.getFrameStats().categoryTriangles).toEqual({
+      'surface-near': t.near,
+      'surface-mid': t.mid,
+      'surface-far': t.far,
+    });
+    expect(monitor.getGaugeStats('surface-tris').limit).toBe(SURFACE_TRIANGLE_BUDGET);
   });
 });

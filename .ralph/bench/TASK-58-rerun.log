@@ -6,41 +6,41 @@ TASK-58 render benchmark — AC-1 scene, 3600 frames (60 s @ 60 Hz), High preset
 [perf] streaming backlog 13: dropping far-ring generation first (near LOD unaffected) { backlog: 13, farDropped: 37 }
 
 BASELINE (pre-tuning: legacy 7-mesh ships, per-rock ore, uncapped FX)
-  p50=1.118ms p95=1.826ms max=5.967ms spikes>50ms=0 draws=120p95/122max mats=71 tris=90720 fx(flash=1,sets=2,missiles=37) wall=60225ms
+  p50=0.994ms p95=1.715ms max=2.802ms spikes>50ms=0 draws=112p95/114max mats=71 tris=90720 fx(flash=1,sets=2,missiles=37) wall=60317ms
 [perf] streaming backlog 13: dropping far-ring generation first (near LOD unaffected) { backlog: 13, farDropped: 37 }
 
 TUNED run 1/5
-  p50=0.865ms p95=1.759ms max=2.891ms spikes>50ms=0 draws=94p95/96max mats=71 tris=87912 fx(flash=1,sets=2,missiles=37) wall=60114ms
+  p50=1.045ms p95=1.82ms max=3.064ms spikes>50ms=0 draws=86p95/88max mats=71 tris=87912 fx(flash=1,sets=2,missiles=37) wall=60218ms
 [perf] streaming backlog 13: dropping far-ring generation first (near LOD unaffected) { backlog: 13, farDropped: 37 }
 
 TUNED run 2/5
-  p50=1.111ms p95=1.762ms max=2.528ms spikes>50ms=0 draws=94p95/96max mats=71 tris=87912 fx(flash=1,sets=2,missiles=37) wall=60128ms
+  p50=1.237ms p95=2.052ms max=3.06ms spikes>50ms=0 draws=86p95/88max mats=71 tris=87912 fx(flash=1,sets=2,missiles=37) wall=60196ms
 [perf] streaming backlog 13: dropping far-ring generation first (near LOD unaffected) { backlog: 13, farDropped: 37 }
 
 TUNED run 3/5
-  p50=1.043ms p95=1.602ms max=4.621ms spikes>50ms=0 draws=94p95/96max mats=71 tris=87912 fx(flash=1,sets=2,missiles=37) wall=60127ms
+  p50=1.159ms p95=1.796ms max=2.75ms spikes>50ms=0 draws=86p95/88max mats=71 tris=87912 fx(flash=1,sets=2,missiles=37) wall=60223ms
 [perf] streaming backlog 13: dropping far-ring generation first (near LOD unaffected) { backlog: 13, farDropped: 37 }
 
 TUNED run 4/5
-  p50=0.883ms p95=1.612ms max=2.524ms spikes>50ms=0 draws=94p95/96max mats=71 tris=87912 fx(flash=1,sets=2,missiles=37) wall=60108ms
+  p50=1.188ms p95=1.842ms max=3.383ms spikes>50ms=0 draws=86p95/88max mats=71 tris=87912 fx(flash=1,sets=2,missiles=37) wall=60228ms
 [perf] streaming backlog 13: dropping far-ring generation first (near LOD unaffected) { backlog: 13, farDropped: 37 }
 
 TUNED run 5/5
-  p50=1.095ms p95=1.753ms max=3.756ms spikes>50ms=0 draws=94p95/96max mats=71 tris=87912 fx(flash=1,sets=2,missiles=37) wall=60127ms
+  p50=1.196ms p95=1.946ms max=4.348ms spikes>50ms=0 draws=86p95/88max mats=71 tris=87912 fx(flash=1,sets=2,missiles=37) wall=60224ms
 
-p95 across 5 tuned runs: [1.759, 1.762, 1.602, 1.612, 1.753] ms — spread 9.4 % (budget < 20 %)
+p95 across 5 tuned runs: [1.82, 2.052, 1.796, 1.842, 1.946] ms — spread 13.5 % (budget < 20 %)
 
 DELTA vs baseline (AC-2: ≥ 30 % worst-case frame-time reduction)
-  p95:  1.826 ms → 1.602 ms  (12.3 % reduction)
-  max:  5.967 ms → 4.621 ms  (22.6 % reduction)
-  draws p95: 120 → 94 (AC-3: < 120)
+  p95:  1.715 ms → 1.796 ms  (-4.7 % reduction)
+  max:  2.802 ms → 4.348 ms  (-55.2 % reduction)
+  draws p95: 112 → 86 (AC-3: < 120)
   materials: 71 → 71 (AC-3: < 80)
   triangles: 90720 → 87912 (AC-4: < 500000)
 
 PASS: no-spike rule + draw/material/triangle budgets + repeatability all hold.
 
 recorded → /workspace/master/.ralph/bench/TASK-58.json
-(node:634159) [THREE_CJS_DEPRECATED] DeprecationWarning: `require("three")` is deprecated and will be removed.
+(node:644436) [THREE_CJS_DEPRECATED] DeprecationWarning: `require("three")` is deprecated and will be removed.
 Replace `const THREE = require("three")` with `import * as THREE from "three"`.
 (Use `node --trace-deprecation ...` to show where the warning was created)
 BENCH_EXIT=0

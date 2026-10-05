@@ -36,11 +36,11 @@
  * every mesh/line/points object per frame; renderer.info counts what was
  * actually drawn, not what is in the scene graph).
  *
- * `tuned: true` (default) runs the TASK-58 pipeline (merged ships,
- * instanced ore, the FX material pool, the profile's FX caps);
- * `tuned: false` is the PRE-tuning baseline (legacy 7-mesh ships, per-rock
- * ore meshes, uncapped FX) — `npm run bench:render` runs both and reports
- * the delta.
+  * `tuned: true` (default) runs the TASK-58 pipeline (merged ships,
+ * instanced ore, per-LOD-ring merged chunk meshes, the FX material pool,
+ * the profile's FX caps); `tuned: false` is the PRE-tuning baseline
+ * (legacy 7-mesh ships, per-rock ore meshes, per-chunk surface meshes,
+ * uncapped FX) — `npm run bench:render` runs both and reports the delta.
  */
 
 import * as THREE from 'three';
@@ -256,7 +256,7 @@ export function runRenderBenchmark(options: RenderBenchmarkOptions = {}): Render
   // streamer caps the mountable set to that 13-chunk active window (the
   // live pipeline's far-ring horizon is outside the AC-1 scene spec).
   const streamer = new Ac1Streamer(seed, planet);
-  const chunkScene = new ChunkScene(streamer, { monitor });
+  const chunkScene = new ChunkScene(streamer, { monitor, merged: tuned });
   threeScene.add(chunkScene.group);
   for (let i = 0; i < 4000 && chunkScene.mountedCount < BENCH_MOUNT_TARGET; i++) {
     streamer.update(playerPos.x, playerPos.z, 0);
