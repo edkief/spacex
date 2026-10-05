@@ -281,6 +281,15 @@ async function main(): Promise<void> {
 
   const warpers = clients.filter((c) => c.role === 'warper');
   const footers = clients.filter((c) => c.role === 'foot');
+  // DIAG (temporary): permanent late-arrival listener on the warpers.
+  for (const w of warpers) {
+    w.on('warp_arrived', (p) =>
+      console.log(`[diag] warp_arrived client ${w.id} → ${(p as { systemId: string }).systemId} t=${Math.round(performance.now() - t0)}ms`),
+    );
+    w.on('error', (p) =>
+      console.log(`[diag] error client ${w.id}: ${JSON.stringify(p)} t=${Math.round(performance.now() - t0)}ms`),
+    );
+  }
   const warpLog: Array<{ t: number; to: string; result: string }> = [];
   const rejoinGaps: number[] = [];
   const consistency: Array<{ client: number; dups: number; missingShips: number }> = [];
@@ -288,22 +297,43 @@ async function main(): Promise<void> {
   let warpIdx = 0;
   let reconnectDone = false;
   const capProbe = { rejected: false, code: null as string | null, systemAConnections: 0, totalInShards: 0 };
+  let lastDiagSec = -1;
 
   const timer = setInterval(() => {
     const t = performance.now() - t0;
     for (const c of clients) drivers[c.id]!.step(performance.now());
+    // DIAG (temporary): connection census + per-client snapshot freshness.
+    const diagSec = Math.floor(t / 1000);
+    if (diagSec % 15 === 0 && diagSec !== lastDiagSec) {
+      lastDiagSec = diagSec;
+      const a = server.router.active(A.systemId)?.shard.connections.size ?? -1;
+      const b = server.router.active(B)?.shard.connections.size ?? 0;
+      const total = server.router.stats().reduce((s, x) => s + x.players, 0);
+      const fresh = clients
+        .map((c) => `${c.id}:${c.lastFrame ? Math.round(performance.now() - c.lastFrame.at) : '∞'}ms`)
+        .join(' ');
+      console.log(`[diag] t=${Math.round(t)}ms A=${a} B=${b} total=${total} stale {${fresh}}`);
+      if (diagSec === 15 && clients[0].lastRawSnapshot) {
+        fs.writeFileSync('/tmp/snap-sample.json', clients[0].lastRawSnapshot);
+      }
+    }
     if (!capDone && t >= CAP_PROBE_MS) {
       capDone = true;
       void (async () => {
         const probe = new LoadClient(server.wsUrl, 17, 'idle');
+        let probeEntered = false;
+        probe.on('enter_system', () => {
+          probeEntered = true;
+        });
         try {
           capProbe.code = await probe.join(players[16].token, A.systemId, true);
         } catch (err) {
-          capProbe.code = `exception: ${String(err)}`;
+          capProbe.code = `exception: ${String(err)} (probeEntered=${probeEntered})`;
         }
         capProbe.rejected = capProbe.code === 'system-full';
         capProbe.systemAConnections = server.router.active(A.systemId)!.shard.connections.size;
         capProbe.totalInShards = server.router.stats().reduce((s, x) => s + x.players, 0);
+        console.log(`[diag] cap probe: code=${capProbe.code} Aconns=${capProbe.systemAConnections} total=${capProbe.totalInShards}`);
         probe.close();
       })();
     }
@@ -314,7 +344,15 @@ async function main(): Promise<void> {
         void (async () => {
           for (const w of warpers) {
             w.send('warp', { destinationSystemId: dest });
-            warpLog.push({ t, to: dest, result: await expectWarp(w, dest, 15_000) });
+            const result = await expectWarp(w, dest, 15_000);
+            warpLog.push({ t, to: dest, result });
+            const bShard = server.router.active(B)?.shard;
+            const aShard = server.router.active(A.systemId)?.shard;
+            console.log(
+              `[diag] warp client ${w.id} → ${dest} result=${result} ` +
+                `shipInB=${bShard ? bShard.entities.has(players[w.id].shipId) : false} ` +
+                `aConns=${aShard?.connections.size} bConns=${bShard?.connections.size}`,
+            );
           }
         })();
       }

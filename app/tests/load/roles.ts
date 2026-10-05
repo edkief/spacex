@@ -153,8 +153,23 @@ function footDriver(client: LoadClient, deps: RoleDeps): RoleDriver {
   };
 }
 
-function idleDriver(): RoleDriver {
-  return { step(): void {}, rejoin(): void {} };
+/**
+ * Idle / warper: no gameplay traffic — but the server's 45 s inbound
+ * keepalive (ws.ts DROP_AFTER_MS) drops sockets that send NOTHING, so the
+ * driver emits a protocol 'ping' every 10 s (a real client's heartbeat;
+ * the server accepts it as a valid no-op frame).
+ */
+function idleDriver(client: LoadClient): RoleDriver {
+  let lastPing = 0;
+  return {
+    step(now: number): void {
+      if (now - lastPing > 10_000) {
+        lastPing = now;
+        client.send('ping', {});
+      }
+    },
+    rejoin(): void {},
+  };
 }
 
 export function createRoleDriver(
@@ -168,6 +183,6 @@ export function createRoleDriver(
     case 'foot':
       return footDriver(client, deps);
     default:
-      return idleDriver();
+      return idleDriver(client);
   }
 }

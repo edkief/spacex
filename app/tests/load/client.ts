@@ -60,10 +60,17 @@ export class LoadClient {
   private pendingInputs = new Map<number, number>();
   nextSeq = 1;
   lastFrame: EntityFrame | null = null;
+  /**
+   * 'error' envelopes received that are NOT expected. 'invalid-target' is
+   * a legitimate gameplay denial (the combat role re-aims at ships that can
+   * die between the snapshot read and the lock request) — not a failure.
+   */
+  unexpectedErrors: string[] = [];
+  /** Last raw entity_update frame (diagnostics only — size/composition). */
+  lastRawSnapshot: string | null = null;
   kickCodes: number[] = [];
   errCodes: Record<string, number> = {};
-  /** 'error' envelopes received that are NOT the expected probe rejection. */
-  unexpectedErrors: string[] = [];
+  private static readonly EXPECTED_ERRORS = new Set(['invalid-target']);
   closedCleanly = false;
   /** Latest per-player frame (mining channel state / dock sell / hazard…). */
   private listeners = new Map<string, Array<(payload: unknown) => void>>();
@@ -197,6 +204,7 @@ export class LoadClient {
             list.push({ id: e.id, kind: e.kind ?? 'ship' });
             byCallsign.set(e.callsign, list);
           }
+          this.lastRawSnapshot = String(data);
           this.lastFrame = { ids: entities.map((e) => e.id), byCallsign, at: performance.now() };
           this.entityUpdates.push(entities.length);
           const now = performance.now();
@@ -221,9 +229,12 @@ export class LoadClient {
         case 'error': {
           const code = (env.payload as { code?: string }).code ?? 'unknown';
           this.errCodes[code] = (this.errCodes[code] ?? 0) + 1;
-          // The probe rejection is EXPECTED (the 17th client); everything
-          // else is a failure signal (rate-limit kicks, invalid messages…).
-          if (this.id <= 16) this.unexpectedErrors.push(code);
+          // Expected denials (probe rejection, invalid-target re-aims) are
+          // bookkeeping; everything else is a failure signal (rate-limit
+          // kicks, invalid messages…).
+          if (this.id <= 16 && !LoadClient.EXPECTED_ERRORS.has(code)) {
+            this.unexpectedErrors.push(code);
+          }
           break;
         }
         default:
