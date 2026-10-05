@@ -152,6 +152,11 @@ export class LoadClient {
     return () => this.off(type, cb);
   }
 
+  /** Test hook: dispatch a synthetic envelope to the registered listeners. */
+  emitForTesting(type: string, payload: unknown): void {
+    for (const cb of this.listeners.get(type) ?? []) cb(payload);
+  }
+
   /**
    * Resolve the payload of the NEXT envelope of `type` (or one already
    * seen-and-registered after this call — the role drivers poll per tick,
@@ -194,9 +199,11 @@ export class LoadClient {
       }
       switch (env.type) {
         case 'entity_update': {
-          const entities = (env.payload as {
-            entities: Array<{ id: string; kind?: string; callsign?: string }>;
-          }).entities;
+          const entities = (
+            env.payload as {
+              entities: Array<{ id: string; kind?: string; callsign?: string }>;
+            }
+          ).entities;
           const byCallsign = new Map<string, Array<{ id: string; kind: string }>>();
           for (const e of entities) {
             if (!e.callsign) continue;

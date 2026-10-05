@@ -93,9 +93,18 @@ function footDriver(client: LoadClient, deps: RoleDeps): RoleDriver {
   let depositId: string | null = deposits[0] ?? null;
   let channelOpen = false;
   let lastTickSent = 0;
-  let lastDropAt = 0;
+  /** -Infinity: no sell trip has run yet, so the first 'full' frame is eligible. */
+  let lastDropAt = -Infinity;
+  /**
+   * True while the character is teleported to the terminal for the sell
+   * trip. The server range-checks EVERY interact against the character's
+   * position, so no interact frame may go out while the character stands
+   * 100 m from the deposit (a 1 Hz mine-tick that lands there is denied
+   * with out-of-range — a real client cannot hold E at that range).
+   */
+  let away = false;
   const openChannel = (): void => {
-    if (!depositId) return;
+    if (away || !depositId) return;
     client.send('interact', { targetId: depositId, action: 'mine-start' });
     channelOpen = true;
   };
@@ -114,10 +123,16 @@ function footDriver(client: LoadClient, deps: RoleDeps): RoleDriver {
       if (frame.status === 'full' && performance.now() - lastDropAt > 1_500) {
         lastDropAt = performance.now();
         if (deps.terminalPos && deps.charHome && deps.teleportChar) {
-          deps.teleportChar({ x: deps.terminalPos.x + 0.5, y: deps.terminalPos.y, z: deps.terminalPos.z });
+          away = true;
+          deps.teleportChar({
+            x: deps.terminalPos.x + 0.5,
+            y: deps.terminalPos.y,
+            z: deps.terminalPos.z,
+          });
           client.send('sell', { resourceId: 'iron', amount: 40, source: 'inv' });
           setTimeout(() => {
             deps.teleportChar?.(deps.charHome!);
+            away = false;
             openChannel();
           }, 400);
         } else {
@@ -140,7 +155,7 @@ function footDriver(client: LoadClient, deps: RoleDeps): RoleDriver {
       // Stand and hold the channel: zero-demand frames keep the character
       // lane warm (walking > 3 m would cancel the channel — by design).
       client.sendInput({ thrust: 0, turn: 0, pitch: 0, yaw: 0 });
-      if (channelOpen && depositId && now - lastTickSent > 1_000) {
+      if (channelOpen && depositId && !away && now - lastTickSent > 1_000) {
         lastTickSent = now;
         client.send('interact', { targetId: depositId, action: 'mine-tick' });
       }

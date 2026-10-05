@@ -23,6 +23,8 @@ export default defineConfig({
       'tests/validation-fuzz.spec.ts',
       'tests/session-log-leak.spec.ts',
       'tests/abuse/*.spec.ts',
+      // TASK-18: the load-harness driver regression tests (no real sockets).
+      'tests/load/*.test.ts',
       // TASK-60: the fast 10 s worst-case tick check (effective-rate rule).
       'tests/bench/tick-budget-ci.spec.ts',
     ],
