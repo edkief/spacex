@@ -23,10 +23,7 @@ import { restShipState } from '@shared/physics/flight';
 import { quatFromEuler, type Vec3 } from '@shared/physics/vec';
 import { padsForSystem } from '@shared/world/pads';
 import type { InputPayload } from '@shared/protocol/schemas';
-import {
-  SystemShard,
-  type TickPhase,
-} from '@server/shard/shard';
+import { SystemShard, type TickPhase } from '@server/shard/shard';
 import { createAiState, makeWaypoints, mulberry32 } from '@server/shard/ai';
 import type { SimEntity } from '@server/shard/types';
 
@@ -136,7 +133,10 @@ export function buildWorstCase(opts: WorstCaseOptions = {}): WorstCase {
   for (let i = 0; i < FIRING_PLAYERS + FOOT_PLAYERS + IDLE_PLAYERS; i++) {
     const id = `bench-p${String(i).padStart(2, '0')}`;
     playerIds.push(id);
-    roles.set(id, i < FIRING_PLAYERS ? 'firing' : i < FIRING_PLAYERS + FOOT_PLAYERS ? 'foot' : 'idle');
+    roles.set(
+      id,
+      i < FIRING_PLAYERS ? 'firing' : i < FIRING_PLAYERS + FOOT_PLAYERS ? 'foot' : 'idle',
+    );
     shard.registerConnection(id, `BENCH${i}`, (buffer) => {
       shardBytes += buffer.length;
     });
@@ -232,7 +232,11 @@ export function buildWorstCase(opts: WorstCaseOptions = {}): WorstCase {
       playerId: null,
       classId: 'groundItem',
       ship: {
-        pos: { x: pad.pos.x - 8 + (i % 5) * 4, y: pad.pos.y, z: pad.pos.z + 6 + Math.floor(i / 5) * 4 },
+        pos: {
+          x: pad.pos.x - 8 + (i % 5) * 4,
+          y: pad.pos.y,
+          z: pad.pos.z + 6 + Math.floor(i / 5) * 4,
+        },
         vel: { x: 0, y: 0, z: 0 },
         quat: quatFromEuler(0, 0, 0),
         regime: 'surface',

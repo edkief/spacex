@@ -16,25 +16,25 @@
       "step": 1,
       "description": "Worst-case benchmark driver",
       "details": "tests/bench/tickWorstCase.ts: builds the shard in-process (no HTTP), scripts the 16 conns' inputs (deterministic pattern), engages the AI, fires the missile volley at t=30 s; runs the real SimLoop (no fake timers — real wall clock, 120 s); collects the tick histogram + per-phase costs + heap samples.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Tuning passes",
       "details": "Measure, then in order: (1) snapshot buffer reuse (pre-built arrays, in-place update), (2) single serialize per tick, (3) dormant AI beyond 2 km, (4) projectile homing simplification, (5) mining/hazard tick batching (1 Hz phases aligned, not per-entity timers). Re-run after each; record the per-phase table.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Memory check",
       "details": "Heap snapshot before/after (v8.getHeapSpaceStatistics or process.memoryInfo): growth < 20 MB after a forced GC; if it fails, find the accumulator (likely: event listeners or the mining map) and fix it.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Commit + CI",
       "details": "bench:tick (full 120 s) + the 10 s CI version (effective-rate assertion only); run both; record numbers for TASK-61; commit.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-13", "TASK-46", "TASK-43"],

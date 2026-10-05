@@ -40,7 +40,6 @@ describe('TASK-60 worst-case tick (10 s CI check)', () => {
       lastTickAt = nowMs;
     });
 
-    const start = Date.now();
     shard.sim.start();
     let frame = 0;
     const timer = setInterval(() => bench.sendScript(frame++), 100);
@@ -50,12 +49,8 @@ describe('TASK-60 worst-case tick (10 s CI check)', () => {
     shard.stop();
 
     const effectiveHz = ticks / (RUN_MS / 1000);
-    expect(
-      `effective rate ${effectiveHz.toFixed(2)} Hz over ${RUN_MS / 1000}s`,
-    ).toBeGreaterThanOrEqual(15);
+    expect(effectiveHz, `effective rate over ${RUN_MS / 1000}s`).toBeGreaterThanOrEqual(15);
     expect(ticks).toBeGreaterThanOrEqual(MIN_TICKS_10S);
-    expect(
-      `catch-up engaged for ${maxStallStreak} consecutive ticks`,
-    ).toBeLessThanOrEqual(MAX_CATCHUP_STREAK);
+    expect(maxStallStreak, `catch-up consecutive ticks`).toBeLessThanOrEqual(MAX_CATCHUP_STREAK);
   }, 60_000);
 });

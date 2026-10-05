@@ -1,0 +1,88 @@
+{
+  "task": "TASK-60",
+  "title": "Server tick budget: worst-case shard tick bench (16 players + 10 AI)",
+  "date": "2026-10-05",
+  "machine": "dev machine (the bench is machine-sensitive; TASK-61 re-runs on reference hardware)",
+  "command": "npm run bench:tick (BENCH_BASELINE=1 for baseline)",
+  "run": {
+    "durationMs": 120000,
+    "seed": "tick-bench-seed",
+    "scene": "16 conns (8 firing interceptors / 4 on foot mining / 4 idle) + 10 AI (5 near-field ~450 m engaged, 5 far-field 3-6 km dormant) + 16-missile volley at t=30 s + 20 ground items + 30 deposits",
+    "ticks": 2399,
+    "effectiveHz": 19.99,
+    "entities": 238,
+    "snapshotBytes": 638456416
+  },
+  "baseline": {
+    "dormantAi": false,
+    "p50Ms": 1.164,
+    "p95Ms": 3.173,
+    "maxMs": 38.927,
+    "heapGrowthMB": 0.6,
+    "peakInFlightMissiles": 16,
+    "phaseTotalsMs": {
+      "hazards": 795.1,
+      "characters": 556.9,
+      "projectiles": 413.5,
+      "snapshot-serialize": 410.6,
+      "ships": 347.0,
+      "snapshot-build": 175.8,
+      "sweep": 131.3,
+      "ai": 69.0,
+      "broadcast-send": 14.9,
+      "mining": 11.7
+    }
+  },
+  "tuned": {
+    "dormantAi": true,
+    "p50Ms": 1.218,
+    "p95Ms": 3.202,
+    "maxMs": 31.305,
+    "heapGrowthMB": 0.6,
+    "peakInFlightMissiles": 16,
+    "phaseTotalsMs": {
+      "hazards": 779.5,
+      "characters": 562.3,
+      "projectiles": 485.7,
+      "snapshot-serialize": 401.0,
+      "ships": 358.0,
+      "snapshot-build": 173.9,
+      "sweep": 149.4,
+      "ai": 65.7,
+      "broadcast-send": 11.5,
+      "mining": 11.3
+    }
+  },
+  "budgets": {
+    "p50": { "budget": "< 15 ms", "tuned": 1.218, "pass": true },
+    "p95": { "budget": "< 30 ms", "tuned": 3.202, "pass": true },
+    "max": { "budget": "< 60 ms unless sustained > 1% of ticks", "tuned": 31.305, "overBudgetTicks": "1/2399 (rare GC spike, tolerated)", "pass": true },
+    "effectiveRate": { "budget": ">= 15 Hz", "tuned": 19.99, "pass": true },
+    "catchUpStreak": { "budget": "<= 5 consecutive ticks", "tuned": 1, "pass": true },
+    "heapGrowth": { "budget": "< 20 MB over 120 s after warm-up + final GC", "tuned": 0.6, "pass": true },
+    "projectileCap": { "budget": "16 concurrent missiles reached (PROJECTILE_CAP)", "tuned": 16, "pass": true }
+  },
+  "top3Phases": [
+    {
+      "phase": "hazards",
+      "share": "26.0%",
+      "perTickMs": 0.3249,
+      "note": "ACCEPTED (number recorded): 8 hazard cells scanned per on-foot character each tick + exposure regen + 2-4 drone spawns; 0.32 ms/tick at 4 characters is 1% of the 30 ms p95 budget. A 1 Hz hazard phase (step 5 of the tuning list) would save ~0.3 ms/tick — not worth breaking the exposure tick's 20 Hz cadence for. Re-measure on reference hardware (TASK-61) if it climbs."
+    },
+    {
+      "phase": "characters",
+      "share": "18.8%",
+      "perTickMs": 0.2344,
+      "note": "ACCEPTED (number recorded): integrateCharacter for 4 characters — walk/jump/ground physics + heightAt (bilinear over the 5 m cell field) per character; 0.23 ms/tick is ~0.8% of the p95 budget. Already the shared client/server math; no per-tick allocation to remove. Re-measure at TASK-61."
+    },
+    {
+      "phase": "projectiles",
+      "share": "16.2%",
+      "perTickMs": 0.2025,
+      "note": "ACCEPTED (number recorded): laser beam rays (instant hit-scan against hull AABBs, no per-tick raycast grid) + homing missiles at the 16 cap with the cheap turn (no raycasts — the tuning list item already in place). 0.20 ms/tick at cap load. Re-measure at TASK-61."
+    }
+  ],
+  "tuningDelta": "p50 1.164 -> 1.218 (+4.6%), p95 3.173 -> 3.202 (+0.9%), max 38.927 -> 31.305 (-19.6%). The dormant-AI delta is small at 10 AI on this machine: only 5 far-field ships enter the dormant path and the 5 near-field ones run the full state machine in BOTH runs; the ai phase is 2.2-2.4% of the tick in both. The win scales with the dormant population — on reference hardware / with more AI it should be larger (TASK-61 verifies). Snapshot-buffer reuse + single-serialize were ALREADY in place pre-task (shared 10 Hz buffers, one JSON.stringify per tick).",
+  "ci": "tests/bench/tick-budget-ci.spec.ts — 10 s real-wall-clock run of the SAME scene asserting the machine-independent effective-rate rule (>= 15 Hz, catch-up streak <= 5). Part of npm run test.",
+  "pass": true
+}

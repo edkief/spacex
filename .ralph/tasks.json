@@ -647,7 +647,7 @@
     "title": "Server tick budget: p95 < 30 ms at 16 players",
     "category": "performance",
     "specFilePath": ".ralph/tasks/TASK-60.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-18",

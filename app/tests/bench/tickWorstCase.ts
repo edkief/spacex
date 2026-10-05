@@ -47,7 +47,10 @@ function heap(): number {
 }
 
 /** Accumulates the per-phase tick cost table (the AC-3 deliverable). */
-function makePhaseAccumulator(): Record<TickPhase, { total: number; max: number; samples: number }> {
+function makePhaseAccumulator(): Record<
+  TickPhase,
+  { total: number; max: number; samples: number }
+> {
   const acc = {} as Record<TickPhase, { total: number; max: number; samples: number }>;
   for (const phase of [
     'sweep',
@@ -185,9 +188,15 @@ async function main(): Promise<void> {
   }
 
   console.log('');
-  console.log(`TASK-60 worst-case tick bench — ${runSec.toFixed(0)} s, seed ${BENCH_SEED}${BASELINE ? '  [BASELINE: dormant AI OFF]' : ''}`);
-  console.log(`scene: 16 conns (8 firing / 4 foot / 4 idle) + 10 AI (5 near, 5 far) + 20 ground items + 30 deposits`);
-  console.log(`ticks: ${ticks} (${effectiveHz.toFixed(2)} Hz effective) · entities: ${shard.entities.size} · snapshot bytes: ${bench.bytesSent()}`);
+  console.log(
+    `TASK-60 worst-case tick bench — ${runSec.toFixed(0)} s, seed ${BENCH_SEED}${BASELINE ? '  [BASELINE: dormant AI OFF]' : ''}`,
+  );
+  console.log(
+    `scene: 16 conns (8 firing / 4 foot / 4 idle) + 10 AI (5 near, 5 far) + 20 ground items + 30 deposits`,
+  );
+  console.log(
+    `ticks: ${ticks} (${effectiveHz.toFixed(2)} Hz effective) · entities: ${shard.entities.size} · snapshot bytes: ${bench.bytesSent()}`,
+  );
   console.log('');
   console.log('tick histogram:');
   console.log(`  p50  = ${p50.toFixed(3)} ms   (budget < ${P50_BUDGET_MS})`);
@@ -196,9 +205,9 @@ async function main(): Promise<void> {
   console.log('');
   console.log('per-phase tick cost (summed over the run; top-3 marked):');
   const totalPhaseMs = Object.values(phases).reduce((a, p) => a + p.total, 0);
-  const ranked = (Object.entries(phases) as [TickPhase, { total: number; max: number; samples: number }][]).sort(
-    (a, b) => b[1].total - a[1].total,
-  );
+  const ranked = (
+    Object.entries(phases) as [TickPhase, { total: number; max: number; samples: number }][]
+  ).sort((a, b) => b[1].total - a[1].total);
   ranked.forEach(([phase, p], i) => {
     const avgPerTick = ticks > 0 ? (p.total / ticks).toFixed(4) : '0';
     const share = totalPhaseMs > 0 ? ((p.total / totalPhaseMs) * 100).toFixed(1) : '0';

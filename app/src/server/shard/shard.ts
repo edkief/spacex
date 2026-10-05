@@ -1846,162 +1846,162 @@ export class SystemShard implements Shard {
       // no join event; stale target locks auto-release via tickTargetLocks.
       const now = this.now();
       for (const [id, rogue] of this.rogues) {
-      if (rogue.respawnAtMs === undefined || now < rogue.respawnAtMs) continue;
-      const entity = this.entities.get(id);
-      rogue.respawnAtMs = undefined;
-      if (!entity || !entity.destroyed) continue;
-      entity.destroyed = false;
-      entity.destroyedAtMs = undefined;
-      entity.hull = 1;
-      entity.shields = 1;
-      entity.ship.pos = { ...rogue.spawnPos };
-      entity.ship.vel = { x: 0, y: 0, z: 0 };
-      entity.energy = ENERGY_MAX;
-      this.log.debug('rogue respawn', { id, classId: entity.classId });
+        if (rogue.respawnAtMs === undefined || now < rogue.respawnAtMs) continue;
+        const entity = this.entities.get(id);
+        rogue.respawnAtMs = undefined;
+        if (!entity || !entity.destroyed) continue;
+        entity.destroyed = false;
+        entity.destroyedAtMs = undefined;
+        entity.hull = 1;
+        entity.shields = 1;
+        entity.ship.pos = { ...rogue.spawnPos };
+        entity.ship.vel = { x: 0, y: 0, z: 0 };
+        entity.energy = ENERGY_MAX;
+        this.log.debug('rogue respawn', { id, classId: entity.classId });
       }
     });
 
     this.phase('ships', () => {
-    // Integrate EVERY player ship — connected or not. A ship whose owner
-    // has no live connection is IDLE (TASK-17): its held frame was cleared
-    // when the owner left, so it coasts on zero input and the world keeps
-    // living while the player is away (no world reset on drop). A new
-    // frame REPLACES the held frame (latest already won at enqueue) and is
-    // held on the entity, re-integrated every tick until a newer frame
-    // arrives — the client predictor keeps integrating its last input
-    // between frames, so the authority must too (TASK-14). A player that
-    // never sent a frame coasts on zero input. Destroyed ships (TASK-23)
-    // stop integrating and ignore inputs entirely.
-    for (const entity of this.playerEntities.values()) {
-      if (entity.destroyed) continue;
-      // TASK-31: the owner is on foot — the ship stays FROZEN where it docked
-      // (no integration, no pad re-check: it keeps its docked state) until
-      // the player re-enters it (TASK-35).
-      if (entity.disembarked) continue;
-      const connId = entity.playerId ? this.playerConns.get(entity.playerId) : undefined;
-      const conn = connId ? this.connections.get(connId) : undefined;
-      const input = conn?.input;
-      if (conn && input) {
-        conn.input = undefined; // consumed: becomes the held frame
-        entity.heldInput = input; // held until a newer frame replaces it
-        conn.appliedSeq = input.seq; // TASK-14: reconcilable from this tick on
-        if (entity.docked) entity.docked = false; // first input = take-off
+      // Integrate EVERY player ship — connected or not. A ship whose owner
+      // has no live connection is IDLE (TASK-17): its held frame was cleared
+      // when the owner left, so it coasts on zero input and the world keeps
+      // living while the player is away (no world reset on drop). A new
+      // frame REPLACES the held frame (latest already won at enqueue) and is
+      // held on the entity, re-integrated every tick until a newer frame
+      // arrives — the client predictor keeps integrating its last input
+      // between frames, so the authority must too (TASK-14). A player that
+      // never sent a frame coasts on zero input. Destroyed ships (TASK-23)
+      // stop integrating and ignore inputs entirely.
+      for (const entity of this.playerEntities.values()) {
+        if (entity.destroyed) continue;
+        // TASK-31: the owner is on foot — the ship stays FROZEN where it docked
+        // (no integration, no pad re-check: it keeps its docked state) until
+        // the player re-enters it (TASK-35).
+        if (entity.disembarked) continue;
+        const connId = entity.playerId ? this.playerConns.get(entity.playerId) : undefined;
+        const conn = connId ? this.connections.get(connId) : undefined;
+        const input = conn?.input;
+        if (conn && input) {
+          conn.input = undefined; // consumed: becomes the held frame
+          entity.heldInput = input; // held until a newer frame replaces it
+          conn.appliedSeq = input.seq; // TASK-14: reconcilable from this tick on
+          if (entity.docked) entity.docked = false; // first input = take-off
+        }
+        // TASK-25: resolve the regime FIRST (the shared state machine is the
+        // authority — hysteresis included); a change is an event, and the new
+        // regime drives the physics context for THIS tick.
+        this.resolveRegime(entity);
+        const ctx = this.resolveRegimeCtx(entity);
+        const shipInput = inputToShipInput(entity.heldInput ?? ZERO_INPUT);
+        entity.ship = integrateShip(
+          entity.ship,
+          shipInput,
+          this.dt,
+          entity.ship.regime,
+          ctx.planet,
+          shipStats(entity.classId),
+          ctx.options,
+        );
+        // TASK-29: landing-pad state machine + VTOL drift assist (both run on
+        // the integrated state, so takeoff clears 'docked' within one tick).
+        this.updatePadState(entity, shipInput.up);
+        // TASK-43: energy regen (10/s, max 100) — including while docked or
+        // disembarked (the idle tick keeps regenerating, spec note).
+        entity.energy = regenEnergy(entity.energy ?? ENERGY_MAX, this.dt);
       }
-      // TASK-25: resolve the regime FIRST (the shared state machine is the
-      // authority — hysteresis included); a change is an event, and the new
-      // regime drives the physics context for THIS tick.
-      this.resolveRegime(entity);
-      const ctx = this.resolveRegimeCtx(entity);
-      const shipInput = inputToShipInput(entity.heldInput ?? ZERO_INPUT);
-      entity.ship = integrateShip(
-        entity.ship,
-        shipInput,
-        this.dt,
-        entity.ship.regime,
-        ctx.planet,
-        shipStats(entity.classId),
-        ctx.options,
-      );
-      // TASK-29: landing-pad state machine + VTOL drift assist (both run on
-      // the integrated state, so takeoff clears 'docked' within one tick).
-      this.updatePadState(entity, shipInput.up);
-      // TASK-43: energy regen (10/s, max 100) — including while docked or
-      // disembarked (the idle tick keeps regenerating, spec note).
-      entity.energy = regenEnergy(entity.energy ?? ENERGY_MAX, this.dt);
-    }
     });
 
     this.phase('hazards', () => {
-    // TASK-48: hazard exposure — drain (storm 2/s, rad 5/s) / regen (5/s
-    // outside) per on-foot player BEFORE the character integration, so a
-    // knock-down (exposure 0 → 5 s 'recovering') freezes THAT tick's input.
-    this.stepHazardExposure();
+      // TASK-48: hazard exposure — drain (storm 2/s, rad 5/s) / regen (5/s
+      // outside) per on-foot player BEFORE the character integration, so a
+      // knock-down (exposure 0 → 5 s 'recovering') freezes THAT tick's input.
+      this.stepHazardExposure();
     });
 
     this.phase('characters', () => {
-    // TASK-32: integrate the on-foot characters (one per disembarked
-    // player). SAME input frames as ships — the owner's active entity kind
-    // decides the integrator (the ship loop skips disembarked ships, so the
-    // frame is consumed here exactly once). The held-frame pattern mirrors
-    // the ships: latest frame wins, re-integrated every tick until replaced,
-    // cleared when the owner disconnects (unregisterConnection) so a
-    // dropped character coasts to a stop instead of walking forever.
-    for (const entity of this.entities.values()) {
-      if (entity.kind !== 'character' || !entity.playerId) continue;
-      const connId = this.playerConns.get(entity.playerId);
-      const conn = connId ? this.connections.get(connId) : undefined;
-      if (conn) {
-        const input = conn.input;
-        if (input) {
-          conn.input = undefined; // consumed: becomes the held frame
-          entity.heldInput = input;
-          conn.appliedSeq = input.seq; // TASK-14: reconcilable from this tick on
+      // TASK-32: integrate the on-foot characters (one per disembarked
+      // player). SAME input frames as ships — the owner's active entity kind
+      // decides the integrator (the ship loop skips disembarked ships, so the
+      // frame is consumed here exactly once). The held-frame pattern mirrors
+      // the ships: latest frame wins, re-integrated every tick until replaced,
+      // cleared when the owner disconnects (unregisterConnection) so a
+      // dropped character coasts to a stop instead of walking forever.
+      for (const entity of this.entities.values()) {
+        if (entity.kind !== 'character' || !entity.playerId) continue;
+        const connId = this.playerConns.get(entity.playerId);
+        const conn = connId ? this.connections.get(connId) : undefined;
+        if (conn) {
+          const input = conn.input;
+          if (input) {
+            conn.input = undefined; // consumed: becomes the held frame
+            entity.heldInput = input;
+            conn.appliedSeq = input.seq; // TASK-14: reconcilable from this tick on
+          }
         }
+        const ctx = this.resolveRegimeCtx(entity);
+        const charState: CharacterState = {
+          pos: entity.ship.pos,
+          vel: entity.ship.vel,
+          quat: entity.ship.quat,
+          onGround: entity.charOnGround ?? true,
+        };
+        // TASK-48: a recovering player (SHIELD BURN knock-down) cannot move —
+        // the tick feeds zero input for the whole 5 s window.
+        const recovering =
+          (this.hazardStates.get(entity.playerId)?.recoveringUntilMs ?? 0) > this.now();
+        const next = integrateCharacter(
+          charState,
+          recovering ? ZERO_CHARACTER_INPUT : inputToCharacterInput(entity.heldInput ?? ZERO_INPUT),
+          this.dt,
+          ctx.options.heightAt,
+        );
+        // The character's kinematic state rides the SAME ship-shaped record
+        // (the wire snapshot reads entity.ship — no protocol change).
+        entity.ship.pos = next.pos;
+        entity.ship.vel = next.vel;
+        entity.ship.quat = next.quat;
+        entity.ship.regime = 'surface';
+        entity.charOnGround = next.onGround;
+        // TASK-34: the character carries the owner's inventory to the wire
+        // (the client's weight bar reads the SELF entity — on foot that is
+        // the character — so it mirrors the ship's stacks every tick).
+        this.syncCharacterInventory(entity.playerId);
       }
-      const ctx = this.resolveRegimeCtx(entity);
-      const charState: CharacterState = {
-        pos: entity.ship.pos,
-        vel: entity.ship.vel,
-        quat: entity.ship.quat,
-        onGround: entity.charOnGround ?? true,
-      };
-      // TASK-48: a recovering player (SHIELD BURN knock-down) cannot move —
-      // the tick feeds zero input for the whole 5 s window.
-      const recovering =
-        (this.hazardStates.get(entity.playerId)?.recoveringUntilMs ?? 0) > this.now();
-      const next = integrateCharacter(
-        charState,
-        recovering ? ZERO_CHARACTER_INPUT : inputToCharacterInput(entity.heldInput ?? ZERO_INPUT),
-        this.dt,
-        ctx.options.heightAt,
-      );
-      // The character's kinematic state rides the SAME ship-shaped record
-      // (the wire snapshot reads entity.ship — no protocol change).
-      entity.ship.pos = next.pos;
-      entity.ship.vel = next.vel;
-      entity.ship.quat = next.quat;
-      entity.ship.regime = 'surface';
-      entity.charOnGround = next.onGround;
-      // TASK-34: the character carries the owner's inventory to the wire
-      // (the client's weight bar reads the SELF entity — on foot that is
-      // the character — so it mirrors the ship's stacks every tick).
-      this.syncCharacterInventory(entity.playerId);
-    }
     });
 
     this.phase('hazards', () => {
-    // TASK-48: hostile drones — patrol their seeded cells, aggro the nearest
-    // on-foot player (< 80 m), hit for 3 through the damage pipeline (2 s
-    // cadence, ≤ 30 m), respawn 180 s after a kill. Ships are never targets.
-    this.stepDrones();
+      // TASK-48: hostile drones — patrol their seeded cells, aggro the nearest
+      // on-foot player (< 80 m), hit for 3 through the damage pipeline (2 s
+      // cadence, ≤ 30 m), respawn 180 s after a kill. Ships are never targets.
+      this.stepDrones();
     });
 
     this.phase('mining', () => {
-    // TASK-38: advance the active mining channels (the server clock is the
-    // award authority — awards, cancellations and the 10 Hz progress echo).
-    this.updateMining(tick);
+      // TASK-38: advance the active mining channels (the server clock is the
+      // award authority — awards, cancellations and the 10 Hz progress echo).
+      this.updateMining(tick);
     });
 
     this.phase('ai', () => {
-    // TASK-46: rogue AI — state machine inputs via the same integrateShip,
-    // fire intents through the same pipeline (runs before the fire sweeps so
-    // AI missiles spawn + fly this tick, like a player's queued fire).
-    this.stepAiShips(tick);
+      // TASK-46: rogue AI — state machine inputs via the same integrateShip,
+      // fire intents through the same pipeline (runs before the fire sweeps so
+      // AI missiles spawn + fly this tick, like a player's queued fire).
+      this.stepAiShips(tick);
     });
 
     this.phase('projectiles', () => {
-    // TASK-44: auto-release stale target locks BEFORE firing, so missile
-    // preference and the snapshot's `targetedBy` never see a dead lock.
-    this.tickTargetLocks();
+      // TASK-44: auto-release stale target locks BEFORE firing, so missile
+      // preference and the snapshot's `targetedBy` never see a dead lock.
+      this.tickTargetLocks();
 
-    // TASK-43: resolve queued fire intents (laser: instant ray through the
-    // TASK-42 resolver; missile: spawn a homing projectile entity) — the
-    // tick is the ONLY fire path (single writer). Then fly the missiles.
-    this.processFireIntents(tick);
-    this.updateProjectiles();
+      // TASK-43: resolve queued fire intents (laser: instant ray through the
+      // TASK-42 resolver; missile: spawn a homing projectile entity) — the
+      // tick is the ONLY fire path (single writer). Then fly the missiles.
+      this.processFireIntents(tick);
+      this.updateProjectiles();
 
-    // TASK-37: deposit discovery (any player within 50 m flips the flag).
-    this.sweepDiscovery();
+      // TASK-37: deposit discovery (any player within 50 m flips the flag).
+      this.sweepDiscovery();
     });
 
     // 10 Hz snapshot: every 2nd tick, serialize ONCE, share the buffer.
