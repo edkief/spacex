@@ -8,7 +8,10 @@
  *     orbits around the player, lasers at rate + a 16-strong in-flight
  *     missile set + a ship destruction every 3 s (the explosion set);
  *   - the player on a surface with the full 13-chunk streaming scene
- *     (near 3x3 + the mid/far rings — warmed up before measurement);
+ *     (near 3x3 + the mid/far rings — warmed up before measurement). The
+ *     scene holds the STEADY at-rest active window (13 chunks); the live
+ *     pipeline's far-ring horizon impostors are outside the AC-1 spec, so
+ *     the driver streamer filters them out of the mountable set;
  *   - the system's hazard cells (buildHazardDiscs) + 4 hostile drones;
  *   - 30 deposits inside the 500 m render ring (OreRockLayer);
  *   - 20+ remote callsign labels (the RemoteEntityLayer's overlay math).
@@ -48,7 +51,7 @@ import { padsForSystem } from '@shared/world/pads';
 import { Rng, seedFromString } from '@shared/random';
 import { PERF_PROFILES, type FxCaps } from '@shared/perf';
 import type { EntityState, Livery } from '@shared/protocol/schemas';
-import { ChunkStreamer } from '@client/world/chunks';
+import { ChunkStreamer, activeSet, chunkKey, type CachedChunk } from '@client/world/chunks';
 import { ChunkScene } from '@client/world/chunk-scene';
 import { OreRockLayer } from '@client/world/ore-rocks';
 import { CombatFx } from '@client/world/combat-fx';
@@ -191,6 +194,29 @@ function shipEntity(s: OrbitShip, simMs: number): EntityState {
 }
 
 /**
+ * AC-1 measures the STEADY 13-chunk streaming state (the at-rest active
+ * set: 3x3 near + the four cardinal mid/far chunks). The live pipeline also
+ * mounts the far-ring horizon impostors around that window; the benchmark
+ * scene spec is the 13 active chunks, so this driver-only streamer filters
+ * the mountable set back to the active window. It reuses the base class's
+ * `mountable()` (which stamps `lastAccessFrame` so the LRU never evicts a
+ * mounted chunk) and then drops the horizon entries — no scene or pipeline
+ * change, just the documented AC-1 steady state.
+ */
+class Ac1Streamer extends ChunkStreamer {
+  override mountable(
+    playerX: number,
+    playerZ: number,
+    speed: number,
+  ): Array<{ entry: CachedChunk; ring: 'near' | 'mid' | 'far' }> {
+    const active = new Set(
+      activeSet(playerX, playerZ, speed).map((a) => chunkKey(a.chunkX, a.chunkZ)),
+    );
+    return super.mountable(playerX, playerZ, speed).filter((w) => active.has(w.entry.key));
+  }
+}
+
+/**
  * Run the benchmark once and return the report. Throws when the fixture
  * cannot support the scene or the wall budget is exceeded.
  */
@@ -226,8 +252,10 @@ export function runRenderBenchmark(options: RenderBenchmarkOptions = {}): Render
   camera.lookAt(playerPos.x, playerPos.y + 2, playerPos.z - 50);
 
   // The full streaming scene (warmed up BEFORE measurement — the AC-1 scene
-  // is the STEADY 13-chunk state, not the cold-load burst).
-  const streamer = new ChunkStreamer(seed, planet);
+  // is the STEADY 13-chunk state, not the cold-load burst). The driver
+  // streamer caps the mountable set to that 13-chunk active window (the
+  // live pipeline's far-ring horizon is outside the AC-1 scene spec).
+  const streamer = new Ac1Streamer(seed, planet);
   const chunkScene = new ChunkScene(streamer, { monitor });
   threeScene.add(chunkScene.group);
   for (let i = 0; i < 4000 && chunkScene.mountedCount < BENCH_MOUNT_TARGET; i++) {
