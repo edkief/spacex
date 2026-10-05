@@ -423,6 +423,64 @@ describe('ChunkScene tuned merged path (TASK-58.2, merged: true)', () => {
     expect(() => evictScene.handleEvict('999,999')).not.toThrow();
   });
 
+  it('defers fresh near/mid chunks to the far quad while moving, then re-merges them once the burst drains', () => {
+    warmToNearBlock();
+    scene.sync(PX, PZ, 0);
+
+    // Let cardinal chunk (2,0) finish — at 640 m from the player it is MID.
+    let waitFrames = 0;
+    while (!streamer.isReady(chunkKey(2, 0))) {
+      if (++waitFrames > MAX_WAIT_FRAMES) {
+        throw new Error(
+          `deferral wait stuck after ${MAX_WAIT_FRAMES} frames: chunk (2,0) not ready (pending=${streamer.pendingCount})`,
+        );
+      }
+      streamer.update(PX, PZ, 0);
+    }
+
+    // Moving player + a freshly scheduled streamer → every non-far chunk is
+    // deferred to its far quad: one merged mesh per (biome) FAR group only,
+    // each member a 2-tri impostor. The TALLY still follows the streamer's
+    // real rings (the scene reports what the pipeline classifies).
+    const t1 = scene.sync(PX, PZ, 120);
+    const farKeys = new Set<string>();
+    let mountable = 0;
+    for (const w of streamer.mountable(PX, PZ, 0)) {
+      const g =
+        w.ring === 'near'
+          ? w.entry.built.geometries.near
+          : w.ring === 'mid'
+            ? w.entry.built.geometries.mid
+            : w.entry.built.geometries.far;
+      if (!g) continue;
+      mountable += 1;
+      farKeys.add(`far:${w.entry.built.chunk?.biome ?? 'far'}`);
+    }
+    expect(t1.mid).toBeGreaterThan(0); // streamer classifies (2,0) as mid
+    expect(scene.mountedCount).toBe(mountable); // every chunk is still mounted
+    expect(meshes(scene)).toHaveLength(farKeys.size); // ...all as far quads
+    const meshTotal = meshes(scene).reduce((a, m) => a + m.geometry.getIndex()!.count / 3, 0);
+    expect(meshTotal).toBe(mountable * RING_TRIANGLES.far);
+
+    // The player keeps moving; once the streamer has scheduled no new work
+    // for enough consecutive frames the deferred chunks re-merge into their
+    // real rings (one (ring, biome) group per sync) and the scene converges
+    // back to the full merged contract.
+    let frames = 0;
+    for (;;) {
+      streamer.update(PX, PZ, 0);
+      scene.sync(PX, PZ, 120);
+      if (++frames > 40) throw new Error(`deferral never converged after ${frames} syncs`);
+      if (scene.meshCount === expectedMerged(PX, PZ).groupKeys.size) break;
+    }
+    const e2 = expectedMerged(PX, PZ);
+    const t2 = scene.sync(PX, PZ, 0); // at rest: already converged
+    expect(scene.meshCount).toBe(e2.groupKeys.size);
+    expect(t2).toEqual(e2.exp);
+    const total2 = meshes(scene).reduce((a, m) => a + m.geometry.getIndex()!.count / 3, 0);
+    expect(total2).toBe(e2.exp.near + e2.exp.mid + e2.exp.far);
+  });
+
   it('reports the per-ring tally to the monitor and the surface-tris gauge', () => {
     warmToNearBlock();
     const t = scene.sync(PX, PZ, 0);

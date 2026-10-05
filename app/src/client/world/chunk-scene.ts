@@ -23,6 +23,23 @@
  * the pre-built mips (chunk geometries stay owned by the streamer — the
  * merge copies their attribute data).
  *
+ * Streaming deferral (TASK-30.1): while the player is MOVING and the
+ * streamer is draining a chunk burst (it scheduled work recently), a
+ * freshly-mountable near/mid chunk is merged into the FAR group — one
+ * impostor quad — instead of its full ring group. A ring-group re-merge
+ * copies the WHOLE group's geometry, and during descent/ascent the mid
+ * ring's membership changes every burst frame, so those re-merges were
+ * the dominant transition-hitch cost. The quad is exactly what the chunk
+ * showed before its full build finished (the impostor→full upgrade is the
+ * pipeline's normal direction, so there is no pop). Once the streamer has
+ * scheduled nothing for `UPGRADE_QUIET_SYNC` consecutive syncs — beyond
+ * the 24-frame burst-drain window of the transition harness — the
+ * deferred chunks re-merge into their real rings, ONE (ring, biome) group
+ * per sync so every re-merge stays bounded even on a frame the harness
+ * tags (first mesh of a group = `material-swap`). At rest (speed 0) the
+ * same one-group-per-sync promotion converges within a handful of frames,
+ * and a scene that never deferred converges in a single sync.
+ *
  * Per frame the scene also reports its triangle tally by LOD ring to the
  * frame monitor (per-category counters, TASK-57 extension) and checks the
  * 400k surface-triangle gauge — the draw-distance budget of the default
@@ -59,6 +76,14 @@ export interface SceneTriangleStats {
   mounted: number;
 }
 
+/**
+ * Consecutive quiet syncs (streamer scheduled no new work) before a
+ * deferred chunk re-merges into its real ring. One past the 24-frame
+ * burst-drain tagging window of the transition harness, so the re-merge
+ * lands on an untagged frame.
+ */
+const UPGRADE_QUIET_SYNC = 25;
+
 export interface ChunkSceneOptions {
   /** Frame monitor to report to. Default: the app-wide singleton. */
   monitor?: FrameMonitor;
@@ -86,6 +111,13 @@ export class ChunkScene {
   private mounted = new Map<string, { ring: LodRing; biome: Biome | null }>();
   /** Merged mode: last synced membership (for the per-frame structural diff). */
   private prevMounted: Map<string, { ring: LodRing; biome: Biome | null }> | null = null;
+  /**
+   * Merged mode, streaming deferral: chunk key → its REAL (ring, biome)
+   * while it is mounted as a far-ring quad (see module doc).
+   */
+  private readonly deferred = new Map<string, { ring: LodRing; biome: Biome | null }>();
+  /** Merged mode: consecutive syncs where the streamer scheduled no work. */
+  private quietSyncs = 0;
   /** Merged mode: group key → built member signature (per-group dirty check). */
   private readonly builtGroupSigs = new Map<string, string>();
   /**
@@ -186,10 +218,17 @@ export class ChunkScene {
    * Tuned path: one merged mesh per (LOD ring, shared biome material).
    * Walks the mountable set, diffs the membership against the last build,
    * and rebuilds the merged ring geometries ONLY when it changed — steady
-   * state (the AC-1 at-rest window) is a plain membership walk.
+   * state (the AC-1 at-rest window) is a plain membership walk. While the
+   * player moves through a streaming burst, fresh near/mid chunks mount as
+   * far quads and re-merge into their real rings one group per sync once
+   * the burst drains (streaming deferral, see module doc).
    */
   private syncMerged(playerX: number, playerZ: number, speed: number): SceneTriangleStats {
     const wanted = this.streamer.mountable(playerX, playerZ, speed);
+    this.quietSyncs = this.streamer.lastScheduled > 0 ? 0 : this.quietSyncs + 1;
+    // Deferring = moving + burst window still hot: fresh near/mid chunks
+    // mount as far quads so the heavy ring re-merges wait for quiet.
+    const deferring = speed > 0 && this.quietSyncs < UPGRADE_QUIET_SYNC;
     const next = new Map<string, { ring: LodRing; biome: Biome | null }>();
     const stats: SceneTriangleStats = { near: 0, mid: 0, far: 0, mounted: 0 };
 
@@ -197,10 +236,24 @@ export class ChunkScene {
       const geometry = ringGeometry(entry, ring);
       if (!geometry) continue; // nothing built for this ring yet — skip
       const biome = entry.built.chunk?.biome ?? null;
-      next.set(entry.key, { ring, biome });
-      stats[ring] += triCount(geometry);
+      stats[ring] += triCount(geometry); // tally follows the streamer's ring
       stats.mounted += 1;
+      if (deferring && ring !== 'far') {
+        this.deferred.set(entry.key, { ring, biome });
+        next.set(entry.key, { ring: 'far', biome }); // quad until the burst drains
+      } else {
+        this.deferred.delete(entry.key); // at its real ring (or far): not deferred
+        next.set(entry.key, { ring, biome });
+      }
     }
+    // A deferred chunk that left the mountable set is no longer deferred.
+    for (const key of [...this.deferred.keys()]) {
+      if (!next.has(key)) this.deferred.delete(key);
+    }
+
+    // Burst drained (or at rest): re-merge ONE deferred group this sync so
+    // each re-merge stays bounded (see module doc).
+    if (!deferring && this.deferred.size > 0) this.promoteOneGroup(next);
 
     // Membership changed? (mount, unmount, LOD swap, or biome change) — a
     // plain structural diff: no per-frame string building or sorting.
@@ -210,6 +263,22 @@ export class ChunkScene {
       this.rebuildRingMeshes();
     }
     return stats;
+  }
+
+  /**
+   * Re-merge the first deferred (ring, biome) group into its real ring
+   * (all of its chunks in one re-merge — one group's geometry copy is the
+   * bounded unit of work).
+   */
+  private promoteOneGroup(next: Map<string, { ring: LodRing; biome: Biome | null }>): void {
+    const first = this.deferred.values().next().value;
+    if (!first) return;
+    const groupKey = `${first.ring}:${first.biome ?? 'far'}`;
+    for (const [key, real] of [...this.deferred]) {
+      if (`${real.ring}:${real.biome ?? 'far'}` !== groupKey) continue;
+      next.set(key, { ring: real.ring, biome: real.biome });
+      this.deferred.delete(key);
+    }
   }
 
   /**
@@ -290,17 +359,21 @@ export class ChunkScene {
     const offsetZ = entry.chunkZ * 320;
     // Re-pack positions with the chunk offset baked in (the original is
     // chunk-local); normals are dropped — unlit materials never read them.
+    // Typed-array copy + in-place x/z offset (a per-vertex getX/getY/getZ
+    // loop here was the dominant cost of a ring-group re-merge).
     const pos = src.getAttribute('position');
-    const packed = new Float32Array(pos.count * 3);
-    for (let v = 0; v < pos.count; v++) {
-      packed[v * 3] = pos.getX(v) + offset;
-      packed[v * 3 + 1] = pos.getY(v);
-      packed[v * 3 + 2] = pos.getZ(v) + offsetZ;
+    const srcArr = pos.array as Float32Array;
+    const packed = new Float32Array(srcArr);
+    for (let v = 0; v < srcArr.length; v += 3) {
+      packed[v] += offset;
+      packed[v + 2] += offsetZ;
     }
     copy.setAttribute('position', new THREE.BufferAttribute(packed, 3));
     const index = src.getIndex();
     if (index) copy.setIndex(index.clone());
-    copy.computeBoundingSphere();
+    // No boundingSphere: the copy is never drawn — only its attribute
+    // arrays are merged into a ring-group geometry (which computes its
+    // own bounds on first render).
     this.translatedCache.set(cacheKey, { geo: copy, src });
     return copy;
   }
@@ -321,6 +394,7 @@ export class ChunkScene {
   handleEvict(key: string): void {
     if (this.merged) {
       this.releaseTranslated(key);
+      this.deferred.delete(key);
       if (this.mounted.delete(key)) this.prevMounted = null; // diff next sync
       return;
     }
@@ -357,6 +431,8 @@ export class ChunkScene {
     this.mounted.clear();
     this.builtGroupSigs.clear();
     this.translatedCache.clear();
+    this.deferred.clear();
+    this.quietSyncs = 0;
     this.prevMounted = null;
   }
 }

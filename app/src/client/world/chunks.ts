@@ -251,6 +251,8 @@ export class ChunkStreamer {
   /** Previous player position — derives the heading for priority (null until the 2nd update). */
   private lastPx: number | null = null;
   private lastPz: number | null = null;
+  /** Chunks that entered the build queue on the LAST update() call. */
+  private lastScheduledCount = 0;
 
   constructor(seed: string, planet: Planet, options: StreamerOptions = {}) {
     this.seed = seed;
@@ -270,6 +272,15 @@ export class ChunkStreamer {
   /** In-flight chunk builds. */
   get pendingCount(): number {
     return this.builds.size;
+  }
+
+  /**
+   * How many chunks entered the build queue on the last `update()` call
+   * (0 = no fresh window entries). The scene uses this to know when the
+   * streaming burst has drained (deferred LOD upgrades wait for quiet).
+   */
+  get lastScheduled(): number {
+    return this.lastScheduledCount;
   }
 
   isReady(key: string): boolean {
@@ -467,6 +478,7 @@ export class ChunkStreamer {
 
     this.lastPx = playerX;
     this.lastPz = playerZ;
+    this.lastScheduledCount = scheduled;
     return {
       processedMs: this.clock() - t0,
       scheduled,
@@ -493,6 +505,7 @@ export class ChunkStreamer {
     }
     this.cached.clear();
     this.frame = 0;
+    this.lastScheduledCount = 0;
     this.maxChunkWorkMs = 0;
     this.lastPx = null;
     this.lastPz = null;
