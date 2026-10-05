@@ -46,6 +46,21 @@ import { callsignForPlayer } from '@client/state/kill-feed';
 
 /** Hard cap on live callsign labels (spec: cheap at ≤ 16). */
 export const MAX_CALLSIGN_LABELS = 16;
+/**
+ * TASK-58: the LIVE label cap (tuned data in @shared/perf — the profile
+ * bridge re-points it on a preset switch, no re-init). Defaults to
+ * MAX_CALLSIGN_LABELS so standalone layers (and the unit tests) keep the
+ * pre-tuning behavior.
+ */
+let liveLabelCap = MAX_CALLSIGN_LABELS;
+/** Re-point the live label cap (SettingsBridge). */
+export function setLabelCap(n: number): void {
+  if (Number.isFinite(n) && n >= 0) liveLabelCap = Math.floor(n);
+}
+/** The live label cap (tests / dev probe). */
+export function getLabelCap(): number {
+  return liveLabelCap;
+}
 /** Full opacity up to this range (m from the camera). */
 export const CALLSIGN_LABEL_FULL_M = 4;
 /** Faded to zero at this range (m from the camera). */
@@ -401,7 +416,7 @@ export class RemoteEntityLayer {
       });
     }
     out.sort((a, b) => a.dist - b.dist);
-    for (let i = MAX_CALLSIGN_LABELS; i < out.length; i++) out[i].visible = false;
+    for (let i = liveLabelCap; i < out.length; i++) out[i].visible = false;
     return out;
   }
 

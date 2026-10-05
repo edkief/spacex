@@ -36,6 +36,11 @@ export interface FrameStats {
   /** Entities currently rendered (client entity registry). */
   entities: number;
   /**
+   * Longest frame in the rolling window (ms) — the no-spike rule's
+   * headline number (TASK-58: zero frames > 50 ms in the benchmark).
+   */
+  maxFrameMs: number;
+  /**
    * Triangle counts by category, set per frame by the reporters
    * (TASK-26: 'surface-near' / 'surface-mid' / 'surface-far' from the
    * chunk scene). Empty until a category reporter runs.
@@ -158,8 +163,20 @@ export class FrameMonitor {
       drawCalls: this.lastRender.drawCalls,
       triangles: this.lastRender.triangles,
       entities: renderedEntityCount(),
+      maxFrameMs: this.frames.percentile(100),
       categoryTriangles: { ...this.categoryTriangles },
     };
+  }
+
+  /**
+   * Count of frames STRICTLY above `thresholdMs` in the rolling window
+   * (TASK-58 no-spike rule: `frameSpikes(50) === 0` over the benchmark).
+   * Pure over the existing ring buffer — no new state.
+   */
+  frameSpikes(thresholdMs: number): number {
+    let n = 0;
+    for (const f of this.frames) if (f > thresholdMs) n += 1;
+    return n;
   }
 
   /**

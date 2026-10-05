@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { EntityState } from '@shared/protocol/schemas';
 import type { Vec3 } from '@shared/physics/vec';
+import { PERF_PROFILES, type FxCaps } from '@shared/perf';
 
 /**
  * Combat FX (TASK-43 step 3): the client's purely cosmetic effect layer,
@@ -47,6 +48,15 @@ interface Flash {
   obj: THREE.Object3D;
   born: number;
   life: number;
+  /**
+   * TASK-58 FX cap categories: 'laser' (one group = line + spark pair),
+   * 'impact' (uncapped — the impact tail is tiny and always worth showing)
+   * and 'explosion' (one group = the full debris SET: core + shockwave +
+   * 8 tumbling pieces).
+   */
+  kind: 'laser' | 'impact' | 'explosion';
+  /** Monotonic effect-group id (shared by the pieces of one shot/set). */
+  groupId: number;
   update?: (age: number, obj: THREE.Object3D) => void;
 }
 
@@ -62,6 +72,14 @@ export class CombatFx {
   private boundCamera: THREE.Camera | null = null;
   private readonly flashes: Flash[] = [];
   private readonly tracers = new Map<string, Tracer>();
+  /** TASK-58: monotonic effect-group counter (line+spark pair / debris set). */
+  private nextGroup = 0;
+  /**
+   * TASK-58: the live FX caps (data in @shared/perf, re-applied by the
+   * SettingsBridge on a preset switch). Oldest group beyond the cap is
+   * expired immediately — the caps hold even under fire spam.
+   */
+  private caps: FxCaps = { ...PERF_PROFILES.high.fxCaps };
   /** Dev-only (import.meta.env.DEV): stretch flash lifetimes for screenshots. */
   slow = false;
   private shakeMag = 0;
@@ -94,6 +112,62 @@ export class CombatFx {
     return this.flashes.length + this.tracers.size;
   }
 
+  /** Re-apply the caps of another preset (SettingsBridge — no re-init). */
+  setFxCaps(caps: FxCaps): void {
+    this.caps = { ...caps };
+  }
+
+  /** The caps of the current profile (unit tests / dev probe). */
+  getFxCaps(): FxCaps {
+    return { ...this.caps };
+  }
+
+  /** Active laser SHOTS (distinct shot groups — the line+spark is one). */
+  get laserFlashCount(): number {
+    return new Set(this.flashes.filter((f) => f.kind === 'laser').map((f) => f.groupId)).size;
+  }
+
+  /** Active explosion debris SETS (distinct set groups). */
+  get debrisSetCount(): number {
+    return new Set(this.flashes.filter((f) => f.kind === 'explosion').map((f) => f.groupId)).size;
+  }
+
+  /**
+   * Expire the oldest group beyond a kind's cap (TASK-58: the registry
+   * enforces, oldest expires). `kind` is 'laser' or 'explosion'.
+   */
+  private enforceCap(kind: 'laser' | 'explosion', cap: number): void {
+    const byBorn = this.flashes
+      .filter((f) => f.kind === kind)
+      .sort((a, b) => a.born - b.born || a.groupId - b.groupId);
+    const groups = new Map<number, number>(); // groupId → oldest-born index
+    byBorn.forEach((f, i) => {
+      if (!groups.has(f.groupId)) groups.set(f.groupId, i);
+    });
+    if (groups.size <= cap) return;
+    const oldest = [...groups.entries()].sort((a, b) => a[1] - b[1])[0][0];
+    this.removeGroup(oldest);
+  }
+
+  /** Remove + dispose every flash piece of one effect group. */
+  private removeGroup(groupId: number): void {
+    for (let i = this.flashes.length - 1; i >= 0; i--) {
+      const f = this.flashes[i];
+      if (f.groupId !== groupId) continue;
+      this.group.remove(f.obj);
+      f.obj.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (mesh.geometry) mesh.geometry.dispose();
+        if (mesh.material) {
+          const m = mesh.material as THREE.Material | THREE.Material[];
+          if (Array.isArray(m)) m.forEach((x) => x.dispose());
+          else m.dispose();
+        }
+      });
+      this.flashes.splice(i, 1);
+    }
+  }
+
   /** The current flash lifetimes (e2e screenshots want to know the window). */
   get laserFlashMs(): number {
     return this.slow ? 500 : LASER_FLASH_MS;
@@ -106,6 +180,9 @@ export class CombatFx {
 
   /** One laser shot: additive line nose→to (60 ms) + a muzzle spark. */
   addLaserFlash(from: Vec3, to: Vec3): void {
+    // TASK-58 cap (oldest expires): enforce BEFORE pushing this shot.
+    this.enforceCap('laser', this.caps.laserFlashes);
+    const groupId = this.nextGroup++;
     const now = this.fxTime;
     const slow = this.stretched();
     const life = slow ? 500 : LASER_FLASH_MS;
@@ -154,6 +231,8 @@ export class CombatFx {
       obj: line,
       born: now,
       life,
+      kind: 'laser',
+      groupId,
       update: (age, obj) => {
         const m = (obj as THREE.Line).material as THREE.LineBasicMaterial;
         m.opacity = fade(age);
@@ -161,7 +240,7 @@ export class CombatFx {
         s.opacity = slow ? fade(age) : Math.max(0, 1 - age * 1.5);
       },
     });
-    this.flashes.push({ obj: spark, born: now, life: life * 0.8 });
+    this.flashes.push({ obj: spark, born: now, life: life * 0.8, kind: 'laser', groupId });
   }
 
   /** One impact: a small expanding flash at `point` (additive, ~120 ms). */
@@ -186,6 +265,8 @@ export class CombatFx {
       obj: flash,
       born: now,
       life,
+      kind: 'impact',
+      groupId: this.nextGroup++,
       update: (age, obj) => {
         obj.scale.setScalar(1 + age * 6);
         ((obj as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = 1 - age;
@@ -201,6 +282,9 @@ export class CombatFx {
    */
   addExplosion(point: Vec3): void {
     this.armSlowMo();
+    // TASK-58 cap (oldest SET expires): enforce BEFORE adding this set.
+    this.enforceCap('explosion', this.caps.debrisSets);
+    const groupId = this.nextGroup++;
     const slow = this.stretched();
     const now = this.fxTime;
     const p = new THREE.Vector3(point.x, point.y, point.z);
@@ -224,6 +308,8 @@ export class CombatFx {
       obj: core,
       born: now,
       life: slow ? 2000 : EXPLOSION_FLASH_MS,
+      kind: 'explosion',
+      groupId,
       update: (age, obj) => {
         obj.scale.setScalar(1 + age * 8);
         ((obj as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = 1 - age;
@@ -252,6 +338,8 @@ export class CombatFx {
       obj: wave,
       born: now,
       life: slow ? 2000 : SHOCKWAVE_MS,
+      kind: 'explosion',
+      groupId,
       update: (age, obj) => {
         const w = obj as THREE.Mesh;
         w.scale.setScalar(1 + age * 30);
@@ -290,6 +378,8 @@ export class CombatFx {
         obj: debris,
         born: now,
         life: slow ? 6000 : DEBRIS_MS,
+        kind: 'explosion',
+        groupId,
         update: (age, obj) => {
           const d = obj as THREE.Mesh;
           d.position.copy(p).addScaledVector(dir, age * 18);
@@ -321,7 +411,8 @@ export class CombatFx {
       seen.add(e.id);
       let t = this.tracers.get(e.id);
       if (!t) {
-        if (this.tracers.size >= TRACER_CAP) {
+        // TASK-58: the cap is live data (default = the shard's 16 budget).
+        if (this.tracers.size >= this.caps.missiles) {
           // Recycle the oldest (insertion order in the Map).
           const oldest = this.tracers.keys().next().value as string;
           this.removeTracer(oldest);

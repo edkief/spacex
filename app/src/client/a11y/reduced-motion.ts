@@ -18,6 +18,7 @@ import {
   type SettingKey,
 } from '@shared/settings';
 import { setLodRadii } from '@client/world/chunks';
+import { applyPerfProfile } from '@client/perf/profile-bridge';
 
 let current: Settings = { ...DEFAULT_SETTINGS };
 const listeners = new Set<(s: Settings) => void>();
@@ -54,6 +55,7 @@ export function setQuality(quality: QualityPreset): void {
   if (current.quality === quality) return;
   commit({ ...current, quality });
   setLodRadii(lodRadiiFor(quality));
+  applyPerfProfile(quality);
 }
 
 /** Set the sensitivity (0.5–2.0, clamped; read on the NEXT input frame). */
@@ -75,6 +77,8 @@ export function applySettings(s: Settings): void {
   } else {
     commit({ ...current });
   }
+  // TASK-58: (re)apply the restored preset's tunables (idempotent).
+  applyPerfProfile(s.quality);
   const next = { ...current, sensitivity: clampSensitivity(s.sensitivity) };
   if (current.sensitivity !== next.sensitivity) commit(next);
   const rm = s['reduced-motion'];
@@ -93,5 +97,6 @@ export function settingsSubscribe(listener: (s: Settings) => void): () => void {
 export function __resetSettings(): void {
   current = { ...DEFAULT_SETTINGS };
   setLodRadii(lodRadiiFor(DEFAULT_SETTINGS.quality));
+  applyPerfProfile(DEFAULT_SETTINGS.quality);
   listeners.clear();
 }
