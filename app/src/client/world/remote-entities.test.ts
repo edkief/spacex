@@ -236,7 +236,9 @@ function shipVertexColors(group: THREE.Group): THREE.Color[] {
 /** Component-equality against a hex (both sides in linear working space). */
 function colorIs(c: THREE.Color, hex: string): boolean {
   const ref = new THREE.Color(hex);
-  return Math.abs(c.r - ref.r) < 1e-6 && Math.abs(c.g - ref.g) < 1e-6 && Math.abs(c.b - ref.b) < 1e-6;
+  return (
+    Math.abs(c.r - ref.r) < 1e-6 && Math.abs(c.g - ref.g) < 1e-6 && Math.abs(c.b - ref.b) < 1e-6
+  );
 }
 
 /** The unique zone materials of one ship group (hull / accent / trim). */
@@ -374,9 +376,17 @@ describe('RemoteEntityLayer — ships (TASK-74)', () => {
     // TASK-58 merged ships: the trim ZONE is a vertex-color range, so the
     // hostile accent is asserted on the ai-ship's color buffer (its trim
     // vertices) — the shared state material stays class-neutral.
-    expect(shipVertexColors(parent.children[1] as THREE.Group).some((c) => colorIs(c, AI_SHIP_TRIM_COLOR))).toBe(true);
+    expect(
+      shipVertexColors(parent.children[1] as THREE.Group).some((c) =>
+        colorIs(c, AI_SHIP_TRIM_COLOR),
+      ),
+    ).toBe(true);
     // …and the player ship carries it nowhere (class-default trim instead).
-    expect(shipVertexColors(parent.children[0] as THREE.Group).some((c) => colorIs(c, AI_SHIP_TRIM_COLOR))).toBe(false);
+    expect(
+      shipVertexColors(parent.children[0] as THREE.Group).some((c) =>
+        colorIs(c, AI_SHIP_TRIM_COLOR),
+      ),
+    ).toBe(false);
     // The state materials are transparent — the stale/dimmed opacity rule works.
     expect(shipMats(parent.children[1] as THREE.Group).every((m) => m.transparent)).toBe(true);
   });

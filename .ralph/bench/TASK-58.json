@@ -1,0 +1,172 @@
+{
+  "date": "2026-10-05T03:55:23.957Z",
+  "scene": {
+    "ships": 16,
+    "chunks": 13,
+    "deposits": 30,
+    "labels": 20,
+    "frames": 3600,
+    "preset": "high"
+  },
+  "baseline": {
+    "tuned": false,
+    "frames": 3600,
+    "p50Ms": 0.12,
+    "p95Ms": 0.283,
+    "p99Ms": 0.339,
+    "maxMs": 0.391,
+    "spikes50Ms": 0,
+    "drawCallsMax": 177,
+    "drawCallsP95": 175,
+    "materialsMax": 90,
+    "trianglesMax": 91530,
+    "maxLaserFlashes": 1,
+    "maxDebrisSets": 4,
+    "maxMissiles": 55,
+    "stageMs": {
+      "remoteFeedMs": 180.104,
+      "fxMs": 84.838,
+      "remoteRenderMs": 248.677,
+      "surfaceMs": 265.615,
+      "oreMs": 35.338,
+      "tallyMs": 149.661
+    },
+    "wallMs": 1235
+  },
+  "tunedRuns": [
+    {
+      "tuned": true,
+      "frames": 3600,
+      "p50Ms": 0.146,
+      "p95Ms": 0.31,
+      "p99Ms": 0.429,
+      "maxMs": 0.517,
+      "spikes50Ms": 0,
+      "drawCallsMax": 151,
+      "drawCallsP95": 149,
+      "materialsMax": 90,
+      "trianglesMax": 88722,
+      "maxLaserFlashes": 1,
+      "maxDebrisSets": 4,
+      "maxMissiles": 55,
+      "stageMs": {
+        "remoteFeedMs": 89.201,
+        "fxMs": 59.176,
+        "remoteRenderMs": 141.045,
+        "surfaceMs": 185.143,
+        "oreMs": 81.241,
+        "tallyMs": 98.061
+      },
+      "wallMs": 789
+    },
+    {
+      "tuned": true,
+      "frames": 3600,
+      "p50Ms": 0.137,
+      "p95Ms": 0.296,
+      "p99Ms": 0.392,
+      "maxMs": 0.833,
+      "spikes50Ms": 0,
+      "drawCallsMax": 151,
+      "drawCallsP95": 149,
+      "materialsMax": 90,
+      "trianglesMax": 88722,
+      "maxLaserFlashes": 1,
+      "maxDebrisSets": 4,
+      "maxMissiles": 55,
+      "stageMs": {
+        "remoteFeedMs": 66.645,
+        "fxMs": 55.377,
+        "remoteRenderMs": 123.041,
+        "surfaceMs": 157.345,
+        "oreMs": 75.635,
+        "tallyMs": 90.473
+      },
+      "wallMs": 704
+    },
+    {
+      "tuned": true,
+      "frames": 3600,
+      "p50Ms": 0.146,
+      "p95Ms": 0.323,
+      "p99Ms": 0.458,
+      "maxMs": 1.422,
+      "spikes50Ms": 0,
+      "drawCallsMax": 151,
+      "drawCallsP95": 149,
+      "materialsMax": 90,
+      "trianglesMax": 88722,
+      "maxLaserFlashes": 1,
+      "maxDebrisSets": 4,
+      "maxMissiles": 55,
+      "stageMs": {
+        "remoteFeedMs": 67.299,
+        "fxMs": 56.088,
+        "remoteRenderMs": 121.112,
+        "surfaceMs": 156.352,
+        "oreMs": 77.054,
+        "tallyMs": 92.461
+      },
+      "wallMs": 697
+    },
+    {
+      "tuned": true,
+      "frames": 3600,
+      "p50Ms": 0.135,
+      "p95Ms": 0.262,
+      "p99Ms": 0.4,
+      "maxMs": 2.525,
+      "spikes50Ms": 0,
+      "drawCallsMax": 151,
+      "drawCallsP95": 149,
+      "materialsMax": 90,
+      "trianglesMax": 88722,
+      "maxLaserFlashes": 1,
+      "maxDebrisSets": 4,
+      "maxMissiles": 55,
+      "stageMs": {
+        "remoteFeedMs": 62.769,
+        "fxMs": 54.572,
+        "remoteRenderMs": 120.423,
+        "surfaceMs": 159.172,
+        "oreMs": 62.003,
+        "tallyMs": 91.286
+      },
+      "wallMs": 684
+    },
+    {
+      "tuned": true,
+      "frames": 3600,
+      "p50Ms": 0.13,
+      "p95Ms": 0.269,
+      "p99Ms": 0.314,
+      "maxMs": 0.335,
+      "spikes50Ms": 0,
+      "drawCallsMax": 151,
+      "drawCallsP95": 149,
+      "materialsMax": 90,
+      "trianglesMax": 88722,
+      "maxLaserFlashes": 1,
+      "maxDebrisSets": 4,
+      "maxMissiles": 55,
+      "stageMs": {
+        "remoteFeedMs": 67.115,
+        "fxMs": 55.236,
+        "remoteRenderMs": 123.737,
+        "surfaceMs": 156.582,
+        "oreMs": 61.953,
+        "tallyMs": 88.757
+      },
+      "wallMs": 679
+    }
+  ],
+  "p95": {
+    "spread": 0.2089041095890411,
+    "mean": 0.292
+  },
+  "delta": {
+    "p95": 0.0742049469964663,
+    "max": -5.4578005115089505
+  },
+  "pass": false
+}
