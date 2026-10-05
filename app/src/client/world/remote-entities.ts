@@ -490,7 +490,7 @@ export class RemoteEntityLayer {
       out.push({
         id,
         kind: info?.kind ?? 'ship',
-        classId: r.mesh.classId,
+        classId: r.classId,
         callsign: info?.callsign ?? null,
         pos: { x: r.group.position.x, y: r.group.position.y, z: r.group.position.z },
       });
@@ -559,7 +559,7 @@ export class RemoteEntityLayer {
       this.parent?.add(r.group);
       this.ships.set(id, r);
       registerEntity(id, 'ship');
-    } else if (r.mesh.classId !== classId) {
+    } else if (r.classId !== classId) {
       // classId changed (a ship swap): rebuild the silhouette, keep the id.
       this.parent?.remove(r.group);
       disposeShipRender(r);

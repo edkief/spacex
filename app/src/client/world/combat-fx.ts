@@ -44,6 +44,133 @@ export const FLASH_RENDER_ORDER = 20;
 /** Muzzle-glow scale in dev slow-mo (screenshot) mode. */
 export const SLOW_SPARK_SCALE = 6;
 
+// ---------------------------------------------------------------------------
+// TASK-58: the FX material pool + shared geometries. Pre-tuning, every flash
+// ALLOCATED its own materials (and the debris their own tetrahedron
+// geometries) and DISPOSED them on expiry — the allocation churn was a big
+// slice of the worst combat frames. Now the per-type materials are recycled
+// (a 60 ms laser flash lives ~3 frames; its material never leaves the pool)
+// and the shape geometries are module-level singletons.
+// ---------------------------------------------------------------------------
+
+type FxMaterialType =
+  | 'laserLine'
+  | 'laserSpark'
+  | 'impact'
+  | 'core'
+  | 'wave'
+  | 'debrisA'
+  | 'debrisB'
+  | 'tracerBody'
+  | 'tracerTrail';
+
+/** The shared FX shape geometries (created once — never disposed). */
+const FX_GEOMETRY = {
+  spark: new THREE.SphereGeometry(1.2, 8, 8),
+  impact: new THREE.SphereGeometry(1, 12, 12),
+  core: new THREE.SphereGeometry(1, 16, 16),
+  wave: new THREE.RingGeometry(0.7, 1, 32),
+  debris: new THREE.TetrahedronGeometry(0.6),
+  tracerBody: new THREE.ConeGeometry(0.35, 1.6, 6),
+};
+
+/** Fresh materials of each type (the factory the pool tops up from). */
+const FX_MATERIAL_FACTORIES: Record<FxMaterialType, () => THREE.Material> = {
+  laserLine: () =>
+    new THREE.LineBasicMaterial({
+      color: 0xff5040,
+      transparent: true,
+      opacity: 1,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      depthTest: false,
+    }),
+  laserSpark: () =>
+    new THREE.MeshBasicMaterial({
+      color: 0xffb060,
+      transparent: true,
+      opacity: 1,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      depthTest: false,
+    }),
+  impact: () =>
+    new THREE.MeshBasicMaterial({
+      color: 0xffa040,
+      transparent: true,
+      opacity: 1,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      depthTest: false,
+    }),
+  core: () =>
+    new THREE.MeshBasicMaterial({
+      color: 0xffd0a0,
+      transparent: true,
+      opacity: 1,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      depthTest: false,
+    }),
+  wave: () =>
+    new THREE.MeshBasicMaterial({
+      color: 0xffb060,
+      transparent: true,
+      opacity: 0.9,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      depthTest: false,
+    }),
+  debrisA: () =>
+    new THREE.MeshBasicMaterial({
+      color: 0xff9040,
+      transparent: true,
+      opacity: 1,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      depthTest: false,
+    }),
+  debrisB: () =>
+    new THREE.MeshBasicMaterial({
+      color: 0x8a8f98,
+      transparent: true,
+      opacity: 1,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      depthTest: false,
+    }),
+  tracerBody: () => new THREE.MeshBasicMaterial({ color: 0xffc040 }),
+  tracerTrail: () =>
+    new THREE.LineBasicMaterial({
+      color: 0x909090,
+      transparent: true,
+      opacity: 0.35,
+      depthWrite: false,
+    }),
+};
+
+/** One recycled material per live type (the pool). */
+const fxMaterialPools = new Map<FxMaterialType, THREE.Material[]>();
+
+/** Take a pooled material of a type (fresh allocation only when the pool is dry). */
+function takeFxMaterial(type: FxMaterialType): THREE.Material {
+  const pool = fxMaterialPools.get(type) ?? [];
+  const m = pool.pop() ?? FX_MATERIAL_FACTORIES[type]();
+  fxMaterialPools.set(type, pool);
+  return m;
+}
+
+/** Return a material to its pool (never disposed while the app runs). */
+function releaseFxMaterial(type: FxMaterialType, m: THREE.Material): void {
+  let pool = fxMaterialPools.get(type);
+  if (!pool) {
+    pool = [];
+    fxMaterialPools.set(type, pool);
+  }
+  pool.push(m);
+}
+
 interface Flash {
   obj: THREE.Object3D;
   born: number;
@@ -58,6 +185,8 @@ interface Flash {
   /** Monotonic effect-group id (shared by the pieces of one shot/set). */
   groupId: number;
   update?: (age: number, obj: THREE.Object3D) => void;
+  /** TASK-58: recycle this piece's pooled materials (shared geometries stay). */
+  release?: (obj: THREE.Object3D) => void;
 }
 
 /**
@@ -149,21 +278,13 @@ export class CombatFx {
     this.removeGroup(oldest);
   }
 
-  /** Remove + dispose every flash piece of one effect group. */
+  /** Remove every flash piece of one effect group + recycle its materials. */
   private removeGroup(groupId: number): void {
     for (let i = this.flashes.length - 1; i >= 0; i--) {
       const f = this.flashes[i];
       if (f.groupId !== groupId) continue;
       this.group.remove(f.obj);
-      f.obj.traverse((o) => {
-        const mesh = o as THREE.Mesh;
-        if (mesh.geometry) mesh.geometry.dispose();
-        if (mesh.material) {
-          const m = mesh.material as THREE.Material | THREE.Material[];
-          if (Array.isArray(m)) m.forEach((x) => x.dispose());
-          else m.dispose();
-        }
-      });
+      f.release?.(f.obj);
       this.flashes.splice(i, 1);
     }
   }
@@ -198,29 +319,11 @@ export class CombatFx {
     // The flash is a GLOW, not world geometry: render it on top (no depth
     // test) so a beam fired toward a planet/star is never occluded into
     // invisibility (the e2e screenshots the flash from the far orbit view).
-    const line = new THREE.Line(
-      lineGeo,
-      new THREE.LineBasicMaterial({
-        color: 0xff5040,
-        transparent: true,
-        opacity: 1,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        depthTest: false,
-      }),
-    );
+    const lineMaterial = takeFxMaterial('laserLine') as THREE.LineBasicMaterial;
+    const line = new THREE.Line(lineGeo, lineMaterial);
     line.renderOrder = FLASH_RENDER_ORDER;
-    const spark = new THREE.Mesh(
-      new THREE.SphereGeometry(1.2, 8, 8),
-      new THREE.MeshBasicMaterial({
-        color: 0xffb060,
-        transparent: true,
-        opacity: 1,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        depthTest: false,
-      }),
-    );
+    const sparkMaterial = takeFxMaterial('laserSpark') as THREE.MeshBasicMaterial;
+    const spark = new THREE.Mesh(FX_GEOMETRY.spark, sparkMaterial);
     spark.renderOrder = FLASH_RENDER_ORDER;
     spark.position.set(from.x, from.y, from.z);
     // In the dev slow-mo (screenshot) mode the muzzle glow is scaled up so a
@@ -233,6 +336,12 @@ export class CombatFx {
       life,
       kind: 'laser',
       groupId,
+      release: (obj) => {
+        // Only the beam geometry is unique per shot — dispose it; the
+        // material goes back to the pool.
+        (obj as THREE.Line).geometry.dispose();
+        releaseFxMaterial('laserLine', (obj as THREE.Line).material as THREE.Material);
+      },
       update: (age, obj) => {
         const m = (obj as THREE.Line).material as THREE.LineBasicMaterial;
         m.opacity = fade(age);
@@ -240,23 +349,21 @@ export class CombatFx {
         s.opacity = slow ? fade(age) : Math.max(0, 1 - age * 1.5);
       },
     });
-    this.flashes.push({ obj: spark, born: now, life: life * 0.8, kind: 'laser', groupId });
+    this.flashes.push({
+      obj: spark,
+      born: now,
+      life: life * 0.8,
+      kind: 'laser',
+      groupId,
+      release: () => releaseFxMaterial('laserSpark', sparkMaterial),
+    });
   }
 
   /** One impact: a small expanding flash at `point` (additive, ~120 ms). */
   addImpactFlash(point: Vec3): void {
     const now = this.fxTime;
-    const flash = new THREE.Mesh(
-      new THREE.SphereGeometry(1, 12, 12),
-      new THREE.MeshBasicMaterial({
-        color: 0xffa040,
-        transparent: true,
-        opacity: 1,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        depthTest: false,
-      }),
-    );
+    const material = takeFxMaterial('impact');
+    const flash = new THREE.Mesh(FX_GEOMETRY.impact, material);
     flash.renderOrder = FLASH_RENDER_ORDER;
     flash.position.set(point.x, point.y, point.z);
     this.group.add(flash);
@@ -267,6 +374,7 @@ export class CombatFx {
       life,
       kind: 'impact',
       groupId: this.nextGroup++,
+      release: () => releaseFxMaterial('impact', material),
       update: (age, obj) => {
         obj.scale.setScalar(1 + age * 6);
         ((obj as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = 1 - age;
@@ -290,17 +398,8 @@ export class CombatFx {
     const p = new THREE.Vector3(point.x, point.y, point.z);
 
     // (1) The 1 s core flash: a hot sphere that expands + fades.
-    const core = new THREE.Mesh(
-      new THREE.SphereGeometry(1, 16, 16),
-      new THREE.MeshBasicMaterial({
-        color: 0xffd0a0,
-        transparent: true,
-        opacity: 1,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        depthTest: false,
-      }),
-    );
+    const coreMaterial = takeFxMaterial('core');
+    const core = new THREE.Mesh(FX_GEOMETRY.core, coreMaterial);
     core.renderOrder = FLASH_RENDER_ORDER;
     core.position.copy(p);
     this.group.add(core);
@@ -310,6 +409,7 @@ export class CombatFx {
       life: slow ? 2000 : EXPLOSION_FLASH_MS,
       kind: 'explosion',
       groupId,
+      release: () => releaseFxMaterial('core', coreMaterial),
       update: (age, obj) => {
         obj.scale.setScalar(1 + age * 8);
         ((obj as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = 1 - age;
@@ -317,18 +417,8 @@ export class CombatFx {
     });
 
     // (2) The shockwave: an expanding flat quad (ring) at the impact plane.
-    const wave = new THREE.Mesh(
-      new THREE.RingGeometry(0.7, 1, 32),
-      new THREE.MeshBasicMaterial({
-        color: 0xffb060,
-        transparent: true,
-        opacity: 0.9,
-        side: THREE.DoubleSide,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        depthTest: false,
-      }),
-    );
+    const waveMaterial = takeFxMaterial('wave');
+    const wave = new THREE.Mesh(FX_GEOMETRY.wave, waveMaterial);
     wave.renderOrder = FLASH_RENDER_ORDER;
     wave.position.copy(p);
     // Face the wave toward the camera (billboard) so it reads as a shockwave
@@ -340,6 +430,7 @@ export class CombatFx {
       life: slow ? 2000 : SHOCKWAVE_MS,
       kind: 'explosion',
       groupId,
+      release: () => releaseFxMaterial('wave', waveMaterial),
       update: (age, obj) => {
         const w = obj as THREE.Mesh;
         w.scale.setScalar(1 + age * 30);
@@ -351,17 +442,9 @@ export class CombatFx {
 
     // (3) 8 tumbling tetrahedrons: debris that fly out + fade over 3 s.
     for (let i = 0; i < DEBRIS_COUNT; i++) {
-      const debris = new THREE.Mesh(
-        new THREE.TetrahedronGeometry(0.6),
-        new THREE.MeshBasicMaterial({
-          color: i % 2 === 0 ? 0xff9040 : 0x8a8f98,
-          transparent: true,
-          opacity: 1,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-          depthTest: false,
-        }),
-      );
+      const type: FxMaterialType = i % 2 === 0 ? 'debrisA' : 'debrisB';
+      const debrisMaterial = takeFxMaterial(type);
+      const debris = new THREE.Mesh(FX_GEOMETRY.debris, debrisMaterial);
       debris.renderOrder = FLASH_RENDER_ORDER;
       debris.position.copy(p);
       this.group.add(debris);
@@ -380,6 +463,7 @@ export class CombatFx {
         life: slow ? 6000 : DEBRIS_MS,
         kind: 'explosion',
         groupId,
+        release: () => releaseFxMaterial(type, debrisMaterial),
         update: (age, obj) => {
           const d = obj as THREE.Mesh;
           d.position.copy(p).addScaledVector(dir, age * 18);
@@ -428,10 +512,7 @@ export class CombatFx {
   }
 
   private makeTracer(): Tracer {
-    const body = new THREE.Mesh(
-      new THREE.ConeGeometry(0.35, 1.6, 6),
-      new THREE.MeshBasicMaterial({ color: 0xffc040 }),
-    );
+    const body = new THREE.Mesh(FX_GEOMETRY.tracerBody, takeFxMaterial('tracerBody'));
     // The cone points +Y by default; the tracer faces its velocity — pivot.
     const pivot = new THREE.Group();
     body.rotation.x = Math.PI / 2;
@@ -439,15 +520,7 @@ export class CombatFx {
     const trailGeo = new THREE.BufferGeometry().setFromPoints(
       Array.from({ length: TRAIL_MAX }, () => new THREE.Vector3()),
     );
-    const trail = new THREE.Line(
-      trailGeo,
-      new THREE.LineBasicMaterial({
-        color: 0x909090,
-        transparent: true,
-        opacity: 0.35,
-        depthWrite: false,
-      }),
-    );
+    const trail = new THREE.Line(trailGeo, takeFxMaterial('tracerTrail'));
     this.group.add(pivot, trail);
     return new Tracer(pivot, trail, body);
   }
@@ -472,15 +545,7 @@ export class CombatFx {
       const age = (this.fxTime - f.born) / f.life;
       if (age >= 1) {
         this.group.remove(f.obj);
-        f.obj.traverse((o) => {
-          const mesh = o as THREE.Mesh;
-          if (mesh.geometry) mesh.geometry.dispose();
-          if (mesh.material) {
-            const m = mesh.material as THREE.Material | THREE.Material[];
-            if (Array.isArray(m)) m.forEach((x) => x.dispose());
-            else m.dispose();
-          }
-        });
+        f.release?.(f.obj);
         this.flashes.splice(i, 1);
         continue;
       }
@@ -524,9 +589,10 @@ class Tracer {
   }
 
   dispose(): void {
+    // Only the trail ribbon is unique per projectile. The cone geometry and
+    // both materials are shared/pooled (TASK-58) — never disposed.
     this.trail.geometry.dispose();
-    (this.trail.material as THREE.Material).dispose();
-    this.body.geometry.dispose();
-    (this.body.material as THREE.Material).dispose();
+    releaseFxMaterial('tracerTrail', this.trail.material as THREE.Material);
+    releaseFxMaterial('tracerBody', this.body.material as THREE.Material);
   }
 }
