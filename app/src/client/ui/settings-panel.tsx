@@ -2,17 +2,20 @@ import React from 'react';
 
 import {
   DEFAULT_SETTINGS,
+  DEVICE_PROFILE_CHOICES,
   QUALITY_PRESETS,
   SETTING_KEYS,
   type QualityPreset,
   type Settings,
 } from '@shared/settings';
+import type { DeviceProfileChoice } from '@shared/perf';
 import {
   settingsState,
   settingsSubscribe,
   setQuality,
   setSensitivity,
   setSetting,
+  setDeviceProfile,
 } from '@client/a11y/reduced-motion';
 import { putSettings } from '@client/net/settings-api';
 
@@ -93,6 +96,18 @@ export function SettingsPanel(props: SettingsPanelProps): React.ReactElement {
     put({ quality: q });
   };
 
+  /**
+   * TASK-59: the device-profile override (Auto / Desktop / Mobile). NOT
+   * live — it takes effect at the next world load: the main app (subscribed
+   * to the user-change bus) fires the 'Profile applied — re-entering
+   * system' toast + the warp transition around a re-load of the current
+   * system (the pipeline re-init is not live for mobile-tier cuts).
+   */
+  const onDeviceProfile = (p: DeviceProfileChoice): void => {
+    setDeviceProfile(p);
+    put({ deviceProfile: p });
+  };
+
   const onSensitivityInput = (value: number): void => {
     setSensitivity(value); // applied on the NEXT input frame (live)
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -131,6 +146,27 @@ export function SettingsPanel(props: SettingsPanelProps): React.ReactElement {
             onClick={() => onPreset(q)}
           >
             {q.toUpperCase()}
+          </button>
+        ))}
+      </div>
+
+      <div id="settings-device-profile-heading" style={SECTION_STYLE}>
+        DEVICE PROFILE
+      </div>
+      <div style={{ display: 'flex', gap: '0.35rem' }}>
+        {DEVICE_PROFILE_CHOICES.map((p) => (
+          <button
+            key={p}
+            id={`settings-device-profile-${p}`}
+            type="button"
+            aria-pressed={s.deviceProfile === p}
+            style={{
+              ...PRESET_STYLE,
+              borderColor: s.deviceProfile === p ? '#4a6fa5' : '#2c3a4d',
+            }}
+            onClick={() => onDeviceProfile(p)}
+          >
+            {p.toUpperCase()}
           </button>
         ))}
       </div>

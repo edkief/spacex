@@ -65,7 +65,9 @@ interface Overview {
  * no mouse/pointer event can be produced by the keyboard at all, so the
  * rest of the list stays absolute.
  */
-async function installMouseEventGuard(page: import('@playwright/test').Page): Promise<void> {
+// Exported (TASK-59): the mobile-profile spec reuses the mouse-event guard,
+// the keyboard warp and the burst-turn sweep for its reduced-FX loop.
+export async function installMouseEventGuard(page: import('@playwright/test').Page): Promise<void> {
   await page.addInitScript(() => {
     interface MouseLogEntry {
       ev: string;
@@ -105,7 +107,7 @@ async function installMouseEventGuard(page: import('@playwright/test').Page): Pr
 }
 
 /** Select the chart node + fire the warp, all with keys. Returns on detach. */
-async function keyboardWarp(
+export async function keyboardWarp(
   page: import('@playwright/test').Page,
   toSystemId: string,
   fromSystemId: string,
@@ -162,7 +164,7 @@ async function keyboardWarp(
  * can lag and overshoot the cone, so 100 ms bursts + a 400 ms rest read
  * the prompt AT REST): 24 × ~21° covers a full revolution.
  */
-async function sweepUntil(
+export async function sweepUntil(
   page: import('@playwright/test').Page,
   promptText: string,
 ): Promise<void> {

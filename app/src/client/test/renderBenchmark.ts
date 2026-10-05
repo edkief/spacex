@@ -36,7 +36,7 @@
  * every mesh/line/points object per frame; renderer.info counts what was
  * actually drawn, not what is in the scene graph).
  *
-  * `tuned: true` (default) runs the TASK-58 pipeline (merged ships,
+ * `tuned: true` (default) runs the TASK-58 pipeline (merged ships,
  * instanced ore, per-LOD-ring merged chunk meshes, the FX material pool,
  * the profile's FX caps); `tuned: false` is the PRE-tuning baseline
  * (legacy 7-mesh ships, per-rock ore meshes, per-chunk surface meshes,
@@ -49,13 +49,14 @@ import { generateSystem } from '@shared/galaxy/system';
 import type { Vec3 } from '@shared/physics/vec';
 import { padsForSystem } from '@shared/world/pads';
 import { Rng, seedFromString } from '@shared/random';
-import { PERF_PROFILES, type FxCaps } from '@shared/perf';
+import { PERF_PROFILES, type FxCaps, type PerfProfileKey } from '@shared/perf';
+import { setLodRadii } from '@client/world/chunks';
 import type { EntityState, Livery } from '@shared/protocol/schemas';
 import { ChunkStreamer, activeSet, chunkKey, type CachedChunk } from '@client/world/chunks';
 import { ChunkScene } from '@client/world/chunk-scene';
 import { OreRockLayer } from '@client/world/ore-rocks';
 import { CombatFx } from '@client/world/combat-fx';
-import { RemoteEntityLayer, type Projected } from '@client/world/remote-entities';
+import { RemoteEntityLayer, setLabelCap, type Projected } from '@client/world/remote-entities';
 import { buildHazardDiscs } from '@client/world/hazard-discs';
 import { createBackground } from '@client/render/starfield';
 import { FrameMonitor, type FrameStats } from '@client/perf/frameMonitor';
@@ -101,8 +102,19 @@ const LIVERIES: Livery[] = [
 export interface RenderBenchmarkOptions {
   /** Simulated frames (default 3600 = 60 s). The CI version uses 600 (10 s). */
   frames?: number;
-  /** false = the pre-tuning baseline (legacy ships/ore, uncapped FX). */
+  /**
+   * false = the pre-tuning baseline (legacy ships/ore, uncapped FX) — the
+   * baseline ALWAYS runs the high row (it is the pre-tuning desktop scene).
+   */
   tuned?: boolean;
+  /**
+   * TASK-59: the PERF row to run (default 'high'). 'mobile' re-points the
+   * chunk streamer's LOD radii (512/3000/3000 → a smaller mounted window),
+   * the star count (2000), the FX caps, the label cap (8) and the missile
+   * trails (off) — the 1.5x frame-time-margin comparison runs high vs
+   * mobile on the SAME scene.
+   */
+  profile?: PerfProfileKey;
   seed?: string;
   starId?: string;
   planetIndex?: number;
@@ -123,6 +135,8 @@ export interface RenderBenchmarkOptions {
 /** One run's report (the numbers recorded for TASK-61). */
 export interface RenderBenchmarkReport {
   tuned: boolean;
+  /** TASK-59: the perf row the run used ('high' baseline or 'mobile'). */
+  profileKey: PerfProfileKey;
   frames: number;
   /** Frame-time percentiles (ms) over the whole run. */
   p50Ms: number;
@@ -228,10 +242,16 @@ export function runRenderBenchmark(options: RenderBenchmarkOptions = {}): Render
   const tuned = options.tuned ?? true;
   const monitor = options.monitor ?? new FrameMonitor();
   const wallTimeoutMs = options.wallTimeoutMs ?? 180_000;
-  const profile = PERF_PROFILES.high;
+  // TASK-59: the profile row drives the scene (the pre-tuning baseline is
+  // always the high row — it is the pre-tuning DESKTOP scene).
+  const profileKey: PerfProfileKey = tuned === false ? 'high' : (options.profile ?? 'high');
+  const profile = PERF_PROFILES[profileKey];
   const caps: FxCaps = tuned
     ? profile.fxCaps
     : { laserFlashes: 9999, missiles: 16, debrisSets: 9999 };
+  // The chunk streamer reads the LIVE LOD radii per generation — point them
+  // at this profile's row for the run (restored after, other runs/tests).
+  setLodRadii(profile.lodRadii);
   const wallStart = performance.now();
 
   const system = generateSystem(seed, starId);
@@ -255,16 +275,22 @@ export function runRenderBenchmark(options: RenderBenchmarkOptions = {}): Render
   // is the STEADY 13-chunk state, not the cold-load burst). The driver
   // streamer caps the mountable set to that 13-chunk active window (the
   // live pipeline's far-ring horizon is outside the AC-1 scene spec).
+  // TASK-59: the mobile profile's 3 km radii yield a SMALLER steady active
+  // window — warm up to whatever the active set is for the active radii.
   const streamer = new Ac1Streamer(seed, planet);
   const chunkScene = new ChunkScene(streamer, { monitor, merged: tuned });
   threeScene.add(chunkScene.group);
-  for (let i = 0; i < 4000 && chunkScene.mountedCount < BENCH_MOUNT_TARGET; i++) {
+  const mountTarget =
+    profileKey === 'high'
+      ? BENCH_MOUNT_TARGET
+      : Math.max(1, activeSet(playerPos.x, playerPos.z, 0).length);
+  for (let i = 0; i < 4000 && chunkScene.mountedCount < mountTarget; i++) {
     streamer.update(playerPos.x, playerPos.z, 0);
     chunkScene.sync(playerPos.x, playerPos.z, 0);
   }
-  if (chunkScene.mountedCount < BENCH_MOUNT_TARGET) {
+  if (chunkScene.mountedCount < mountTarget) {
     throw new Error(
-      `TASK-58: only ${chunkScene.mountedCount}/${BENCH_MOUNT_TARGET} chunks mounted in the warm-up`,
+      `TASK-58: only ${chunkScene.mountedCount}/${mountTarget} chunks mounted in the warm-up (profile ${profileKey})`,
     );
   }
 
@@ -304,6 +330,10 @@ export function runRenderBenchmark(options: RenderBenchmarkOptions = {}): Render
     return camera;
   });
   combatFx.setFxCaps(caps);
+  // TASK-59: the mobile floor renders missiles as single dots (no ribbons).
+  combatFx.setMissileTrails(profile.missileTrails);
+  // TASK-59: the label cap is profile data (mobile = 8, high = 20).
+  setLabelCap(profile.maxLabels);
 
   // The 16 remote ships on orbit (8 player livery + 8 AI hostile).
   const remotes = new RemoteEntityLayer();
@@ -559,6 +589,8 @@ export function runRenderBenchmark(options: RenderBenchmarkOptions = {}): Render
     chunkScene.dispose();
     streamer.reset();
     remotes.clear();
+    // Restore the desktop LOD radii (the live module ref is shared state).
+    setLodRadii(PERF_PROFILES.high.lodRadii);
   }
 
   const stats = monitor.getFrameStats();
@@ -569,6 +601,7 @@ export function runRenderBenchmark(options: RenderBenchmarkOptions = {}): Render
   };
   return {
     tuned,
+    profileKey,
     frames,
     p50Ms: round3(stats.frameTimeP50Ms),
     p95Ms: round3(stats.frameTimeP95Ms),

@@ -73,6 +73,62 @@ export interface AtmosphereDome {
 }
 
 /**
+ * The MOBILE-floor atmosphere (TASK-59): NO shader dome — a flat color
+ * haze. One low-poly back-face sphere with a MeshBasicMaterial: the
+ * planet haze tint at opacity = haze (same shared haze number contract,
+ * so the skybox fade stays in lockstep), zero per-fragment shader work.
+ * It serves the same interface shape as the dome (set / dispose / haze),
+ * so the WorldManager drives both from one code path.
+ */
+export interface FlatHaze {
+  mesh: THREE.Mesh;
+  material: THREE.MeshBasicMaterial;
+  /** The haze number the haze was last set to (clamped 0..1). */
+  readonly haze: number;
+  set(haze: number, atmoColor: THREE.Color, skyColor?: THREE.Color): void;
+  dispose(): void;
+}
+
+/** Either atmosphere implementation (the WorldManager's field type). */
+export type AtmosphereLayer = AtmosphereDome | FlatHaze;
+
+export function createFlatHaze(radiusU: number): FlatHaze {
+  // Low-poly on purpose: the mobile tier's atmosphere is a silhouette,
+  // not a blend — 12x8 segments is plenty for a back-face shell.
+  const geometry = new THREE.SphereGeometry(radiusU * DOME_RADIUS_FACTOR, 12, 8);
+  const material = new THREE.MeshBasicMaterial({
+    transparent: true,
+    opacity: 0,
+    side: THREE.BackSide,
+    depthWrite: false,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.visible = false; // space by default — same zero-cost rule as the dome
+  mesh.renderOrder = 2; // composites over the skybox layers, like the dome
+
+  let haze = 0;
+  return {
+    mesh,
+    material,
+    get haze(): number {
+      return haze;
+    },
+    set(h: number, atmoColor: THREE.Color, skyColor?: THREE.Color): void {
+      haze = THREE.MathUtils.clamp(Number.isFinite(h) ? h : 0, 0, 1);
+      // The flat haze: planet tint at full color, opacity = the haze number.
+      material.color.copy(atmoColor);
+      material.opacity = haze;
+      void skyColor; // the sky fade is driven separately (the no-desync number)
+      mesh.visible = haze > 1e-4;
+    },
+    dispose(): void {
+      geometry.dispose();
+      material.dispose();
+    },
+  };
+}
+
+/**
  * Build the dome for an atmosphere enter radius (world u). The geometry
  * is radius × DOME_RADIUS_FACTOR per the spec (per-planet geometry; at
  * most one dome is active at a time — the nearest planet).

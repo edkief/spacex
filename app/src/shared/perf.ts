@@ -34,6 +34,61 @@
 import type { QualityPreset } from './settings';
 import { lodRadiiFor, PRESETS } from './settings';
 
+// --- Device profiles (TASK-59: the mobile rendering floor) ------------------
+
+/**
+ * The v1 device profiles (TASK-59). A device profile is ORTHOGONAL to the
+ * quality preset: the preset is the user's dial (high/medium/low), the
+ * profile is the machine's ceiling (desktop = the preset row, mobile = the
+ * dedicated mobile-floor row below). It is a pure RENDERING profile — the
+ * schema test (perf.test.ts) asserts the table carries no gameplay fields.
+ */
+export type DeviceProfile = 'desktop' | 'mobile';
+
+/** The settings row's choice (TASK-55): 'auto' = the boot detection. */
+export type DeviceProfileChoice = 'auto' | DeviceProfile;
+
+/** The navigator surface the detection heuristic reads (pure — fake it in tests). */
+export interface NavProfileHints {
+  /** 0 on desktop browsers, > 0 on touch devices. */
+  maxTouchPoints?: number;
+  /** GB, undefined when the browser does not expose it. */
+  deviceMemory?: number;
+  /** Logical CPU cores, 0/undefined when not exposed. */
+  hardwareConcurrency?: number;
+}
+
+/**
+ * The mobile-floor detection heuristic (TASK-59 AC-2, pure function — the
+ * e2e/unit tests feed it fake navigator values): a TOUCH device
+ * (maxTouchPoints > 0) with EITHER ≤ 8 GB of device memory OR ≤ 4 logical
+ * cores defaults to the Mobile profile. No touch → Desktop. Missing
+ * deviceMemory/hardwareConcurrency simply fails that branch (a touch device
+ * that exposes neither stays Desktop — desktop-class machines usually do).
+ */
+export function detectProfile(nav: NavProfileHints): DeviceProfile {
+  const touch = nav.maxTouchPoints ?? 0;
+  if (touch <= 0) return 'desktop';
+  const lowMemory = nav.deviceMemory !== undefined && nav.deviceMemory <= 8;
+  const lowCores = (nav.hardwareConcurrency ?? 0) <= 4 && (nav.hardwareConcurrency ?? 0) > 0;
+  return lowMemory || lowCores ? 'mobile' : 'desktop';
+}
+
+/** The effective profile: a manual override beats the boot detection. */
+export function effectiveDeviceProfile(
+  choice: DeviceProfileChoice,
+  nav: NavProfileHints,
+): DeviceProfile {
+  return choice === 'auto' ? detectProfile(nav) : choice;
+}
+
+/**
+ * One profile's perf-table key: a quality preset (desktop) or 'mobile'.
+ * PERF_PROFILES below is keyed by this — the client resolves the key from
+ * the settings store (effective profile + quality preset) at world load.
+ */
+export type PerfProfileKey = QualityPreset | 'mobile';
+
 /** Per-frame budgets (AC-3 / AC-4): the renderer.info contract. */
 export interface FrameBudgets {
   /**
@@ -103,6 +158,18 @@ export interface PerfProfile {
    * label overlay for 20 labels) at ~0.19 ms/frame.
    */
   maxLabels: number;
+  /**
+   * Atmosphere render mode (TASK-59): true = the shader dome (the continuous
+   * sky→haze blend), false = a FLAT color haze (one back-face sphere, no
+   * shader — the mobile tier's cheaper atmosphere). Purely visual.
+   */
+  atmosphereDome: boolean;
+  /**
+   * Missile trail ribbons (TASK-59): true = the ≤ 8-point fading trail per
+   * in-flight projectile, false = a single dot (the tracer body only — the
+   * mobile tier's cheaper missile). Purely visual.
+   */
+  missileTrails: boolean;
   /** Per-frame renderer budgets (gauge limits for the TASK-57 monitor). */
   budgets: FrameBudgets;
   /**
@@ -122,7 +189,7 @@ export interface PerfProfile {
  * same dials proportionally (their chunk budgets / draw distance come from
  * PRESETS/lodRadiiFor, so this row only adds the shared contract).
  */
-export const PERF_PROFILES: Record<QualityPreset, PerfProfile> = {
+export const PERF_PROFILES: Record<PerfProfileKey, PerfProfile> = {
   high: {
     // lodRadii: TASK-55 high row (512 / 2048 / 8000 m) — bit-identical to
     // the pre-tuning pipeline (bench-final confirms the LOD pass is not a
@@ -132,6 +199,8 @@ export const PERF_PROFILES: Record<QualityPreset, PerfProfile> = {
     // starfield is a single THREE.Points cloud, AC-3).
     starCount: PRESETS.high.starCount,
     fxQuality: PRESETS.high.fxQuality,
+    atmosphereDome: true,
+    missileTrails: true,
     // fxCaps: AC-4 verbatim (origins per the FxCaps field docs — bench-
     // final peaks: 1 concurrent laser flash, 2 debris sets, 37 active
     // effects; the caps are headroom over the scripted combat cadence).
@@ -152,6 +221,8 @@ export const PERF_PROFILES: Record<QualityPreset, PerfProfile> = {
     lodRadii: lodRadiiFor('medium'),
     starCount: PRESETS.medium.starCount,
     fxQuality: PRESETS.medium.fxQuality,
+    atmosphereDome: true,
+    missileTrails: true,
     // Scaled from high (×0.75, floored): medium trims the FX tail, not the
     // structural caps (the tracer cap mirrors the server's 16-projectile
     // shard budget — going below it would recycle live projectiles).
@@ -166,14 +237,64 @@ export const PERF_PROFILES: Record<QualityPreset, PerfProfile> = {
     lodRadii: lodRadiiFor('low'),
     starCount: PRESETS.low.starCount,
     fxQuality: PRESETS.low.fxQuality,
+    atmosphereDome: true,
+    missileTrails: true,
     fxCaps: { laserFlashes: 8, missiles: 16, debrisSets: 4 },
     maxLabels: 12,
     budgets: { drawCalls: 120, materials: 80, triangles: 500_000 },
     instanceBatches: { depositsPerResource: 32, drones: 32 },
   },
+  // TASK-59: the MOBILE rendering floor (AC-1, the numbers verbatim from the
+  // spec — the 30 fps floor for a mid-range phone; TASK-61 verifies on the
+  // reference hardware, the 1.5x frame-time margin over High is the
+  // machine-independent proxy on the dev machine).
+  mobile: {
+    // Draw distance 3 km: the near ring keeps ONLY the 3x3 core (512 m — the
+    // high core), the mid ring carries 0.5–3 km, and there is NO dedicated
+    // far ring (farMaxM collapses to the mid boundary — the spec's "far ring
+    // only within 1 km" read as: the coarsest fill stops at the mid ring,
+    // nothing streams beyond 3 km at all).
+    lodRadii: { nearMaxM: 512, midMaxM: 3_000, farMaxM: 3_000 },
+    // AC-1: 2000 points, still ONE draw call (the points-cloud starfield).
+    starCount: 2000,
+    // AC-1: 0.3 FX spawn-rate multiplier (mirrors the low preset).
+    fxQuality: 0.3,
+    atmosphereDome: false, // AC-1: no dome shader — a flat color haze instead
+    missileTrails: false, // AC-1: missile trails off — a single dot, no ribbon
+    // Scaled from high (laser flashes ×0.5, debris sets ×0.375); the tracer
+    // cap stays at the server's 16-projectile shard budget (going below it
+    // would recycle live projectiles — same rule as medium/low).
+    fxCaps: { laserFlashes: 8, missiles: 16, debrisSets: 3 },
+    // AC-1: labels max 8 (the nearest-first cap the label layer enforces).
+    maxLabels: 8,
+    // The mobile-tier budgets: half the draw budget and 60 % of the triangle
+    // budget of the desktop contract (the gauge limits for TASK-61's phone
+    // run). Materials stay at the shared 80 (the per-piece FX/hazard
+    // design, TASK-58.1 decision).
+    budgets: { drawCalls: 60, materials: 80, triangles: 300_000 },
+    instanceBatches: { depositsPerResource: 32, drones: 32 },
+  },
 };
 
-/** The active profile for a quality preset (pure lookup). */
-export function perfProfileFor(preset: QualityPreset): PerfProfile {
-  return PERF_PROFILES[preset];
+/** The active profile for a profile key — a quality preset or 'mobile' (pure lookup). */
+export function perfProfileFor(key: PerfProfileKey): PerfProfile {
+  return PERF_PROFILES[key];
 }
+
+/**
+ * The full set of ALLOWED keys in the perf table (TASK-59 AC-5): the table
+ * is a pure RENDERING/streaming profile — the schema test asserts every
+ * entry carries only these keys, so a future gameplay dial (damage, range,
+ * speed) can never sneak in.
+ */
+export const PERF_PROFILE_RENDERING_KEYS = [
+  'lodRadii',
+  'starCount',
+  'fxQuality',
+  'atmosphereDome',
+  'missileTrails',
+  'fxCaps',
+  'maxLabels',
+  'budgets',
+  'instanceBatches',
+] as const;

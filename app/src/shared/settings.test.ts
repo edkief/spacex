@@ -104,7 +104,12 @@ describe('normalizeSettings (the untrusted players.settings JSON)', () => {
   });
 
   it('valid rows pass through (the persistence round-trip shape)', () => {
-    const row = { quality: 'low', sensitivity: 0.5, 'reduced-motion': true };
+    const row = {
+      quality: 'low',
+      deviceProfile: 'auto',
+      sensitivity: 0.5,
+      'reduced-motion': true,
+    };
     expect(normalizeSettings(row)).toEqual(row);
   });
 
@@ -130,13 +135,34 @@ describe('PUT boundary (SettingsUpdateSchema)', () => {
   });
 
   it('applySettingsUpdate merges partials over the stored row (clamping sensitivity)', () => {
-    const stored = { quality: 'high', sensitivity: 1, 'reduced-motion': false } as const;
+    const stored = {
+      quality: 'high',
+      deviceProfile: 'auto' as const,
+      sensitivity: 1,
+      'reduced-motion': false,
+    } as const;
     expect(applySettingsUpdate(stored, { quality: 'low' })).toEqual({
       quality: 'low',
+      deviceProfile: 'auto',
       sensitivity: 1,
       'reduced-motion': false,
     });
     expect(applySettingsUpdate(stored, { sensitivity: 4 }).sensitivity).toBe(2);
     expect(applySettingsUpdate(stored, { 'reduced-motion': true })['reduced-motion']).toBe(true);
+  });
+
+  it('deviceProfile: schema + normalize + update (TASK-59)', () => {
+    expect(SettingsUpdateSchema.safeParse({ deviceProfile: 'mobile' }).success).toBe(true);
+    expect(SettingsUpdateSchema.safeParse({ deviceProfile: 'tablet' }).success).toBe(false);
+    expect(normalizeSettings(undefined).deviceProfile).toBe('auto');
+    expect(normalizeSettings({ deviceProfile: 'mobile' }).deviceProfile).toBe('mobile');
+    expect(normalizeSettings({ deviceProfile: 'nvidia' }).deviceProfile).toBe('auto');
+    expect(normalizeSettings('{"deviceProfile":"desktop"}').deviceProfile).toBe('desktop');
+    expect(
+      applySettingsUpdate({ ...DEFAULT_SETTINGS }, { deviceProfile: 'mobile' }).deviceProfile,
+    ).toBe('mobile');
+    expect(
+      applySettingsUpdate({ ...DEFAULT_SETTINGS, deviceProfile: 'mobile' }, {}).deviceProfile,
+    ).toBe('mobile');
   });
 });

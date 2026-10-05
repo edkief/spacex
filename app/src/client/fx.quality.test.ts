@@ -6,7 +6,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { fxCounts, fxSpawnRate, playCombatFx, __resetFxCounts, type FxWorld } from '@client/fx';
-import { __resetSettings, setQuality } from '@client/a11y/reduced-motion';
+import { __resetSettings, setDeviceProfile, setQuality } from '@client/a11y/reduced-motion';
 
 const world: FxWorld = {
   addLaserFlash: () => {},
@@ -59,5 +59,21 @@ describe('fxQuality spawn-rate multiplier (TASK-55)', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.6);
     playCombatFx(world, laserFired, resolvePos);
     expect(fxCounts.skipped).toBe(1);
+  });
+});
+
+describe('mobile profile FX rate (TASK-59)', () => {
+  it('the mobile floor (0.3) replaces the preset even at high quality', () => {
+    setQuality('high');
+    setDeviceProfile('mobile');
+    expect(fxSpawnRate()).toBe(0.3);
+  });
+
+  it('back to auto/desktop the preset rate returns', () => {
+    setQuality('high');
+    setDeviceProfile('mobile');
+    expect(fxSpawnRate()).toBe(0.3);
+    setDeviceProfile('desktop');
+    expect(fxSpawnRate()).toBe(1.0);
   });
 });

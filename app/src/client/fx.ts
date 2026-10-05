@@ -1,7 +1,7 @@
 import type { PayloadSchemas } from '@shared/protocol/schemas';
 import type { Vec3 } from '@shared/physics/vec';
-import { PRESETS } from '@shared/settings';
-import { isReducedMotion, settingsState } from '@client/a11y/reduced-motion';
+import { PERF_PROFILES } from '@shared/perf';
+import { isReducedMotion, effectiveProfileKey } from '@client/a11y/reduced-motion';
 
 export type CombatEvent = PayloadSchemas['combat_event'];
 
@@ -42,9 +42,13 @@ function fx(world: FxWorld, fn: () => void): void {
   fn();
 }
 
-/** The active FX spawn-rate multiplier (the preset's fxQuality). */
+/**
+ * The active FX spawn-rate multiplier (the ACTIVE profile's fxQuality —
+ * TASK-59: 'mobile' replaces the quality preset; for desktop the preset
+ * rows mirror PRESETS exactly, so desktop behavior is unchanged).
+ */
 export function fxSpawnRate(): number {
-  return PRESETS[settingsState().quality].fxQuality;
+  return PERF_PROFILES[effectiveProfileKey()].fxQuality;
 }
 
 /**

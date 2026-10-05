@@ -6,6 +6,7 @@
     "test": "vitest run",
     "bench:transitions": "NODE_OPTIONS=--expose-gc tsx scripts/bench-transitions.ts",
     "bench:render": "NODE_OPTIONS=--expose-gc tsx scripts/bench-render.ts",
+    "bench:mobile": "tsx scripts/bench-mobile-margin.ts",
     "snapshot:update": "tsx scripts/gen-galaxy-snapshots.ts",
     "snapshot:update:flight": "tsx scripts/gen-flight-fixtures.ts",
     "test:e2e": "playwright test --config playwright.e2e.config.ts",

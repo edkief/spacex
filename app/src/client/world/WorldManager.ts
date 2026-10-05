@@ -11,8 +11,7 @@ import type { Regime } from '@shared/regime';
 import type { EntityState } from '@shared/protocol/schemas';
 import { padsForSystem, type PadInfo } from '@shared/world/pads';
 import { createBackground } from '@client/render/starfield';
-import { PRESETS } from '@shared/settings';
-import { settingsState } from '@client/a11y/reduced-motion';
+
 import { CombatFx } from '@client/world/combat-fx';
 import { depositsFor } from '@shared/world/deposits';
 import { OreRockLayer, type OreRockView } from './ore-rocks';
@@ -34,9 +33,12 @@ export {
 } from './character-mesh';
 import {
   createAtmosphereDome,
+  createFlatHaze,
   ATMOSPHERE_HAZE_COLORS,
-  type AtmosphereDome,
+  type AtmosphereLayer,
 } from '@client/render/atmosphere-dome';
+import { PERF_PROFILES, type PerfProfileKey } from '@shared/perf';
+import { effectiveProfileKey } from '@client/a11y/reduced-motion';
 import { frameMonitor } from '@client/perf/frameMonitor';
 import { CameraRig } from '@client/camera/CameraRig';
 import { atmosphereViewFor } from './atmosphere-view';
@@ -285,12 +287,23 @@ export class WorldManager {
   private readonly camera: THREE.PerspectiveCamera;
   /** The galaxy seed this manager's world (and pad list) derives from. */
   private readonly seed: string;
-  private readonly background: ReturnType<typeof createBackground>;
+  /**
+   * The deep-space background (sky + stars). TASK-59: rebuilt in swapWorld
+   * when the EFFECTIVE profile changes (mobile = 2000 stars, not 2500) —
+   * hence not readonly.
+   */
+  private background: ReturnType<typeof createBackground>;
   /** The system currently rendered as an OBJECT (null before the first
    * swapWorld): atmosphereViewFor needs the planet list, not just the id. */
   private system: SystemGen | null = null;
-  /** The shared atmosphere dome (one dome serves every planet — repositioned). */
-  private readonly dome: AtmosphereDome;
+  /**
+   * The shared atmosphere layer — the shader dome on desktop presets, the
+   * flat color haze on the mobile floor (TASK-59). One layer serves every
+   * planet (repositioned); rebuilt in swapWorld when the profile changes.
+   */
+  private dome: AtmosphereLayer;
+  /** The profile key the background + dome were last built for. */
+  private profileKey: PerfProfileKey = 'high';
   /** Scratch color for dome tints (never escapes the manager). */
   private readonly tempColor = new THREE.Color();
   private worldGroup: THREE.Group | null = null;
@@ -388,20 +401,27 @@ export class WorldManager {
       heightAt: () => this.rigPadHeight,
     });
 
-    // TASK-55: the star count is the ACTIVE quality preset's starCount —
-    // read live off the settings store (a world is (re)built per system,
-    // so a preset change takes effect on the next world build — the
-    // SettingsBridge's "new ones use the new params" contract).
-    this.background = createBackground(seed, PRESETS[settingsState().quality].starCount);
+    // TASK-55/59: the star count is the ACTIVE PROFILE's starCount (mobile
+    // = 2000, else the quality preset's) — read live off the settings store
+    // (a world is (re)built per system, so a profile change takes effect on
+    // the next world build — the SettingsBridge's "new ones use the new
+    // params" contract; swapWorld rebuilds on a profile-key change).
+    this.profileKey = effectiveProfileKey();
+    this.background = createBackground(seed, PERF_PROFILES[this.profileKey].starCount);
     // TASK-28.1: the skybox fades OUT under the atmosphere dome. The sky
     // starts fully opaque; its opacity (like the dome's haze) is driven by
     // the ONE shared haze number in setAtmosphereView, so the two never
     // desync. The stars material is already transparent @ 0.95 — its BASE
     // opacity stays untouched (setAtmosphereView scales it from there).
     (this.background.sky.material as THREE.MeshBasicMaterial).transparent = true;
-    // Every atmospheric planet shares ATMOSPHERE_BOUNDARY_M, so ONE dome
-    // serves all — repositioned per planet (at most one is active at a time).
-    this.dome = createAtmosphereDome(ATMOSPHERE_BOUNDARY_M);
+    // Every atmospheric planet shares ATMOSPHERE_BOUNDARY_M, so ONE layer
+    // serves all — repositioned per planet (at most one is active at a
+    // time). TASK-59: the mobile floor gets the flat haze (no shader).
+    this.dome = PERF_PROFILES[this.profileKey].atmosphereDome
+      ? createAtmosphereDome(ATMOSPHERE_BOUNDARY_M)
+      : createFlatHaze(ATMOSPHERE_BOUNDARY_M);
+    // TASK-59: the missile trail ribbons follow the profile too.
+    this.combatFx.setMissileTrails(PERF_PROFILES[this.profileKey].missileTrails);
     this.scene.add(this.background.sky);
     this.scene.add(this.background.stars);
     this.scene.add(this.dome.mesh); // renderOrder 2: composites over sky + stars
@@ -475,6 +495,24 @@ export class WorldManager {
    */
   swapWorld(system: SystemGen): number {
     const t0 = performance.now();
+    // TASK-59: a profile change (mobile ↔ desktop) takes effect at world
+    // load — rebuild the background (star count) + atmosphere layer (dome
+    // vs flat haze) when the effective key differs from the last build.
+    const key = effectiveProfileKey();
+    if (key !== this.profileKey) {
+      this.scene.remove(this.background.sky, this.background.stars, this.dome.mesh);
+      this.background.dispose();
+      this.dome.dispose();
+      this.profileKey = key;
+      const profile = PERF_PROFILES[key];
+      this.background = createBackground(this.seed, profile.starCount);
+      (this.background.sky.material as THREE.MeshBasicMaterial).transparent = true;
+      this.dome = profile.atmosphereDome
+        ? createAtmosphereDome(ATMOSPHERE_BOUNDARY_M)
+        : createFlatHaze(ATMOSPHERE_BOUNDARY_M);
+      this.scene.add(this.background.sky, this.background.stars, this.dome.mesh);
+      this.combatFx.setMissileTrails(profile.missileTrails);
+    }
     const next = buildWorldGroup(system);
     // TASK-29.3: the pad list is system-derived world state (the shared
     // deterministic list, cached per system) and the rings live in the

@@ -28,7 +28,17 @@ import {
   pushKillEvent,
 } from '@client/state/kill-feed';
 import { announce } from '@client/a11y/announcement-queue';
-import { applySettings, settingsState } from '@client/a11y/reduced-motion';
+import {
+  applySettings,
+  settingsState,
+  setDetectedProfile,
+  deviceProfileChangeSubscribe,
+  effectiveProfileKey,
+} from '@client/a11y/reduced-motion';
+import { detectProfile, PERF_PROFILES } from '@shared/perf';
+import { setLodRadii } from '@client/world/chunks';
+import { applyPerfProfile } from '@client/perf/profile-bridge';
+import { setWarpPhase, WARP_IN_MS, WARP_OUT_MS } from '@client/state/warp';
 import { normalizeSettings, scaleLookDemand, type Settings } from '@shared/settings';
 import { LiveRegion } from '@client/a11y/live-region';
 import { showShipLost } from '@client/state/ship-lost';
@@ -1597,6 +1607,49 @@ function App() {
     };
   }, [session, store]);
 
+  // TASK-59: detect the device profile at boot (BEFORE the first world
+  // load resolves the effective key). A manual override in Settings wins
+  // over the detection; 'auto' (the default) means "use this result".
+  React.useEffect(() => {
+    const nav = navigator as Navigator & { deviceMemory?: number };
+    setDetectedProfile(
+      detectProfile({
+        maxTouchPoints: nav.maxTouchPoints,
+        deviceMemory: nav.deviceMemory,
+        hardwareConcurrency: nav.hardwareConcurrency,
+      }),
+    );
+  }, []);
+
+  // TASK-59: a USER change of the device profile (the Settings row) takes
+  // effect at the NEXT world load — the pipeline re-init is not live for
+  // mobile-tier cuts, so the app fires the toast + re-runs the warp
+  // transition around a re-load of the SAME system (warp-in → swapWorld →
+  // warp-out). A boot-restore of a stored profile never triggers this
+  // (the user-change bus only fires from the settings panel path).
+  React.useEffect(() => {
+    if (!systemId) return;
+    const off = deviceProfileChangeSubscribe(() => {
+      const world = worldRef.current;
+      if (!world) return;
+      const system = systemForId(serverSeed, systemId);
+      if (!system) return;
+      store.notify('Profile applied — re-entering system');
+      setWarpPhase('warping-in');
+      window.setTimeout(() => {
+        // The profile applies at world load (radii live, caps + labels via
+        // the bridge) — then the world (re)builds with the new row.
+        const key = effectiveProfileKey();
+        setLodRadii(PERF_PROFILES[key].lodRadii);
+        applyPerfProfile(key);
+        worldRef.current?.swapWorld(system);
+        setWarpPhase('warp-out');
+        window.setTimeout(() => setWarpPhase('idle'), WARP_OUT_MS);
+      }, WARP_IN_MS);
+    });
+    return off;
+  }, [systemId, serverSeed, store]);
+
   React.useEffect(() => {
     void fetchHealth().then((h) => {
       setHealth(h);
@@ -1766,6 +1819,13 @@ function App() {
     }
     // The world is the pure function (seed, systemId) — boot join and warp
     // arrival (warp_arrived snapshot) take the same swapWorld path.
+    // TASK-59: the profile applies at EVERY world load (the effective key's
+    // radii live, its FX caps + label cap via the bridge) — so a boot with
+    // a stored 'mobile' row (or a warp arrival while mobile) loads the
+    // mobile pipeline.
+    const key = effectiveProfileKey();
+    setLodRadii(PERF_PROFILES[key].lodRadii);
+    applyPerfProfile(key);
     const system = systemForId(serverSeed, systemId);
     if (system) {
       const ms = worldRef.current.swapWorld(system);

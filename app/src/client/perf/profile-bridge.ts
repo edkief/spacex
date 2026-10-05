@@ -11,8 +11,7 @@
  * TASK-55 wiring (chunks.setLodRadii, WorldManager's starCount, fx.ts'
  * fxSpawnRate) — this file only carries the TASK-58 additions.
  */
-import type { QualityPreset } from '@shared/settings';
-import { perfProfileFor, type FxCaps } from '@shared/perf';
+import { perfProfileFor, type FxCaps, type PerfProfileKey } from '@shared/perf';
 import { setLabelCap } from '@client/world/remote-entities';
 
 /** A sink for the profile's FX caps (the CombatFx registry). */
@@ -34,8 +33,8 @@ export function registerFxCapSink(sink: FxCapSink): () => void {
  * Apply the active profile for a preset to the live pipeline (idempotent —
  * called on every settings commit, cheap no-op work when unchanged).
  */
-export function applyPerfProfile(preset: QualityPreset): void {
-  const profile = perfProfileFor(preset);
+export function applyPerfProfile(key: PerfProfileKey): void {
+  const profile = perfProfileFor(key);
   for (const sink of fxSinks) sink.setFxCaps(profile.fxCaps);
   setLabelCap(profile.maxLabels);
 }

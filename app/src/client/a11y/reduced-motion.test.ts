@@ -6,7 +6,13 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS, SETTING_KEYS } from '@shared/settings';
 import {
   __resetSettings,
+  applySettings,
+  deviceProfileChangeSubscribe,
+  effectiveProfile,
+  effectiveProfileKey,
   isReducedMotion,
+  setDeviceProfile,
+  setDetectedProfile,
   setSetting,
   settingsState,
   settingsSubscribe,
@@ -148,5 +154,54 @@ describe('the reduced-motion FX gate (the registry counter)', () => {
     playCombatFx(world, LASER, NO_POS);
     expect(fxCounts).toEqual({ played: 1, skipped: 1 });
     expect(world.calls).toEqual(['laser']);
+  });
+});
+
+describe('device profile (TASK-59): detection, override, user-change bus', () => {
+  it('defaults: auto + desktop detection → desktop key', () => {
+    expect(settingsState().deviceProfile).toBe('auto');
+    expect(effectiveProfile()).toBe('desktop');
+    expect(effectiveProfileKey()).toBe('high');
+  });
+
+  it('auto resolves to the detected profile; mobile replaces the preset key', () => {
+    setDetectedProfile('mobile');
+    expect(effectiveProfile()).toBe('mobile');
+    expect(effectiveProfileKey()).toBe('mobile');
+  });
+
+  it('a manual override beats the detection (both directions)', () => {
+    setDetectedProfile('mobile');
+    setDeviceProfile('desktop');
+    expect(effectiveProfile()).toBe('desktop');
+    expect(effectiveProfileKey()).toBe('high'); // the quality preset wins again
+    setDeviceProfile('mobile');
+    expect(effectiveProfileKey()).toBe('mobile');
+  });
+
+  it('setDeviceProfile fires the user-change bus once (no-op when unchanged)', () => {
+    const changes: string[] = [];
+    const off = deviceProfileChangeSubscribe((c) => changes.push(c));
+    setDeviceProfile('mobile');
+    setDeviceProfile('mobile'); // unchanged → no second notify
+    setDeviceProfile('auto');
+    off();
+    expect(changes).toEqual(['mobile', 'auto']);
+    expect(settingsState().deviceProfile).toBe('auto');
+  });
+
+  it('a restored row (applySettings) does NOT fire the user-change bus', () => {
+    const changes: string[] = [];
+    const off = deviceProfileChangeSubscribe((c) => changes.push(c));
+    applySettings({
+      quality: 'low',
+      deviceProfile: 'mobile',
+      sensitivity: 1,
+      'reduced-motion': false,
+    });
+    off();
+    expect(changes).toEqual([]); // no re-entry warp from the boot restore
+    expect(settingsState().deviceProfile).toBe('mobile');
+    expect(effectiveProfileKey()).toBe('mobile');
   });
 });

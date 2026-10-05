@@ -211,6 +211,12 @@ export class CombatFx {
   private caps: FxCaps = { ...PERF_PROFILES.high.fxCaps };
   /** Dev-only (import.meta.env.DEV): stretch flash lifetimes for screenshots. */
   slow = false;
+  /**
+   * TASK-59: missile trail ribbons (profile data — true for every desktop
+   * preset, false for the mobile floor: a tracer then renders as a SINGLE
+   * DOT, the body cone only, no trail line). Applied at world load.
+   */
+  private trailEnabled = true;
   private shakeMag = 0;
   private shakeUntil = 0;
   /** TASK-49: a VIRTUAL fx clock (ms) that ages effects. It advances at
@@ -249,6 +255,21 @@ export class CombatFx {
   /** The caps of the current profile (unit tests / dev probe). */
   getFxCaps(): FxCaps {
     return { ...this.caps };
+  }
+
+  /**
+   * TASK-59: enable/disable the missile trail ribbons (the mobile floor
+   * passes false — the tracer is a single dot). Affects NEW tracers
+   * immediately and toggles every live trail the same call (no re-init).
+   */
+  setMissileTrails(enabled: boolean): void {
+    this.trailEnabled = enabled;
+    for (const t of this.tracers.values()) t.trail.visible = enabled;
+  }
+
+  /** True while missile trail ribbons are on (unit tests / dev probe). */
+  get missileTrails(): boolean {
+    return this.trailEnabled;
   }
 
   /** Active laser SHOTS (distinct shot groups — the line+spark is one). */
@@ -523,6 +544,9 @@ export class CombatFx {
       Array.from({ length: TRAIL_MAX }, () => new THREE.Vector3()),
     );
     const trail = new THREE.Line(trailGeo, takeFxMaterial('tracerTrail'));
+    // TASK-59 mobile floor: with trails off the trail line stays hidden —
+    // the tracer renders as its single body dot only.
+    trail.visible = this.trailEnabled;
     this.group.add(pivot, trail);
     return new Tracer(pivot, trail, body);
   }
@@ -583,6 +607,9 @@ class Tracer {
       // pre-rotated +X→+Y so its tip leads along +Z).
       this.pivot.lookAt(new THREE.Vector3(pos.x + vel.x, pos.y + vel.y, pos.z + vel.z));
     }
+    // TASK-59 mobile floor: no per-frame trail work when ribbons are off
+    // (the geometry stays stale — it is invisible and re-used on re-enable).
+    if (!this.trail.visible) return;
     this.trailPts.unshift(new THREE.Vector3(pos.x, pos.y, pos.z));
     if (this.trailPts.length > TRAIL_MAX) this.trailPts.pop();
     const geo = this.trail.geometry;

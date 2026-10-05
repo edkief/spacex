@@ -16,6 +16,7 @@
  */
 import { z } from 'zod';
 import type { ShipInput } from './physics/flight';
+import type { DeviceProfileChoice } from './perf';
 
 // --- Setting identity (TASK-54 contract — never string literals) -----------
 
@@ -112,9 +113,17 @@ export function lodRadiiFor(preset: QualityPreset): {
 
 // --- Settings type + defaults ------------------------------------------------
 
+export const DEVICE_PROFILE_CHOICES = ['auto', 'desktop', 'mobile'] as const;
+
 export interface Settings {
   /** Quality preset (drives the pipeline params above). Default 'high'. */
   quality: QualityPreset;
+  /**
+   * Device profile override (TASK-59): 'auto' = the boot detection
+   * (detectProfile in @shared/perf), 'desktop'/'mobile' = a manual choice
+   * from the settings panel. Applied at the next world load. Default 'auto'.
+   */
+  deviceProfile: DeviceProfileChoice;
   /** Mouse/look sensitivity, 0.5–2.0 (applied on the next input frame). Default 1.0. */
   sensitivity: number;
   /** Reduced motion (TASK-54). Default off. */
@@ -124,6 +133,7 @@ export interface Settings {
 /** Factory defaults (v1: high quality, 1.0 sensitivity, reduced motion OFF). */
 export const DEFAULT_SETTINGS: Settings = {
   quality: 'high',
+  deviceProfile: 'auto',
   sensitivity: 1.0,
   [SETTING_KEYS.reducedMotion]: false,
 };
@@ -158,8 +168,14 @@ export function normalizeSettings(raw: unknown): Settings {
   const quality: QualityPreset = QUALITY_PRESETS.includes(o.quality as QualityPreset)
     ? (o.quality as QualityPreset)
     : DEFAULT_SETTINGS.quality;
+  const deviceProfile: DeviceProfileChoice = DEVICE_PROFILE_CHOICES.includes(
+    o.deviceProfile as DeviceProfileChoice,
+  )
+    ? (o.deviceProfile as DeviceProfileChoice)
+    : DEFAULT_SETTINGS.deviceProfile;
   return {
     quality,
+    deviceProfile,
     sensitivity: clampSensitivity(
       typeof o.sensitivity === 'number' ? o.sensitivity : DEFAULT_SETTINGS.sensitivity,
     ),
@@ -204,6 +220,7 @@ export function scaleLookDemand(input: ShipInput, sensitivity: number): ShipInpu
 export const SettingsUpdateSchema = z
   .object({
     quality: z.enum(['high', 'medium', 'low']).optional(),
+    deviceProfile: z.enum(['auto', 'desktop', 'mobile']).optional(),
     sensitivity: z.number().finite().optional(),
     [SETTING_KEYS.reducedMotion]: z.boolean().optional(),
   })
@@ -215,6 +232,7 @@ export type SettingsUpdate = z.infer<typeof SettingsUpdateSchema>;
 export function applySettingsUpdate(stored: Settings, update: SettingsUpdate): Settings {
   return {
     quality: update.quality ?? stored.quality,
+    deviceProfile: update.deviceProfile ?? stored.deviceProfile,
     sensitivity:
       update.sensitivity !== undefined ? clampSensitivity(update.sensitivity) : stored.sensitivity,
     [SETTING_KEYS.reducedMotion]:
