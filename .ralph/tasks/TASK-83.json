@@ -1,0 +1,53 @@
+{
+  "id": "TASK-83",
+  "title": "True-scale system view (2/4): planets rendered at their sim anchors, visible from anywhere",
+  "category": "functional",
+  "description": "SCALE DECISION (human-approved 2026-10-06), part 2. After TASK-82 nothing marks where the planets are. In the sim (the source of truth) planet i is a region of the y = 0 plane centred on `planetAnchor(i)` = ((i + 1) × 10 000, 0, 0) (src/shared/galaxy/planets.ts): its surface content (deposits, hazards) is scattered up to 2 000 m around the anchor (DEPOSIT_SCATTER_RADIUS_M in src/shared/world/deposits.ts, HAZARD_SCATTER_RADIUS_M in src/shared/world/hazards.ts), and atmospheric planets have a 1 km atmosphere bubble (ATMOSPHERE_BOUNDARY_M) around the anchor. Render each planet as what the sim says it is — a floating surface 'island' with, when it has an atmosphere, a dome over it — and make it visible from anywhere in the system even though anchors are 10-60 km away (the camera far plane is CAMERA_FAR = 4000 since TASK-76). The standard technique is a SCALED PROXY: beyond a threshold distance, draw the object at a fixed distance along the true direction, scaled down by the same ratio, so its on-screen position and angular size are exact while it stays inside the depth range.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Shared surface-extent constant",
+      "details": "In `src/shared/galaxy/planets.ts` export `PLANET_SURFACE_RADIUS_M = 2_000` with a block comment: the radius around the anchor that holds a planet's surface content (deposits + hazards scatter radius) — the client renders the island to this radius and TASK-84 streams terrain within it. Make `DEPOSIT_SCATTER_RADIUS_M` and `HAZARD_SCATTER_RADIUS_M` reference it (or add a unit test asserting both are <= it — do NOT change their values; the deposit/hazard placement is deterministic and covered by snapshots).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Pure scaled-proxy math",
+      "details": "New `src/client/render/scaled-proxy.ts`: export `PROXY_START_M = 3_000` and `PROXY_DISTANCE_M = 3_000` (both < CAMERA_FAR = 4000; block comment why) and a pure `proxyTransform(cameraPos: Vec3, worldPos: Vec3): { pos: Vec3; scale: number }` — if |worldPos − cameraPos| <= PROXY_START_M return { pos: worldPos, scale: 1 }; otherwise pos = cameraPos + dir × PROXY_DISTANCE_M and scale = PROXY_DISTANCE_M / distance. Unit tests: identity inside the threshold; continuous at the threshold; for a far object the angular size is preserved (scale × radius / proxyDistance == radius / distance) and the direction is preserved exactly; works for camera positions far from the origin (e.g. (45 000, 300, 0)).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Planet island + outer dome meshes",
+      "details": "New `src/client/world/planet-bodies.ts` (keep it < 250 lines): `buildPlanetBodies(system: SystemGen): PlanetBody[]` — one per planet with `planetId`, `anchor` (planetAnchor(index), y = 0), and a THREE.Group made of: (a) an island SLAB: CylinderGeometry(PLANET_SURFACE_RADIUS_M, PLANET_SURFACE_RADIUS_M × 0.9, 300, 48) whose TOP sits at y = −2 (so real terrain from TASK-84 and the pad surface always cover it), MeshBasicMaterial in PLANET_COLORS[planet.class] slightly darkened on the side faces is optional — the point is that a flat plane at y = 0 viewed from y ≈ 0 is invisible edge-on, a 300 m slab is not; (b) for `hasAtmosphere` planets an OUTSIDE dome shell: hemisphere SphereGeometry(ATMOSPHERE_BOUNDARY_M × DOME_RADIUS_FACTOR, 32, 16, 0, 2π, 0, π/2), FrontSide, transparent, opacity ~0.35, depthWrite false, color ATMOSPHERE_HAZE_COLORS[planet.class] (the same palette setAtmosphereView uses). The existing BackSide haze dome that shows the sky from INSIDE an atmosphere stays as is — hide this outer shell for the planet whose atmosphere the camera is inside (view.planet in setAtmosphereView) so the two never double up. Export `updatePlanetBodies(bodies, cameraPos)` that applies `proxyTransform` to each group's position (anchor) and uniform scale every frame. Dispose helpers for swapWorld.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Wire into WorldManager",
+      "details": "Build the bodies in `swapWorld` (add them to the per-system world group so they die with it), call `updatePlanetBodies(this.planetBodies, this.camera.position)` every frame next to the TASK-75 background anchoring (before render). Pass the inside-planet id from setAtmosphereView so its outer shell hides. Add a dev probe (follow `self-ship-debug.ts`): `window.__PLANETS__.probe()` → per planet { planetId, anchor, distance (camera→anchor), scale, screen (projectToScreen of the ANCHOR — exact for proxies too) }. Unit-test what can run without GL (bodies count = system.planets.length, atmosphere shell only on atmospheric planets, group positions after updatePlanetBodies for a near and a far camera).",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "E2E + screenshots + verify + commit",
+      "details": "New `app/tests/e2e/planets-visible.spec.ts`: fresh player, teleport the ship (`POST /api/dev/teleport`) to { x: anchor0.x − 6 000, y: 400, z: 0 } (anchor0 = 10 000, 0, 0 — 6 km short of planet 0, outside every atmosphere); hold D (after TASK-80, D turns right) until `__PLANETS__.probe()[0].screen` is inside the viewport (timeout 10 s), release, then assert the 12×12 region around that screen point differs from the sky band (mean luminance difference > 10) — the planet is VISIBLE at 6 km. Screenshot `.ralph/screenshots/TASK-83-1.png` there and `TASK-83-2.png` at 1 500 m from the anchor (island + dome clearly visible) — LOOK at both. Then `cd app && npx tsc --noEmit`, full `npm run test`, e2e: new spec + deep-space, atmosphere-view, atmosphere, landing, warp, self-ship; `npm run bench:render` gates green (if the slab/shell push draw calls over budget, report numbers and raise DECIDE); `eslint --fix` + `prettier --write`. Commit `feat(TASK-83): ...`.",
+      "pass": false
+    }
+  ],
+  "acceptanceCriteria": [
+    "Every planet of the system renders at its sim anchor as a surface island (radius PLANET_SURFACE_RADIUS_M), with an outer atmosphere dome when it has an atmosphere",
+    "Planets 3-60 km away are drawn as scaled proxies with exact direction and angular size, never clipped by the far plane; at <= 3 km they are at true position and scale",
+    "The outer dome hides while the camera is inside that planet's atmosphere (the TASK-28.1 inside haze dome is unchanged)",
+    "E2E: planet 0 is visible on screen from 6 km; screenshots TASK-83-1/2 show the island + dome",
+    "`npx tsc --noEmit` green; full `npm run test` green; `npm run bench:render` green; touched e2e specs green; one commit"
+  ],
+  "dependencies": ["TASK-82", "TASK-76", "TASK-80"],
+  "estimatedComplexity": "medium",
+  "notes": [
+    "Scale contract for TASK-82..85: 1 u = 1 m; the SIM is the source of truth — do not move anchors, change the 10 km spacing or the atmosphere radius to make visuals easier.",
+    "Planets are FLAT regions of the y = 0 plane in the sim (the regime machine, pads, deposits and terrain all assume it). Do not render them as spheres — a sphere would disagree with where the player can actually fly and land.",
+    "The island slab is a long-range stand-in for terrain; TASK-84 mounts the real streamed terrain on top of it near the planet.",
+    "Do NOT commit the pre-existing dirty `.ralph/screenshots/*.png` mods."
+  ]
+}

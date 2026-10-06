@@ -1,0 +1,54 @@
+{
+  "id": "TASK-84",
+  "title": "True-scale system view (3/4): mount the streamed terrain in the live game, in the server's coordinate frame",
+  "category": "functional",
+  "description": "SCALE DECISION (human-approved 2026-10-06), part 3. The TASK-26 terrain pipeline (`ChunkStreamer` in src/client/world/chunks.ts + `ChunkScene` in src/client/world/chunk-scene.ts) is built, benchmarked and tested, but NOTHING in the live game instantiates it — only src/client/stream-debug.ts (dev hook), src/client/test/renderBenchmark.ts and src/client/test/transitionCycle.ts do. So players land and walk on an invisible flat plane under the haze, while the SERVER collides ships and characters with real terrain heights. Two frame mismatches must be fixed while wiring it: (1) COORDINATES: the server samples terrain in WORLD metres — `TerrainContext.heightAt(x, z)` (src/server/shard/terrain.ts) chunks world x/z directly, and deposits/hazards are placed on world cells (`anchor.x / CELL_SIZE_M` in src/shared/world/deposits.ts ~line 177 and hazards.ts ~line 234, heights 'matching TerrainContext.heightAt'). The client streamer also works in world metres (`chunkOfMeters` = floor(m / 320)), but transitionCycle.ts feeds it PLANET-LOCAL coordinates (`padLocal` = pad − anchor, ~line 531) — the live wiring must feed WORLD coordinates. (2) PADS: the server flattens the ground around every pad with `padSurfaceHeight(x, z, terrainHeight, pads)` (src/shared/world/pads.ts ~line 189, used in shard.ts ~lines 500/1012); the client chunk geometry does not, so the rendered pad would be buried in or float above the terrain.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Parity test first: client terrain == server terrain",
+      "details": "Write a unit test BEFORE wiring anything (e.g. `src/client/world/terrain-parity.test.ts`): for planet 0 of a seeded landable system, pick ~50 grid-vertex sample points in WORLD coordinates inside PLANET_SURFACE_RADIUS_M (TASK-83) of the anchor, including points on/near the pad (padsForSystem). Compare (a) the server height: `padSurfaceHeight(x, z, new TerrainContext(seed, planet).heightAt(x, z), pads)` (TerrainContext lives in src/server/shard — if the client test cannot import server code, move TerrainContext to `src/shared/galaxy/terrain-context.ts` and re-export it from the server path; it has no server dependencies) against (b) the vertex height the client chunk geometry produces for the chunk containing that world point (build it through the same code path ChunkStreamer uses). Expect equality within 1e-6 at grid vertices. It WILL fail near pads today (no flattening) — that is the point.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Pad flattening in the client chunk geometry",
+      "details": "Give the chunk build an optional list of pads (`LandingPadRef[]` for the planet — the same list `padsForSystem` yields, filtered by planetId) and apply the SHARED `padSurfaceHeight(x, z, h, pads)` to every vertex height in WORLD coordinates (do not re-implement the blend). Only chunks that intersect a pad's PAD_FLAT_BLEND_OUTER_M circle need it — skip the call elsewhere to keep the build cost flat (verify `npm run bench:render` / `bench:transitions` stay green). The step-1 parity test must now pass.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Planet terrain controller (pure decision logic)",
+      "details": "New `src/client/world/planet-terrain.ts` (< 250 lines): decides WHICH planet's terrain is mounted. Pure function `terrainPlanetFor(pos: Vec3, system, current: string | null): string | null`: the nearest LANDABLE planet whose anchor is within MOUNT_RANGE_M = PLANET_SURFACE_RADIUS_M + 2 000 horizontally; keep the current one until it is beyond MOUNT_RANGE_M + 500 (hysteresis, no flapping). Unit tests: far from all → null; approaching planet 1 → its id; hysteresis band holds; non-landable planets (gas giants) never mount. Also a pure chunk filter: `chunkInSurface(chunkX, chunkZ, anchor): boolean` — true when the chunk's world square intersects the circle of radius PLANET_SURFACE_RADIUS_M around the anchor (terrain must not extend past the island). Add an optional `chunkFilter?: (chunkX: number, chunkZ: number) => boolean` to `StreamerOptions` and apply it in the active-set scheduling (filtered chunks are never generated or mounted) — unit test it in chunks.test.ts.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Wire into WorldManager",
+      "details": "WorldManager owns at most ONE `ChunkStreamer` + `ChunkScene` at a time (scene.group added to the per-system world group). Each frame, from the self position (the predicted ship pose while flying, the character position on foot — whatever `setShipPos` / the character feed already provide): run `terrainPlanetFor`; on change dispose the old streamer/scene (`streamer.reset()` + `scene.dispose()`), and build new ones with `new ChunkStreamer(seed, planet, { chunkFilter, pads })`; then `streamer.update(worldX, worldZ, speed)` and `scene.sync(worldX, worldZ, speed)` with WORLD coordinates (the 4 ms per-frame budget contract is inside update()). While a planet's terrain is mounted, hide that planet's TASK-83 island slab TOP (or the whole slab when the camera is within PLANET_SURFACE_RADIUS_M) so it never pokes through dips in the terrain. swapWorld/dispose tear everything down. Update `src/client/test/transitionCycle.ts` to the same WORLD frame as the live path (it currently streams around `padLocal`) so the benchmark measures what players run. Expose mounted chunk count + mounted planet id on the TASK-83 `__PLANETS__` probe.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "E2E + screenshots + verify + commit",
+      "details": "New `app/tests/e2e/terrain-live.spec.ts`: fresh player; `GET /api/dev/pad-target?systemId=<home>` (see TASK-76) → teleport the ship to { pad.x + 300, pad.y + 150, pad.z } (inside the atmosphere, above terrain); poll `__PLANETS__` until mounted chunks >= 9; assert the LOWER half of the canvas is non-uniform (luminance variance via the existing helper on lower-half regions only) and screenshot `.ralph/screenshots/TASK-84-1.png`; then land on the pad (follow landing.spec.ts / disembark.spec.ts), disembark, and screenshot `TASK-84-2.png` on foot — LOOK at both: terrain visible, the pad flush with the ground, the character standing ON the visible ground. Then `cd app && npx tsc --noEmit`, full `npm run test`, e2e: new spec + landing, disembark, walk, mining, deposits, hazards, hazard-world, transitions, streaming-budget; `npm run bench:render` AND `npm run bench:transitions` gates green (SC-5 frame budget — if a gate fails, record the numbers and raise DECIDE, do not loosen the gate); `eslint --fix` + `prettier --write`. Commit `feat(TASK-84): ...`.",
+      "pass": false
+    }
+  ],
+  "acceptanceCriteria": [
+    "In the live game, terrain streams in around the player near any landable planet (within PLANET_SURFACE_RADIUS_M + 2 km of its anchor, with hysteresis) and is clipped to the planet's surface radius",
+    "Client terrain uses WORLD coordinates and the shared pad flattening: unit parity test shows client vertex heights == server heightAt (+ padSurfaceHeight) at sampled grid points",
+    "The pad sits flush with the rendered ground; on foot the character stands on visible terrain; the island slab never pokes through",
+    "transitionCycle benchmark uses the same world frame as the live path; bench:render and bench:transitions gates green",
+    "E2E `terrain-live.spec.ts` + screenshots TASK-84-1/2; `npx tsc --noEmit` green; full `npm run test` green; touched e2e specs green; one commit"
+  ],
+  "dependencies": ["TASK-83", "TASK-26", "TASK-29"],
+  "estimatedComplexity": "large",
+  "notes": [
+    "If the step-1 parity test shows a mismatch AWAY from pads (not just the missing flattening), STOP and raise DECIDE with the sample points — it means client and server terrain generation diverged, which is a sim question, not a rendering one.",
+    "Do NOT change the server terrain frame, deposit or hazard placement — they are consistent with each other (world frame) and covered by determinism snapshots. The client adapts to them.",
+    "The on-foot CharacterPredictor still predicts on the flat pad plane (`characterPadHeight`); switching it to the client terrain sampler is a follow-up — note it in the LOG entry, do not do it here.",
+    "This task may need a handoff (`.ralph/handoff/TASK-84.md`) if it runs out of time: steps 1-3 are pure and committable on their own.",
+    "Do NOT commit the pre-existing dirty `.ralph/screenshots/*.png` mods."
+  ]
+}
