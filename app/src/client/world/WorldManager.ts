@@ -35,6 +35,7 @@ import {
   createAtmosphereDome,
   createFlatHaze,
   ATMOSPHERE_HAZE_COLORS,
+  DOME_RADIUS_FACTOR,
   type AtmosphereLayer,
 } from '@client/render/atmosphere-dome';
 import { PERF_PROFILES, type PerfProfileKey } from '@shared/perf';
@@ -75,6 +76,26 @@ export const WORLD_ORBIT_STEP = 18;
 export const PAD_RING_VISIBLE_RANGE_M = 500;
 /** A ring floats this far above the pad surface (m) so it cannot z-fight it. */
 export const PAD_RING_SURFACE_OFFSET_M = 0.25;
+
+/**
+ * The game camera's far plane (TASK-76).
+ *
+ * INVARIANT — must be >= 2 × ATMOSPHERE_BOUNDARY_M × DOME_RADIUS_FACTOR:
+ * that is the longest chord of the atmosphere dome (radius 1000 × 1.01 =
+ * 1010 u, centred on the planet anchor). From ANY point inside the dome the
+ * far wall is at most a full diameter (2 × 1010 = 2020 u) away, so a far
+ * plane at least that big guarantees the dome's far wall is never clipped —
+ * a clip there is exactly the "black sky inside the atmosphere" bug (the
+ * BackSide dome beyond the far plane simply does not draw, and the black
+ * clear color shows through the nearly-transparent skybox). 4000 u leaves
+ * ~98 % headroom over the 2020 u bound and is comfortably larger than the
+ * 420 u sky radius (which TASK-75 keeps centred on the camera).
+ *
+ * near stays 0.1: depth precision at 0.1 / 4000 is fine for this low-detail
+ * scene, and logarithmicDepthBuffer is deliberately NOT enabled (it changes
+ * depth behaviour for every material in the scene for no benefit here).
+ */
+export const CAMERA_FAR = 4000;
 
 /** Standard spectral-class palette (hot O → cool M). */
 export const STAR_COLORS: Record<SpectralClass, string> = {
@@ -384,7 +405,7 @@ export class WorldManager {
       // loop (headless SwiftShader) — same reason as the boot starfield.
       preserveDrawingBuffer: true,
     });
-    this.camera = new THREE.PerspectiveCamera(70, 1, 0.1, 1000);
+    this.camera = new THREE.PerspectiveCamera(70, 1, 0.1, CAMERA_FAR);
     // A vantage point beyond the spawn gate: the star sits at the center of
     // the view and the gate (100 u +X) is between camera and star.
     this.camera.position.set(150, 40, 150);

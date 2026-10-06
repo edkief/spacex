@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildSystemLayout,
+  CAMERA_FAR,
   PAD_RING_VISIBLE_RANGE_M,
   padRingVisible,
   padRingsFor,
@@ -13,6 +14,8 @@ import {
   WORLD_PLANET_COUNT,
   WORLD_PLANET_RADIUS,
 } from './WorldManager';
+import { DOME_RADIUS_FACTOR } from '@client/render/atmosphere-dome';
+import { ATMOSPHERE_BOUNDARY_M } from '@shared/physics/atmosphere';
 import { generateStars } from '@shared/galaxy/stars';
 import { generateSystem } from '@shared/galaxy/system';
 import { SPAWN_GATE_POS } from '@shared/galaxy/spawn';
@@ -125,5 +128,24 @@ describe('pad ring markers (TASK-29.3)', () => {
     // Y distance counts too (a pad 400 m below at 300 m horizontal is ~500 m out)
     expect(padRingVisible({ x: pad.x + 300, y: pad.y - 400, z: pad.z }, pad)).toBe(true);
     expect(padRingVisible({ x: pad.x + 300, y: pad.y - 401, z: pad.z }, pad)).toBe(false);
+  });
+});
+
+/**
+ * TASK-76 — the far-plane invariant. This is the guard that stops a future
+ * change from re-introducing the "black sky inside the atmosphere" clip:
+ * the dome (radius ATMOSPHERE_BOUNDARY_M × DOME_RADIUS_FACTOR) has a longest
+ * chord of 2 × that radius, so the far plane must reach at least that far to
+ * never clip the far wall from any point inside the dome. It must also clear
+ * the 420 u sky radius the skybox is centred on (TASK-75).
+ */
+describe('CAMERA_FAR (TASK-76) contains the whole atmosphere dome', () => {
+  it('reaches the dome\'s longest chord (2 × radius), so the far wall is never clipped', () => {
+    const domeDiameter = 2 * ATMOSPHERE_BOUNDARY_M * DOME_RADIUS_FACTOR;
+    expect(CAMERA_FAR).toBeGreaterThanOrEqual(domeDiameter);
+  });
+
+  it('comfortably exceeds the sky radius the skybox is centred on (420 u)', () => {
+    expect(CAMERA_FAR).toBeGreaterThan(420);
   });
 });
