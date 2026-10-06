@@ -409,6 +409,56 @@ test('inside atmosphere, low and off-centre: the top band shows haze, never blac
       `${(AIM_TOLERANCE_RAD * 57.3).toFixed(1)}°) — the band must not be measured with the nose ` +
       `pointing the wrong way`,
   ).toBeLessThan(AIM_TOLERANCE_RAD);
+  // TEMP-TASK-76.1 (remove before commit): full attitude + anchor geometry.
+  // The DOME centre is (anchor.x, 0, anchor.z) — WorldManager.setAtmosphereView
+  // sets the dome mesh y to 0 (the anchor has no y; the surface sits ~229 u up).
+  console.log(
+    `[TASK-76] TEMP domeCentre=(${anchor.x.toFixed(1)}, 0, ${anchor.z.toFixed(1)}) ` +
+      `spot=(${spot.x.toFixed(1)}, ${spot.y.toFixed(1)}, ${spot.z.toFixed(1)})`,
+  );
+  const tempAtmo = await page.evaluate((t: { ax: number; ay: number; az: number }) => {
+    const p = (
+      window as unknown as {
+        __SELF_SHIP__?: {
+          probe: () => {
+            pos: { x: number; y: number; z: number } | null;
+            rot: { x: number; y: number; z: number; w: number } | null;
+          };
+        };
+      }
+    ).__SELF_SHIP__?.probe();
+    if (!p?.rot || !p?.pos) return null;
+    const q = p.rot;
+    const rot = (vx: number, vy: number, vz: number) => {
+      const tx = 2 * (q.y * vz - q.z * vy);
+      const ty = 2 * (q.z * vx - q.x * vz);
+      const tz = 2 * (q.x * vy - q.y * vx);
+      return {
+        x: vx + q.w * tx + (q.y * tz - q.z * ty),
+        y: vy + q.w * ty + (q.z * tx - q.x * tz),
+        z: vz + q.w * tz + (q.x * ty - q.y * tx),
+      };
+    };
+    const nose = rot(0, 0, 1);
+    const right = rot(1, 0, 0);
+    const dx = t.ax - p.pos.x;
+    const dy = t.ay - p.pos.y;
+    const dz = t.az - p.pos.z;
+    const horiz = Math.hypot(dx, dz);
+    const deg = (r: number) => (r * 180) / Math.PI;
+    return {
+      pitch: deg(Math.asin(nose.y)),
+      roll: deg(Math.asin(right.y)),
+      noseHeading: deg(Math.atan2(nose.z, nose.x)),
+      anchorDepression: deg(Math.atan2(-dy, horiz)),
+      anchorHeading: deg(Math.atan2(dz, dx)),
+      anchorDist: Math.hypot(dx, dy, dz),
+      shipY: p.pos.y,
+    };
+  }, { ax: anchor.x, ay: 0, az: anchor.z });
+  console.log(`[TASK-76] TEMP attitude: ${JSON.stringify(tempAtmo)}`);
+  // End TEMP-TASK-76.1
+
   // Aimed: release the hover so the measurement state is the plain
   // (thrustless, no-VTOL) flight the server keeps simulating.
   await page.keyboard.up(' ');
