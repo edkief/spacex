@@ -1,0 +1,17 @@
+{"time":"2026-10-06T14:08:37.930Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-06T14:20:16.485Z","level":"info","message":"agent left no handoff; wrote one from what the loop saw","fields":{"path":".ralph/handoff/TASK-76.md"}}
+{"time":"2026-10-06T14:20:19.920Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":1}}
+{"time":"2026-10-06T15:05:22.930Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-06T15:08:23.780Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-76.md"}}
+{"time":"2026-10-06T15:08:27.449Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":2}}
+{"time":"2026-10-06T15:08:27.450Z","level":"info","message":"asking the agent to propose a split","fields":{"task":"TASK-76","folder":".ralph/split/TASK-76"}}
+{"time":"2026-10-06T15:18:46.284Z","level":"info","message":"split the task","fields":{"task":"TASK-76","into":"TASK-76.1,TASK-76.2","committed":true}}
+{"time":"2026-10-06T15:57:33.667Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-06T16:03:46.810Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-06T16:11:12.278Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-76.1.md"}}
+{"time":"2026-10-06T16:11:15.978Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":3}}
+{"time":"2026-10-06T16:56:18.589Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-06T17:05:09.296Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-76.1.md"}}
+{"time":"2026-10-06T17:05:12.673Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":4}}
+{"time":"2026-10-06T17:05:12.675Z","level":"warn","message":"waiting for a person: answer in the web UI or with `ralph respond`","fields":{"kind":"stalled","task":"TASK-76.1","about":"TASK-76.1 ran out of time 2 times after being split from TASK-76; stall.maxSplitDepth (1) allows no further split, so split it by hand (handoff: .ralph/handoff/TASK-76.1.md)"}}
+{"time":"2026-10-06T21:20:15.279Z","level":"warn","message":"shutting down the daemon"}
