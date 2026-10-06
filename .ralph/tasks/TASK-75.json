@@ -1,0 +1,53 @@
+{
+  "id": "TASK-75",
+  "title": "Blackout fix (space): skybox + starfield follow the camera",
+  "category": "functional",
+  "description": "HIGH PRIORITY BUG — the game is unplayable. Holding W from spawn, the whole 3D view goes BLACK after ~4-5 s while the DOM HUD keeps drawing. Root cause (reproduced on the deployed build, 2026-10-06): the skybox and the starfield are meshes at the WORLD ORIGIN that never move. `createBackground` (src/client/render/starfield.ts ~line 80) builds the sky as an inverted sphere of radius 420 (`buildSkyGeometry(420)`, `side: THREE.BackSide`) and the stars as points on a shell of radius 150-200 (STARFIELD_RADIUS_MIN/MAX). WorldManager adds both to the scene once (WorldManager.ts ~line 425) and only ever rotates the stars. A fresh ship spawns near the origin (homeDockPosition, x/z in [-100, 100]) and cruises at 120-180 u/s, so after ~3 s it has flown past the star shell (stars now all BEHIND the camera) and after ~5 s it leaves the sky sphere (a BackSide sphere seen from outside draws nothing in front of you). The renderer clear color is black, so the canvas is black. Measured: full-frame mean luminance 23 at 419 u from origin → 0.1 at 497 u. The fix is the standard skybox technique: re-centre the sky and the stars on the camera every frame, so they are infinitely far away and can never be left behind.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Pure helper: anchor the background to the camera",
+      "details": "In `src/client/render/starfield.ts` export a small pure function, e.g. `anchorBackgroundToCamera(background: Pick<BackgroundHandle, 'sky' | 'stars'>, cameraPos: THREE.Vector3): void`, that copies the camera position into `background.sky.position` and `background.stars.position` (rotation is untouched — WorldManager keeps its slow `stars.rotation.y` drift). Block comment on the function explaining WHY (skybox must be centred on the viewer; radius 420 / 150-200 are far smaller than the distances a ship flies). Unit test in `src/client/render/starfield.test.ts`: after anchoring to (0, 0, 5000) and to (-3000, 250, 12000), both objects' positions equal the camera position and the stars' rotation is unchanged.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Call it every frame, right before render",
+      "details": "In `src/client/world/WorldManager.ts` inside the `frame` closure (constructor, ~line 437), call `anchorBackgroundToCamera(this.background, this.camera.position)` AFTER `this.cameraRig.update(...)` and AFTER the combat-FX screen shake is added to the camera position, i.e. immediately before `this.renderer.render(this.scene, this.camera)`. `this.background` is reassigned in `swapWorld` when the perf profile changes — read it through `this.background` each frame (do not cache it in a local outside the closure). Do NOT change the sky radius, the star radii, the renderOrder values (0 sky / 1 stars / 2 dome) or the TASK-28.1 opacity crossfade in `setAtmosphereView`.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Shared e2e pixel helper: sky-band statistics",
+      "details": "The existing `canvasLuminanceVariance` is NOT a valid blackout check: in the black frames the ship mesh in the middle of the screen still produces bright pixels (measured max luminance 146 on an otherwise black frame). Add to `app/tests/e2e/helpers.ts` (reuse the readPixels pattern of `canvasCenterLuminanceMean`; GL origin is bottom-left) e.g. `canvasRegionStats(page, region: { x0: number; y0: number; x1: number; y1: number } /* fractions of the canvas, DOM top-left origin */): Promise<{ mean: number; bright: number }>` returning the mean luminance and the count of pixels with luminance > 60 in that region. The blackout assertions in this task and TASK-76 use the TOP band `{ x0: 0, y0: 0, x1: 1, y1: 0.3 }` (above the ship).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "E2E regression: deep space is never black",
+      "details": "New `app/tests/e2e/deep-space.spec.ts` using the existing fixtures (`./fixtures` e2eServer, `ClaimPage`/`GamePage` or the claim + localStorage flow from `flight.spec.ts`). Flow: claim a fresh callsign, join, wait for `window.__SELF_SHIP__.probe().screen` (chase camera armed). Record the top-band stats at spawn. Then move the ship FAR from the origin with the dev route `POST /api/dev/teleport` (bearer token from the claim; body `{ x, y, z }`, see src/server/routes/dev.ts ~line 219 and its use in tests/e2e/cargo.spec.ts) to `{ x: 0, y: 50, z: 3000 }` (deep space, far from every planet anchor at 10 km spacing), and poll until `probe().pos` is within 50 u of it. Assert the top band is NOT black: `mean > 5` AND `bright >= 10` (stars). Then hold W for 2 s and assert the same again. Save `.ralph/screenshots/TASK-75-1.png` at the teleported position and LOOK at it: stars and the blue sky gradient must be visible around the ship. If the teleport leaves a docked ship docked, tap W once before teleporting (the first input undocks).",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Verify + commit",
+      "details": "`cd app && npx tsc --noEmit`; full `npm run test`; e2e: the new spec plus `atmosphere-view.spec.ts`, `atmosphere.spec.ts`, `self-ship.spec.ts`, `flight.spec.ts`, `core-flow.spec.ts` (they all sample canvas pixels) via `npx playwright test --config playwright.e2e.config.ts <files>`; `eslint --fix` + `prettier --write` on touched files. Commit `fix(TASK-75): ...`.",
+      "pass": false
+    }
+  ],
+  "acceptanceCriteria": [
+    "Flying any distance from the origin never shows a black 3D view in space: the sky gradient and the stars stay visible behind and around the ship",
+    "The sky and star meshes are re-centred on the camera every frame immediately before render; their radii, renderOrder and the TASK-28.1 opacity crossfade are unchanged",
+    "Unit test covers the anchoring helper; new e2e `deep-space.spec.ts` asserts the TOP band of the canvas (not the whole canvas) has mean luminance > 5 and >= 10 star pixels at 3000 u from the origin, before and after 2 s of thrust",
+    "Screenshot `.ralph/screenshots/TASK-75-1.png` shows stars around the ship far from the origin",
+    "`npx tsc --noEmit` green; full `npm run test` green; touched/related e2e specs green; one commit"
+  ],
+  "dependencies": ["TASK-72", "TASK-73", "TASK-28.1"],
+  "estimatedComplexity": "small",
+  "notes": [
+    "This is a 3-line runtime fix plus tests. Do not redesign the background, change the camera far plane (that is TASK-76) or touch the camera rig (TASK-77..79).",
+    "Repro numbers (deployed build, scout, W held from spawn): t=4.5 s 343 u from origin mean luminance 23.5; t=5.5 s 497 u → 0.1. The HUD stayed fully drawn the whole time.",
+    "The boot starfield (`startStarfield` in starfield.ts, its own camera at the origin) is NOT affected — leave it alone.",
+    "Do NOT commit the pre-existing dirty `.ralph/screenshots/*.png` mods."
+  ]
+}

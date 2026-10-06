@@ -1,0 +1,54 @@
+{
+  "id": "TASK-77",
+  "title": "Camera drop-off (1/3): one writer for the self-ship pose, updated before render",
+  "category": "functional",
+  "description": "HIGH PRIORITY BUG — the chase camera does not follow the ship smoothly once it moves. Part 1 of 3 (TASK-78 removes the speed-dependent lag, TASK-79 smooths reconcile corrections). Root cause for THIS task: while flying, the self-ship pose has TWO writers that fight each other. (a) The 60 fps flight loop in main.tsx (~line 1556) calls `world.setSelfShipTransform(predicted.pos, predicted.quat)` every frame. (b) The 10 Hz self entity_update bridge in main.tsx (~line 994) calls `world.setSelfShip(selfShipStateFrom(self))` and `world.reEnterShip(self.pos, self.rot)` on EVERY ship snapshot. Both of those write the RAW SERVER SNAPSHOT pose into the mesh (`SelfShip.set` → `transform`) and into the camera rig (`cameraRig.setShip`). The snapshot is older than the prediction by network latency + up to one snapshot period, so at 150 u/s it lags the predicted pose by 10-20 u — more than the chase distance (14 u). Ten times a second the ship mesh and the rig target are yanked back toward the camera and then forward again on the next flight-loop frame. Additionally the flight loop runs in its OWN requestAnimationFrame, separate from WorldManager's render rAF, so whether the render sees this frame's prediction or the previous one (or the snapshot write) depends on callback order. Fix: while the ship predictor exists, the prediction is the ONLY writer of the self-ship mesh pose and rig ship pose, and it writes inside WorldManager's frame, before the rig update and the render.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Extend the __SELF_SHIP__ dev probe (measurement for TASK-77..79)",
+      "details": "`src/client/self-ship-debug.ts` + the source bound in main.tsx/WorldManager: add `camera: { pos: Vec3 } | null` (the game camera's world position) to `SelfShipProbeResult`, and a `frames` recorder: `startRecording()` / `stopRecording(): Array<{ t: number; shipPos: Vec3; camPos: Vec3; screen: {x:number;y:number} | null }>` that pushes ONE sample per rendered frame from inside WorldManager's frame right after `renderer.render` (dev only — guarded the same way the existing probe is, zero cost when not recording). Expose the ship predictor's reconcile stats too: counts of `blend` / `rewind` / `snap` results and the last `correctionDistance` (from `ClientShipPredictor.reconcile`'s return value in the bridge). Unit test the recorder bookkeeping if it has logic; production builds must not ship it (import.meta.env.DEV like the other hooks).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Baseline measurement (before the fix)",
+      "details": "Write the e2e for step 5 FIRST and run it against the unfixed code to record the baseline in the LOG entry: claim, join, wait for the probe, hold W ~4 s until speed > 100 u/s, then record ~2 s of frames. Report: max and p95 of the per-frame |shipPos delta| minus speed×dt (should be ~0 for a smooth ship; snapshot yanks show as spikes of 10+ u), the camera→ship distance min/max, and the reconcile blend/rewind counts. These numbers are needed by TASK-78/79 — put them in the LOG entry.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Snapshot path stops writing the pose while the predictor drives",
+      "details": "`src/client/world/self-ship.ts`: give `SelfShip.set` an option to skip placement, e.g. `set(state, { place = true } = {})` — create/rebuild/re-tint still happen, `transform` only when `place`. `WorldManager.setSelfShip(state, opts?: { drivePose?: boolean })` (default true): when `drivePose === false` it must NOT call `selfShip.transform` nor `cameraRig.setShip` (it still creates the mesh, arms the rig on the first call, re-tints, rebuilds, disposes on null). When a mesh is CREATED or REBUILT it must still be placed once even if drivePose is false (a rebuilt mesh would otherwise sit at the origin until the next frame). `reEnterShip(pos, quat, opts?: { drivePose?: boolean })`: only call `cameraRig.setShip` when drivePose is true OR a character mesh exists (the handoff destination needs the pose). In main.tsx's ship branch compute `const predicted = shipPredictorRef.current !== null` BEFORE the calls and pass `{ drivePose: !predicted }` to both. Result: the first snapshot (no predictor yet), re-entry (predictor dropped at disembark) and on-foot updates still place the ship from the snapshot; steady flight never does. Unit tests in `self-ship.test.ts` / `world-manager.test.ts` for the new option.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Run the flight step inside WorldManager's frame, before the rig + render",
+      "details": "Add to WorldManager a pre-render hook, e.g. `setFrameHook(fn: ((nowMs: number, dtSec: number) => void) | null)`, invoked at the START of `frame` (before `cameraRig.update`, using the same nowMs/dt the rig gets). In main.tsx replace the flight loop's own `requestAnimationFrame` (the effect at ~line 1556) with registering its body as that hook on the world (unregister — `setFrameHook(null)` — in the effect cleanup; re-register when the world instance changes, e.g. after a world rebuild). The body is unchanged: read input, maybe send, `p.step`, `world.setSelfShipTransform(...)`. Now every rendered frame shows THIS frame's prediction. Leave the on-foot loop (~line 1443) as it is (out of scope). Block comment on the hook explaining the ordering contract.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "E2E + verify + commit",
+      "details": "New `app/tests/e2e/chase-camera.spec.ts` (the step-2 measurement, now asserting): during steady thrust at > 100 u/s, over >= 90 recorded frames, the per-frame ship displacement never deviates from the median per-frame displacement by more than 3 u (no snapshot yanks). Record the after-fix numbers next to the baseline in the LOG entry. Screenshot `.ralph/screenshots/TASK-77-1.png` mid-flight. Then `cd app && npx tsc --noEmit`, full `npm run test`, e2e: new spec + `flight.spec.ts`, `self-ship.spec.ts`, `enter-ship.spec.ts`, `disembark.spec.ts`, `camera-handoff.spec.ts`, `warp.spec.ts`; `eslint --fix` + `prettier --write` on touched files. Commit `fix(TASK-77): ...`.",
+      "pass": false
+    }
+  ],
+  "acceptanceCriteria": [
+    "While the ship predictor exists, nothing but the prediction writes the self-ship mesh pose or the rig's ship pose; the 10 Hz snapshot only reconciles the predictor (plus mesh create/rebuild/livery)",
+    "First spawn, re-entry from on foot, warp/system swap and on-foot updates still place the ship correctly from the snapshot (existing e2e specs green)",
+    "The flight step runs inside WorldManager's frame before the rig update and the render — no separate rAF for flight",
+    "The __SELF_SHIP__ probe can record per-frame ship/camera positions and exposes reconcile blend/rewind/snap counts (dev only)",
+    "E2E `chase-camera.spec.ts`: no per-frame ship displacement spike > 3 u from the median in steady flight; baseline and after-fix numbers in LOG.md",
+    "`npx tsc --noEmit` green; full `npm run test` green; touched e2e specs green; one commit"
+  ],
+  "dependencies": ["TASK-72", "TASK-73"],
+  "estimatedComplexity": "medium",
+  "notes": [
+    "Do NOT change the CameraRig smoothing in this task — the speed-dependent camera lag is TASK-78. Do NOT change ClientShipPredictor.reconcile — correction smoothing is TASK-79. Keep this task to the two-writer + frame-order fix so its effect is measurable on its own.",
+    "The e2e home system has rogue AI ships (TASK-45). A fresh player was destroyed ~7 s after spawn on the deployed build. Keep recordings short (start within ~5 s of undocking) or teleport the ship into empty space first (`POST /api/dev/teleport`, e.g. { x: 0, y: 50, z: 3000 }), then thrust.",
+    "main.tsx is 2200+ lines (AGENTS.md: 200-300). If the flight loop body moves, prefer extracting it to `src/client/input/flight-loop.ts` (it already holds InputFrameSender) as a function that takes refs, instead of growing main.tsx.",
+    "Do NOT commit the pre-existing dirty `.ralph/screenshots/*.png` mods."
+  ]
+}

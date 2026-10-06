@@ -671,5 +671,47 @@
     "specFilePath": ".ralph/tasks/TASK-69.json",
     "passes": true,
     "note": "closed 2026-10-06: root README + app/docs/{architecture,protocol,ops,contributing}.md written and verified — clean-clone dry run green (claim 201 -> session 200), perf:report desktop PASS, backup cmds + graceful SIGTERM verified, 13 env vars + 61 doc links cross-checked, tsc + full suite green (182 files, 1638 passed / 1 skipped)"
+  },
+  {
+    "id": "TASK-75",
+    "title": "Blackout fix (space): skybox + starfield follow the camera",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-75.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-76",
+    "title": "Blackout fix (atmosphere): camera far plane must contain the whole dome",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-76.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-80",
+    "title": "Controls: A/D (yaw/turn) and Q/E (roll) are mirrored — D must turn right",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-80.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-77",
+    "title": "Camera drop-off (1/3): one writer for the self-ship pose, updated before render",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-77.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-78",
+    "title": "Camera drop-off (2/3): rigid chase camera — constant distance at any speed",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-78.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-79",
+    "title": "Camera drop-off (3/3): smooth prediction corrections instead of snapping",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-79.json",
+    "passes": false
   }
 ]

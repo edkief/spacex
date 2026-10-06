@@ -1,0 +1,46 @@
+{
+  "id": "TASK-78",
+  "title": "Camera drop-off (2/3): rigid chase camera — constant distance at any speed",
+  "category": "functional",
+  "description": "HIGH PRIORITY BUG — part 2 of 3. The chase camera falls further behind the ship the faster it flies. Root cause: in steady state `CameraRig.update` (src/client/camera/CameraRig.ts ~line 186) chases the target pose in WORLD space with an exponential lerp, `curPos.lerp(target, 1 - exp(-SMOOTH_K·dt))` with SMOOTH_K = 8/s. For a target moving at speed v, an exponential follower settles at a lag of v / k behind it: 120 u/s → +15 u, 180 u/s → +22.5 u, on top of the designed CHASE_BEHIND = 14 u. So the camera sits 2-2.6× farther back than intended, and the ship visibly shrinks as it accelerates (measured on the deployed build: ~155 px wingspan at 78 u/s vs ~118 px at 144 u/s). The same lerp also lags behind every acceleration change, which reads as the camera 'dropping off'. Additionally the rig's lookAt always uses world up (0, 1, 0), so the camera never rolls with the ship and flips when the ship pitches through vertical (R/F pitch). Fix for 'chase' mode only: smooth the ORIENTATION, never the position offset — the camera is rigidly attached at the chase offset of the CURRENT ship position, rotated by a lagged (slerped) copy of the ship's quaternion.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Pure rigid chase pose in pose-math",
+      "details": "In `src/client/camera/pose-math.ts` add a pure function, e.g. `rigidChasePose(shipPos: Vec3, viewQuat: Quat): { position: Vec3; look: Vec3; up: Vec3 }`: position = shipPos + rotate((0, CHASE_HEIGHT, -CHASE_BEHIND), viewQuat); look = shipPos + rotate((0, 0, CHASE_LOOK_AHEAD), viewQuat); up = rotate((0, 1, 0), viewQuat). Reuse the existing rotate/quat helpers used by `chasePose` (do not duplicate math). Keep `chasePose` (handoff destinations use it). Unit tests in `pose-math.test.ts`: for identity and SPAWN_GATE_QUAT the camera→ship distance equals sqrt(CHASE_HEIGHT² + CHASE_BEHIND²) exactly; with viewQuat === ship quat the result matches `chasePose` position/look; a 90° pitch gives a finite, non-degenerate up vector.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "CameraRig: 'chase' steady state uses the rigid pose",
+      "details": "In `CameraRig`: keep a smoothed `viewQuat` (THREE.Quaternion) for chase mode. Each steady-state chase update: `viewQuat.slerp(shipQuat, 1 - exp(-CHASE_ROT_K·dt))` with a new exported constant CHASE_ROT_K (start at 6/s — gives a little visible swing on yaw/pitch, never positional lag); then compute `rigidChasePose(ship.pos, viewQuat)` and APPLY it directly (no position lerp): camera.position = pose.position; camera orientation from `Matrix4.lookAt(position, look, pose.up)`. On prime (first frame / resetPrime) and at the END of a handoff into 'chase', set viewQuat = ship quat so there is no swing-in. Cockpit and on-foot modes and the 600 ms handoff animation stay EXACTLY as they are (their tests must not change). Block-comment the rationale (exponential world-space follow lags by v/k).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Unit tests for the speed invariant",
+      "details": "In `src/client/camera/camera-rig.test.ts` (injectable clock, fixed frame grid): (a) a ship moving straight along its forward at 180 u/s for 3 s at 60 fps → camera→ship distance within 0.01 u of sqrt(4² + 14²) on EVERY frame; (b) same at 30 u/s and with a sudden 0 → 180 u/s jump in speed — distance unchanged; (c) a 90° yaw step → the camera swings around over a few hundred ms (viewQuat converges, angle error < 1° after 1 s) while the distance stays constant; (d) pitching the ship through +90° never produces NaN and the camera up vector stays continuous (no flip). Update any existing chase-mode test that asserted the old world-space lag — do NOT weaken cockpit/onfoot/handoff tests.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "E2E + verify + commit",
+      "details": "Extend `app/tests/e2e/chase-camera.spec.ts` (from TASK-77) with the rigid-follow assertion using the __SELF_SHIP__ frame recorder: during thrust from spawn up to > 120 u/s, |camPos - shipPos| stays within 14.6 ± 0.5 u on every recorded frame, and the ship's projected screen position stays within 20 px of its median. Screenshots `.ralph/screenshots/TASK-78-1.png` (just after undocking, slow) and `TASK-78-2.png` (> 120 u/s) — LOOK at both: the ship must appear the SAME size in both. Record the per-speed camera distance in the LOG entry (before: grows with speed; after: constant). Then `cd app && npx tsc --noEmit`, full `npm run test`, e2e: chase-camera, flight, self-ship, camera-handoff, enter-ship, disembark, weapons, targeting; `eslint --fix` + `prettier --write`. Commit `fix(TASK-78): ...`.",
+      "pass": false
+    }
+  ],
+  "acceptanceCriteria": [
+    "In chase mode the camera→ship distance is constant (sqrt(4² + 14²) ≈ 14.56 u, ±0.5 u in e2e) at every speed and during acceleration — no speed-dependent lag",
+    "Rotation is still smoothed (CHASE_ROT_K) so turns read as a camera swing, and the camera rolls with the ship with no flip when pitching through vertical",
+    "Cockpit, on-foot and the 600 ms handoff behave exactly as before (their existing tests unchanged and green); disembark/re-entry handoffs land on the rigid chase pose without a jump",
+    "Screenshots TASK-78-1/2 show the ship at the same size at low and high speed",
+    "`npx tsc --noEmit` green; full `npm run test` green; touched e2e specs green; one commit"
+  ],
+  "dependencies": ["TASK-77", "TASK-27", "TASK-72"],
+  "estimatedComplexity": "medium",
+  "notes": [
+    "Why not just raise SMOOTH_K: any world-space exponential follower lags by v/k, so a faster k only shrinks the error (and amplifies prediction jitter, which TASK-79 addresses). Rigid position + smoothed orientation is the standard chase-camera design and is what this task requires.",
+    "Combat FX screen shake is added to camera.position in WorldManager AFTER the rig update and removed after render — leave that as is.",
+    "Do NOT commit the pre-existing dirty `.ralph/screenshots/*.png` mods."
+  ]
+}

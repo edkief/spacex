@@ -1,0 +1,46 @@
+{
+  "id": "TASK-79",
+  "title": "Camera drop-off (3/3): smooth prediction corrections instead of snapping",
+  "category": "functional",
+  "description": "HIGH PRIORITY BUG — part 3 of 3. After TASK-77/78 the camera is rigidly attached to the RENDERED ship, so any jump in the ship's rendered pose becomes a jump of the whole view. `ClientShipPredictor.reconcile` (src/client/net/prediction.ts ~line 293) blends only corrections smaller than BLEND_DISTANCE_U = 5 u / BLEND_ANGLE_RAD = 0.2 rad; anything larger REWINDS (adopts the reconciled state instantly). At 150 u/s, 5 u is only ~33 ms of timing error. main.tsx calls `reconcile(serverState, ackedSeq, now)` WITHOUT `snapshotAgeMs` (the client has no RTT estimate today), so the predictor uses its fallback replay, which cannot account for network delay — at cruise speed rewinds are expected on many snapshots, i.e. the world visibly pops up to 10× per second. Fix: keep the physics reconcile exactly as it is (it is the authority path, shared with the server's integrator), and add a VISUAL correction smoother between the predictor and the renderer: on every reconcile the difference between what was being rendered and the new predicted state becomes an offset that decays to zero over ~100-150 ms. Big discontinuities (teleport, respawn, warp) still snap.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Measure first (record in LOG)",
+      "details": "With the TASK-77 probe counters, run the chase-camera e2e flight (thrust to > 120 u/s, then hold for 3 s) and record: number of reconciles, how many were blend / rewind / snap, and the p50/p95/max `correctionDistance`. Also record the max per-frame camera displacement spike (|Δcam − median Δcam|). This is the baseline; put it in the LOG entry.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Pure CorrectionSmoother",
+      "details": "New `src/client/net/correction-smoother.ts` (pure, DOM-free, no three.js — use @shared/physics/vec helpers): `class CorrectionSmoother { onCorrection(renderedBefore: {pos, quat}, predictedAfter: {pos, quat}): void; apply(predicted: {pos, quat}, dtSec: number): {pos, quat}; reset(): void }`. `onCorrection` ADDS (renderedBefore − predictedAfter) to the stored position offset and composes the rotation offset (renderedBefore · inverse(predictedAfter)) — so back-to-back corrections accumulate rather than reset. `apply` decays both offsets by exp(−dt / CORRECTION_TAU_S) (export CORRECTION_TAU_S = 0.1) and returns predicted + offset (rotation: offset quat slerped toward identity, then applied). If the position offset magnitude exceeds CORRECTION_SNAP_U (export, 50 u — teleports, respawns, warps), `onCorrection` clears the offset instead (snap). Unit tests `correction-smoother.test.ts`: a 10 u correction is fully visible on the first frame and < 0.1 u after 0.5 s; consecutive corrections accumulate; > 50 u snaps; zero correction = identity; rotation offset converges; never NaN for a 180° rotation offset.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Wire it between predictor and renderer",
+      "details": "In main.tsx (or the flight-loop module TASK-77 may have extracted): own one `CorrectionSmoother` in a ref next to `shipPredictorRef`. In the self-entity bridge, immediately BEFORE `shipPredictorRef.current.reconcile(...)` capture `renderedBefore` = the pose rendered last frame (keep the last value the frame hook passed to `setSelfShipTransform` in a ref); immediately AFTER reconcile call `smoother.onCorrection(renderedBefore, predictor.getState())`. In the per-frame flight hook render `smoother.apply(predictor.getState(), dt)` instead of the raw predicted state (both to `world.setSelfShipTransform` and anything else that reads the rendered pose, e.g. `shipNavSample` may keep using the raw prediction — the HUD numbers do not need smoothing). Call `smoother.reset()` everywhere `shipPredictorRef.current` is set to null or re-seeded (disembark, destroy, system swap, re-entry). The predictor's internal state is NOT modified by the smoother.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "E2E + verify + commit",
+      "details": "Extend `app/tests/e2e/chase-camera.spec.ts`: during >= 3 s of steady flight at > 120 u/s, the per-frame camera displacement never deviates from its median by more than 2 u (pops removed), while the TASK-77/78 assertions still hold. Also teleport the ship (`POST /api/dev/teleport`) mid-flight and assert the camera arrives at the new place within 2 frames of the ship's snapshot (the > 50 u snap path), with no long glide. Record after-fix reconcile/displacement numbers next to the step-1 baseline in the LOG entry. Screenshot `.ralph/screenshots/TASK-79-1.png`. Then `cd app && npx tsc --noEmit`, full `npm run test` (prediction.test.ts must be untouched and green), e2e: chase-camera, flight, self-ship, warp, enter-ship, disembark, pvp-kill (respawn); `eslint --fix` + `prettier --write`. Commit `fix(TASK-79): ...`.",
+      "pass": false
+    }
+  ],
+  "acceptanceCriteria": [
+    "Reconcile corrections no longer move the rendered ship/camera in one frame: they decay over ~100 ms (CORRECTION_TAU_S) and accumulate correctly; > 50 u discontinuities (teleport/respawn/warp) still snap",
+    "ClientShipPredictor and its reconcile thresholds are unchanged; the smoother is pure, unit-tested, and reset on every predictor drop/re-seed",
+    "E2E: in steady flight > 120 u/s the per-frame camera displacement stays within 2 u of its median; a teleport still snaps the camera within 2 frames",
+    "Baseline and after-fix reconcile stats (blend/rewind counts, correction p95) recorded in LOG.md",
+    "`npx tsc --noEmit` green; full `npm run test` green; touched e2e specs green; one commit"
+  ],
+  "dependencies": ["TASK-77", "TASK-78", "TASK-73"],
+  "estimatedComplexity": "medium",
+  "notes": [
+    "Do NOT change BLEND_DISTANCE_U / BLEND_ANGLE_RAD or the replay logic in prediction.ts to hide pops — the physics state must stay authoritative; smoothing is purely visual.",
+    "Adding an RTT estimate (to pass snapshotAgeMs) would reduce the correction sizes further but needs a protocol change (no timestamp on entity_update today). Out of scope: if step 1 shows rewinds on most snapshots even after this task, write that in the LOG entry as a follow-up for a human to decide.",
+    "Do NOT commit the pre-existing dirty `.ralph/screenshots/*.png` mods."
+  ]
+}

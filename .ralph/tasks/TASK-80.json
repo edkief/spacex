@@ -1,0 +1,53 @@
+{
+  "id": "TASK-80",
+  "title": "Controls: A/D (yaw/turn) and Q/E (roll) are mirrored — D must turn right",
+  "category": "functional",
+  "description": "HIGH PRIORITY BUG reported by the user: D turns LEFT and A turns RIGHT, in the ship and on foot. Root cause is a handedness mix-up: the codebase uses a RIGHT-HANDED frame with +Y up and local +Z forward, in which the ship's/character's RIGHT is local −X, not +X (cross(forward, up) = cross(+Z, +Y) = −X). `src/client/ui/ship-hud/nav-math.ts` (~line 90) already gets this right (`rightX = -fwd.z`), so today the nav arrow and the controls disagree: when the arrow says 'target to the right', pressing D turns the ship away from it. Verified by hand: (1) SHIP: `CONTROL_SCHEMES` (src/client/input/controls.ts ~line 48/59) maps yaw ['d', 'a'] so D → yaw +1; `integrateShip` (src/shared/physics/flight.ts ~line 260) applies `quatFromEuler(yaw·turnRate·h, …)` = a POSITIVE rotation about local +Y, which swings the nose from +Z toward +X = screen LEFT for the chase camera behind the ship. (2) ROLL is mirrored the same way: Q → roll +1 (documented as 'roll left', controls.ts ~line 33) → positive rotation about +Z, which rolls the ship CLOCKWISE seen from behind = roll RIGHT. (3) ON FOOT: D → wire yaw +1 → `right: true` (src/shared/protocol/inputs.ts ~line 74) → `stepCharacter` (src/shared/physics/character.ts ~line 208) rotates by +CHAR_TURN_RATE about +Y → facing turns toward +X = screen LEFT (the on-foot camera sits behind, looking along +Z — mouse look is not wired, so it never rotates). Pitch is NOT mirrored: R = nose down / F = nose up exactly as documented — leave pitch alone. The ship PHYSICS sign must NOT change: the server AI (`steer` in src/server/shard/ai.ts ~line 221) computes its yaw demand against local +X with the current physics convention, and the committed flight fixtures / determinism tests depend on it. So the ship fix belongs in the client INPUT mapping; the character fix belongs in the shared character step, where `right` is a semantic flag that is simply wired to the wrong rotation direction.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Failing tests first: keys → on-screen direction",
+      "details": "Write the tests BEFORE the fix and see them fail. (a) `src/client/input/controls.test.ts`: a helper that runs `remapper.readInput(new Set(['d']))` (space scheme) through `integrateShip` for 0.5 s from the identity quat (space regime, scout class) and asserts the new forward (+Z rotated by the quat) has x < 0, i.e. it turned toward the ship's right = local −X; same for 'a' → x > 0. Roll: holding 'q' 0.5 s → the ship's up vector (+Y rotated) has x > 0 (top tilts to the LEFT as seen from behind, where screen-left is +X), 'e' → x < 0. Pitch unchanged: 'r' → forward.y < 0. Also hold 'd' on the atmosphere scheme (same keys). (b) `src/shared/physics/character.test.ts`: `right: true` for 0.5 s from identity → facing forward x < 0; `left: true` → x > 0. Add a one-line comment in both tests stating the frame: right-handed, +Y up, +Z forward ⇒ right = −X.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Ship fix: client input mapping only",
+      "details": "In `src/client/input/controls.ts` keep the scheme key pairs and their documented meaning ([right, left] for yaw, [left, right] for roll) and translate them to the physics convention in ONE place — `readInput`: `yaw: -axis(s.yaw)`, `roll: -axis(s.roll)` (pitch and thrust unchanged). Fix the doc comments: on `ControlScheme.yaw` / `roll` say which key is which on screen, and on `ShipInput.yaw` / `ShipInput.roll` in src/shared/physics/flight.ts add a short block comment stating the physics convention (positive yaw = nose toward local +X = a LEFT turn; positive roll = clockwise seen from behind = roll RIGHT; right-handed, +Y up, +Z forward). Do NOT change `integrateShip`, `quatFromEuler`, the AI, or the wire mapping in inputs.ts (`shipInputToPayload` / `inputToShipInput` must still round-trip exactly). `scaleLookDemand` (TASK-55 sensitivity) is sign-preserving — confirm with its test.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "On-foot fix: shared character step",
+      "details": "In `src/shared/physics/character.ts` (~line 208) make `right` rotate by −CHAR_TURN_RATE·h and `left` by +CHAR_TURN_RATE·h about +Y, and correct the doc comments on `CharacterInput.left/right` (~line 104: today they say right = +yaw). This is shared code — the server's character sim uses the same function, so client prediction and server stay in lockstep; no protocol change. Update any existing test in character.test.ts / src/server/shard/shard.character*.test.ts / src/client/net/character-prediction.test.ts that encoded the old direction (change the EXPECTED direction, never delete the test). Leave `SHIP_RIGHT_LOCAL` / `characterSpawnPos` alone in this task (it uses +X as 'right', which is really the ship's left — cosmetic; mention it in the LOG entry as a follow-up).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "E2E: pressing D turns right on screen",
+      "details": "New `app/tests/e2e/controls-direction.spec.ts` (fixtures + claim flow as in flight.spec.ts). SHIP: wait for `window.__SELF_SHIP__.probe()`; tap W briefly to undock, then teleport into empty space (`POST /api/dev/teleport` { x: 0, y: 50, z: 3000 }) so nothing interferes; read `rot` → forward0 and right0 = rotate((−1, 0, 0), rot) (do the quaternion math inline in the spec — Playwright cannot import @shared). Hold D for 1 s, read `rot` again → forward1; assert dot(forward1, right0) > 0.2 (turned toward the ship's right). Repeat with A → dot < −0.2. ON FOOT: follow disembark.spec.ts to get on foot (dock + E), read `window.__CHAR__.rot`, hold D 0.5 s, assert the facing turned toward its initial right (−X local) the same way. Screenshot `.ralph/screenshots/TASK-80-1.png` after holding D in the ship — LOOK at it: the nose points right of the camera.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Verify + commit",
+      "details": "`cd app && npx tsc --noEmit`; full `npm run test` (flight fixtures / determinism / AI tests must be untouched and green — if any of them fails you changed the physics, revert that); e2e: controls-direction, flight, walk, disembark, enter-ship, determinism, rogue-ai, keyboard-only; `eslint --fix` + `prettier --write` on touched files. Commit `fix(TASK-80): ...`.",
+      "pass": false
+    }
+  ],
+  "acceptanceCriteria": [
+    "In the ship, D yaws the nose to the RIGHT of the screen and A to the left; E rolls right and Q rolls left (as documented); R/F pitch unchanged",
+    "On foot, D turns the character to the right and A to the left",
+    "The ship physics (integrateShip), the server AI and the wire mapping are unchanged — the fix is one sign translation in `readInput` plus the corrected character turn direction",
+    "Unit tests drive keys through the real physics and assert the on-screen direction (they failed before the fix); e2e `controls-direction.spec.ts` asserts it in the browser for ship and on foot",
+    "`npx tsc --noEmit` green; full `npm run test` green; touched e2e specs green; one commit"
+  ],
+  "dependencies": ["TASK-73", "TASK-32"],
+  "estimatedComplexity": "small",
+  "notes": [
+    "Handedness cheat sheet for this codebase: three.js is right-handed. With +Y up and +Z forward, RIGHT is −X. A positive rotation about +Y turns +Z toward +X (a LEFT turn). A positive rotation about +Z, seen from behind, is clockwise (a RIGHT roll). The chase camera (TASK-72) looks along the ship's +Z, so screen-right = ship-local −X.",
+    "Do not 'fix' this by swapping the key letters in CONTROL_SCHEMES — the scheme pairs are documented as [right, left] / [left, right] and a future remap UI will label them that way; the sign belongs in readInput.",
+    "Rebinding is not implemented in v1 (settings-panel.tsx keybind list is informational), so no stored bindings need migrating.",
+    "Do NOT commit the pre-existing dirty `.ralph/screenshots/*.png` mods."
+  ]
+}
