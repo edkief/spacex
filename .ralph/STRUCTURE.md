@@ -15,7 +15,11 @@ Excludes dotfiles, tests, and config.
 │   │   ├── dev-test.mjs            # TASK-70: npm run dev:test — vite + tsx server on env/ random ports with tmp DB for the e2e fixture
 │   │   └── perf-report.mjs         # TASK-61: npm run perf:report <desktop|phone> — runs the 4 benchmarks (+ phone keyboard loop), artifacts → .ralph/perf/
 │   ├── docs/
-│   │   └── performance.md          # TASK-61: reference-hardware report — device table, benchmark × budget × measured × pass/fail, SC-1/3/4/5 verdicts, FAIL register
+│   │   ├── performance.md          # TASK-61: reference-hardware report — device table, benchmark × budget × measured × pass/fail, SC-1/3/4/5 verdicts, FAIL register
+│   │   ├── architecture.md         # TASK-69: system diagram, determinism model, seamless-transition design, combat pipeline, single-instance scaling seam (each section links to owning source)
+│   │   ├── protocol.md             # TASK-69: full WS protocol (every message type, both directions, from the zod schemas) + close codes + complete REST API table
+│   │   ├── ops.md                  # TASK-69: every env var, SQLite→Postgres switch + proceed-gap note, backups, graceful restart, known v1 gaps
+│   │   └── contributing.md         # TASK-69: Ralph task workflow, test gates, perf/wire contract, code-quality bar
 │   ├── smoke-task1.mjs       # TASK-1 Playwright smoke script (chromium screenshot)
 │   ├── smoke-task10.mjs      # TASK-10 live smoke: REST claim/session + WS token auth over the :3000 proxy
 │   ├── smoke-task13.mjs      # TASK-13 live smoke: shard join + 10 Hz snapshots + input integration + stale seq over the :3000 proxy
