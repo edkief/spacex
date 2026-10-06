@@ -237,6 +237,38 @@ test('inside atmosphere, low and off-centre: the top band shows haze, never blac
     })
     .toBe(true);
 
+  // TEMP TASK-76.1 diagnostic helper (pose + live camera), revert later.
+  const diagPose = (): Promise<string> =>
+    page.evaluate(() => {
+      const p = (window.__SELF_SHIP__?.probe() ?? null) as
+        | {
+            pos: { x: number; y: number; z: number } | null;
+            rot: { x: number; y: number; z: number; w: number } | null;
+            screen: { x: number; y: number; dist: number } | null;
+            cam?: { x: number; y: number; z: number };
+          }
+        | null;
+      const rot = p?.rot;
+      const fy = rot ? 2 * (rot.y * rot.z - rot.x * rot.w) : 0;
+      const fx = rot ? 2 * (rot.x * rot.z + rot.y * rot.w) : 0;
+      const fz = rot ? 1 - 2 * (rot.x * rot.x + rot.y * rot.y) : 0;
+      const w = window as unknown as { __TM76?: string };
+      return JSON.stringify({
+        tm: w.__TM76 ?? null,
+        keys: p ? Object.keys(p) : null,
+        pos: p?.pos ?? null,
+        cam: p?.cam ?? null,
+        pitchDeg: rot ? (Math.asin(Math.max(-1, Math.min(1, fy))) * 180) / Math.PI : null,
+        fwd: [
+          Number(fx.toFixed(3)),
+          Number(fy.toFixed(3)),
+          Number(fz.toFixed(3)),
+        ],
+        screen: p?.screen ?? null,
+      });
+    });
+  console.log(`[TASK-76 diag-arm] ${await diagPose()}`);
+
   const auth = { authorization: `Bearer ${session.token}` };
   const anchor = planetAnchor(target.planetIndex); // dome centre (the pad sits ~260 u off it)
 
@@ -294,6 +326,7 @@ test('inside atmosphere, low and off-centre: the top band shows haze, never blac
     usedOffset,
     `ship never reached atmosphere regime (last server regime: ${lastRegime})`,
   ).toBeGreaterThan(0);
+  console.log(`[TASK-76 diag-ladder] ${await diagPose()}`);
 
   // --- Aim the nose at the dome ANCHOR ---------------------------------
   // Pre-fix the clipped cap is the FAR part of the dome, in the ANCHOR
@@ -303,9 +336,13 @@ test('inside atmosphere, low and off-centre: the top band shows haze, never blac
   // and once ended 174.7° off):
   // (a) Yaw WITHOUT thrust — the server applies `input.yaw * turnRate * h`
   //     unconditionally (integrateStep in @shared/physics/flight), so `w`
-  //     only coupled thrust/drag into the heading. Without it the ship
-  //     simply falls while it turns: a ground contact causes no crash
-  //     damage, yaw keeps working in the surface regime, and the re-pin
+  //     only coupled thrust/drag into the heading. But the ship must NOT
+  //     fall: VTOL_LIFT === GRAVITY (flight.ts), so full VTOL demand
+  //     (`space`) is an exact hover — the ship stays at ~60 u for the
+  //     whole aim. The hover matters because the SURFACE control scheme
+  //     has `yaw: null` (controls.ts): the moment the ship lands, 'd'/'a'
+  //     stop generating yaw demand and the aim stalls (observed: a 172°
+  //     stall after the ship hit the ground mid-turn). The re-pin
   //     teleport below restores the exact spot anyway.
   // (b) A wall-clock deadline (not a fixed iteration count): each
   //     iteration probes the heading error and presses the yaw key for a
@@ -351,6 +388,9 @@ test('inside atmosphere, low and off-centre: the top band shows haze, never blac
     await page.waitForTimeout(ms);
     for (const k of keys) await page.keyboard.up(k);
   };
+  // Hover for the whole aim (see (a)): full VTOL demand holds the ship at
+  // its current altitude, so it never lands and the yaw axis stays live.
+  await page.keyboard.down(' ');
   let dSign = 1;
   let a = await aimProbe(anchor.x, anchor.z);
   if (a && Math.abs(a.err) >= 0.15) {
@@ -378,6 +418,7 @@ test('inside atmosphere, low and off-centre: the top band shows haze, never blac
   a = await aimProbe(anchor.x, anchor.z);
   const finalErr = a?.err ?? Number.NaN;
   console.log(`[TASK-76] aimed at the anchor: heading error ${(finalErr * 57.3).toFixed(1)}°`);
+  console.log(`[TASK-76 diag-aim] ${await diagPose()}`);
   expect(a, 'aim probe lost the ship before the heading could converge').not.toBeNull();
   expect(
     Math.abs(finalErr),
@@ -385,12 +426,15 @@ test('inside atmosphere, low and off-centre: the top band shows haze, never blac
       `${(AIM_TOLERANCE_RAD * 57.3).toFixed(1)}°) — the band must not be measured with the nose ` +
       `pointing the wrong way`,
   ).toBeLessThan(AIM_TOLERANCE_RAD);
+  // Aimed: release the hover so the measurement state is the plain
+  // (thrustless, no-VTOL) flight the server keeps simulating.
+  await page.keyboard.up(' ');
 
   // --- Pin the measurement spot -----------------------------------------
-  // The aim takes a couple of seconds without thrust, so by now the ship
-  // has fallen toward (or onto) the terrain. Re-teleport to the SAME spot
-  // (orientation is untouched by the teleport — shard.teleportForTesting
-  // only sets pos/vel) so the band is measured at exactly 60 u.
+  // The aim takes a couple of seconds; VTOL hover keeps the altitude, but
+  // re-teleport to the SAME spot (orientation is untouched by the teleport
+  // — shard.teleportForTesting only sets pos/vel) so the band is measured
+  // at exactly 60 u.
   const pin = await page.request.post(`${baseURL}/api/dev/teleport`, {
     headers: { ...auth, 'content-type': 'application/json' },
     data: spot,
@@ -408,6 +452,22 @@ test('inside atmosphere, low and off-centre: the top band shows haze, never blac
     await page.waitForTimeout(400);
   }
   expect(pinned, `ship never re-settled at the pin spot (regime: ${lastRegime})`).toBe(true);
+
+  // --- TEMP DIAGNOSTIC (TASK-76.1 flake): pose + canvas over time --------
+  for (let i = 0; i < 5; i++) {
+    const pose = await diagPose();
+    const full = await canvasRegionStats(page, { x0: 0, y0: 0, x1: 1, y1: 1 });
+    const band = await canvasRegionStats(page, TOP_BAND);
+    console.log(
+      `[TASK-76 diag ${i}] ${pose} fullMean=${full.mean.toFixed(1)} ` +
+        `topBandMean=${band.mean.toFixed(1)}`,
+    );
+    await page.waitForTimeout(450);
+  }
+  const nanFrames = await page.evaluate(() =>
+    JSON.stringify((window as unknown as { __camNan?: unknown[] }).__camNan ?? 'none'),
+  );
+  console.log(`[TASK-76 diag-nanframes] ${nanFrames}`);
 
   // The CENTRAL top band shows the dome haze color, never black (mean > 5).
   // (The full-width band is logged too: pre-fix it averages in the visible

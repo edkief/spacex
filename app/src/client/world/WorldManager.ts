@@ -697,6 +697,15 @@ export class WorldManager {
    * top-left). Null when the point is behind the camera — the caller hides
    * the label rather than mirroring it.
    */
+  /** TEMP TASK-76.1 diagnostic (revert before commit). */
+  debugCamera(): { x: number; y: number; z: number } {
+    return {
+      x: this.camera.position.x,
+      y: this.camera.position.y,
+      z: this.camera.position.z,
+    };
+  }
+
   projectToScreen(pos: Vec3): { x: number; y: number; dist: number } | null {
     const v = this.projectVec.set(pos.x, pos.y, pos.z);
     const dist = this.camera.position.distanceTo(v);
@@ -829,6 +838,20 @@ export class WorldManager {
    * removes it.
    */
   setSelfShip(state: SelfShipInput | null): void {
+    // TEMP TASK-76.1 diagnostic (revert before commit): log non-finite feeds.
+    if (state) {
+      const w = window as unknown as {
+        __feedNan?: { total: number; bad: unknown[] };
+      };
+      const sink = w.__feedNan ?? { total: 0, bad: [] };
+      sink.total += 1;
+      const posOk = Number.isFinite(state.pos.x + state.pos.y + state.pos.z);
+      const rotOk = Number.isFinite(state.rot.x + state.rot.y + state.rot.z + state.rot.w);
+      if (!posOk || !rotOk) {
+        sink.bad.push(['set', Math.round(performance.now()), posOk, rotOk]);
+        if (sink.bad.length <= 50) w.__feedNan = sink;
+      }
+    }
     const currentGroup = this.selfShip.mesh?.group ?? null;
     const result = this.selfShip.set(state);
     if (result.created || result.rebuilt) {
@@ -855,6 +878,20 @@ export class WorldManager {
    * setSelfShip updates are the only feed).
    */
   setSelfShipTransform(pos: Vec3, quat: { x: number; y: number; z: number; w: number }): void {
+    // TEMP TASK-76.1 diagnostic (revert before commit): log non-finite feeds.
+    {
+      const w = window as unknown as {
+        __feedNan?: { total: number; bad: unknown[] };
+      };
+      const sink = w.__feedNan ?? { total: 0, bad: [] };
+      sink.total += 1;
+      const posOk = Number.isFinite(pos.x + pos.y + pos.z);
+      const rotOk = Number.isFinite(quat.x + quat.y + quat.z + quat.w);
+      if (!posOk || !rotOk) {
+        sink.bad.push(['tf', Math.round(performance.now()), posOk, rotOk]);
+        if (sink.bad.length <= 50) w.__feedNan = sink;
+      }
+    }
     this.selfShip.transform(pos, quat);
     this.cameraRig.setShip(pos, quat);
   }

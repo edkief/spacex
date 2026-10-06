@@ -2,139 +2,169 @@
 
 ## Status
 
-~70% done. The deterministic aim (step 1) is implemented and VERIFIED — heading error
-converged < 6.9° in 5 consecutive runs (previously up to 174.7°). The pre-fix FAIL is
-re-confirmed with the new aim (step 2, central top band mean = 0.0). Step 3 (3 consecutive
-post-fix passes) is NOT met: 1 of 3 runs passed (mean 66.0), 2 read 0.0 — a NEW flake that
-is NOT the aim (it converged in all of them) and is not a settle transient or a
-preserveDrawingBuffer race. The root cause is narrowed to a rendered-state/camera issue and
-needs one verification step (see Next steps 1).
+~80% done. Step 1 (deterministic aim) is now genuinely fixed and converging 4/4 — this
+iteration found WHY the old aim could stall (the surface control scheme has `yaw: null`,
+so landing mid-aim disables 'd'/'a'; holding VTOL `space` hovers and keeps yaw live).
+The remaining blocker (2/3 post-fix runs painting the WHOLE canvas black) is ROOT-CAUSED:
+the chase camera position becomes NaN and stays NaN forever, because the ship feed into
+`CameraRig` occasionally carries non-finite pos/quat values. Temp diagnostics to identify
+the exact offending feed are in place but NOT YET RUN. Steps 2-4 of the task remain
+(step 2's pre-fix FAIL value 0.0 is already recorded and valid).
 
 ## Done
 
-- **Step 1 (aim, DONE)** — `app/tests/e2e/atmosphere-sky.spec.ts`, the aim block rewritten
-  (~lines 298-383, `--- Aim the nose at the dome ANCHOR ---` through the convergence
-  assert):
-  - Yaw WITHOUT holding `w` (server yaw is thrust-independent, `integrateStep` in
-    `@shared/physics/flight` applies `input.yaw * turnRate * h` unconditionally). The ship
-    just falls while it turns — safe: there is no ship-terrain crash damage in the sim, and
-    the re-pin teleport below restores the exact spot anyway.
-  - Calibration press is now `press(['d'], 120)` (was `['w','d']`), sign logic unchanged.
-  - Wall-clock loop: `AIM_DEADLINE_MS = 9_000`; each iteration probes via the existing
-    `aimProbe` and presses for a PROPORTIONAL duration:
-    `ms = clamp(80..450, |err| / 0.8 * 0.8 * 1000)` (scout turnRate 0.8 rad/s, 80 %
-    deliberate undershoot so a press can never cross the target; min 80 ms vs key latency).
-  - Exit threshold is an INTERNAL `AIM_SETTLE_RAD = 0.05` (tighter than the hard assert,
-    leaves tick-overshoot margin), then a 200 ms settle, then the HARD ASSERT
-    `expect(Math.abs(finalErr)).toBeLessThan(AIM_TOLERANCE_RAD)` with
-    `AIM_TOLERANCE_RAD = 0.12` and an explicit message, before any measurement.
-  - Verified across 5 runs: heading errors -1.8°, -0.3°, -3.5°, 6.7°, -0.5° — all
-    converged. (The 6.7° pre-fix run was within 0.18° of the 6.88° limit — the tightened
-    0.05 rad settle threshold landed all later runs ≤ 4°.)
-  - The stale re-pin comment was updated (no thrust is burned during the aim now).
-- **Step 2 (pre-fix FAIL re-confirmed, DONE)** — with the constructor temporarily
-  `new THREE.PerspectiveCamera(70, 1, 0.1, 1000)` the spec FAILED: **central top band mean
-  = 0.0, bright = 0, full top band mean = 0.0** (heading error 6.7° — converged, so a
-  genuine blackout, not a mis-aim). `CAMERA_FAR` is exported and untouched; the file was
-  restored with `git checkout -- app/src/client/world/WorldManager.ts` (verified empty
-  diff). THE MEASURED PRE-FIX VALUE TO RECORD: central top band mean = 0.0.
-- `npx tsc --noEmit` clean; `eslint --fix` + `prettier --write` applied to the spec.
-- `npx vitest run src/client/world/world-manager.test.ts` → 10/10 green (re-checked this
-  iteration; the constants were not touched).
-- `.ralph/screenshots/TASK-76-1.png` regenerated from a PASSING post-fix run (hazy blue
-  sky, ship visible, HUD intact).
+- **Aim fix (REAL, keep) — `app/tests/e2e/atmosphere-sky.spec.ts`, the aim block:**
+  - HOLD `page.keyboard.down(' ')` (VTOL) from before the calibration press until after
+    the convergence assert, then `page.keyboard.up(' ')`. `VTOL_LIFT === GRAVITY`
+    (`app/src/shared/physics/flight.ts` ~lines 124-130) → full VTOL demand is an EXACT
+    hover, so the ship stays at ~60 u for the whole aim.
+  - WHY: the SURFACE control scheme has `yaw: null`
+    (`app/src/client/input/controls.ts`, `CONTROL_SCHEMES.surface`) — the instant the
+    ship lands, `readInput` emits zero yaw and `d`/`a` are remapped to character move.
+    Observed this iteration: aim stalled at 172.4° (hard assert fired) after the no-thrust
+    ship hit the ground ~2 s into the turn. WITH VTOL: 4/4 runs converged (-2.4°, 0.4°,
+    2.8°, 1.0°).
+  - The comment block above the aim now documents this. Everything else in the aim
+    (wall-clock loop, proportional press, AIM_SETTLE_RAD 0.05 exit, hard assert
+    < 0.12 rad) is unchanged from the committed 22eab45.
+- **Terrain hypothesis REFUTED** (scratch `app/terrain-check.mts`, now deleted — results
+  recorded): for ALL ladder offsets (600/450/300/150 u) and heading error ±5°, the chase
+  camera pose (ship − 14·forward, +4 u up) sits **48-75 u ABOVE terrain**. The camera's
+  TARGET pose is never underground. Do not retry terrain offsets / ±180° re-aims.
+- **Black-canvas root cause — NaN camera position, POISONED PERMANENTLY:**
+  - The `cam` probe reads NaN in every failing run (JSON.stringify renders NaN as `null`
+    — `{x:null,y:null,z:null}` is NaN, not "no camera").
+  - A temp capture in `CameraRig.update` (see Working tree) logged the first non-finite
+    target pose at **t ≈ 1818 ms — right after the chase camera arms** (arm happens at
+    the warp gate pose (100, 0, 0)). First 3 frames: pos NaN AND quat NaN; then pos
+    finite but quat NaN continues for many frames.
+  - Once `curPos.lerp(NaN, x, f)` runs, `curPos` is NaN FOREVER (lerp with a NaN
+    base-component is NaN for any finite x and f < 1) → the camera is unusable forever:
+    no ship, no dome, no stars, persistent pure-black canvas. Exactly the observed
+    flake signature. It is also consistent with the earlier 1/3 passing: the NaN feed is
+    INTERMITTENT.
+  - The ship MESH reads a finite quat via the probe in the same frames the RIG's ship
+    state is NaN → the two feeds (`setSelfShip` 10 Hz wire path vs
+    `setSelfShipTransform` 60 Hz prediction path, both in WorldManager and both feeding
+    mesh + rig) are delivering different values at different times; the offender is one
+    of the two.
+- **Vite stale-bundle hypothesis RULED OUT**: a `window.__TM76 = 'fresh'` marker in
+  `main.tsx` (temp) read back 'fresh' in every run — the dev harness always serves fresh
+  code.
+- `npx tsc --noEmit` clean with all the temp code in place (verified at handoff).
 
 ## Working tree
 
-- Committed: nothing this iteration (HEAD = 444c1c7, the split chore commit).
-- Modified, UNCOMMITTED (to commit with the final fix):
-  - `app/tests/e2e/atmosphere-sky.spec.ts` — the new deterministic aim (step 1).
-  - `.ralph/screenshots/TASK-76-1.png` — passing-run image (was a black-sky image before).
+- HEAD = 22eab45 (committed: the deterministic aim v1 + pre-fix FAIL value 0.0 +
+  passing-run screenshot `.ralph/screenshots/TASK-76-1.png` + prior handoff).
+- Modified, UNCOMMITTED (committed with THIS handoff as wip):
+  - `app/tests/e2e/atmosphere-sky.spec.ts` — the REAL VTOL aim fix PLUS temp
+    diagnostics to REMOVE before the final commit: the `diagPose()` helper (reads
+    pos/cam/pitch/fwd/screen incl. the new `cam` field), the `diag-arm` /
+    `diag-ladder` / `diag-aim` console.logs, the 5-sample pose+full-canvas+top-band
+    loop, and the `diag-nanframes` log (reads `window.__camNan`).
+  - `app/src/client/world/WorldManager.ts` — TEMP ONLY (revert all before final commit):
+    `debugCamera()` method (returns camera pos); `__feedNan` loggers at the TOP of
+    `setSelfShip` (tags entries `['set', ms, posOk, rotOk]`) and
+    `setSelfShipTransform` (tags `['tf', ...]`) — these record which feed path delivered
+    non-finite values (`window.__feedNan = { total, bad[] }`).
+  - `app/src/client/camera/CameraRig.ts` — TEMP ONLY (revert): a block at the top of
+    `update()` that captures non-finite target poses (with the current `this.ship`
+    state + dt) into `window.__camNan` (cap 20).
+  - `app/src/client/main.tsx` — TEMP ONLY (revert): `window.__TM76 = 'fresh'` marker
+    after `installCameraDebug()`; `cam: world.debugCamera()` added to the
+    `bindSelfShipDebug` result object.
   - `.ralph/handoff/TASK-76.1.md` — this file.
-- Pre-existing dirt — do NOT commit: `ralph.config.json`, `.ralph/screenshots/TASK-28.1-1.png`,
-  `TASK-70-1.png`, `TASK-72-1.png`, `TASK-73-1.png`.
-- Builds: `tsc` clean; unit test file green. No background processes (the e2e fixture
-  self-tears-down; verified with `ps`).
+- Pre-existing dirt — do NOT commit: `ralph.config.json`,
+  `.ralph/screenshots/TASK-28.1-1.png`, `TASK-70-1.png`, `TASK-72-1.png`, `TASK-73-1.png`.
+- Builds: `tsc --noEmit` clean (verified at handoff). No background processes (the vite
+  one-shot check from this iteration self-terminated via `timeout 25`; verified with ps).
+- NOTE on the commit constraint: the task spec's step 4 says the FINAL commit must
+  contain only the spec (+screenshot+handoff). If the NaN feed turns out to be a real
+  client bug that must be fixed in src (likely), the final commit will ALSO need the
+  minimal src fix — that is a deviation from the spec wording that should be noted in
+  the commit message; the alternative (spec-only workaround) would mean hiding a real
+  bug and is not preferred.
 
 ## Next steps
 
-1. **Root-cause the remaining post-fix flake (the only blocker).** Data from this
-   iteration (a temporary diagnostic block, now REMOVED from the spec — re-add a pose+band
-   logger if you want fresh data):
-   - 3 post-fix runs: run 1 mean 0.0 (heading -1.8°), run 2 mean 0.0 (heading -0.3°),
-     run 3 PASS mean 66.0 bright 83328 (heading -3.5°), regime=atmosphere in all.
-   - Diagnostic run: the black is PERSISTENT (5 band samples over 2.4 s, all 0.0), the ship
-     is exactly at the pin, pitch 0.0°, heading -165.8°. The screenshot showed the ENTIRE 3D
-     canvas pure black — no ship, no dome, no stars — while the DOM HUD rendered fine.
-     So it is NOT the far-plane clip (that leaves a bright dome ring) and NOT a transient.
-   - LEADING HYPOTHESIS: the chase camera ends up INSIDE terrain. The chase pose is
-     ship-local (0, +4, -14) (`CHASE_HEIGHT`/`CHASE_BEHIND` in
-     `app/src/client/camera/pose-math.ts`, `chasePose`), so camera pos =
-     spot − 14·forward(final heading). The spot is terrain+60 u (terrain at spot ≈ 335 u
-     absolute; camera ≈ 399 u), and terrain varies across 5 u cells — whichever terrain
-     rises BEHIND the ship depends on the per-run final heading. VERIFY by computing the
-     terrain at the camera position for the measured heading (target heading toward the
-     anchor ≈ -166°): a scratch tsx script in `app/` re-derives the same way the spec does
-     (`densestAtmosphericPad` + `generateSurfaceChunk` relative imports; spot =
-     (20770, 395, 195)-ish, pad (20170, 229, 195) + 600 u offset); sample
-     `terrainY(spot.x - 14*cos(h), spot.z - 14*sin(h))` for h ≈ -166° ± a few degrees and
-     compare with cam.y ≈ terrainY(spot)+64. If terrain ≥ cam.y → confirmed.
-   - If confirmed: make the camera clear, e.g. after the re-pin check the computed camera
-     position against the terrain and, if underground, nudge the aim by ±180° (re-aim the
-     nose the other way — the band geometry still works: it is a top strip, and the dome
-     fills the whole sky) or pick a different pad offset / rotate the offset direction
-     until the terrain behind the ship is clear. Do NOT change TOP_BAND, the assertion, the
-     target, or the far-plane constants.
-   - If NOT confirmed: next suspects — the client ship prediction (what `__SELF_SHIP__`
-     and the renderer use) drifting from the server-set position after the teleport, or the
-     chase rig stuck in a handoff animation. Add the pose logger back (the removed block
-     shape) and compare the client `probe().pos` with the server spot over time.
-2. **Step 3:** with `CAMERA_FAR = 4000`, run
-   `cd app && npx playwright test --config playwright.e2e.config.ts atmosphere-sky`
-   THREE times; every run must pass on its own (retries: 0). Log per run: heading error,
-   central top band mean (> 5; one measured pass read 66.0 — the spec's "~150" expectation
-   was a tint-luminance estimate, record the ACTUAL value in the commit message),
-   bright, regime. LOOK at `.ralph/screenshots/TASK-76-1.png`: hazy blue, not black.
-3. **Step 4:** `npx tsc --noEmit`; `npx vitest run src/client/world/world-manager.test.ts`
-   (10/10); commit ONLY `app/tests/e2e/atmosphere-sky.spec.ts`,
-   `.ralph/screenshots/TASK-76-1.png` (if changed), and this handoff; check
-   `git status --short` first (pre-existing dirty files stay dirty). Then close per the
-   task flow (tasks.json `passes: true`, LOG entry — or leave to TASK-76.2 for the LOG
-   since the pre-fix value and pass values are now recorded here).
+1. **Identify the offending feed (the instrumented experiment is ready — run it):**
+   - The spec currently reads `__camNan` (rig side) but NOT `__feedNan` (feed side).
+     Add one line in the spec after the `diag-nanframes` log:
+     `console.log('[TASK-76 diag-feednan] ' + await page.evaluate(() => JSON.stringify((window as unknown as { __feedNan?: { total: number; bad: unknown[] } }).__feedNan ?? 'none')));`
+   - Run `cd app && npx playwright test --config playwright.e2e.config.ts atmosphere-sky`
+     (a run is ~1-2 min; it will fail on the band assert — that's fine, the diag logs
+     are what matter).
+   - Read `diag-feednan`: entries tagged `set` = the 10 Hz WIRE path
+     (`setSelfShip` ← `selfShipStateFrom` in main.tsx ← self entity_update);
+     entries tagged `tf` = the 60 Hz PREDICTION path
+     (`setSelfShipTransform` ← `ClientShipPredictor.getState()`, main.tsx ~line 1592).
+     `total` tells you the feed cadence; `bad[]` timestamps vs the `__camNan`
+     first-hit time (t ≈ 1818 ms, i.e. seconds from page load — VERY early, right at
+     chase-arm / first entity / teleport) tell you where to look.
+   - Upstream suspects, in order: (a) wire spawn/teleport frames carrying a partial
+     state (check `selfShipStateFrom` + the entity bridge at main.tsx ~952/997/1024 —
+     does any path call `setSelfShip` with an entity whose pos/rot is absent or
+     `undefined` components? `e.rot ?? IDENTITY_ROT` covers rot, but pos has no guard);
+     (b) `ClientShipPredictor` construction/reconcile: `lerpState`/`quatSlerp`
+     (`app/src/client/net/prediction.ts`) with a NaN quat from the initial or
+     reconciled state, or `reconcile` running before the first real snapshot.
+   - Likely fix: guard the feed (skip non-finite pos/quat in `setSelfShip` /
+     `setSelfShipTransform` / `ClientShipPredictor.step`) so a single bad frame can
+     never poison the camera — the rig's lerp gives NaN no recovery path. Keep the
+     guard minimal and unit-test it (pattern: world-manager.test.ts / prediction.test.ts).
+2. **Revert ALL temp code** (the 4 files listed in Working tree, everything marked
+   TEMP) and remove the spec diagnostics; keep only the VTOL aim fix.
+3. **Step 3:** with the fix in, run the spec THREE times
+   (`cd app && npx playwright test --config playwright.e2e.config.ts atmosphere-sky`,
+   retries: 0); each run must pass on its own. Log per run: heading error, central top
+   band mean (> 5; the measured pass reads ~66, not the "~150" estimate), bright,
+   regime. LOOK at `.ralph/screenshots/TASK-76-1.png`: hazy blue, not black. The
+   pre-fix FAIL (step 2) is ALREADY confirmed with the recorded value **central top
+   band mean = 0.0** (far=1000, converged aim) — no need to redo it unless the spec's
+   aim changed materially.
+4. **Step 4:** `npx tsc --noEmit`; `npx vitest run src/client/world/world-manager.test.ts`
+   (10/10) plus the test file of whatever src module you fixed; commit (spec +
+   screenshot if changed + handoff deleted + the src fix file if any) with the task's
+   message shape recording ACTUAL values: pre-fix 0.0, post-fix the three measured
+   means. Then close: tasks.json `passes: true`, LOG entry (or leave the LOG to
+   TASK-76.2 per the prior handoff's option).
 
 ## Dead ends
 
-- **Old aim (14 fixed iterations holding `w`)**: up to 174.7° heading error — replaced by
-  the no-thrust wall-clock loop; do not resurrect `w` in the aim.
-- **6.7° convergence against the 6.88° (0.12 rad) hard assert** (the pre-fix run): too
-  tight. The internal `AIM_SETTLE_RAD = 0.05` exit threshold fixed the margin; keep it.
-- **Profile hypothesis**: the `mobile` perf profile has `atmosphereDome: false`
-  (`app/src/shared/perf.ts` line ~262) — RULED OUT: headless reports maxTouchPoints 0 →
-  desktop profile, and all desktop presets keep the dome on.
-- **preserveDrawingBuffer / readPixels race** — RULED OUT: `WorldManager` sets
-  `preserveDrawingBuffer: true` (line ~406); the diagnostic showed the black is
-  persistent across seconds, not a between-frames read.
-- **Settle transient after the re-pin** — RULED OUT: 5 samples over 2.4 s all 0.0 with the
-  ship pinned exactly at the spot.
-- **Writing scratch scripts to `/tmp/opencode/`**: the write tool refused twice there —
-  put scratch scripts inside `app/` (delete after, as the prior attempt did with
-  `galaxy-scan.mts`/`band-check.mjs`).
+- **Chase camera inside terrain** (last handoff's leading hypothesis) — REFUTED by
+  numeric sampling: camera pose is 48-75 u above terrain at all ladder offsets and
+  ±5° heading error. Do not retry terrain/offset/±180°-re-aim workarounds.
+- **Vite serving a stale bundle in e2e** — RULED OUT: the `__TM76` freshness marker
+  read 'fresh' in every run this iteration.
+- **Aim without VTOL** — the previous committed aim works only when the total yaw
+  demand lands within the ~2 s of falling before the ship hits the ground; landing
+  disables yaw entirely (surface scheme `yaw: null`) and the aim stalls (172.4° seen
+  this iteration). The VTOL hover is the fix; do not drop the `space` hold.
+- **Old aim (fixed 14 iterations holding `w`)** — up to 174.7° error, never resurrect.
+- **preserveDrawingBuffer / readPixels race, settle transient after re-pin, mobile
+  perf profile** — all RULED OUT in earlier iterations (persistent black, not
+  transient; headless is desktop profile).
+- **Writing scratch scripts to `/tmp/opencode/`** — the write tool refuses there; put
+  scratch scripts inside `app/` and delete them after.
 
 ## How to verify
 
-- Spec: `.ralph/tasks/TASK-76.1.json` (steps 1-4, acceptance criteria). Parent context:
-  `.ralph/split/TASK-76/TASK-76.json` + `.ralph/split/TASK-76/handoff.md` (steps 1-2 of the
-  parent are committed at 135fd31: `CAMERA_FAR = 4000` + invariant unit test).
+- Spec: `.ralph/tasks/TASK-76.1.json` (steps 1-4 + acceptance criteria). Parent context:
+  `.ralph/split/TASK-76/TASK-76.json` (steps 1-2 committed at 135fd31:
+  `CAMERA_FAR = 4000` + invariant unit test).
 - Repro commands:
-  - `cd app && npx tsc --noEmit` (tsconfig includes `tests/`, so the spec is checked)
+  - `cd app && npx tsc --noEmit`
   - `cd app && npx vitest run src/client/world/world-manager.test.ts` (10/10)
   - `cd app && npx playwright test --config playwright.e2e.config.ts atmosphere-sky`
-- Pre-fix check (already done, value recorded): edit `WorldManager.ts:408` to
-  `new THREE.PerspectiveCamera(70, 1, 0.1, 1000)` (leave `CAMERA_FAR` exported), run the
-  spec → FAIL, central top band mean = 0.0; restore via
-  `git checkout -- app/src/client/world/WorldManager.ts`.
-- Facts (seed DRIFT-SEED-0001): densest pad system `9f065b79f5c34fd3`, density 0.0985,
-  pad (20170, 229.0, 195); spot = pad + (600, 0, 0) at +60 u local altitude (terrain at
-  spot ≈ 335 u absolute → ship ≈ 395 u); anchor ≈ 794 u from the spot, heading ≈ -166°;
-  dome radius 1010 u, far wall 1804 u; haze ≈ 0.93; passing-run measurement: central band
-  mean 66.0, bright 83328, full top band 65.9.
+    (~1-2 min incl. dev-server boot; output lines starting `[TASK-76`)
+- Facts (seed DRIFT-SEED-0001, unchanged): densest pad system `9f065b79f5c34fd3`,
+  density 0.0985, pad (20170, 229.0, 195); spot = pad + (600, 0, 0) at +60 u local
+  altitude (ship ≈ (20770, 395, 195)); anchor (20000, 0) ≈ 794 u away, target heading
+  ≈ -166°; dome radius 1010 u, far wall 1804 u; haze ≈ 0.93.
+- Recorded values: pre-fix (far=1000): central top band mean = **0.0**, bright = 0
+  (converged aim). Post-fix passing run: central band mean **66.0**, bright 83328,
+  full top band 65.9.
+- NaN evidence if re-verification is wanted: temp capture code is committed in this
+  wip state (search `TEMP TASK-76.1` across the 4 modified files — every insertion is
+  marked with that comment).

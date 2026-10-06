@@ -172,6 +172,22 @@ export class CameraRig {
   update(dtSec: number): void {
     if (dtSec <= 0) return;
     const nowMs = this.now();
+    // TEMP TASK-76.1 diagnostic (revert before commit): catch the exact
+    // frame a non-finite target reaches the rig, with the feed state.
+    const tmpPose = this.handoffTo === null ? this.targetPose(this.mode) : null;
+    if (tmpPose && !Number.isFinite(tmpPose.position.x + tmpPose.look.x)) {
+      const sink = (window as unknown as { __camNan?: unknown[] }).__camNan ?? [];
+      sink.push({
+        t: nowMs,
+        dt: dtSec,
+        mode: this.mode,
+        ship: JSON.parse(JSON.stringify(this.ship)),
+        dtFinite: Number.isFinite(dtSec),
+      });
+      if (sink.length < 20) {
+        (window as unknown as { __camNan?: unknown[] }).__camNan = sink;
+      }
+    }
 
     if (this.handoffTo !== null) {
       const t = (nowMs - this.handoffStart) / HANDOFF_DURATION_MS;
