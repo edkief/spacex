@@ -1,0 +1,22 @@
+{"time":"2026-10-05T21:10:00.365Z","level":"info","message":"web UI action","fields":{"action":"push-subscribe","events":"request,run-end,task"}}
+{"time":"2026-10-05T21:47:33.601Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-05T21:52:41.445Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-30.1.md"}}
+{"time":"2026-10-05T21:52:44.919Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":1}}
+{"time":"2026-10-05T22:37:47.562Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-05T22:48:28.957Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-30.1.md"}}
+{"time":"2026-10-05T22:48:32.000Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":2}}
+{"time":"2026-10-05T22:48:32.005Z","level":"warn","message":"waiting for a person: answer in the web UI or with `ralph respond`","fields":{"kind":"stalled","task":"TASK-30.1","about":"TASK-30.1 ran out of time 2 times after being split from TASK-30; stall.maxSplitDepth (1) allows no further split, so split it by hand (handoff: .ralph/handoff/TASK-30.1.md)"}}
+{"time":"2026-10-05T23:50:34.495Z","level":"info","message":"web UI action","fields":{"action":"resume","request":"20261005-210233-1","delivered":"loop"}}
+{"time":"2026-10-05T23:50:34.666Z","level":"info","message":"a person answered","fields":{"kind":"stalled","action":"resume","by":"ui"}}
+{"time":"2026-10-06T00:05:04.317Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":3}}
+{"time":"2026-10-06T00:23:22.051Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":4}}
+{"time":"2026-10-06T00:54:43.518Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-06T00:58:40.324Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-06T01:00:42.649Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-06T01:01:04.693Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-06T01:01:36.497Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-06T01:01:54.180Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-06T01:08:24.752Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-06T01:18:18.128Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-69.md"}}
+{"time":"2026-10-06T01:18:21.665Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":5}}
+{"time":"2026-10-06T01:24:21.472Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":6}}

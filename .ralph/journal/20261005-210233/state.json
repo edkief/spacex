@@ -1,0 +1,17 @@
+{
+  "runId": "20261005-210233",
+  "status": "complete",
+  "startedAt": "2026-10-05T21:02:33.090Z",
+  "updatedAt": "2026-10-06T01:24:21.473Z",
+  "maxIterations": 100,
+  "iteration": 6,
+  "taskId": "TASK-69",
+  "iterationStartedAt": "2026-10-06T01:18:23.666Z",
+  "lastStatus": "complete",
+  "tasksPassed": 89,
+  "tasksTotal": 89,
+  "split": null,
+  "escalation": null,
+  "pending": null,
+  "message": "Agent reported the backlog is complete"
+}
