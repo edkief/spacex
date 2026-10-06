@@ -208,6 +208,59 @@ test('inside atmosphere, low and off-centre: the top band shows haze, never blac
     `ship never reached atmosphere regime (last server regime: ${lastRegime})`,
   ).toBeGreaterThan(0);
 
+  // --- Aim the nose at the dome anchor ---------------------------------
+  // The clipped cap (pre-fix) is the FAR part of the dome, in the ANCHOR
+  // direction from the ship: the top band (15-35° above the nose) only
+  // covers it once the ship faces the anchor. Closed-loop yaw on the world
+  // heading; the 'd'/'a' turn sign is calibrated empirically with one 120 ms
+  // press (no assumption about the flight model's rotation sign) and W is
+  // held while turning to keep altitude.
+  const aimProbe = (ax: number, az: number): Promise<{ err: number; h: number } | null> =>
+    page.evaluate((t: { ax: number; az: number }) => {
+      const p = (window as unknown as {
+        __SELF_SHIP__?: {
+          probe: () => {
+            pos: { x: number; y: number; z: number } | null;
+            rot: { x: number; y: number; z: number; w: number } | null;
+          };
+        };
+      }).__SELF_SHIP__?.probe();
+      const rot = p?.rot;
+      const pos = p?.pos;
+      if (!rot || !pos) return null;
+      // Ship forward = local +Z under the ship quat (pose-math convention).
+      const fx = 2 * (rot.x * rot.z + rot.y * rot.w);
+      const fz = 1 - 2 * (rot.x * rot.x + rot.y * rot.y);
+      const h = Math.atan2(fz, fx);
+      let err = Math.atan2(t.az - pos.z, t.ax - pos.x) - h;
+      while (err > Math.PI) err -= 2 * Math.PI;
+      while (err < -Math.PI) err += 2 * Math.PI;
+      return { err, h };
+    }, { ax, az });
+  const press = async (keys: string[], ms: number): Promise<void> => {
+    for (const k of keys) await page.keyboard.down(k);
+    await page.waitForTimeout(ms);
+    for (const k of keys) await page.keyboard.up(k);
+  };
+  let dSign = 1;
+  let a = await aimProbe(target.pad.x, target.pad.z);
+  if (a && Math.abs(a.err) >= 0.15) {
+    await press(['w', 'd'], 120);
+    const b = await aimProbe(target.pad.x, target.pad.z);
+    if (a && b) {
+      let dh = b.h - a.h;
+      while (dh > Math.PI) dh -= 2 * Math.PI;
+      while (dh < -Math.PI) dh += 2 * Math.PI;
+      dSign = dh >= 0 ? 1 : -1;
+    }
+  }
+  for (let i = 0; i < 14; i++) {
+    a = await aimProbe(target.pad.x, target.pad.z);
+    if (!a || Math.abs(a.err) < 0.12) break;
+    await press(['w', a.err * dSign > 0 ? 'd' : 'a'], Math.min(400, 80 + Math.abs(a.err) * 250));
+  }
+  console.log(`[TASK-76] aimed at the anchor: heading error ${a ? (a.err * 57.3).toFixed(1) : '?'}°`);
+
   // The top band shows the dome haze color, never black (mean > 5).
   const top = await canvasRegionStats(page, TOP_BAND);
   console.log(
