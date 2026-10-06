@@ -1,0 +1,21 @@
+{
+  "task": "TASK-76",
+  "splittable": true,
+  "reason": "Both 45-minute attempts were consumed by the same risk pocket: the e2e. Attempt 1 built the repro from scratch (never failed pre-fix); attempt 2 got the far-plane fix (step 1) and unit test (step 2) committed and green, reworked the repro to the densest seeded atmosphere, confirmed the pre-fix FAIL (central top band mean 0.0), but then hit a flaky flight-model aim loop (once 174.7° off) and ran out of time before a confirmed post-fix pass, leaving the whole step-4 verification matrix (full unit suite ~130 s, 6 e2e specs, bench:render ~8-10 min, lint, close-out — ~20-25 min by itself) undone. TASK-76.1 covers only the e2e: deterministic no-thrust aim with a hard convergence assert, one pre-fix FAIL re-confirmation (recorded value), and 3 consecutive post-fix passes. TASK-76.2 covers the verification matrix plus close-out (LOG.md entry with the pre-fix value, passes: true, handoff deletion, one final fix(TASK-76) commit). Together they cover every unmet acceptance criterion; each is clearly smaller than TASK-76 and ends green with a commit.",
+  "tasks": [
+    {
+      "id": "TASK-76.1",
+      "title": "Stabilize the atmosphere-sky e2e: deterministic aim, confirmed pre-fix FAIL + 3x post-fix PASS"
+    },
+    {
+      "id": "TASK-76.2",
+      "title": "Verify + close out TASK-76: full test matrix, e2e regression set, bench:render gates, LOG entry"
+    }
+  ],
+  "parent": {
+    "title": "Blackout fix (atmosphere): camera far plane must contain the whole dome",
+    "specFilePath": ".ralph/split/TASK-76/TASK-76.json",
+    "handoffPath": ".ralph/split/TASK-76/handoff.md"
+  },
+  "appliedAt": "2026-10-06T15:18:46.233Z"
+}

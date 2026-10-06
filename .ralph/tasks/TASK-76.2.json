@@ -1,0 +1,54 @@
+{
+  "id": "TASK-76.2",
+  "title": "Verify + close out TASK-76: full test matrix, e2e regression set, bench:render gates, LOG entry",
+  "category": "functional",
+  "description": "Closes TASK-76. The far-plane fix (CAMERA_FAR = 4000, committed in 135fd31) and the stabilized atmosphere-sky e2e (TASK-76.1: deterministic aim, pre-fix FAIL re-confirmed, 3/3 post-fix passes) are done. This task runs the original TASK-76 step 4 — the full verification matrix — and performs the close-out: LOG.md entry, passes: true, handoff deletion, final commit.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Types + full unit suite",
+      "details": "cd app && npx tsc --noEmit (must be clean; the tsconfig includes src and tests) and the full unit suite: npm run test (182 files, ~130 s; TASK-61's last full run was 1638 passed / 1 skipped). Any failure is a regression to root-cause — the far-plane change is a single camera argument, so a failure here should be unrelated and pre-existing; verify by checking whether it also fails on the parent commit before doing anything.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "E2E regression set",
+      "details": "cd app && npx playwright test --config playwright.e2e.config.ts atmosphere-sky atmosphere-view atmosphere landing transitions self-ship (single worker, retries: 0; each spec file boots its own dev server via tests/e2e/fixtures.ts, ~1-2 min overhead per file; expect ~5-8 min total). All six must pass on their own runs. If one fails, re-run that single file in isolation before declaring a regression (per-file dev servers make cross-file interference unlikely); if it fails again, it is a real regression from the CAMERA_FAR change — root-cause it (a larger far plane must not affect gameplay, only what the sky shows). Note: atmosphere-sky was already verified 3/3 in TASK-76.1; this run confirms it in the set.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Render benchmark gates",
+      "details": "cd app && npm run bench:render (baseline 60 s + five tuned 60 s runs, ~8-10 min; exits non-zero if any gate breaks: no-spike rule — a frame > 50 ms in any tuned run, draw/material/triangle budgets in PERF_PROFILES.high.budgets, or >= 20 % p95 spread across the tuned runs). The gates must pass. A larger far plane can raise draw calls (more dome/terrain within range) — if a gate fails, do NOT lower CAMERA_FAR below the invariant (2 x ATMOSPHERE_BOUNDARY_M x DOME_RADIUS_FACTOR = 2020 u); instead record the exact numbers in the LOG.md entry and flag a DECIDE (report and stop). Note the script rewrites .ralph/bench/TASK-58.json with the latest passing record (scripts/bench-render.ts:157) — include that file in the final commit if it changed.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Lint + format touched files",
+      "details": "cd app && npx eslint --fix src/client/world/WorldManager.ts src/client/world/world-manager.test.ts tests/e2e/atmosphere-sky.spec.ts && npx prettier --write src/client/world/WorldManager.ts src/client/world/world-manager.test.ts tests/e2e/atmosphere-sky.spec.ts. Re-run npx tsc --noEmit afterwards (lint should not have changed semantics).",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Close out: LOG entry, passes, handoff, final commit",
+      "details": "(a) Add an entry at the TOP of .ralph/logs/LOG.md (below the Current Status block, same style as the TASK-75 entry): the bug (crossfade fades skybox+stars out inside an atmosphere; the 1000 u far plane clipped the dome's far wall — up to 2020 u from any interior point — so the black clear color showed through), the fix (named constant CAMERA_FAR = 4000 u in WorldManager.ts with the invariant comment; unit test guards it), the PROOF values: pre-fix central top band mean 0.0 (2 runs, old spec) and the TASK-76.1 re-confirmation value (central band mean <= 5 with the final spec, from its commit message/handoff), post-fix ~150 in 3/3 runs with the screenshot .ralph/screenshots/TASK-76-1.png (hazy blue, not black), and the verification matrix results (tsc clean, full unit suite, the six e2e specs, bench:render gate numbers). (b) Set passes: true for TASK-76 in .ralph/tasks.json. (c) Delete .ralph/handoff/TASK-76.md. (d) Update the Current Status block: TASK-76 complete, TASK-76.2 next (or the board's next unstarted task). (e) Commit fix(TASK-76): camera far plane now provably contains the whole atmosphere dome (CAMERA_FAR 4000 u) — include the touched source/test/spec files, the LOG.md entry, tasks.json, the deleted handoff, .ralph/screenshots/TASK-76-1.png and .ralph/bench/TASK-58.json if it changed. Verify with git status --short that the commit does NOT include the pre-existing dirty files (ralph.config.json, .ralph/screenshots/TASK-28.1-1.png, TASK-70-1.png, TASK-72-1.png, TASK-73-1.png). (f) Output the promise (the project's build log already records completion in the LOG entry).",
+      "pass": false
+    }
+  ],
+  "acceptanceCriteria": [
+    "The game camera's far plane is the named constant CAMERA_FAR = 4000 u >= 2 x ATMOSPHERE_BOUNDARY_M x DOME_RADIUS_FACTOR (>= 2020 u), unit-tested against the shared constants in world-manager.test.ts (committed — still green)",
+    "Inside an atmosphere, low and off-centre (600 u from the pad, 60 u altitude), the central top band of the canvas shows the haze color (mean luminance > 5, ~150 measured), never black; .ralph/screenshots/TASK-76-1.png shows a hazy sky",
+    "The e2e was shown to FAIL before the fix and the failing value (pre-fix central top band mean 0.0 + the TASK-76.1 re-confirmation value) is recorded in the LOG.md entry",
+    "npm run bench:render gates still pass; npx tsc --noEmit clean; full npm run test green; e2e specs atmosphere-sky, atmosphere-view, atmosphere, landing, transitions, self-ship all green; TASK-76 marked passes: true in .ralph/tasks.json; handoff deleted; one final commit fix(TASK-76): ... with the pre-existing dirty files excluded"
+  ],
+  "dependencies": ["TASK-76.1"],
+  "estimatedComplexity": "small",
+  "notes": [
+    "PRECONDITION (from TASK-76.1): the aim in app/tests/e2e/atmosphere-sky.spec.ts is deterministic (no-thrust yaw, wall-clock deadline, hard |err| < 0.12 rad assert) and the spec passed 3/3 post-fix; the pre-fix re-confirmation run's measured central-band mean is in TASK-76.1's commit message / updated handoff — read both before writing the LOG entry so the proof numbers are exact.",
+    "Do NOT change the dome radius, the haze math or the crossfade — the shared atmosphere math is correct; only the camera could not see the whole dome. Do NOT lower CAMERA_FAR below 2020 u (2 x 1000 x 1.01) even if a bench gate fails — record the numbers and flag a DECIDE instead. The mobile flat-haze layer (createFlatHaze) uses the same dome radius, so the same far plane fixes it too.",
+    "Do NOT commit the pre-existing dirty files: ralph.config.json, .ralph/screenshots/TASK-28.1-1.png, TASK-70-1.png, TASK-72-1.png, TASK-73-1.png. Check git status --short before the final commit.",
+    "ENVIRONMENT: e2e config app/playwright.e2e.config.ts — workers 1, retries 0, headless SwiftShader GL (no extra launch flags); each spec file boots its own dev server via tests/e2e/fixtures.ts (npm run dev:test → scripts/dev-test.mjs) on random free ports with a fresh tmp sqlite DB — no pre-started server, runs are isolated, the fixture self-tears-down. bench:render is NODE_OPTIONS=--expose-gc tsx scripts/bench-render.ts: 1 untuned + 5 tuned 60 s runs with a full GC before each, ~8-10 min wall; it rewrites .ralph/bench/TASK-58.json with the latest passing record.",
+    "Facts (seed DRIFT-SEED-0001): densest pad system 9f065b79f5c34fd3 (ocean), density 0.0985, pad (20170, 229.0, 195); pad sits ~260 u off its planet anchor so the 600 u pad-offset is ~794 u from the anchor; dome radius 1010 u (far wall 1804 u — clipped by the old 1000 u plane, clip cap ~67° from the nose); sky radius 420 u (TASK-75 keeps it camera-centred); sky top #131f33 (lum ~30); ocean haze tint #6fa8dc (lum ~160); haze = (1 - alt/1000) x min(1, density/0.1) (hazeFactor in @shared/physics/atmosphere).",
+    "Time budget: step 1 ~3 min, step 2 ~5-8 min, step 3 ~8-10 min, steps 4-5 ~8 min — comfortably inside one iteration if each run passes on its own; the bench:render spread gate (AC-6, < 20 %) has occasionally needed one isolated re-run historically (GC-pause flake on this machine) — budget for one re-run of bench:render only if the spread gate fails on a passing set."
+  ]
+}

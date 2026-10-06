@@ -680,11 +680,22 @@
     "passes": true
   },
   {
-    "id": "TASK-76",
-    "title": "Blackout fix (atmosphere): camera far plane must contain the whole dome",
+    "id": "TASK-76.1",
+    "title": "Stabilize the atmosphere-sky e2e: deterministic aim, confirmed pre-fix FAIL + 3x post-fix PASS",
     "category": "functional",
-    "specFilePath": ".ralph/tasks/TASK-76.json",
-    "passes": false
+    "specFilePath": ".ralph/tasks/TASK-76.1.json",
+    "passes": false,
+    "splitFrom": "TASK-76",
+    "splitDepth": 1
+  },
+  {
+    "id": "TASK-76.2",
+    "title": "Verify + close out TASK-76: full test matrix, e2e regression set, bench:render gates, LOG entry",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-76.2.json",
+    "passes": false,
+    "splitFrom": "TASK-76",
+    "splitDepth": 1
   },
   {
     "id": "TASK-80",
