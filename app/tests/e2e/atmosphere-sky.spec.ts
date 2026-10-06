@@ -225,10 +225,7 @@ test('inside atmosphere, low and off-centre: the top band shows haze, never blac
   const page = await context.newPage();
   const { assertClean } = collectErrors(page);
   await page.goto(baseURL);
-  await page.evaluate(
-    (s) => localStorage.setItem('drift.session.v1', JSON.stringify(s)),
-    session,
-  );
+  await page.evaluate((s) => localStorage.setItem('drift.session.v1', JSON.stringify(s)), session);
   await page.goto(`${baseURL}/?sys=${target.systemId}`);
   await expect(page.locator('#sys-id')).toBeVisible({ timeout: 20_000 });
 
@@ -250,16 +247,18 @@ test('inside atmosphere, low and off-centre: the top band shows haze, never blac
   let usedOffset = -1;
   let lastRegime = '';
   let spot = { x: 0, y: 0, z: 0 };
-  const state = (t: { x: number; y: number; z: number }): Promise<{
+  const state = (t: {
+    x: number;
+    y: number;
+    z: number;
+  }): Promise<{
     near: boolean;
     regime: string;
   }> =>
     page.evaluate((tg: { x: number; y: number; z: number }) => {
       const p = window.__SELF_SHIP__?.probe()?.pos;
       const near = !!p && Math.hypot(p.x - tg.x, p.y - tg.y, p.z - tg.z) < 50;
-      const updates = (
-        window as unknown as { __shipUpdates?: ShipUpdate[] }
-      ).__shipUpdates;
+      const updates = (window as unknown as { __shipUpdates?: ShipUpdate[] }).__shipUpdates;
       return { near, regime: updates?.at(-1)?.flightRegime ?? '' };
     }, t);
   for (const offset of OFFSETS) {
@@ -300,31 +299,53 @@ test('inside atmosphere, low and off-centre: the top band shows haze, never blac
   // Pre-fix the clipped cap is the FAR part of the dome, in the ANCHOR
   // direction from the ship: the top band (10-35° above the nose) only
   // covers it once the ship faces the anchor. Closed-loop yaw on the world
-  // heading; the 'd'/'a' turn sign is calibrated empirically with one 120 ms
-  // press (no assumption about the flight model's rotation sign) and W is
-  // held while turning to keep altitude.
+  // heading. Deterministic (the old loop held `w` + a fixed 14 iterations
+  // and once ended 174.7° off):
+  // (a) Yaw WITHOUT thrust — the server applies `input.yaw * turnRate * h`
+  //     unconditionally (integrateStep in @shared/physics/flight), so `w`
+  //     only coupled thrust/drag into the heading. Without it the ship
+  //     simply falls while it turns: a ground contact causes no crash
+  //     damage, yaw keeps working in the surface regime, and the re-pin
+  //     teleport below restores the exact spot anyway.
+  // (b) A wall-clock deadline (not a fixed iteration count): each
+  //     iteration probes the heading error and presses the yaw key for a
+  //     duration proportional to |err|.
+  // (c) Convergence is HARD-ASSERTED before anything is measured — a
+  //     mis-aimed run must fail loudly, not silently read the band.
+  // The 'd'/'a' turn sign is still calibrated empirically with one 120 ms
+  // press (no assumption about the flight model's rotation sign), also
+  // without `w`.
+  const AIM_DEADLINE_MS = 9_000;
+  const AIM_TOLERANCE_RAD = 0.12; // the hard assertion (spec)
+  const AIM_SETTLE_RAD = 0.05; // internal exit threshold — leaves tick-overshoot margin
+  const TURN_RATE_RAD_S = 0.8; // scout (the claim's default class)
   const aimProbe = (ax: number, az: number): Promise<{ err: number; h: number } | null> =>
-    page.evaluate((t: { ax: number; az: number }) => {
-      const p = (window as unknown as {
-        __SELF_SHIP__?: {
-          probe: () => {
-            pos: { x: number; y: number; z: number } | null;
-            rot: { x: number; y: number; z: number; w: number } | null;
-          };
-        };
-      }).__SELF_SHIP__?.probe();
-      const rot = p?.rot;
-      const pos = p?.pos;
-      if (!rot || !pos) return null;
-      // Ship forward = local +Z under the ship quat (pose-math convention).
-      const fx = 2 * (rot.x * rot.z + rot.y * rot.w);
-      const fz = 1 - 2 * (rot.x * rot.x + rot.y * rot.y);
-      const h = Math.atan2(fz, fx);
-      let err = Math.atan2(t.az - pos.z, t.ax - pos.x) - h;
-      while (err > Math.PI) err -= 2 * Math.PI;
-      while (err < -Math.PI) err += 2 * Math.PI;
-      return { err, h };
-    }, { ax, az });
+    page.evaluate(
+      (t: { ax: number; az: number }) => {
+        const p = (
+          window as unknown as {
+            __SELF_SHIP__?: {
+              probe: () => {
+                pos: { x: number; y: number; z: number } | null;
+                rot: { x: number; y: number; z: number; w: number } | null;
+              };
+            };
+          }
+        ).__SELF_SHIP__?.probe();
+        const rot = p?.rot;
+        const pos = p?.pos;
+        if (!rot || !pos) return null;
+        // Ship forward = local +Z under the ship quat (pose-math convention).
+        const fx = 2 * (rot.x * rot.z + rot.y * rot.w);
+        const fz = 1 - 2 * (rot.x * rot.x + rot.y * rot.y);
+        const h = Math.atan2(fz, fx);
+        let err = Math.atan2(t.az - pos.z, t.ax - pos.x) - h;
+        while (err > Math.PI) err -= 2 * Math.PI;
+        while (err < -Math.PI) err += 2 * Math.PI;
+        return { err, h };
+      },
+      { ax, az },
+    );
   const press = async (keys: string[], ms: number): Promise<void> => {
     for (const k of keys) await page.keyboard.down(k);
     await page.waitForTimeout(ms);
@@ -333,7 +354,7 @@ test('inside atmosphere, low and off-centre: the top band shows haze, never blac
   let dSign = 1;
   let a = await aimProbe(anchor.x, anchor.z);
   if (a && Math.abs(a.err) >= 0.15) {
-    await press(['w', 'd'], 120);
+    await press(['d'], 120);
     const b = await aimProbe(anchor.x, anchor.z);
     if (a && b) {
       let dh = b.h - a.h;
@@ -342,19 +363,34 @@ test('inside atmosphere, low and off-centre: the top band shows haze, never blac
       dSign = dh >= 0 ? 1 : -1;
     }
   }
-  for (let i = 0; i < 14; i++) {
+  const aimDeadline = Date.now() + AIM_DEADLINE_MS;
+  while (Date.now() < aimDeadline) {
     a = await aimProbe(anchor.x, anchor.z);
-    if (!a || Math.abs(a.err) < 0.12) break;
-    await press(['w', a.err * dSign > 0 ? 'd' : 'a'], Math.min(400, 80 + Math.abs(a.err) * 250));
+    if (!a || Math.abs(a.err) < AIM_SETTLE_RAD) break;
+    // Proportional press: 80 % of the full rotation (deliberate
+    // undershoot — a press can never cross the target), clamped to
+    // [80, 450] ms (min press vs key-event latency).
+    const ms = Math.min(450, Math.max(80, (Math.abs(a.err) / TURN_RATE_RAD_S) * 1000 * 0.8));
+    await press([a.err * dSign > 0 ? 'd' : 'a'], ms);
   }
-  console.log(
-    `[TASK-76] aimed at the anchor: heading error ${a ? (a.err * 57.3).toFixed(1) : '?'}°`,
-  );
+  // Settle so the server's final tick (20 Hz) lands before the readout.
+  await page.waitForTimeout(200);
+  a = await aimProbe(anchor.x, anchor.z);
+  const finalErr = a?.err ?? Number.NaN;
+  console.log(`[TASK-76] aimed at the anchor: heading error ${(finalErr * 57.3).toFixed(1)}°`);
+  expect(a, 'aim probe lost the ship before the heading could converge').not.toBeNull();
+  expect(
+    Math.abs(finalErr),
+    `aim did not converge: heading error ${(finalErr * 57.3).toFixed(1)}° (need < ` +
+      `${(AIM_TOLERANCE_RAD * 57.3).toFixed(1)}°) — the band must not be measured with the nose ` +
+      `pointing the wrong way`,
+  ).toBeLessThan(AIM_TOLERANCE_RAD);
 
   // --- Pin the measurement spot -----------------------------------------
-  // The aim burns a couple of seconds of thrust — at 60 u that can drift
-  // the ship toward the terrain. Re-teleport to the SAME spot (orientation
-  // is untouched by the teleport) so the band is measured at exactly 60 u.
+  // The aim takes a couple of seconds without thrust, so by now the ship
+  // has fallen toward (or onto) the terrain. Re-teleport to the SAME spot
+  // (orientation is untouched by the teleport — shard.teleportForTesting
+  // only sets pos/vel) so the band is measured at exactly 60 u.
   const pin = await page.request.post(`${baseURL}/api/dev/teleport`, {
     headers: { ...auth, 'content-type': 'application/json' },
     data: spot,
@@ -379,13 +415,12 @@ test('inside atmosphere, low and off-centre: the top band shows haze, never blac
   // clipped black — which is why the assertion targets the central strip.)
   const top = await canvasRegionStats(page, TOP_BAND);
   const fullTop = await canvasRegionStats(page, FULL_TOP_BAND);
-  const haze =
-    (1 - ALT_OFFSET_U / 1000) * Math.min(1, target.density / 0.1); // shared hazeFactor
+  const haze = (1 - ALT_OFFSET_U / 1000) * Math.min(1, target.density / 0.1); // shared hazeFactor
   console.log(
-    `[TASK-76] off-centre ${usedOffset} u from the pad (${(Math.hypot(
+    `[TASK-76] off-centre ${usedOffset} u from the pad (${Math.hypot(
       spot.x - anchor.x,
       spot.z - anchor.z,
-    ).toFixed(0))} u from the anchor), altitude ${ALT_OFFSET_U} u, ` +
+    ).toFixed(0)} u from the anchor), altitude ${ALT_OFFSET_U} u, ` +
       `haze≈${haze.toFixed(2)}, regime=${lastRegime}: ` +
       `central top band mean=${top.mean.toFixed(1)} bright=${top.bright}, ` +
       `full top band mean=${fullTop.mean.toFixed(1)}`,
