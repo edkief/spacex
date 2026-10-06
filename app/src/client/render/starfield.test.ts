@@ -1,5 +1,8 @@
+import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import {
+  anchorBackgroundToCamera,
+  createBackground,
   DEFAULT_STAR_COUNT,
   generateStarfield,
   STARFIELD_RADIUS_MAX,
@@ -66,5 +69,35 @@ describe('generateStarfield', () => {
     }
     // Brightness range is 0.45–1.0 by construction, so 0.3 is a loose bound.
     expect(max - min).toBeGreaterThan(0.3);
+  });
+});
+
+describe('anchorBackgroundToCamera (TASK-75 blackout fix)', () => {
+  it('copies the camera position into sky AND stars', () => {
+    const bg = createBackground('SEED', 64);
+    const cam = new THREE.Vector3(0, 0, 5000);
+    anchorBackgroundToCamera(bg, cam);
+    expect([bg.sky.position.x, bg.sky.position.y, bg.sky.position.z]).toEqual([0, 0, 5000]);
+    expect([bg.stars.position.x, bg.stars.position.y, bg.stars.position.z]).toEqual([0, 0, 5000]);
+  });
+
+  it('tracks a MOVING camera (re-anchoring every frame converges)', () => {
+    const bg = createBackground('SEED', 64);
+    const cam = new THREE.Vector3(0, 0, 5000);
+    anchorBackgroundToCamera(bg, cam);
+    cam.set(-3000, 250, 12000);
+    anchorBackgroundToCamera(bg, cam);
+    expect([bg.sky.position.x, bg.sky.position.y, bg.sky.position.z]).toEqual([-3000, 250, 12000]);
+    expect([bg.stars.position.x, bg.stars.position.y, bg.stars.position.z]).toEqual([
+      -3000, 250, 12000,
+    ]);
+  });
+
+  it('leaves the stars rotation untouched (the caller owns the slow drift)', () => {
+    const bg = createBackground('SEED', 64);
+    bg.stars.rotation.y = 0.42;
+    anchorBackgroundToCamera(bg, new THREE.Vector3(123, -456, 789));
+    expect(bg.stars.rotation.y).toBe(0.42);
+    expect(bg.sky.rotation.y).toBe(0);
   });
 });

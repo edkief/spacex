@@ -124,6 +124,25 @@ export function createBackground(seed: string, count = DEFAULT_STAR_COUNT): Back
   };
 }
 
+/**
+ * TASK-75: re-centre the background on the camera (the standard skybox
+ * technique). WHY: the sky is a 420 u inverted sphere and the stars a
+ * 150–200 u shell — both FAR smaller than the distances a ship flies
+ * (120–180 u/s leaves the sky sphere in ~3 s of thrust). A BackSide sphere
+ * seen from outside draws nothing, so a world-anchored background goes
+ * black within seconds. Copying the camera position into BOTH objects
+ * makes them effectively infinitely far away — they can never be left
+ * behind. Rotation is intentionally untouched: the caller keeps the slow
+ * stars.rotation.y drift. Pure (no allocation, no render state).
+ */
+export function anchorBackgroundToCamera(
+  background: Pick<BackgroundHandle, 'sky' | 'stars'>,
+  cameraPos: THREE.Vector3,
+): void {
+  background.sky.position.copy(cameraPos);
+  background.stars.position.copy(cameraPos);
+}
+
 /** Inverted-sphere geometry with a vertical vertex-color gradient (dark → blue). */
 function buildSkyGeometry(radius: number): THREE.BufferGeometry {
   const geometry = new THREE.SphereGeometry(radius, 48, 24);

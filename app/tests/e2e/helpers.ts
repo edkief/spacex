@@ -103,6 +103,48 @@ export async function canvasLuminanceVariance(
 }
 
 /**
+ * TASK-75: luminance statistics of a DOM-fraction rectangle of the canvas.
+ * The region is given in canvas FRACTIONS with the DOM TOP-LEFT origin;
+ * returns the mean luminance (0..255) and the COUNT of pixels with
+ * luminance > 60 (bright star/sky pixels). This — not
+ * canvasLuminanceVariance — is the valid blackout check: in a blacked-out
+ * frame the chase-camera ship in the middle of the screen still produces
+ * bright pixels, so whole-canvas stats mask the blackout. The blackout
+ * assertions sample the TOP band `{ x0: 0, y0: 0, x1: 1, y1: 0.3 }`
+ * (above the ship). Returns mean -1 when the canvas/GL context is missing.
+ */
+export async function canvasRegionStats(
+  page: Page,
+  region: { x0: number; y0: number; x1: number; y1: number },
+): Promise<{ mean: number; bright: number }> {
+  return page.evaluate((r) => {
+    const canvas = document.getElementById('game-canvas');
+    if (!(canvas instanceof HTMLCanvasElement)) return { mean: -1, bright: 0 };
+    const gl = (canvas.getContext('webgl2') ??
+      canvas.getContext('webgl')) as WebGLRenderingContext | null;
+    if (!gl) return { mean: -1, bright: 0 };
+    const w = canvas.width;
+    const h = canvas.height;
+    // GL's readPixels origin is BOTTOM-left; the region is DOM top-left, so
+    // the GL y-range is [(1 - y1)h, (1 - y0)h] (flipped).
+    const x = Math.floor(r.x0 * w);
+    const width = Math.max(1, Math.ceil(r.x1 * w) - x);
+    const y = Math.floor((1 - r.y1) * h);
+    const height = Math.max(1, Math.ceil((1 - r.y0) * h) - y);
+    const buf = new Uint8Array(width * height * 4);
+    gl.readPixels(x, y, width, height, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+    let sum = 0;
+    let bright = 0;
+    for (let i = 0; i < width * height; i++) {
+      const lum = (buf[i * 4] + buf[i * 4 + 1] + buf[i * 4 + 2]) / 3;
+      sum += lum;
+      if (lum > 60) bright += 1;
+    }
+    return { mean: sum / (width * height), bright };
+  }, region);
+}
+
+/**
  * Brightest luminance (0..255) inside a 32x32 GL region at (x, y) — bottom-
  * left origin. Proves a specific bright object is on screen (the disembark
  * on-foot view's cyan character capsule is dead-center and reads ~190, the

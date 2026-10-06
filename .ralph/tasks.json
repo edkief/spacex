@@ -677,7 +677,7 @@
     "title": "Blackout fix (space): skybox + starfield follow the camera",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-75.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-76",

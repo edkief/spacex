@@ -10,7 +10,7 @@ import type { Quat, Vec3 } from '@shared/physics/vec';
 import type { Regime } from '@shared/regime';
 import type { EntityState } from '@shared/protocol/schemas';
 import { padsForSystem, type PadInfo } from '@shared/world/pads';
-import { createBackground } from '@client/render/starfield';
+import { anchorBackgroundToCamera, createBackground } from '@client/render/starfield';
 
 import { CombatFx } from '@client/world/combat-fx';
 import { depositsFor } from '@shared/world/deposits';
@@ -473,6 +473,12 @@ export class WorldManager {
       if (shake.lengthSq() > 0) {
         this.camera.position.add(shake);
       }
+      // TASK-75: re-centre the sky + stars on the camera IMMEDIATELY before
+      // the render (after the shake nudge, so the sky tracks the final
+      // camera position). Read through this.background every frame — a
+      // profile-change swapWorld replaces the handle and a cached local
+      // would anchor the disposed background.
+      anchorBackgroundToCamera(this.background, this.camera.position);
       this.renderer.render(this.scene, this.camera);
       if (shake.lengthSq() > 0) {
         this.camera.position.sub(shake);
