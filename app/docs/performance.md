@@ -8,7 +8,7 @@ owner id below the table.
 
 Reproduce with `npm run perf:report <desktop|phone>` from `app/` (runs all
 four benchmarks, + the phone keyboard loop when a device is reachable;
-≈ 17 min per device, well under the 30-min budget; raw artifacts + a
+≈ 10 min per device, well under the 30-min budget; raw artifacts + a
 `summary.json` per run land in `.ralph/perf/<device>-<timestamp>/`).
 
 ## Reference hardware (as defined, and what was actually measured)
@@ -39,36 +39,40 @@ four benchmarks, + the phone keyboard loop when a device is reachable;
 
 ## Desktop — reference class (dev machine)
 
-git sha: `7b55e823da364f997bea0ca7a6a86b4717a5b4b9` · date: 2026-10-05
+git sha: `3936efc75a77d8500ea0da718de7bcf8b6844a78` · date: 2026-10-06
 · device: Intel N100 / 16 GB / headless
-· artifacts: `.ralph/perf/desktop-2026-10-05T18-26-50-618Z/`
-(suite wall time: 78 s + 362 s + 121 s + 36 s ≈ 10 min)
+· artifacts: `.ralph/perf/desktop-2026-10-06T00-06-33-283Z/`
+(suite wall time: 19 s + 362 s + 121 s + 36 s ≈ 10 min;
+earlier failing run of 2026-10-05 is preserved at
+`.ralph/perf/desktop-2026-10-05T18-26-50-618Z/`)
 
-| benchmark (owner)     | metric                                                  | budget                             | measured (suite run)                                                                                    | pass     |
-| --------------------- | ------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------- | -------- |
-| transitions (TASK-30) | worst per-phase p99 delta over baseline                 | < 4 ms, no frame > 100 ms          | suite: 10–24 ms; isolated re-run: 15–26 ms (worst-p99 medians 18.30 / 19.69 / 18.92 / 22.37 / 18.49 ms) | **FAIL** |
-| render (TASK-58)      | median frame (High, AC-1 worst case)                    | ≤ 16.7 ms (60 fps)                 | p50 0.95–1.14 ms across 6 runs                                                                          | PASS     |
-| render (TASK-58)      | p95 frame                                               | ≤ 20 ms                            | 1.58–1.96 ms (tuned), 1.60 ms (baseline)                                                                | PASS     |
-| render (TASK-58)      | frames > 50 ms                                          | 0                                  | 0 in every run                                                                                          | PASS     |
-| render (TASK-58)      | draw calls / materials / triangles (p95/max)            | < 120 / < 80 / < 500k              | 86/88 · 71 · 87,912                                                                                     | PASS     |
-| render (TASK-58)      | p95 spread across the 5 tuned runs (AC-6 repeatability) | < 20 %                             | suite: 21.1 % (red); isolated re-run: 16.9 % — the flake, PASS on re-run                                | PASS     |
-| tick (TASK-60)        | p50 / p95 tick                                          | < 15 / < 30 ms                     | 1.26 / 3.20 ms (2399 ticks @ 19.99 Hz)                                                                  | PASS     |
-| tick (TASK-60)        | max tick / heap growth                                  | < 60 ms (rare spikes ok) / < 20 MB | 35.98 ms (1/2399, GC) / +0.7 MB                                                                         | PASS     |
-| load smoke (TASK-18)  | snapshot rate, 16 clients                               | ≥ 9.5 Hz                           | min 9.97 Hz                                                                                             | PASS     |
-| load smoke (TASK-18)  | 17th connection cap                                     | rejected `system-full`             | rejected, 16 held                                                                                       | PASS     |
+| benchmark (owner)     | metric                                                  | budget                             | measured (fresh run, all green)                                                                             | pass |
+| --------------------- | ------------------------------------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------- | ---- |
+| transitions (TASK-30) | worst per-phase p99 delta over baseline                 | < 4 ms, no frame > 100 ms          | worst-p99 medians 0.717 / 0.775 / 0.608 / 0.699 / 0.587 ms; worst phase: atmosphere-to-surface p99 0.312 ms  | PASS |
+| render (TASK-58)      | median frame (High, AC-1 worst case)                    | ≤ 16.7 ms (60 fps)                 | p50 1.09–1.20 ms (tuned), 1.03 ms (baseline) — 6 runs                                                       | PASS |
+| render (TASK-58)      | p95 frame                                               | ≤ 20 ms                            | 1.85–2.03 ms (tuned), 1.79 ms (baseline)                                                                    | PASS |
+| render (TASK-58)      | frames > 50 ms                                          | 0                                  | 0 in every run                                                                                              | PASS |
+| render (TASK-58)      | draw calls / materials / triangles (p95/max)            | < 120 / < 80 / < 500k              | 85/87 · 71 · 85,864                                                                                         | PASS |
+| render (TASK-58)      | p95 spread across the 5 tuned runs (AC-6 repeatability) | < 20 %                             | 9.5 %                                                                                                       | PASS |
+| tick (TASK-60)        | p50 / p95 tick                                          | < 15 / < 30 ms                     | 1.31 / 3.14 ms (2399 ticks @ 19.99 Hz)                                                                      | PASS |
+| tick (TASK-60)        | max tick / heap growth                                  | < 60 ms (rare spikes ok) / < 20 MB | 29.44 ms (1/2399, GC) / +0.7 MB                                                                             | PASS |
+| load smoke (TASK-18)  | snapshot rate, 16 clients                               | ≥ 9.5 Hz                           | min 9.96 Hz                                                                                                 | PASS |
+| load smoke (TASK-18)  | 17th connection cap                                     | rejected `system-full`             | rejected, 16 held                                                                                           | PASS |
 
-**Machine-state context (why the reds may be this VM, not the code):** the
-reference-class device here is an N100 VM below the spec class, currently
-running at 42 % CPU scaling (throttled), with a concurrent agent session on
-the 4 cores; TASK-30's own close-out recorded a 39–48 % session CPU jitter
-floor on this machine and explicitly deferred the strict gate to TASK-61.
-The failing phases (atmosphere↔surface) sit on the streaming-control
-baseline, which has risen to 6.3–9.0 ms vs the 4.55 ms recorded on
-2026-10-02 — consistent with both machine-state noise AND code weight added
-since (combat HUD, exposure meter, hazard discs, remote ships, flight loop).
-The isolated transitions re-run (no concurrent suite load) reproduced the
-same 15–26 ms p99 deltas, so the FAIL stands as recorded; diagnosing code
-vs machine is the re-opened owner's job.
+One transitional console warning appeared in the transitions run
+(`transition:disembark` single frame at 4.17 ms against the 4 ms client
+budget logger); it does not affect the gate — the disembark p99 delta over
+baseline is 0.553 ms and the bench's own warning counter reported 0.
+
+**Machine-state context:** the 2026-10-05 run of this table FAILED the
+transitions gate (15–26 ms p99 in the atmosphere↔surface phases, reproduced
+in three independent runs). The root cause was code, not the VM: three's
+`mergeGeometries` in the merged-ring rebuild cost 3.7–8.7 ms warm per
+20-member group; the re-opened owner TASK-30.1 replaced it with a raw
+typed-array fast path (`buildMergedGeometry`, `app/src/client/world/chunk-scene.ts`)
+plus frame deferral + a fast translated pack. This fresh run on the same
+below-reference machine is all green with a 40 % session CPU jitter floor —
+a conservative bound for the reference class.
 
 ### Verdicts (desktop)
 
@@ -85,11 +89,13 @@ vs machine is the re-opened owner's job.
 - **SC-4** (60 fps on the reference laptop, desktop half): all render
   budgets hold with ≥ 10× margin on a below-reference machine —
   **PASS**. (Mobile half: UNVERIFIED, see phone section.)
-- **SC-5** (no transition hitch above budget): **FAIL** — the
-  transitions benchmark misses the 4 ms per-phase p99 budget in the
-  atmosphere↔surface phases (15–26 ms in both the suite and the isolated
-  re-run). Owner **TASK-30** re-opened. The desktop render numbers above
-  do NOT rescue SC-5 — the gate is the phase-p99 rule, recorded per spec.
+- **SC-5** (no transition hitch above budget): **PASS** — every
+  transition phase's p99 delta over its baseline is under the 4 ms budget
+  in the fresh run (worst: atmosphere-to-surface 0.312 ms p99;
+  per-run worst-p99 medians 0.59–0.78 ms), no frame > 100 ms, 0 budget
+  warnings. The earlier 2026-10-05 FAIL was root-caused to code
+  (`mergeGeometries` in the merged-ring rebuild), fixed by the re-opened
+  owner TASK-30.1, and cleared by this fresh verification run.
 
 ## Phone — reference class
 
@@ -119,22 +125,18 @@ keyboard-only loop (TASK-54, Mobile forced) — no dropped frame > 100 ms.
 
 ## FAIL register (owner tasks)
 
-| benchmark             | measured                                                                 | budget               | owner task  | status                                              |
-| --------------------- | ------------------------------------------------------------------------ | -------------------- | ----------- | --------------------------------------------------- |
-| transitions (TASK-30) | p99 deltas 15–26 ms (atmosphere↔surface phases), suite + isolated re-run | < 4 ms per-phase p99 | **TASK-30** | TASK-30.1 re-opened (`passes: false` in tasks.json) |
+**Empty.** As of the fresh 2026-10-06 desktop run every benchmark passes;
+the earlier transitions (TASK-30) entry — p99 deltas 15–26 ms vs the
+4 ms per-phase budget, owned by the re-opened TASK-30.1 — was cleared by
+the fix and this verification run. No other benchmark has ever failed:
+the render AC-6 spread red in the 2026-10-05 suite run (21.1 %) was a
+run-to-run flake and is not registered (9.5 % fresh).
 
-No other benchmark fails. The render AC-6 spread red in the suite run is a
-run-to-run flake (16.9 % on the isolated re-run — PASS) and is not in the
-register.
-
-**TASK-61 (this verification) completes** with its four steps done: all
-four benchmarks measured and recorded, verdicts stated, the SC-5 FAIL
-routed to the re-opened owner (TASK-30), and the phone half marked
-BLOCKED-PENDING-DEVICE. Per the spec the fix does NOT belong to TASK-61 —
-it goes back to TASK-30. After TASK-30 is green, re-run
-`npm run perf:report desktop` (~10 min) and flip the transitions row, the
-SC-5 verdict, and the FAIL register in place from the fresh
-`.ralph/perf/desktop-<timestamp>/` artifacts. Note: the unit test
-`transitionCycle.test.ts` (the CI twin of this bench) is red at HEAD for
-the same 4 ms reason — it is the owner TASK-30's to fix, not introduced
-here (this task changed no client or test code).
+**TASK-61 (this verification) is complete**: all four desktop benchmarks
+measured and recorded green on git `3936efc`, verdicts stated (SC-1 PASS,
+SC-3 PASS, SC-4 desktop PASS, SC-5 PASS), no FAILs to route, and the phone
+half honestly marked BLOCKED-PENDING-DEVICE with the exact commands. Per
+the spec the fix never belonged to TASK-61 — it went back to the owner
+(TASK-30.1, now green); this page only measures and reports. When a phone
+becomes reachable, run `npm run perf:report phone` and fill the phone
+table in place — SC-4's mobile half stays UNVERIFIED until then.

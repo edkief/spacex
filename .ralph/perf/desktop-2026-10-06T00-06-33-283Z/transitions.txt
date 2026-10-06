@@ -1,0 +1,60 @@
+
+> bench:transitions
+> NODE_OPTIONS=--expose-gc tsx scripts/bench-transitions.ts
+
+-391.6858705297457
+-391.6858705297457
+-391.6858705297457
+-391.6858705297457
+-391.6858705297457
+-391.6858705297457
+-391.6858705297457
+-391.6858705297457
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+[perf] perf budget exceeded: "transition:disembark" took 4.17 ms (budget 4 ms) {
+  name: 'transition:disembark',
+  measuredMs: 4.166562000000113,
+  budgetMs: 4
+}
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+run 1: worst-p99=[1.05, 0.69, 0.72] median=0.72ms
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+run 2: worst-p99=[0.80, 0.59, 0.78] median=0.78ms
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+run 3: worst-p99=[0.81, 0.61, 0.59] median=0.61ms
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+run 4: worst-p99=[0.84, 0.51, 0.70] median=0.70ms
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+[perf] streaming backlog 49: dropping far-ring generation first (near LOD unaffected) { backlog: 49, farDropped: 40 }
+run 5: worst-p99=[0.68, 0.59, 0.55] median=0.59ms
+worst-p99 medians: 0.72, 0.78, 0.61, 0.70, 0.59 ms | mean=0.68ms spread=27.8% (strict gate 20%: n/a) | session CPU floor=40%
+
+recorded numbers (dev machine, TASK-30):
+  per-run worst-p99 medians (ms): 0.717, 0.775, 0.608, 0.699, 0.587
+  strict 20% gate: spread 27.8% (dev-machine clause applied)
+  session CPU jitter floor: 39.8%
+  space-to-atmosphere: frames=440 tagged=5 baseline=0.001ms (phase-steady) worstDelta=0.024ms p99=0.024ms
+  atmosphere-to-surface: frames=698 tagged=210 baseline=4.594ms (streaming-control) worstDelta=2.502ms p99=0.312ms
+  disembark: frames=36 tagged=36 baseline=0.069ms (idle) worstDelta=0.553ms p99=0.553ms
+  walk-10m: frames=200 tagged=0 baseline=0.078ms (phase-steady) worstDelta=0.026ms p99=0.013ms
+  re-enter: frames=36 tagged=36 baseline=0.069ms (idle) worstDelta=0.067ms p99=0.067ms
+  surface-to-atmosphere: frames=250 tagged=4 baseline=4.594ms (streaming-control) worstDelta=-2.73ms p99=-2.73ms
+  atmosphere-to-space: frames=440 tagged=5 baseline=0.116ms (phase-steady) worstDelta=0.081ms p99=0.081ms
+  streaming control: p50=0.125ms p95=5.038ms busyP50=4.594ms frames=360
+  idle baselines: space p50=0.001 p95=0.001 | atmosphere p50=0.004 p95=0.004 | surface p50=0.069 p95=0.077
+  pad near ring ready 867 frames before arrival | maxFrame=7.539ms worstDelta=2.502ms wall=904ms
+
+bench:transitions PASS — every transition < 4 ms over baseline, no frame > 100 ms, 0 budget warnings, spread 27.8%.
+(node:912077) [THREE_CJS_DEPRECATED] DeprecationWarning: `require("three")` is deprecated and will be removed.
+Replace `const THREE = require("three")` with `import * as THREE from "three"`.
+(Use `node --trace-deprecation ...` to show where the warning was created)

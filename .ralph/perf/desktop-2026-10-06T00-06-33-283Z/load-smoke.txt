@@ -1,0 +1,305 @@
+
+> load:smoke
+> NODE_OPTIONS=--expose-gc tsx tests/load/harness.ts --smoke
+
+◇ injected env (8) from ../.env.local
+[shard:info] shard loaded persisted state {
+  systemId: '64c68ca43047f1e6',
+  ships: 2,
+  wrecks: 0,
+  deletedExpired: 0,
+  depositDeltas: 0
+}
+[shard:info] shard loaded persisted state {
+  systemId: '9fd8374aba96ae4d',
+  ships: 0,
+  wrecks: 0,
+  deletedExpired: 0,
+  depositDeltas: 0
+}
+[shard:debug] player fully removed (warp departure) { playerId: '13f7bedd-5ad6-49ee-8ea5-b061853977c0' }
+[shard:info] shard loaded persisted state {
+  systemId: '3c4da92c0a93575d',
+  ships: 1,
+  wrecks: 0,
+  deletedExpired: 0,
+  depositDeltas: 0
+}
+[shard:debug] player fully removed (warp departure) { playerId: '357ae6d8-ace1-46e9-929e-2303eac56874' }
+[shard:info] shard loaded persisted state {
+  systemId: '906d01f71fa219c9',
+  ships: 1,
+  wrecks: 0,
+  deletedExpired: 0,
+  depositDeltas: 0
+}
+[shard:debug] player fully removed (warp departure) { playerId: 'abb0dcd5-7b06-4eba-900d-1a3bb816e143' }
+[shard:info] shard loaded persisted state {
+  systemId: '08831c05b70434f3',
+  ships: 1,
+  wrecks: 0,
+  deletedExpired: 0,
+  depositDeltas: 0
+}
+[shard:debug] player fully removed (warp departure) { playerId: 'a248f928-78eb-4c00-a962-b6130d691893' }
+[shard:info] shard loaded persisted state {
+  systemId: '1948b6ef61661795',
+  ships: 1,
+  wrecks: 0,
+  deletedExpired: 0,
+  depositDeltas: 0
+}
+[shard:debug] player fully removed (warp departure) { playerId: '52957f9e-81b7-40c2-8329-bb454c526f8c' }
+[shard:info] shard loaded persisted state {
+  systemId: '354f9225fbc6e448',
+  ships: 1,
+  wrecks: 0,
+  deletedExpired: 0,
+  depositDeltas: 0
+}
+[shard:debug] player fully removed (warp departure) { playerId: 'dbdb6725-d9bb-43f1-aa0c-0ac675494381' }
+[shard:info] shard loaded persisted state {
+  systemId: '7942359f2b176806',
+  ships: 1,
+  wrecks: 0,
+  deletedExpired: 0,
+  depositDeltas: 0
+}
+[shard:debug] player fully removed (warp departure) { playerId: '8512cbb2-7caf-4fd5-aa77-dc2e120ce2b6' }
+[shard:info] shard loaded persisted state {
+  systemId: '704860d5c3829277',
+  ships: 1,
+  wrecks: 0,
+  deletedExpired: 0,
+  depositDeltas: 0
+}
+[shard:debug] player fully removed (warp departure) { playerId: '7397800b-ee78-4657-a2d0-7e13e8ae723a' }
+[shard:info] shard loaded persisted state {
+  systemId: 'e55e63a028ddbc44',
+  ships: 1,
+  wrecks: 0,
+  deletedExpired: 0,
+  depositDeltas: 0
+}
+[shard:debug] player fully removed (warp departure) { playerId: '0b34fc07-ed37-402a-8d14-d57acd178a53' }
+[shard:info] shard loaded persisted state {
+  systemId: '34ed784286ded775',
+  ships: 1,
+  wrecks: 0,
+  deletedExpired: 0,
+  depositDeltas: 0
+}
+[shard:debug] player fully removed (warp departure) { playerId: '8ee01f58-338f-4c2f-ad97-09d150903e43' }
+[shard:info] shard loaded persisted state {
+  systemId: '0e385245b9fb441d',
+  ships: 1,
+  wrecks: 0,
+  deletedExpired: 0,
+  depositDeltas: 0
+}
+[shard:debug] player fully removed (warp departure) { playerId: '19475b81-1816-4236-9c6f-b8fe523a4c81' }
+[shard:info] shard loaded persisted state {
+  systemId: 'b45ec5c35e60960b',
+  ships: 1,
+  wrecks: 0,
+  deletedExpired: 0,
+  depositDeltas: 0
+}
+[shard:debug] player fully removed (warp departure) { playerId: '150cb8b9-6c12-422e-b048-3a6a1da6ccd8' }
+[shard:info] shard loaded persisted state {
+  systemId: '0df7b7d960c48848',
+  ships: 1,
+  wrecks: 0,
+  deletedExpired: 0,
+  depositDeltas: 0
+}
+[shard:debug] player fully removed (warp departure) { playerId: '856e88e4-977b-44a8-8997-f1504b299091' }
+[shard:info] shard loaded persisted state {
+  systemId: '07ad36ba54a9ab0a',
+  ships: 1,
+  wrecks: 0,
+  deletedExpired: 0,
+  depositDeltas: 0
+}
+[shard:debug] player fully removed (warp departure) { playerId: '1fb675b5-8d39-44c9-84ca-a0fb05697053' }
+[shard:info] shard loaded persisted state {
+  systemId: '857f44b8330e0bd7',
+  ships: 1,
+  wrecks: 0,
+  deletedExpired: 0,
+  depositDeltas: 0
+}
+[shard:debug] player fully removed (warp departure) { playerId: 'faed5eaa-3753-415f-adbf-6a263bd51794' }
+[shard:info] shard loaded persisted state {
+  systemId: 'dff418219787ae56',
+  ships: 1,
+  wrecks: 0,
+  deletedExpired: 0,
+  depositDeltas: 0
+}
+[shard:debug] player fully removed (warp departure) { playerId: '368aadff-0a51-458d-882b-1329de7c9eb0' }
+[shard:debug] teleport (dev/test hook) {
+  playerId: '0b34fc07-ed37-402a-8d14-d57acd178a53',
+  x: 10250,
+  y: 209,
+  z: 175
+}
+[shard:debug] regime change {
+  entity: 'fbf0de67-2a71-4358-8a8c-e65b2fccff78',
+  from: 'space',
+  to: 'atmosphere',
+  planetId: '21b7a70e0b2493d2'
+}
+[shard:debug] regime change {
+  entity: 'fbf0de67-2a71-4358-8a8c-e65b2fccff78',
+  from: 'atmosphere',
+  to: 'surface',
+  planetId: '21b7a70e0b2493d2'
+}
+[shard:debug] pad dock {
+  entity: 'fbf0de67-2a71-4358-8a8c-e65b2fccff78',
+  padId: '4940f84fc06ae865'
+}
+[shard:info] player disembarked {
+  playerId: '0b34fc07-ed37-402a-8d14-d57acd178a53',
+  ship: 'fbf0de67-2a71-4358-8a8c-e65b2fccff78',
+  character: 'char:0b34fc07-ed37-402a-8d14-d57acd178a53',
+  pos: { x: 10250, y: 209, z: 177.5 }
+}
+[shard:debug] deposit placed (dev/test hook) { deposit: 'deposit:dev1', pos: { x: 10251, y: 209, z: 177.5 } }
+[shard:debug] deposit placed (dev/test hook) { deposit: 'deposit:dev2', pos: { x: 10252, y: 209, z: 177.5 } }
+[shard:debug] teleport (dev/test hook) {
+  playerId: '8ee01f58-338f-4c2f-ad97-09d150903e43',
+  x: 10250,
+  y: 209,
+  z: 175
+}
+[shard:debug] regime change {
+  entity: 'c04d8ac1-d025-46d4-a01c-177cc317bf44',
+  from: 'space',
+  to: 'atmosphere',
+  planetId: '21b7a70e0b2493d2'
+}
+[shard:info] deposit discovered { deposit: 'deposit:dev1', depositSeq: undefined }
+[shard:info] deposit discovered { deposit: 'deposit:dev2', depositSeq: undefined }
+[shard:debug] regime change {
+  entity: 'c04d8ac1-d025-46d4-a01c-177cc317bf44',
+  from: 'atmosphere',
+  to: 'surface',
+  planetId: '21b7a70e0b2493d2'
+}
+[shard:debug] pad dock {
+  entity: 'c04d8ac1-d025-46d4-a01c-177cc317bf44',
+  padId: '4940f84fc06ae865'
+}
+[shard:info] player disembarked {
+  playerId: '8ee01f58-338f-4c2f-ad97-09d150903e43',
+  ship: 'c04d8ac1-d025-46d4-a01c-177cc317bf44',
+  character: 'char:8ee01f58-338f-4c2f-ad97-09d150903e43',
+  pos: { x: 10250, y: 209, z: 177.5 }
+}
+[shard:debug] deposit placed (dev/test hook) { deposit: 'deposit:dev3', pos: { x: 10251, y: 209, z: 177.5 } }
+[shard:debug] deposit placed (dev/test hook) { deposit: 'deposit:dev4', pos: { x: 10252, y: 209, z: 177.5 } }
+[shard:debug] teleport (dev/test hook) {
+  playerId: '19475b81-1816-4236-9c6f-b8fe523a4c81',
+  x: 10250,
+  y: 209,
+  z: 175
+}
+[shard:debug] regime change {
+  entity: '0444a56e-28a1-458f-a757-d09f56e5d30f',
+  from: 'space',
+  to: 'atmosphere',
+  planetId: '21b7a70e0b2493d2'
+}
+[shard:info] deposit discovered { deposit: 'deposit:dev3', depositSeq: undefined }
+[shard:info] deposit discovered { deposit: 'deposit:dev4', depositSeq: undefined }
+[shard:debug] regime change {
+  entity: '0444a56e-28a1-458f-a757-d09f56e5d30f',
+  from: 'atmosphere',
+  to: 'surface',
+  planetId: '21b7a70e0b2493d2'
+}
+[shard:debug] pad dock {
+  entity: '0444a56e-28a1-458f-a757-d09f56e5d30f',
+  padId: '4940f84fc06ae865'
+}
+[shard:info] player disembarked {
+  playerId: '19475b81-1816-4236-9c6f-b8fe523a4c81',
+  ship: '0444a56e-28a1-458f-a757-d09f56e5d30f',
+  character: 'char:19475b81-1816-4236-9c6f-b8fe523a4c81',
+  pos: { x: 10250, y: 209, z: 177.5 }
+}
+[shard:debug] deposit placed (dev/test hook) { deposit: 'deposit:dev5', pos: { x: 10251, y: 209, z: 177.5 } }
+[shard:debug] deposit placed (dev/test hook) { deposit: 'deposit:dev6', pos: { x: 10252, y: 209, z: 177.5 } }
+[shard:debug] teleport (dev/test hook) {
+  playerId: '150cb8b9-6c12-422e-b048-3a6a1da6ccd8',
+  x: 10250,
+  y: 209,
+  z: 175
+}
+[shard:debug] regime change {
+  entity: '5d02ed8a-8049-419c-a130-f1c12a8a283f',
+  from: 'space',
+  to: 'atmosphere',
+  planetId: '21b7a70e0b2493d2'
+}
+[shard:info] deposit discovered { deposit: 'deposit:dev5', depositSeq: undefined }
+[shard:info] deposit discovered { deposit: 'deposit:dev6', depositSeq: undefined }
+[shard:debug] regime change {
+  entity: '5d02ed8a-8049-419c-a130-f1c12a8a283f',
+  from: 'atmosphere',
+  to: 'surface',
+  planetId: '21b7a70e0b2493d2'
+}
+[shard:debug] pad dock {
+  entity: '5d02ed8a-8049-419c-a130-f1c12a8a283f',
+  padId: '4940f84fc06ae865'
+}
+[shard:info] player disembarked {
+  playerId: '150cb8b9-6c12-422e-b048-3a6a1da6ccd8',
+  ship: '5d02ed8a-8049-419c-a130-f1c12a8a283f',
+  character: 'char:150cb8b9-6c12-422e-b048-3a6a1da6ccd8',
+  pos: { x: 10250, y: 209, z: 177.5 }
+}
+[shard:debug] deposit placed (dev/test hook) { deposit: 'deposit:dev7', pos: { x: 10251, y: 209, z: 177.5 } }
+[shard:debug] deposit placed (dev/test hook) { deposit: 'deposit:dev8', pos: { x: 10252, y: 209, z: 177.5 } }
+[shard:info] deposit discovered { deposit: 'deposit:dev7', depositSeq: undefined }
+[shard:info] deposit discovered { deposit: 'deposit:dev8', depositSeq: undefined }
+[diag] t=146ms A=16 B=0 total=16 stale {0:89ms 1:89ms 2:89ms 3:89ms 4:88ms 5:88ms 6:88ms 7:88ms 8:88ms 9:88ms 10:87ms 11:87ms 12:87ms 13:87ms 14:87ms 15:87ms}
+[shard:info] player respawned at dock {
+  playerId: '13f7bedd-5ad6-49ee-8ea5-b061853977c0',
+  ship: 'ef764aa6-5f68-4fa8-8787-6a2454555089',
+  padId: '4940f84fc06ae865'
+}
+[shard:info] ship destroyed {
+  target: 'ef764aa6-5f68-4fa8-8787-6a2454555089',
+  source: 'dbdb6725-d9bb-43f1-aa0c-0ac675494381',
+  weapon: 'laser',
+  wreck: 'wreck:ef764aa6-5f68-4fa8-8787-6a2454555089'
+}
+[shard:debug] ai mode change {
+  id: 'ai:9fd8374aba96ae4d:6',
+  from: 'patrol',
+  to: 'aggro',
+  targetId: '1a3a37a0-c6db-4a1e-804c-e525064fe0dd'
+}
+[diag] t=15014ms A=16 B=0 total=16 stale {0:65ms 1:65ms 2:64ms 3:63ms 4:63ms 5:62ms 6:62ms 7:61ms 8:61ms 9:61ms 10:60ms 11:60ms 12:60ms 13:59ms 14:59ms 15:59ms}
+[shard:debug] ai mode change {
+  id: 'ai:9fd8374aba96ae4d:6',
+  from: 'aggro',
+  to: 'engage',
+  targetId: '1a3a37a0-c6db-4a1e-804c-e525064fe0dd'
+}
+[diag] cap probe: code=system-full Aconns=16 total=16
+[shard:debug] missile expired (no hit) { projectId: 'proj:1' }
+[shard:debug] missile expired (no hit) { projectId: 'proj:2' }
+[shard:debug] missile expired (no hit) { projectId: 'proj:3' }
+[shard:debug] missile expired (no hit) { projectId: 'proj:4' }
+[shard:debug] missile expired (no hit) { projectId: 'proj:5' }
+
+TASK-18 SMOKE REPORT (35.3 s)
+  PASS  snapshot-rate: min 9.96 Hz across 16 clients (>= 9.5)
+  PASS  cap-17th: {"rejected":true,"code":"system-full","systemAConnections":16,"totalInShards":16}
+  report: /tmp/drift-load-report-1791245730050.json
+  RESULT: GREEN

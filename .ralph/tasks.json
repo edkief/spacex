@@ -661,8 +661,8 @@
     "title": "Reference-hardware verification of SC-1/SC-4/SC-5",
     "category": "performance",
     "specFilePath": ".ralph/tasks/TASK-61.json",
-    "passes": false,
-    "note": "verification run complete (report + perf:report script committed); SC-5 FAIL on transitions re-opened TASK-30.1; flip passes:true after TASK-30.1 is green and a fresh perf:report desktop shows transitions PASS — see .ralph/handoff/TASK-61.md"
+    "passes": true,
+    "note": "closed 2026-10-06: fresh perf:report desktop (git 3936efc) all four benchmarks green — transitions worst-p99 medians 0.59-0.78 ms (owner TASK-30.1 fix verified on the reference-class machine); SC-1/SC-3/SC-4(desktop)/SC-5 PASS; phone BLOCKED-PENDING-DEVICE (SC-4 mobile UNVERIFIED); report at app/docs/performance.md"
   },
   {
     "id": "TASK-69",

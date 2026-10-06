@@ -1,0 +1,40 @@
+{
+  "device": "desktop",
+  "deviceTag": "desktop",
+  "date": "2026-10-06T00:06:33.306Z",
+  "gitSha": "3936efc75a77d8500ea0da718de7bcf8b6844a78",
+  "machine": {
+    "platform": "linux",
+    "arch": "x64",
+    "cpus": 4,
+    "ramGb": 15,
+    "cpu": "Intel(R) N100"
+  },
+  "benches": {
+    "transitions": {
+      "owner": "TASK-30",
+      "exitCode": 0,
+      "pass": true,
+      "wallMs": 18508
+    },
+    "render": {
+      "owner": "TASK-58",
+      "exitCode": 0,
+      "pass": true,
+      "wallMs": 361881
+    },
+    "tick": {
+      "owner": "TASK-60",
+      "exitCode": 0,
+      "pass": true,
+      "wallMs": 120707
+    },
+    "load-smoke": {
+      "owner": "TASK-18",
+      "exitCode": 0,
+      "pass": true,
+      "wallMs": 35692
+    }
+  },
+  "pass": true
+}

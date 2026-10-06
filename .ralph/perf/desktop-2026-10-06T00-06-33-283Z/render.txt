@@ -1,0 +1,45 @@
+
+> bench:render
+> NODE_OPTIONS=--expose-gc tsx scripts/bench-render.ts
+
+TASK-58 render benchmark — AC-1 scene, 3600 frames (60 s @ 60 Hz), High preset
+[perf] streaming backlog 13: dropping far-ring generation first (near LOD unaffected) { backlog: 13, farDropped: 37 }
+
+BASELINE (pre-tuning: legacy 7-mesh ships, per-rock ore, uncapped FX)
+  p50=1.027ms p95=1.794ms max=4.501ms spikes>50ms=0 draws=120p95/122max mats=71 tris=90720 fx(flash=1,sets=2,missiles=37) wall=60221ms
+[perf] streaming backlog 13: dropping far-ring generation first (near LOD unaffected) { backlog: 13, farDropped: 37 }
+
+TUNED run 1/5
+  p50=1.14ms p95=1.924ms max=4.831ms spikes>50ms=0 draws=85p95/87max mats=71 tris=85864 fx(flash=1,sets=2,missiles=37) wall=60152ms
+[perf] streaming backlog 13: dropping far-ring generation first (near LOD unaffected) { backlog: 13, farDropped: 37 }
+
+TUNED run 2/5
+  p50=1.203ms p95=2.032ms max=4.07ms spikes>50ms=0 draws=85p95/87max mats=71 tris=85864 fx(flash=1,sets=2,missiles=37) wall=60153ms
+[perf] streaming backlog 13: dropping far-ring generation first (near LOD unaffected) { backlog: 13, farDropped: 37 }
+
+TUNED run 3/5
+  p50=1.139ms p95=1.848ms max=4.26ms spikes>50ms=0 draws=85p95/87max mats=71 tris=85864 fx(flash=1,sets=2,missiles=37) wall=60149ms
+[perf] streaming backlog 13: dropping far-ring generation first (near LOD unaffected) { backlog: 13, farDropped: 37 }
+
+TUNED run 4/5
+  p50=1.091ms p95=1.904ms max=5.551ms spikes>50ms=0 draws=85p95/87max mats=71 tris=85864 fx(flash=1,sets=2,missiles=37) wall=60164ms
+[perf] streaming backlog 13: dropping far-ring generation first (near LOD unaffected) { backlog: 13, farDropped: 37 }
+
+TUNED run 5/5
+  p50=1.159ms p95=2.015ms max=5.649ms spikes>50ms=0 draws=85p95/87max mats=71 tris=85864 fx(flash=1,sets=2,missiles=37) wall=60139ms
+
+p95 across 5 tuned runs: [1.924, 2.032, 1.848, 1.904, 2.015] ms — spread 9.5 % (budget < 20 %)
+
+DELTA vs baseline (AC-2: ≥ 30 % worst-case frame-time reduction)
+  p95:  1.794 ms → 1.848 ms  (-3.0 % reduction)
+  max:  4.501 ms → 5.649 ms  (-25.5 % reduction)
+  draws p95: 120 → 85 (AC-3: < 120)
+  materials: 71 → 71 (AC-3: < 80)
+  triangles: 90720 → 85864 (AC-4: < 500000)
+
+PASS: no-spike rule + draw/material/triangle budgets + repeatability all hold.
+
+recorded → /workspace/master/.ralph/bench/TASK-58.json
+(node:912183) [THREE_CJS_DEPRECATED] DeprecationWarning: `require("three")` is deprecated and will be removed.
+Replace `const THREE = require("three")` with `import * as THREE from "three"`.
+(Use `node --trace-deprecation ...` to show where the warning was created)
