@@ -280,6 +280,51 @@ describe('ChunkScene tuned merged path (TASK-58.2, merged: true)', () => {
     expect(total).toBe(exp.near + exp.mid + exp.far);
   });
 
+  it('merges groups with the uniform fast path (precomputed bounds, remapped Uint16, exact vertex sums)', () => {
+    warmToNearBlock();
+    scene.sync(PX, PZ, 0);
+
+    // Re-derive the group vertex/index sums independently: every member
+    // of a group carries the same mip grid, so the merged meshes must hold
+    // exactly the sum of all members' positions + remapped indices.
+    let sumVerts = 0;
+    let sumIdx = 0;
+    for (const w of streamer.mountable(PX, PZ, 0)) {
+      const g =
+        w.ring === 'near'
+          ? w.entry.built.geometries.near
+          : w.ring === 'mid'
+            ? w.entry.built.geometries.mid
+            : w.entry.built.geometries.far;
+      if (!g) continue;
+      sumVerts += g.getAttribute('position').count;
+      sumIdx += g.getIndex()!.count;
+    }
+
+    let meshVerts = 0;
+    let meshIdx = 0;
+    for (const mesh of meshes(scene)) {
+      const geo = mesh.geometry;
+      const pos = geo.getAttribute('position');
+      const idx = geo.getIndex()!;
+      expect(geo.boundingSphere, 'bounds precomputed at build time').not.toBeNull();
+      expect(idx.array, 'uniform groups stay Uint16').toBeInstanceOf(Uint16Array);
+      let max = -1;
+      for (let k = 0; k < idx.count; k++) {
+        const v = idx.getX(k);
+        expect(v, 'index remap stays in range').toBeGreaterThanOrEqual(0);
+        expect(v, 'index remap stays in range').toBeLessThan(pos.count);
+        if (v > max) max = v;
+      }
+      // The last member's far corner vertex is referenced by its last quad.
+      expect(max).toBe(pos.count - 1);
+      meshVerts += pos.count;
+      meshIdx += idx.count;
+    }
+    expect(meshVerts).toBe(sumVerts);
+    expect(meshIdx).toBe(sumIdx);
+  });
+
   it('rebuilds nothing while the mounted (key → ring, material) set is stable', () => {
     warmToNearBlock();
     scene.sync(PX, PZ, 0);
