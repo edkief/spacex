@@ -1,0 +1,46 @@
+{
+  "id": "TASK-81",
+  "title": "Flight: maxVelocity is not a top speed — thrust overshoots it by 20 × acceleration × dt",
+  "category": "functional",
+  "description": "HIGH PRIORITY BUG. Every ship flies well above its catalogued top speed. Measured on the deployed build: a scout (maxVelocity 120) holding W settles at ~157 u/s. Root cause: the soft cap in `integrateShip` (src/shared/physics/flight.ts ~line 231) removes only (1 − SOFT_CAP_DECAY) = 5 % of the excess above maxVelocity per 20 Hz tick, while full thrust adds acceleration × dt every tick. The two balance at an excess of acceleration × dt / 0.05 = 20 × acceleration × dt: scout 120 → ~160 u/s, freighter 60 → ~72 u/s, interceptor 180 → ~250 u/s (+39 %). The existing test 'soft cap never pushes speed above maxVelocity' (flight.test.ts ~line 279) only checks COASTING with no input, so it never caught this. Intended behaviour (ships.ts: `maxVelocity` = 'Top speed (u/s)'; PRD TASK-19/67 'max velocity per class'): thrust can never push the ship past maxVelocity; an excess that comes from elsewhere (gravity in a dive, a collision, a server correction) still decays softly at 5 %/tick as today.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Failing tests first",
+      "details": "In `src/shared/physics/flight.test.ts` add, BEFORE changing flight.ts: (a) for EACH class in SHIP_CLASSES, full thrust (thrust = 1) in 'space' from rest for 60 s at DT = 1/20 → speed at every step <= maxVelocity + 1e-9, and the final speed >= 0.99 × maxVelocity (it still reaches top speed); (b) at top speed, full thrust + full yaw for 10 s → speed stays <= maxVelocity + 1e-9 (thrust can redirect velocity at top speed); (c) a ship coasting at maxVelocity + 30 with full thrust → the speed never INCREASES and the excess decays (each step's speed <= previous step's speed until it reaches maxVelocity). Run them and confirm (a) fails today (~160 for the scout).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Fix: thrust cannot raise speed above maxVelocity",
+      "details": "In `integrateStep` (flight.ts, the thrust line ~272 `vel = vecAdd(vel, vecScale(forward, input.thrust * cls.acceleration * h))` and its atmosphere counterpart), capture the speed BEFORE the thrust is added (speed0) and after (speed1). If speed1 > cls.maxVelocity AND speed1 > speed0, rescale the post-thrust velocity to length max(speed0, cls.maxVelocity) (keep its new DIRECTION — that is what lets a ship steer at top speed). Leave drag, gravity, VTOL lift and the per-tick SOFT_CAP_DECAY block exactly as they are (it still bleeds off any excess that did not come from thrust). Update the file header comment (~line 16) and the SOFT_CAP_DECAY doc comment to state the rule: 'thrust never exceeds maxVelocity; any other excess decays 5 %/tick'. Keep it pure and deterministic — this module is the shared server/client integrator.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Regenerate the golden fixtures + fix dependants",
+      "details": "The golden trajectories WILL change (they are 60 s / 30 s constant-thrust runs): run `cd app && npm run snapshot:update:flight`, then `git diff --stat src/shared/physics/__fixtures__/` and check the change is what you expect (final speed now <= maxVelocity). Then run the full suite and fix only tests whose EXPECTED numbers encoded the overshoot (e.g. AI chase/intercept timings in src/server/shard/ai.test.ts, streaming-benchmark.test.ts speeds, tests/abuse/abuse.spec.ts max-step bound) — adjust expectations, never delete a test, and never change AI gains to compensate. If an AI test fails because a rogue ship can no longer catch the player, note it in the LOG entry (the AI was relying on the overshoot) instead of retuning the AI.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "E2E check + verify + commit",
+      "details": "Extend `app/tests/e2e/flight.spec.ts` (or the TASK-77 chase-camera spec if it exists): after holding W for 8 s, the server-reported speed |vel| from the entity_update tap is <= scout maxVelocity (120) + 1. Record the measured top speeds per class (unit test output) in the LOG entry, before → after. Then `cd app && npx tsc --noEmit`, full `npm run test`, e2e: flight, rogue-ai, pvp-kill, landing, determinism; `eslint --fix` + `prettier --write`. Commit `fix(TASK-81): ...` including the regenerated fixtures.",
+      "pass": false
+    }
+  ],
+  "acceptanceCriteria": [
+    "Under continuous full thrust every class tops out at its catalogued maxVelocity (scout 120, freighter 60, interceptor 180) within float noise, and still reaches >= 99 % of it",
+    "A ship can steer at top speed without losing or gaining speed from thrust; an excess from gravity/collisions still decays at 5 %/tick (SOFT_CAP_DECAY unchanged)",
+    "Golden flight fixtures regenerated with `npm run snapshot:update:flight` and committed; dependants adjusted without deleting tests or retuning AI gains",
+    "E2E: server-reported scout speed after 8 s of W is <= 121 u/s",
+    "`npx tsc --noEmit` green; full `npm run test` green; touched e2e specs green; one commit"
+  ],
+  "dependencies": ["TASK-22", "TASK-19"],
+  "estimatedComplexity": "small",
+  "notes": [
+    "Do NOT change any number in SHIP_CLASSES (maxVelocity / acceleration) in this task — the catalogue is right, the integrator is wrong. Speed/scale tuning is a separate, human-decided change.",
+    "flight.ts is shared by the server tick, the client predictor (prediction.ts) and the AI — a single change keeps all three in lockstep; do not special-case any of them.",
+    "Do NOT commit the pre-existing dirty `.ralph/screenshots/*.png` mods."
+  ]
+}

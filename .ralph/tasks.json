@@ -694,6 +694,13 @@
     "passes": false
   },
   {
+    "id": "TASK-81",
+    "title": "Flight: maxVelocity is not a top speed — thrust overshoots it by 20 × acceleration × dt",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-81.json",
+    "passes": false
+  },
+  {
     "id": "TASK-77",
     "title": "Camera drop-off (1/3): one writer for the self-ship pose, updated before render",
     "category": "functional",
