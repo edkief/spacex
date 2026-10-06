@@ -320,6 +320,39 @@ describe('ClientShipPredictor: latency simulation (step 4 — acceptance)', () =
   });
 });
 
+describe('ClientShipPredictor: non-finite frame guard (TASK-76.1)', () => {
+  const finiteState = (s: {
+    pos: { x: number; y: number; z: number };
+    quat: { x: number; y: number; z: number; w: number };
+  }): boolean =>
+    Number.isFinite(s.pos.x + s.pos.y + s.pos.z + s.quat.x + s.quat.y + s.quat.z + s.quat.w);
+
+  it('drops a non-finite demand frame: the held control and state stay finite', () => {
+    const p = makePredictor();
+    p.step(FRAME_DT, 0, { seq: 1, input: THRUST });
+    // A NaN demand (e.g. 0 × un-hydrated sensitivity) must not be queued or held.
+    const nanInput = { ...ZERO_SHIP_INPUT, yaw: Number.NaN };
+    p.step(FRAME_DT, FRAME_MS, { seq: 2, input: nanInput });
+    expect(finiteState(p.getState())).toBe(true);
+    // The NaN frame was neither held nor queued (no replay can re-poison).
+    expect(Number.isFinite(p.getQueue().at(-1)?.input.yaw ?? 0)).toBe(true);
+    // And the NEXT finite frame integrates normally on top of the held state.
+    const before = { ...p.getState().pos };
+    p.step(FRAME_DT, 2 * FRAME_MS, { seq: 3, input: ZERO_SHIP_INPUT });
+    expect(finiteState(p.getState())).toBe(true);
+    expect(p.getState().pos).not.toEqual(before);
+  });
+
+  it('never adopts a non-finite reconciled state (corrupt wire rot)', () => {
+    const p = makePredictor();
+    p.step(FRAME_DT, 0, { seq: 1, input: THRUST });
+    const corrupt = restShipState({ x: 10, y: 0, z: 0 }, 'space');
+    corrupt.quat = { x: 0, y: Number.NaN, z: 0, w: 1 };
+    p.reconcile(corrupt, 1, 2 * FRAME_MS);
+    expect(finiteState(p.getState())).toBe(true);
+  });
+});
+
 describe('shipStateFromWire', () => {
   it('defaults to identity rotation when rot is absent (v1 back-compat)', () => {
     const s = shipStateFromWire({ pos: { x: 1, y: 2, z: 3 }, vel: { x: 0, y: 0, z: 4 } });
@@ -336,5 +369,19 @@ describe('shipStateFromWire', () => {
     });
     expect(s.quat).toEqual(rot);
     expect(quatAngleBetween(s.quat, rot)).toBeLessThan(1e-12);
+  });
+
+  it('defaults vel to zero when absent (the wire omits zero velocity)', () => {
+    const s = shipStateFromWire({ pos: { x: 1, y: 2, z: 3 } });
+    expect(s.vel).toEqual({ x: 0, y: 0, z: 0 });
+  });
+
+  it('defaults to identity when rot carries non-finite components (corrupt frame)', () => {
+    const s = shipStateFromWire({
+      pos: { x: 0, y: 0, z: 0 },
+      vel: { x: 0, y: 0, z: 0 },
+      rot: { x: Number.NaN, y: 0, z: 0, w: 1 },
+    });
+    expect(s.quat).toEqual(quatIdentity());
   });
 });

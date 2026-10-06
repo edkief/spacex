@@ -83,6 +83,21 @@ export const SERVER_TICK_MS = 50;
 
 const ZERO_SHIP_INPUT: ShipInput = { thrust: 0, yaw: 0, pitch: 0, roll: 0, up: 0 };
 
+/**
+ * TASK-76.1: a demand frame the predictor may adopt. A single non-finite
+ * channel (e.g. a look channel multiplied by a transiently un-hydrated
+ * setting — 0 × NaN = NaN) must be dropped: held or replayed, it would
+ * re-integrate a NaN rotation on top of every later state.
+ */
+function inputFinite(i: ShipInput): boolean {
+  return Number.isFinite(i.thrust + i.yaw + i.pitch + i.roll + i.up);
+}
+
+/** TASK-76.1: a state the predictor may adopt (see inputFinite). */
+function stateFinite(pos: Vec3, quat: { x: number; y: number; z: number; w: number }): boolean {
+  return Number.isFinite(pos.x + pos.y + pos.z + quat.x + quat.y + quat.z + quat.w);
+}
+
 /** One queued local input (unacked by the server), with its local timestamp. */
 export interface QueuedInput {
   seq: number;
@@ -260,6 +275,10 @@ export class ClientShipPredictor {
    * coasts on held controls).
    */
   step(dt: number, now: number, newInput?: { seq: number; input: ShipInput }): ShipState {
+    // TASK-76.1: a non-finite demand frame (e.g. a transiently un-hydrated
+    // setting multiplying the look channels) is dropped outright — queued
+    // or held, it would re-poison the state on every replay/reconcile.
+    if (newInput && !inputFinite(newInput.input)) return this.predicted;
     if (newInput) {
       this.queue.push({ ...newInput, t: now });
       this.currentInput = newInput.input;
@@ -271,7 +290,7 @@ export class ClientShipPredictor {
         this.queueCapped = true; // dropped unacked inputs → force a snap
       }
     }
-    this.predicted = integrateShip(
+    const next = integrateShip(
       this.predicted,
       this.currentInput,
       dt,
@@ -280,6 +299,14 @@ export class ClientShipPredictor {
       this.ctx.shipClass,
       this.ctx.options,
     );
+    // TASK-76.1: a non-finite result (a NaN demand that slipped into the
+    // held input, a corrupt context) must never be adopted — the render
+    // feeds lerp/slerp from the predicted state, and a single NaN frame
+    // poisons the smoothed chase camera forever (no recovery path). Hold
+    // the last finite state; the next reconcile re-corrects it.
+    if (stateFinite(next.pos, next.quat)) {
+      this.predicted = next;
+    }
     return this.predicted;
   }
 
@@ -328,8 +355,14 @@ export class ClientShipPredictor {
     }
     this.queueCapped = false;
 
-    this.predicted =
+    const next =
       mode === 'blend' ? lerpState(this.predicted, reconciled, BLEND_FACTOR) : reconciled;
+    // TASK-76.1: same no-poison rule as step() — a non-finite reconciled
+    // result (a corrupt wire rot riding the snapshot) must never be
+    // adopted; the last finite state holds until the next snapshot.
+    if (stateFinite(next.pos, next.quat)) {
+      this.predicted = next;
+    }
     return { mode, correctionDistance, correctionAngle, replayedInputs: unacked.length };
   }
 
@@ -350,15 +383,32 @@ export class ClientShipPredictor {
  * flight regime comes from the client's own context (setContext) — the wire
  * regime is display state, not physics input.
  */
+/** TASK-76.1: all four quaternion components present AND finite. */
+function quatUsable(q: { x: number; y: number; z: number; w: number }): boolean {
+  return Number.isFinite(q.x + q.y + q.z + q.w);
+}
+
+/** TASK-76.1: all three components present AND finite. */
+function vecUsable(v: { x: number; y: number; z: number }): boolean {
+  return Number.isFinite(v.x + v.y + v.z);
+}
+
 export function shipStateFromWire(entity: {
   pos: Vec3;
-  vel: Vec3;
+  /** Wire default contract: omitted when zero. */
+  vel?: Vec3;
+  /** Wire default contract: omitted when identity. */
   rot?: { x: number; y: number; z: number; w: number };
 }): ShipState {
+  // The wire omits vel/rot by default contract (zero / identity) — but an
+  // OMITTED vel spreads to {} (undefined components) and a corrupt frame
+  // (e.g. null components) is truthy, so BOTH the missing and the
+  // non-finite cases fall back to the documented defaults: a seeded NaN
+  // would ride the prediction (and the chase camera) with no recovery.
   return {
     pos: { ...entity.pos },
-    vel: { ...entity.vel },
-    quat: entity.rot ? { ...entity.rot } : { x: 0, y: 0, z: 0, w: 1 },
+    vel: entity.vel && vecUsable(entity.vel) ? { ...entity.vel } : { x: 0, y: 0, z: 0 },
+    quat: entity.rot && quatUsable(entity.rot) ? { ...entity.rot } : { x: 0, y: 0, z: 0, w: 1 },
     regime: 'space',
   };
 }

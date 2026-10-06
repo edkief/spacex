@@ -237,38 +237,6 @@ test('inside atmosphere, low and off-centre: the top band shows haze, never blac
     })
     .toBe(true);
 
-  // TEMP TASK-76.1 diagnostic helper (pose + live camera), revert later.
-  const diagPose = (): Promise<string> =>
-    page.evaluate(() => {
-      const p = (window.__SELF_SHIP__?.probe() ?? null) as
-        | {
-            pos: { x: number; y: number; z: number } | null;
-            rot: { x: number; y: number; z: number; w: number } | null;
-            screen: { x: number; y: number; dist: number } | null;
-            cam?: { x: number; y: number; z: number };
-          }
-        | null;
-      const rot = p?.rot;
-      const fy = rot ? 2 * (rot.y * rot.z - rot.x * rot.w) : 0;
-      const fx = rot ? 2 * (rot.x * rot.z + rot.y * rot.w) : 0;
-      const fz = rot ? 1 - 2 * (rot.x * rot.x + rot.y * rot.y) : 0;
-      const w = window as unknown as { __TM76?: string };
-      return JSON.stringify({
-        tm: w.__TM76 ?? null,
-        keys: p ? Object.keys(p) : null,
-        pos: p?.pos ?? null,
-        cam: p?.cam ?? null,
-        pitchDeg: rot ? (Math.asin(Math.max(-1, Math.min(1, fy))) * 180) / Math.PI : null,
-        fwd: [
-          Number(fx.toFixed(3)),
-          Number(fy.toFixed(3)),
-          Number(fz.toFixed(3)),
-        ],
-        screen: p?.screen ?? null,
-      });
-    });
-  console.log(`[TASK-76 diag-arm] ${await diagPose()}`);
-
   const auth = { authorization: `Bearer ${session.token}` };
   const anchor = planetAnchor(target.planetIndex); // dome centre (the pad sits ~260 u off it)
 
@@ -326,7 +294,6 @@ test('inside atmosphere, low and off-centre: the top band shows haze, never blac
     usedOffset,
     `ship never reached atmosphere regime (last server regime: ${lastRegime})`,
   ).toBeGreaterThan(0);
-  console.log(`[TASK-76 diag-ladder] ${await diagPose()}`);
 
   // --- Aim the nose at the dome ANCHOR ---------------------------------
   // Pre-fix the clipped cap is the FAR part of the dome, in the ANCHOR
@@ -371,7 +338,12 @@ test('inside atmosphere, low and off-centre: the top band shows haze, never blac
         ).__SELF_SHIP__?.probe();
         const rot = p?.rot;
         const pos = p?.pos;
+        // Non-finite (or absent) pose = "probe lost the ship": the caller
+        // retries until the deadline instead of steering on a NaN error.
         if (!rot || !pos) return null;
+        if (!Number.isFinite(rot.x + rot.y + rot.z + rot.w + pos.x + pos.y + pos.z)) {
+          return null;
+        }
         // Ship forward = local +Z under the ship quat (pose-math convention).
         const fx = 2 * (rot.x * rot.z + rot.y * rot.w);
         const fz = 1 - 2 * (rot.x * rot.x + rot.y * rot.y);
@@ -406,19 +378,30 @@ test('inside atmosphere, low and off-centre: the top band shows haze, never blac
   const aimDeadline = Date.now() + AIM_DEADLINE_MS;
   while (Date.now() < aimDeadline) {
     a = await aimProbe(anchor.x, anchor.z);
-    if (!a || Math.abs(a.err) < AIM_SETTLE_RAD) break;
+    if (!a) {
+      // Probe lost the ship (transient): wait for the next render frame,
+      // never steer on a missing/NaN readout.
+      await page.waitForTimeout(100);
+      continue;
+    }
+    if (Math.abs(a.err) < AIM_SETTLE_RAD) break;
     // Proportional press: 80 % of the full rotation (deliberate
     // undershoot — a press can never cross the target), clamped to
     // [80, 450] ms (min press vs key-event latency).
     const ms = Math.min(450, Math.max(80, (Math.abs(a.err) / TURN_RATE_RAD_S) * 1000 * 0.8));
     await press([a.err * dSign > 0 ? 'd' : 'a'], ms);
+    // Let the server DRAIN the last held turn frame before re-probing:
+    // the server holds a frame until the next input arrives, so a probe
+    // right after key-up reads pre-drain state and the loop can exit
+    // while the ship is still turning (observed: 7.0° final error from a
+    // 2.9° settle).
+    await page.waitForTimeout(300);
   }
   // Settle so the server's final tick (20 Hz) lands before the readout.
   await page.waitForTimeout(200);
   a = await aimProbe(anchor.x, anchor.z);
   const finalErr = a?.err ?? Number.NaN;
   console.log(`[TASK-76] aimed at the anchor: heading error ${(finalErr * 57.3).toFixed(1)}°`);
-  console.log(`[TASK-76 diag-aim] ${await diagPose()}`);
   expect(a, 'aim probe lost the ship before the heading could converge').not.toBeNull();
   expect(
     Math.abs(finalErr),
@@ -452,22 +435,6 @@ test('inside atmosphere, low and off-centre: the top band shows haze, never blac
     await page.waitForTimeout(400);
   }
   expect(pinned, `ship never re-settled at the pin spot (regime: ${lastRegime})`).toBe(true);
-
-  // --- TEMP DIAGNOSTIC (TASK-76.1 flake): pose + canvas over time --------
-  for (let i = 0; i < 5; i++) {
-    const pose = await diagPose();
-    const full = await canvasRegionStats(page, { x0: 0, y0: 0, x1: 1, y1: 1 });
-    const band = await canvasRegionStats(page, TOP_BAND);
-    console.log(
-      `[TASK-76 diag ${i}] ${pose} fullMean=${full.mean.toFixed(1)} ` +
-        `topBandMean=${band.mean.toFixed(1)}`,
-    );
-    await page.waitForTimeout(450);
-  }
-  const nanFrames = await page.evaluate(() =>
-    JSON.stringify((window as unknown as { __camNan?: unknown[] }).__camNan ?? 'none'),
-  );
-  console.log(`[TASK-76 diag-nanframes] ${nanFrames}`);
 
   // The CENTRAL top band shows the dome haze color, never black (mean > 5).
   // (The full-width band is logged too: pre-fix it averages in the visible

@@ -1805,8 +1805,6 @@ function App() {
           pos: v.pos,
           rot: v.rot,
           screen: world.projectToScreen(v.pos),
-          // TEMP TASK-76.1 diagnostic (revert before commit)
-          cam: world.debugCamera(),
         };
       });
       // TASK-74: the remote-ship probes project LAZILY against the live
@@ -2217,8 +2215,6 @@ const hazardWorldDebug = installHazardWorldDebug();
 installStreamDebug();
 // TASK-27: dev-only camera handoff probe hook (no-op in production builds).
 installCameraDebug();
-// TEMP TASK-76.1 bundle-freshness marker (revert before commit)
-(window as unknown as { __TM76?: string }).__TM76 = 'fresh';
 // TASK-28.3: dev-only atmosphere dome pixel-probe hook (no-op in prod).
 installAtmosphereDebug();
 // TASK-30: dev-only transition-cycle benchmark hook (no-op in production builds).
