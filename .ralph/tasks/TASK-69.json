@@ -17,25 +17,25 @@
       "step": 1,
       "description": "README + quick-start dry run",
       "details": "Write the README; then do the clean-clone dry run (git clone into /tmp, install, dev, claims screen in Playwright) — fix the README until it works verbatim.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Architecture + protocol",
       "details": "architecture.md (the six sections above, with source links); protocol.md from the zod schemas + the close codes + the REST table; cross-check: every message type in the code appears in the doc and vice versa (a manual diff, recorded in the task log).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Ops + contribution",
       "details": "ops.md (env, PG switch + the proceed-gap honesty note, backups, restart, known gaps); contributing.md (the task workflow, test gates, perf contract, quality bar); verify every command runs.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Accuracy pass + commit",
       "details": "The grep cross-checks (env vars, file paths, message types); link the performance report from the README; commit with a conventional docs message.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-12", "TASK-26", "TASK-61", "TASK-18"],

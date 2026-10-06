@@ -669,6 +669,7 @@
     "title": "Documentation: README, protocol, dev notes",
     "category": "documentation",
     "specFilePath": ".ralph/tasks/TASK-69.json",
-    "passes": false
+    "passes": true,
+    "note": "closed 2026-10-06: root README + app/docs/{architecture,protocol,ops,contributing}.md written and verified — clean-clone dry run green (claim 201 -> session 200), perf:report desktop PASS, backup cmds + graceful SIGTERM verified, 13 env vars + 61 doc links cross-checked, tsc + full suite green (182 files, 1638 passed / 1 skipped)"
   }
 ]
