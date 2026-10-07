@@ -350,6 +350,22 @@ test('chase camera: no per-frame ship displacement spike in steady thrust (TASK-
         )
       : [];
 
+  // TASK-79 baseline stats: the reconcile CORRECTION distances themselves
+  // (p50/p95/max over the tapped events in this window) and the CAMERA's
+  // per-frame displacement deviation (|Δcam − median Δcam|, the raw form of
+  // the AC — the check above is dt-normalized against vMed×dt).
+  const corrDists = events.map((e) => e.dist);
+  const corrP50 = corrDists.length ? pct(corrDists, 0.5) : 0;
+  const corrP95 = corrDists.length ? pct(corrDists, 0.95) : 0;
+  const corrMax = corrDists.length ? Math.max(...corrDists) : 0;
+  const camDisp: number[] = [];
+  for (let i = 1; i < frames.length; i++) {
+    camDisp.push(dist(frames[i].camPos, frames[i - 1].camPos));
+  }
+  const camMed = median(camDisp);
+  const camDevs = camDisp.map((d) => Math.abs(d - camMed));
+  const camMaxDev = camDisp.length ? Math.max(...camDevs) : 0;
+
   // Option A (decided): a REWIND/SNAP correction is the predictor's own
   // one-frame pose jump — smoothing those is TASK-79, out of scope here.
   // Exclude every frame whose window (t[i-1]-150ms, t[i]] carries a
@@ -383,7 +399,9 @@ test('chase camera: no per-frame ship displacement spike in steady thrust (TASK-
       `reconcile: blend=${reconcile.blend} rewind=${reconcile.rewind} snap=${reconcile.snap} ` +
       `lastCorrection=${reconcile.lastCorrectionDistance?.toFixed(2)} u ` +
       `worst frame: dev=${maxDev.toFixed(2)} u (frame ${worst}, dt ${(worst >= 0 ? dt[worst] * 1000 : 0).toFixed(1)} ms) ` +
-      `rewind/snap events in its window: ${badEvents.map((e) => `${e.mode} ${e.dist.toFixed(1)}u`).join(', ') || 'none'}`,
+      `rewind/snap events in its window: ${badEvents.map((e) => `${e.mode} ${e.dist.toFixed(1)}u`).join(', ') || 'none'} ` +
+      `[TASK-79] correction distance: n=${corrDists.length} p50=${corrP50.toFixed(2)} p95=${corrP95.toFixed(2)} max=${corrMax.toFixed(2)} u ` +
+      `cam per-frame disp: median=${camMed.toFixed(2)} u, max-dev-from-median=${camMaxDev.toFixed(2)} u`,
   );
 
   // THE acceptance: >= 90 recorded frames, and no per-frame displacement on
