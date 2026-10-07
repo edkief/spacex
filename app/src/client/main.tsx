@@ -712,6 +712,10 @@ function App() {
   // only the ACTIVE one reconciles).
   const shipPredictorRef = React.useRef<ClientShipPredictor | null>(null);
   const inputAckedSeqRef = React.useRef(0);
+  // TASK-77: the flight step, registered as the WorldManager's pre-render
+  // hook (it runs INSIDE the manager's frame — no separate rAF). The ref
+  // lets the world-creation effect re-register it on a world re-creation.
+  const flightStepRef = React.useRef<((nowMs: number, dtSec: number) => void) | null>(null);
   // TASK-51: the ship HUD bridges — the nav arrow reads the LIVE predicted
   // pose (render rate, inside NavReadout's rAF) and falls back to the last
   // 10 Hz snapshot; the implicit dock target is the world's nearest
@@ -1017,11 +1021,14 @@ function App() {
               planet: regimeWiring.planetAtmo,
             });
           }
-          shipPredictorRef.current.reconcile(
+          // TASK-77: record the reconcile outcome (blend/rewind/snap +
+          // correction distance) into the dev probe (no-op in production).
+          const recon = shipPredictorRef.current.reconcile(
             shipStateFromWire(self),
             inputAckedSeqRef.current,
             performance.now(),
           );
+          if (selfShipDebug) selfShipDebug.recordReconcile(recon.mode, recon.correctionDistance);
         } else {
           selfShipRef.current = false;
           setSelfShip(null);
@@ -1543,13 +1550,14 @@ function App() {
   // TASK-73: the SHIP prediction loop — one rAF per frame, active only
   // while the self entity is the player's ship (the predictor exists; the
   // on-foot / snapshot / destroyed paths clear it). Reads the SHARED
-  // pressed set through the ACTIVE control scheme (the RegimeWiring's
-  // remapper follows the regime tracker: WASD+QE flight, Space VTOL in
-  // atmosphere, surface = zero), stamps the SHARED monotonic seq (20 Hz /
-  // on-change cadence), steps the ClientShipPredictor (the SAME shared
-  // integrateShip as the server), and drives the self ship mesh + chase
-  // camera at RENDER rate from the prediction — the 10 Hz snapshots
-  // reconcile it (seeded/reconciled in the self-entity bridge).
+  // pressed set through the
+  // ACTIVE control scheme (the RegimeWiring's remapper follows the regime
+  // tracker: WASD+QE flight, Space VTOL in atmosphere, surface = zero),
+  // stamps the SHARED monotonic seq (20 Hz / on-change cadence), steps the
+  // ClientShipPredictor (the SAME shared integrateShip as the server), and
+  // drives the self ship mesh + chase camera at RENDER rate from the
+  // prediction — the 10 Hz snapshots reconcile it (seeded/reconciled in
+  // the self-entity bridge).
   // DOCKED: the server freezes the ship and its FIRST input takes it off,
   // so NO idle frames go out while the docked indicator is up (a held zero
   // frame would launch the ship) and the predictor holds its seeded pose
@@ -1787,6 +1795,28 @@ function App() {
       worldRef.current?.dispose(); // also removes its #remote-labels overlay
       worldRef.current = new WorldManager(canvas, serverSeed);
       worldSeedRef.current = serverSeed;
+      // TASK-77: the flight step lives INSIDE the manager's frame (no
+      // separate rAF) — re-register the current step on (re)creation.
+      worldRef.current.setFrameHook(flightStepRef.current);
+      // TASK-77: the __SELF_SHIP__ frame recorder samples ONE entry per
+      // rendered frame (dev only; production has no hook object at all).
+      worldRef.current.setFrameSampler(
+        selfShipDebug
+          ? (nowMs) => {
+              const world = worldRef.current;
+              const view = world?.selfShipView() ?? null;
+              if (!world || !view) return; // ship not spawned — nothing to log
+              const cam = world.cameraSample();
+              const screen = world.projectToScreen(view.pos);
+              selfShipDebug.sampleFrame({
+                t: nowMs,
+                shipPos: view.pos,
+                camPos: cam.pos,
+                screen: screen ? { x: screen.x, y: screen.y } : null,
+              });
+            }
+          : null,
+      );
       // TASK-37: dev-only ore-rock probe hook (reads the live manager lazily
       // — a seed-corrected re-creation stays bound through the ref).
       bindDepositsDebug(depositsDebug, () => worldRef.current?.oreRocks());
@@ -1808,6 +1838,7 @@ function App() {
           classId: v.classId,
           pos: v.pos,
           rot: v.rot,
+          camera: { pos: world.cameraSample().pos }, // TASK-77: the chase camera
           screen: world.projectToScreen(v.pos),
         };
       });

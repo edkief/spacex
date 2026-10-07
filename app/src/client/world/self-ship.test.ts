@@ -149,6 +149,39 @@ describe('SelfShip lifecycle (TASK-72)', () => {
     expect(ship.position()).toEqual({ x: 200, y: 3, z: 8 });
   });
 
+  it('TASK-77: { place: false } skips the pose write — create/rebuild/retint still happen', () => {
+    const ship = new SelfShip();
+
+    // First spawn with placement disabled: the mesh is created but left at
+    // the origin (WorldManager places a created/rebuilt mesh once itself).
+    const r1 = ship.set(DOCKED, { place: false });
+    expect(r1.created).toBe(true);
+    expect(ship.active).toBe(true);
+    expect(ship.position()).toEqual({ x: 0, y: 0, z: 0 });
+
+    // A default update places, then a place:false update leaves the pose
+    // alone while still re-tinting.
+    ship.set(DOCKED);
+    expect(ship.position()).toEqual({ x: 12, y: 0, z: -40 });
+    const r2 = ship.set({ ...DOCKED, pos: { x: 50, y: 7, z: 9 }, livery: LIVERY }, { place: false });
+    expect(r2).toEqual({ created: false, rebuilt: false, retinted: true, disposed: false });
+    expect(ship.mesh!.zones.hull.color.getHexString()).toBe('ff0000');
+    expect(ship.position()).toEqual({ x: 12, y: 0, z: -40 }); // pose untouched
+
+    // A rebuild (classId change) with place:false still builds the new group
+    // (back at the origin — the manager places it once on this path).
+    const r3 = ship.set(
+      { ...DOCKED, classId: 'interceptor', pos: { x: 99, y: 1, z: 2 } },
+      { place: false },
+    );
+    expect(r3.rebuilt).toBe(true);
+    expect(ship.builds).toBe(2);
+    expect(ship.position()).toEqual({ x: 0, y: 0, z: 0 });
+
+    // The null dispose path is unaffected by the option.
+    expect(ship.set(null, { place: false }).disposed).toBe(true);
+  });
+
   it('transform drives pose only (the per-frame drive TASK-73 will use)', () => {
     const ship = new SelfShip();
     ship.set(DOCKED);

@@ -406,6 +406,17 @@ export class WorldManager {
   /** Scratch vector for projectToScreen (never escapes the manager). */
   private readonly projectVec = new THREE.Vector3();
   private lastFrameMs = performance.now();
+  /**
+   * TASK-77: the pre-render flight step (main.tsx registers the ship
+   * predictor's step). While set, the prediction is the ONLY writer of the
+   * self-ship pose and it runs BEFORE the rig update and the render.
+   */
+  private frameHook: ((nowMs: number, dtSec: number) => void) | null = null;
+  /**
+   * TASK-77: dev frame sampler — the __SELF_SHIP__ per-frame recorder calls
+   * this right after the render (null in production / not recording = zero cost).
+   */
+  private frameSampler: ((nowMs: number) => void) | null = null;
   private disposed = false;
   private raf = 0;
 
@@ -476,8 +487,14 @@ export class WorldManager {
       // TASK-31: drive the on-foot camera rig (only while the player is
       // disembarked — before that the spectator camera is untouched).
       const nowMs = performance.now();
+      const dtSec = Math.min(0.1, (nowMs - this.lastFrameMs) / 1000);
+      // TASK-77 ORDERING CONTRACT — the pre-render hook (the flight step)
+      // runs FIRST, before the rig update and the render: this frame's
+      // prediction is the pose the rig chases and the frame renders. It
+      // gets the SAME nowMs/dt the rig gets (one clock, no drift).
+      if (this.frameHook) this.frameHook(nowMs, dtSec);
       if (this.rigActive) {
-        this.cameraRig.update(Math.min(0.1, (nowMs - this.lastFrameMs) / 1000));
+        this.cameraRig.update(dtSec);
       }
       this.lastFrameMs = nowMs;
       this.resize();
@@ -515,6 +532,9 @@ export class WorldManager {
       // would anchor the disposed background.
       anchorBackgroundToCamera(this.background, this.camera.position);
       this.renderer.render(this.scene, this.camera);
+      // TASK-77: the dev frame recorder samples the RENDERED pose right
+      // after the render (the __SELF_SHIP__ frame log; null otherwise).
+      if (this.frameSampler) this.frameSampler(nowMs);
       if (shake.lengthSq() > 0) {
         this.camera.position.sub(shake);
       }
@@ -820,9 +840,17 @@ export class WorldManager {
    * only feed the pose; while the rig is inactive (never disembarked) this
    * is a no-op and the spectator camera is untouched.
    */
-  reEnterShip(pos: Vec3, quat: { x: number; y: number; z: number; w: number }): void {
+  reEnterShip(
+    pos: Vec3,
+    quat: { x: number; y: number; z: number; w: number },
+    opts?: { drivePose?: boolean },
+  ): void {
     if (!this.rigActive) return;
-    this.cameraRig.setShip(pos, quat);
+    // TASK-77: while the predictor drives the pose, the snapshot pose is NOT
+    // fed to the rig — EXCEPT while the capsule still exists (the re-entry
+    // handoff animates TOWARD the snapshot pose, so it needs the destination).
+    const drivePose = opts?.drivePose ?? true;
+    if (drivePose || this.characterMesh) this.cameraRig.setShip(pos, quat);
     if (this.characterMesh) {
       this.disposeCharacterMesh();
       // TASK-72: re-entry animates onfoot → CHASE (the default in-ship view),
@@ -842,14 +870,21 @@ export class WorldManager {
    * object the character walks back to); only a `null` update or dispose()
    * removes it.
    */
-  setSelfShip(state: SelfShipInput | null): void {
+  setSelfShip(state: SelfShipInput | null, opts?: { drivePose?: boolean }): void {
+    // TASK-77: while the ship predictor exists, the 10 Hz snapshot must NOT
+    // write the mesh pose or feed the rig (the prediction is the only pose
+    // writer); it still creates/rebuilds/re-tints the mesh and arms the rig.
+    // A CREATED/REBUILT mesh is still placed once (it would otherwise sit
+    // at the origin until the next frame's prediction).
+    const drivePose = opts?.drivePose ?? true;
     if (state && !poseFinite(state.pos, state.rot)) {
       return; // a bad frame must never reach the mesh or the camera rig
     }
     const currentGroup = this.selfShip.mesh?.group ?? null;
-    const result = this.selfShip.set(state);
+    const result = this.selfShip.set(state, { place: drivePose });
     if (result.created || result.rebuilt) {
       this.scene.add(this.selfShip.mesh!.group); // scene-level: survives swapWorld
+      if (!drivePose && state) this.selfShip.transform(state.pos, state.rot);
     } else if (result.disposed) {
       // disposeShipMesh clears the group but it stays attached — detach it.
       if (currentGroup) this.scene.remove(currentGroup);
@@ -858,7 +893,8 @@ export class WorldManager {
     // The rig: the FIRST self ship update arms the chase camera; later
     // updates just feed the pose (while on foot the mode is 'onfoot' and
     // the ship pose is only used as the re-entry handoff's destination).
-    this.cameraRig.setShip(state.pos, state.rot);
+    // TASK-77: pose writes are skipped while the prediction drives.
+    if (drivePose) this.cameraRig.setShip(state.pos, state.rot);
     if (!this.rigActive) {
       this.rigActive = true;
       this.cameraRig.mode = 'chase';
@@ -867,9 +903,30 @@ export class WorldManager {
   }
 
   /**
-   * TASK-73 hook: per-frame drive of the self ship mesh + chase pose
-   * (client prediction will call this at 60 fps; until then the 10 Hz
-   * setSelfShip updates are the only feed).
+   * TASK-77: the pre-render hook — invoked at the START of every frame,
+   * BEFORE the camera rig update and the render, with the same nowMs/dt the
+   * rig gets. main.tsx registers the ship predictor's flight step here so
+   * every rendered frame shows THIS frame's prediction (one writer, one
+   * clock, no separate rAF). Null clears it.
+   */
+  setFrameHook(fn: ((nowMs: number, dtSec: number) => void) | null): void {
+    this.frameHook = fn;
+  }
+
+  /**
+   * TASK-77: dev-only frame sampler — invoked right after `renderer.render`
+   * with the frame's nowMs (the __SELF_SHIP__ per-frame recorder). Pass
+   * null for zero per-frame cost (production passes nothing).
+   */
+  setFrameSampler(fn: ((nowMs: number) => void) | null): void {
+    this.frameSampler = fn;
+  }
+
+  /**
+   * TASK-73 hook: per-frame drive of the self ship mesh + chase pose.
+   * TASK-77: while the ship predictor exists THIS is the only writer of
+   * the self-ship pose (the 10 Hz snapshot reconciles the predictor
+   * instead of writing the mesh/rig).
    */
   setSelfShipTransform(pos: Vec3, quat: { x: number; y: number; z: number; w: number }): void {
     if (!poseFinite(pos, quat)) {

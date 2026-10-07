@@ -1,6 +1,27 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// TASK-77: the WorldManager pose-policy tests below drive the REAL manager
+// (frame loop included) with a stubbed WebGLRenderer + a scripted rAF, so
+// no GL context is needed.
+vi.mock('three', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('three')>();
+  return {
+    ...actual,
+    WebGLRenderer: class {
+      domElement: unknown;
+      info = { render: { calls: 0, triangles: 0 } };
+      constructor(props: { canvas: unknown }) {
+        this.domElement = props.canvas;
+      }
+      setSize(): void {}
+      render(): void {}
+      dispose(): void {}
+    },
+  };
+});
 
 import {
+  WorldManager,
   buildSystemLayout,
   CAMERA_FAR,
   PAD_RING_VISIBLE_RANGE_M,
@@ -147,5 +168,141 @@ describe('CAMERA_FAR (TASK-76) contains the whole atmosphere dome', () => {
 
   it('comfortably exceeds the sky radius the skybox is centred on (420 u)', () => {
     expect(CAMERA_FAR).toBeGreaterThan(420);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TASK-77: the pose-write policy (drivePose) + the pre-render frame hook,
+// exercised against the REAL WorldManager (its frame loop is driven by a
+// scripted rAF; the clock is mocked so every tick advances 16 ms).
+
+const A: import('./self-ship').SelfShipInput = {
+  classId: 'scout',
+  pos: { x: 0, y: 0, z: 100 },
+  rot: { x: 0, y: 0, z: 0, w: 1 },
+};
+const B: import('./self-ship').SelfShipInput = { ...A, pos: { x: 500, y: 0, z: 100 } };
+const C: import('./self-ship').SelfShipInput = { ...A, classId: 'interceptor' };
+const IDENTITY = { x: 0, y: 0, z: 0, w: 1 };
+const BOOT_VANTAGE = { x: 150, y: 40, z: 150 };
+
+function vdist(a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }) {
+  return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+}
+
+describe('WorldManager pose policy + pre-render hook (TASK-77)', () => {
+  let rafCb: (() => void) | null = null;
+  let nowMs = 1000;
+  let world: WorldManager | null = null;
+
+  beforeEach(() => {
+    rafCb = null;
+    nowMs = 1000;
+    vi.stubGlobal('requestAnimationFrame', (cb: () => void) => {
+      rafCb = cb;
+      return 1;
+    });
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    vi.spyOn(performance, 'now').mockImplementation(() => (nowMs += 16));
+  });
+
+  afterEach(() => {
+    world?.dispose();
+    world = null;
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function makeWorld(): WorldManager {
+    const canvas = { clientWidth: 800, clientHeight: 600 } as unknown as HTMLCanvasElement;
+    world = new WorldManager(canvas, SEED);
+    return world;
+  }
+
+  /** Drive one full frame (the manager re-arms its rAF at the end). */
+  function tick(): void {
+    const cb = rafCb;
+    rafCb = null;
+    if (!cb) throw new Error('no frame scheduled');
+    cb();
+  }
+
+  it('setSelfShip({ drivePose: false }) leaves the pose to the prediction, but a created/rebuilt mesh is placed once', () => {
+    const w = makeWorld();
+    w.setSelfShip(A, { drivePose: false });
+    expect(w.selfShipView()!.pos).toEqual(A.pos); // created → placed once
+    w.setSelfShip(B, { drivePose: false });
+    expect(w.selfShipView()!.pos).toEqual(A.pos); // steady state: no pose write
+    w.setSelfShip(C, { drivePose: false }); // rebuild (classId change) → placed once
+    expect(w.selfShipView()!.pos).toEqual(C.pos);
+    // Same hull, new pose, placement disabled: the pose stays prediction-owned.
+    w.setSelfShip({ ...C, pos: B.pos }, { drivePose: false });
+    expect(w.selfShipView()!.pos).toEqual(C.pos);
+    w.setSelfShip(B); // default policy writes the pose
+    expect(w.selfShipView()!.pos).toEqual(B.pos);
+  });
+
+  it('a drivePose:false snapshot never reaches the camera rig', () => {
+    const w = makeWorld();
+    w.setSelfShip(A);
+    tick(); // the armed rig snaps to A's chase pose (resetPrime)
+    const camA = w.cameraSample().pos;
+    // Guard: the rig REALLY moved off the boot vantage (the test is not vacuous).
+    expect(vdist(camA, BOOT_VANTAGE)).toBeGreaterThan(5);
+    w.setSelfShip(B, { drivePose: false }); // 500 u away — must NOT feed the rig
+    tick();
+    tick();
+    expect(vdist(w.cameraSample().pos, camA)).toBeLessThan(1); // still tracking A
+  });
+
+  it('reEnterShip({ drivePose: false }) skips the rig feed without a capsule; the default feeds it', () => {
+    const w = makeWorld();
+    w.setSelfShip(A);
+    tick();
+    const camA = w.cameraSample().pos;
+    w.reEnterShip(B.pos, IDENTITY, { drivePose: false });
+    tick();
+    tick();
+    expect(vdist(w.cameraSample().pos, camA)).toBeLessThan(1);
+    w.reEnterShip(B.pos, IDENTITY); // default: the snapshot feeds the rig
+    for (let i = 0; i < 6; i++) tick(); // exponential chase (k = 8/s) closes in
+    expect(vdist(w.cameraSample().pos, camA)).toBeGreaterThan(5);
+  });
+
+  it('the frame hook runs at frame start, BEFORE the rig update (its pose drives the same frame)', () => {
+    const w = makeWorld();
+    w.setSelfShip(A);
+    tick();
+    const camA = w.cameraSample().pos;
+    let frames = 0;
+    w.setFrameHook(() => {
+      frames += 1;
+      // The flight step's write — the only pose writer while the predictor
+      // drives (same call the 60 fps loop makes).
+      w.setSelfShipTransform(B.pos, IDENTITY);
+    });
+    tick();
+    expect(frames).toBe(1);
+    // If the hook ran AFTER the rig update, this frame's camera would still
+    // sit at A's chase pose — the rig must have seen B in the SAME frame.
+    expect(vdist(w.cameraSample().pos, camA)).toBeGreaterThan(1);
+    tick();
+    expect(frames).toBe(2); // once per frame
+    w.setFrameHook(null);
+    tick();
+    expect(frames).toBe(2); // cleared
+  });
+
+  it('the frame sampler fires once per frame; null costs nothing', () => {
+    const w = makeWorld();
+    let samples = 0;
+    w.setFrameSampler(() => {
+      samples += 1;
+    });
+    for (let i = 0; i < 3; i++) tick();
+    expect(samples).toBe(3);
+    w.setFrameSampler(null);
+    tick();
+    expect(samples).toBe(3);
   });
 });

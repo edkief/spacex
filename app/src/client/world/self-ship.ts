@@ -57,8 +57,13 @@ export class SelfShip {
   /**
    * Spawn / update / dispose the self ship. `null` disposes. Returns what
    * happened so the caller (and tests) can tell a re-tint from a rebuild.
+   *
+   * TASK-77: `{ place: false }` skips the transform write — create /
+   * rebuild / re-tint still happen, only the pose is left alone (the ship
+   * predictor becomes the sole pose writer while it drives).
    */
-  set(state: SelfShipInput | null): SelfShipSetResult {
+  set(state: SelfShipInput | null, opts?: { place?: boolean }): SelfShipSetResult {
+    const place = opts?.place ?? true;
     const result: SelfShipSetResult = {
       created: false,
       rebuilt: false,
@@ -93,7 +98,7 @@ export class SelfShip {
       result.retinted = true;
     }
 
-    this.transform(state.pos, state.rot);
+    if (place) this.transform(state.pos, state.rot);
     return result;
   }
 
