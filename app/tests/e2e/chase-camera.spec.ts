@@ -34,6 +34,15 @@ import { collectErrors, uniqueCallsign } from './helpers';
  * lagged by v/k, so the distance GREW with speed), and the ship's
  * projected screen position stays within 20 px of its median (the ship is
  * rigidly attached to the camera — same size at any speed).
+ *
+ * TASK-79 — smooth prediction corrections: in the steady window the
+ * CAMERA's per-frame displacement (dt-normalized) never deviates from its
+ * median expectation by more than 2 u on a non-rewind/snap frame (the
+ * pre-fix 5-9 u one-frame rewind pops are decayed over ~100 ms by the
+ * CorrectionSmoother between predictor and renderer). A mid-flight
+ * TELEPORT (> 50 u) still SNAPS: the ship mesh jumps the whole distance in
+ * one frame and the camera arrives within 2 frames, with the chase
+ * distance staying in band (no long glide).
  */
 
 interface Vec3 {
@@ -301,6 +310,9 @@ test('chase camera: no per-frame ship displacement spike in steady thrust (TASK-
   await page.screenshot({
     path: path.join(__dirname, '../../../.ralph/screenshots/TASK-77-1.png'),
   });
+  await page.screenshot({
+    path: path.join(__dirname, '../../../.ralph/screenshots/TASK-79-1.png'),
+  });
   await page.keyboard.up('w');
 
   // (e) Analyse (the step-2 measurement, now asserting):
@@ -389,6 +401,25 @@ test('chase camera: no per-frame ship displacement spike in steady thrust (TASK-
     }
   }
 
+  // TASK-79 AC: the CAMERA's per-frame displacement, dt-normalized (vMed×dt),
+  // stays within 2 u of its expectation on every non-rewind/snap frame — the
+  // pops are gone (pre-fix the worst camera frame was a 5-9 u one-frame
+  // rewind jump). Same rewind/snap exclusion as the TASK-77 ship check
+  // (decided Option A): those one-frame predictor jumps are exactly what the
+  // smoother now decays over ~100 ms; a snapshot-yank regression lands on a
+  // NORMAL frame where the 2 u bound still applies.
+  const camVMed = median(camDisp.map((d, i) => d / dt[i]));
+  const camDevNorm = camDisp.map((d, i) => Math.abs(d - camVMed * dt[i]));
+  let camMaxCleanDev = 0;
+  let camWorstCleanFrame = -1;
+  for (let i = 0; i < camDevNorm.length; i++) {
+    if (excluded.has(i)) continue;
+    if (camDevNorm[i] > camMaxCleanDev) {
+      camMaxCleanDev = camDevNorm[i];
+      camWorstCleanFrame = i;
+    }
+  }
+
   console.log(
     `[TASK-77] callsign=${callsign} frames=${frames.length} ` +
       `per-frame displacement: vMed=${vMed.toFixed(1)} u/s, max-dev-vs-vMed*dt=${maxDev.toFixed(2)} u ` +
@@ -401,7 +432,8 @@ test('chase camera: no per-frame ship displacement spike in steady thrust (TASK-
       `worst frame: dev=${maxDev.toFixed(2)} u (frame ${worst}, dt ${(worst >= 0 ? dt[worst] * 1000 : 0).toFixed(1)} ms) ` +
       `rewind/snap events in its window: ${badEvents.map((e) => `${e.mode} ${e.dist.toFixed(1)}u`).join(', ') || 'none'} ` +
       `[TASK-79] correction distance: n=${corrDists.length} p50=${corrP50.toFixed(2)} p95=${corrP95.toFixed(2)} max=${corrMax.toFixed(2)} u ` +
-      `cam per-frame disp: median=${camMed.toFixed(2)} u, max-dev-from-median=${camMaxDev.toFixed(2)} u`,
+      `cam per-frame disp: median=${camMed.toFixed(2)} u, max-dev-from-median=${camMaxDev.toFixed(2)} u ` +
+      `cam max-dev-vs-vMed*dt (clean)=${camMaxCleanDev.toFixed(2)} u (AC <= 2, worst clean frame ${camWorstCleanFrame})`,
   );
 
   // THE acceptance: >= 90 recorded frames, and no per-frame displacement on
@@ -415,6 +447,17 @@ test('chase camera: no per-frame ship displacement spike in steady thrust (TASK-
       `(${excluded.size} excluded; worst clean frame ${worstCleanFrame}; ` +
       `overall worst frame ${worst} had ${badEvents.length} correlated rewind/snap event(s))`,
   ).toBeLessThanOrEqual(3);
+
+  // TASK-79 acceptance: the per-frame CAMERA displacement never deviates
+  // from its dt-normalized median expectation by more than 2 u on a
+  // non-rewind/snap frame — the one-frame pops the pre-fix rewind
+  // corrections caused (5-9 u) are gone; the smoother decays them over
+  // ~100 ms.
+  expect(
+    camMaxCleanDev,
+    `per-frame CAMERA displacement deviation from vMed*dt excluding rewind/snap frames ` +
+      `(${excluded.size} excluded; worst clean frame ${camWorstCleanFrame})`,
+  ).toBeLessThanOrEqual(2);
 
   // (f) TASK-78 acceptance: the RIGID follow over the whole spawn → cap
   // window (docked + teleport + 0 → 120 u/s ramp). Pre-fix the world-space
@@ -479,6 +522,87 @@ test('chase camera: no per-frame ship displacement spike in steady thrust (TASK-
   expect(t78Min, 'cam->ship distance, whole spawn→cap window (min)').toBeGreaterThanOrEqual(14.1);
   expect(t78Max, 'cam->ship distance, whole spawn→cap window (max)').toBeLessThanOrEqual(15.1);
   expect(maxScreenDev, 'ship screen position deviation from median').toBeLessThanOrEqual(20);
+
+  // (g) TASK-79 acceptance: a mid-flight TELEPORT (> 50 u, a snap-class
+  // discontinuity) must SNAP the camera to the new place within 2 frames of
+  // the ship's snapshot — the smoother CLEARS its offset instead of gliding
+  // 400 u across the map.
+  await page.keyboard.down('w'); // back to full thrust: the ship keeps flying
+  await expect
+    .poll(latestSpeed, {
+      timeout: 15_000,
+      message: 'speed never exceeded 100 u/s before the mid-flight teleport',
+    })
+    .toBeGreaterThan(100);
+  await page.evaluate(() => window.__SELF_SHIP__?.startRecording());
+  const here = (await page.evaluate(() => window.__SELF_SHIP__?.probe()?.pos ?? null)) as
+    | Vec3
+    | null;
+  expect(here, 'self ship pos before the mid-flight teleport').not.toBeNull();
+  const TARGET = { x: here!.x, y: here!.y, z: here!.z + 400 }; // 400 u > 50 u snap gate
+  const tele2 = await page.request.post(`${baseURL}/api/dev/teleport`, {
+    headers: {
+      authorization: `Bearer ${session.token}`,
+      'content-type': 'application/json',
+    },
+    data: TARGET,
+  });
+  expect(tele2.status(), `mid-flight teleport: ${await tele2.text()}`).toBe(200);
+  await expect
+    .poll(
+      () =>
+        page.evaluate((p) => {
+          const v = window.__SELF_SHIP__?.probe()?.pos ?? null;
+          if (!v) return -1;
+          return Math.hypot(v.x - p.x, v.y - p.y, v.z - p.z);
+        }, TARGET),
+      { timeout: 10_000, message: 'rendered ship never reached the mid-flight teleport spot' },
+    )
+    .toBeLessThan(50);
+  await page.keyboard.up('w');
+  const tpFrames = (await page.evaluate(
+    () => window.__SELF_SHIP__?.stopRecording() ?? [],
+  )) as FrameSample[];
+
+  // The SHIP's snapshot frame: the first recorded frame whose ship
+  // displacement exceeds the 50 u snap gate — the mesh jumps the whole
+  // teleport in ONE frame (the smoother cleared its offset, no glide).
+  let jumpIdx = -1;
+  for (let i = 1; i < tpFrames.length; i++) {
+    if (dist(tpFrames[i].shipPos, tpFrames[i - 1].shipPos) > 50) {
+      jumpIdx = i;
+      break;
+    }
+  }
+  // The CAMERA arrives within 2 frames of that snapshot frame (it makes the
+  // > 50 u move in the jump frame or the next two), and never glides: the
+  // rigid chase distance stays in band through the frames after the jump.
+  const camDispAt = (i: number): number =>
+    i <= 0 || i >= tpFrames.length ? 0 : dist(tpFrames[i].camPos, tpFrames[i - 1].camPos);
+  const camArrival =
+    jumpIdx >= 0 ? Math.max(camDispAt(jumpIdx), camDispAt(jumpIdx + 1), camDispAt(jumpIdx + 2)) : 0;
+  const tpStart = jumpIdx >= 0 ? jumpIdx : 0;
+  const tpMaxDist = Math.max(...tpFrames.slice(tpStart, tpStart + 10).map((f) => dist(f.camPos, f.shipPos)));
+
+  console.log(
+    `[TASK-79] mid-flight teleport: frames=${tpFrames.length} ` +
+      `ship jump frame=${jumpIdx} ` +
+      `(displacement ${jumpIdx >= 0 ? dist(tpFrames[jumpIdx].shipPos, tpFrames[jumpIdx - 1].shipPos).toFixed(1) : 'n/a'} u) ` +
+      `cam arrival (max disp over jump..+2)=${camArrival.toFixed(1)} u (AC >= 50) ` +
+      `cam->ship max dist post-jump=${tpMaxDist.toFixed(2)} u (AC <= 16, no long glide)`,
+  );
+
+  expect(
+    jumpIdx,
+    'ship snap frame: a one-frame > 50 u displacement (the > CORRECTION_SNAP_U path)',
+  ).toBeGreaterThanOrEqual(1);
+  expect(
+    camArrival,
+    'camera arrives at the new place within 2 frames of the ship snapshot (no glide)',
+  ).toBeGreaterThanOrEqual(50);
+  expect(tpMaxDist, 'chase distance stays in band after the jump (no long glide)').toBeLessThanOrEqual(
+    16,
+  );
 
   assertClean();
   await context.close();
