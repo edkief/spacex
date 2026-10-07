@@ -389,9 +389,7 @@ describe('shipStateFromWire', () => {
 describe('ClientShipPredictor: cruise boost (TASK-85)', () => {
   // One atmospheric planet at the first anchor slot: the no-cruise band is
   // 1 000 + 1 500 = 2 500 u around (10 000, 0, 0).
-  const PLANETS = [
-    { id: 'planet-0', x: 10_000, z: 0, atmosphereRadius: 1000, landable: true },
-  ];
+  const PLANETS = [{ id: 'planet-0', x: 10_000, z: 0, atmosphereRadius: 1000, landable: true }];
   const BOOST: ShipInput = { thrust: 1, yaw: 0, pitch: 0, roll: 0, up: 0, boost: 1 };
 
   function makeCruisePredictor(pos: { x: number; y: number; z: number }): ClientShipPredictor {

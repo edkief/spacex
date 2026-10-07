@@ -135,9 +135,7 @@ describe('TASK-85: server cruise boost', () => {
         undefined,
         'scout',
       );
-      expect(vecLength(s.vel), `t=${((i + 1) * 0.05).toFixed(2)}s`).toBeLessThanOrEqual(
-        120 + 1e-9,
-      );
+      expect(vecLength(s.vel), `t=${((i + 1) * 0.05).toFixed(2)}s`).toBeLessThanOrEqual(120 + 1e-9);
     }
   });
 });

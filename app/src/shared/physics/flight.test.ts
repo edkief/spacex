@@ -354,12 +354,26 @@ describe('thrust top speed (TASK-81)', () => {
 describe('space cruise boost (TASK-85)', () => {
   // Scout: maxVelocity 120, acceleration 40 → cruise cap 480, accel 80.
   const CRUISE_CAP = 120 * CRUISE_SPEED_FACTOR;
+  const CRUISE_ACCEL = 40 * CRUISE_ACCEL_FACTOR;
 
   it('scout boosting in deep space tops out at maxVelocity × 4 (480, never above)', () => {
     let s = restShipState({ x: 0, y: 0, z: 0 }, 'space');
     for (let i = 0; i < 1200; i++) {
-      s = integrateShip(
-        s,
+      s = integrateShip(s, { ...NO_INPUT, thrust: 1, boost: 1 }, DT, 'space', undefined, 'scout', {
+        cruiseAllowed: true,
+      });
+      expect(vecLength(s.vel), `t=${((i + 1) * DT).toFixed(2)}s`).toBeLessThanOrEqual(
+        CRUISE_CAP + 1e-9,
+      );
+    }
+    // …and it actually reaches the cruise cap (reaches it in ~6 s: 480/80).
+    expect(vecLength(s.vel)).toBeGreaterThanOrEqual(0.99 * CRUISE_CAP);
+    // The boost also doubles the ACCEL: 3 s of full thrust ≈ 3·CRUISE_ACCEL
+    // (a 1× accel would only be at 120).
+    let a3 = restShipState({ x: 0, y: 0, z: 0 }, 'space');
+    for (let i = 0; i < 60; i++) {
+      a3 = integrateShip(
+        a3,
         { ...NO_INPUT, thrust: 1, boost: 1 },
         DT,
         'space',
@@ -367,12 +381,8 @@ describe('space cruise boost (TASK-85)', () => {
         'scout',
         { cruiseAllowed: true },
       );
-      expect(vecLength(s.vel), `t=${((i + 1) * DT).toFixed(2)}s`).toBeLessThanOrEqual(
-        CRUISE_CAP + 1e-9,
-      );
     }
-    // …and it actually reaches the cruise cap (reaches it in ~6 s: 480/80).
-    expect(vecLength(s.vel)).toBeGreaterThanOrEqual(0.99 * CRUISE_CAP);
+    expect(vecLength(a3.vel)).toBeGreaterThan(2.5 * CRUISE_ACCEL);
   });
 
   it('at cruise top speed: thrust + full yaw redirects without exceeding the EFFECTIVE cap', () => {
@@ -406,18 +416,10 @@ describe('space cruise boost (TASK-85)', () => {
     // Not allowed: the demand is ignored (the caller cleared it).
     let s = restShipState({ x: 0, y: 0, z: 0 }, 'space');
     for (let i = 0; i < 600; i++) {
-      s = integrateShip(
-        s,
-        { ...NO_INPUT, thrust: 1, boost: 1 },
-        DT,
-        'space',
-        undefined,
-        'scout',
-        { cruiseAllowed: false },
-      );
-      expect(vecLength(s.vel), `t=${((i + 1) * DT).toFixed(2)}s`).toBeLessThanOrEqual(
-        120 + 1e-9,
-      );
+      s = integrateShip(s, { ...NO_INPUT, thrust: 1, boost: 1 }, DT, 'space', undefined, 'scout', {
+        cruiseAllowed: false,
+      });
+      expect(vecLength(s.vel), `t=${((i + 1) * DT).toFixed(2)}s`).toBeLessThanOrEqual(120 + 1e-9);
     }
     // Atmosphere: the space-only gate (thrust itself does not apply there).
     let sa = restShipState({ x: 0, y: 200, z: 0 }, 'atmosphere');
@@ -431,9 +433,7 @@ describe('space cruise boost (TASK-85)', () => {
         'scout',
         { cruiseAllowed: true },
       );
-      expect(vecLength(sa.vel), `t=${((i + 1) * DT).toFixed(2)}s`).toBeLessThanOrEqual(
-        120 + 1e-9,
-      );
+      expect(vecLength(sa.vel), `t=${((i + 1) * DT).toFixed(2)}s`).toBeLessThanOrEqual(120 + 1e-9);
     }
   });
 

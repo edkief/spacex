@@ -240,7 +240,15 @@ function replay(
     // Timestamps are ms; integrateShip takes seconds.
     const dur = Math.max(0, (i + 1 < inputs.length ? inputs[i + 1].t : now) - q.t) / 1000;
     if (dur > 0) {
-      s = integrateShip(s, q.input, dur, ctx.regime, ctx.planet, ctx.shipClass, optionsAt(ctx, s.pos));
+      s = integrateShip(
+        s,
+        q.input,
+        dur,
+        ctx.regime,
+        ctx.planet,
+        ctx.shipClass,
+        optionsAt(ctx, s.pos),
+      );
     }
   }
   return s;

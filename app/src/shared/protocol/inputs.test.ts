@@ -106,8 +106,14 @@ describe('shipInputToPayload (TASK-73)', () => {
       input: { thrust: 1, yaw: 0.5, pitch: -0.5, roll: 1, up: 1, boost: 0 },
     },
     // TASK-85: the cruise boost channel round-trips through the action string.
-    { name: 'boost (space cruise)', input: { thrust: 1, yaw: 0, pitch: 0, roll: 0, up: 0, boost: 1 } },
-    { name: 'VTOL + boost combined', input: { thrust: 1, yaw: 0, pitch: 0, roll: 0, up: 1, boost: 1 } },
+    {
+      name: 'boost (space cruise)',
+      input: { thrust: 1, yaw: 0, pitch: 0, roll: 0, up: 0, boost: 1 },
+    },
+    {
+      name: 'VTOL + boost combined',
+      input: { thrust: 1, yaw: 0, pitch: 0, roll: 0, up: 1, boost: 1 },
+    },
   ];
 
   it.each(CASES)('round-trips $name through inputToShipInput exactly', ({ input }) => {
