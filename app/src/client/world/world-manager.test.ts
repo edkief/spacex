@@ -140,7 +140,7 @@ describe('pad ring markers (TASK-29.3)', () => {
  * the 420 u sky radius the skybox is centred on (TASK-75).
  */
 describe('CAMERA_FAR (TASK-76) contains the whole atmosphere dome', () => {
-  it('reaches the dome\'s longest chord (2 × radius), so the far wall is never clipped', () => {
+  it("reaches the dome's longest chord (2 × radius), so the far wall is never clipped", () => {
     const domeDiameter = 2 * ATMOSPHERE_BOUNDARY_M * DOME_RADIUS_FACTOR;
     expect(CAMERA_FAR).toBeGreaterThanOrEqual(domeDiameter);
   });

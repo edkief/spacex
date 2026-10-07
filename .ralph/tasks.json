@@ -693,7 +693,7 @@
     "title": "Verify + close out TASK-76: full test matrix, e2e regression set, bench:render gates, LOG entry",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-76.2.json",
-    "passes": false,
+    "passes": true,
     "splitFrom": "TASK-76",
     "splitDepth": 1
   },

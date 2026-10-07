@@ -1,0 +1,49 @@
+{
+  "id": "TASK-76",
+  "title": "Blackout fix (atmosphere): camera far plane must contain the whole dome",
+  "category": "functional",
+  "description": "HIGH PRIORITY BUG — second cause of the black 3D view. Inside a planet's atmosphere the TASK-28.1 crossfade fades the skybox + stars OUT (opacity = 1 - haze) and relies on the atmosphere dome to paint the sky. The dome is a BackSide sphere of radius ATMOSPHERE_BOUNDARY_M × DOME_RADIUS_FACTOR = 1000 × 1.01 = 1010 u centred at (anchor.x, 0, anchor.z) (src/client/render/atmosphere-dome.ts; WorldManager.setAtmosphereView ~line 903), but the game camera's far plane is 1000 u (`new THREE.PerspectiveCamera(70, 1, 0.1, 1000)`, WorldManager.ts ~line 382). From anywhere inside the dome except its exact centre, the far wall is farther than 1000 u (up to 2 × 1010 = 2020 u), so that part of the dome is clipped by the far plane. Where the dome is clipped and haze is high you see the black clear color through a nearly transparent sky — a black (or near-black) sky over the pads. Observed on the deployed build right after a respawn near planet 1: the upper half of the view is black. The fix: make the far plane provably larger than the dome's diameter.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "A named far-plane constant with a provable bound",
+      "details": "In `src/client/world/WorldManager.ts` add an exported constant, e.g. `export const CAMERA_FAR = 4000;` with a block comment stating the invariant: it must be >= 2 × ATMOSPHERE_BOUNDARY_M × DOME_RADIUS_FACTOR (the longest chord of the dome, so its far wall is never clipped from any point inside it) and comfortably larger than the sky radius 420 (which TASK-75 keeps centred on the camera). Use it in the constructor: `new THREE.PerspectiveCamera(70, 1, 0.1, CAMERA_FAR)`. Export DOME_RADIUS_FACTOR from atmosphere-dome.ts if it is not exported yet. Keep near = 0.1 (depth precision at 0.1 / 4000 is fine for this low-detail scene; do NOT enable logarithmicDepthBuffer). The CameraRig only sets fov — check it does not reset `far`.",
+      "pass": true
+    },
+    {
+      "step": 2,
+      "description": "Unit test the invariant",
+      "details": "In `src/client/world/world-manager.test.ts` (or a new small test next to it if constructing WorldManager needs a GL context — then test the constant only): assert `CAMERA_FAR >= 2 * ATMOSPHERE_BOUNDARY_M * DOME_RADIUS_FACTOR` and `CAMERA_FAR > 420`. This test is the guard that stops a future change from re-introducing the clip.",
+      "pass": true
+    },
+    {
+      "step": 3,
+      "description": "E2E: low altitude, off-centre inside an atmosphere is not black",
+      "details": "New test (extend `app/tests/e2e/deep-space.spec.ts` from TASK-75 or add `atmosphere-sky.spec.ts`). e2e specs cannot import @shared code (Playwright does not resolve the tsconfig aliases), so locate the atmosphere through the dev route `GET /api/dev/pad-target?systemId=<homeSystemId>` (bearer token; src/server/routes/dev.ts ~line 80) — it returns `{ pad: {x,y,z}, planetId }` for a pad on a landable ATMOSPHERIC planet of that system (404 if the home system has none: then call it without `systemId` and warp there with the existing keyboardWarp helper, as keyboard-only.spec.ts does). Teleport the ship (`POST /api/dev/teleport`) to `{ x: pad.x + 500, y: 60, z: pad.z }` — inside the dome but off-centre, at low altitude (high haze). Poll until `__SELF_SHIP__.probe().pos` is within 50 u AND the ship's server regime (the entity_update tap from flight.spec.ts) is 'atmosphere' — if it is not, reduce the +500 offset until it is (the dome is centred on the planet anchor, the pad sits near it). Using the TASK-75 `canvasRegionStats` top band, assert `mean > 5` (it must show the dome haze color, not black). Screenshot `.ralph/screenshots/TASK-76-1.png` and LOOK at it: a hazy sky, not a black one. Before applying step 1, run this e2e once and record the failing top-band mean in the LOG entry (proves the test catches the bug).",
+      "pass": true
+    },
+    {
+      "step": 4,
+      "description": "Verify + commit",
+      "details": "`cd app && npx tsc --noEmit`; full `npm run test`; e2e: the new/extended spec plus `atmosphere-view.spec.ts`, `atmosphere.spec.ts`, `landing.spec.ts`, `transitions.spec.ts`, `self-ship.spec.ts`; `npm run bench:render` must still pass its gates (a larger far plane can raise draw calls — if the gate fails, report the numbers and raise DECIDE instead of lowering CAMERA_FAR below the invariant); `eslint --fix` + `prettier --write` on touched files. Commit `fix(TASK-76): ...`.",
+      "pass": true
+    }
+  ],
+  "acceptanceCriteria": [
+    "The game camera's far plane is a named constant >= 2 × the dome radius (>= 2020 u), unit-tested against the shared constants",
+    "Inside an atmosphere, low and off-centre (600 u from the anchor, 60 u altitude), the top band of the canvas shows the haze color (mean luminance > 5), never black; screenshot `.ralph/screenshots/TASK-76-1.png`",
+    "The e2e was shown to FAIL before the fix (failing value recorded in LOG.md)",
+    "`npm run bench:render` gates still pass; `npx tsc --noEmit` and full `npm run test` green; touched e2e specs green; one commit"
+  ],
+  "dependencies": [
+    "TASK-75",
+    "TASK-28.1",
+    "TASK-28.3"
+  ],
+  "estimatedComplexity": "small",
+  "notes": [
+    "Do NOT change the dome radius, the haze math or the crossfade — the shared atmosphere math is correct; only the camera cannot see the whole dome.",
+    "The mobile flat-haze layer (`createFlatHaze`) uses the same radius, so the same far plane fixes it too.",
+    "Do NOT commit the pre-existing dirty `.ralph/screenshots/*.png` mods."
+  ]
+}
