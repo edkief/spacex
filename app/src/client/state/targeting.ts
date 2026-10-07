@@ -171,13 +171,19 @@ export function toggleTargetLock(
     return { type: 'release' };
   }
   const self = lastEntities.find((e) => e.kind === 'ship' && e.id === selfShipId) ?? null;
-  if (!self || !self.rot) return null;
+  if (!self) return null;
+  // A docked ship at the home dock rides an identity quat, which the wire
+  // OMITS (rot is only sent when non-identity) — fall back to identity
+  // forward so a docked ship can still lock. The server validates the same
+  // way (it uses the real quat, identity → +Z), so client and server always
+  // agree; a non-identity ship always carries rot on the wire.
+  const forward = forwardOf(self.rot ?? IDENT_QUAT);
   const candidates = lastEntities.filter(
     (e) => LOCKABLE.has(e.kind) && e.id !== self.id && e.hull > 0,
   );
   const pick = pickNearestInCone(
     self.pos,
-    forwardOf(self.rot),
+    forward,
     candidates.map((e) => ({ id: e.id, pos: e.pos })),
     LOCK_RANGE_M,
     LOCK_CONE_RAD,

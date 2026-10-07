@@ -723,7 +723,7 @@
     "title": "Camera drop-off (2/3): rigid chase camera — constant distance at any speed",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-78.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-79",

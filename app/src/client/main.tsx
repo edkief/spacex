@@ -112,7 +112,10 @@ import {
   dockedIndicator,
   dockedIndicatorSubscribe,
   isDocked,
+  isWireDocked,
   setDockedIndicator,
+  setWireDocked,
+  wireDockedIndicator,
 } from '@client/state/docked';
 import { reentryTintFactor } from '@shared/physics/atmosphere';
 import { FrameMonitorOverlay } from '@client/ui/debug-overlay';
@@ -449,6 +452,11 @@ function useGameSession(
           // regime is 'docked' with a padId set.
           const wasDocked = dockedIndicator();
           if (self) setDockedIndicator(isDocked(self.regime, self.padId));
+          // TASK-78 close-out: the WIRE docked state (regime alone, no padId
+          // required) — the flight loop gates idle-frame suppression on this
+          // so a home-dock starter (regime 'docked', no padId) is never
+          // undocked by stray idle input frames.
+          if (self) setWireDocked(self.kind === 'ship' && isWireDocked(self.regime));
           // TASK-56: guidance events from the docked TRANSITIONS (the
           // machine ignores the spawn-dock itself — see ui/guidance.ts).
           const becameDocked = dockedIndicator();
@@ -534,6 +542,7 @@ function useGameSession(
         setReentryTint(0);
         // TASK-29.3: a warp must never carry a stale docked state either.
         setDockedIndicator(false);
+        setWireDocked(false); // TASK-78 close-out: same, for the wire gate.
         // TASK-51: a new system never carries a stale ship view or chart
         // target (the nav readout's implicit dock target is re-derived).
         setSelfShipView(null);
@@ -1572,10 +1581,15 @@ function App() {
   // prediction — the 10 Hz snapshots reconcile it (seeded/reconciled in
   // the self-entity bridge).
   // DOCKED: the server freezes the ship and its FIRST input takes it off,
-  // so NO idle frames go out while the docked indicator is up (a held zero
-  // frame would launch the ship) and the predictor holds its seeded pose
+  // so NO idle frames go out while the ship is docked (a held zero frame
+  // would launch the ship) and the predictor holds its seeded pose
   // (atmosphere gravity would sink it off the pad); only a real control
   // demand is sent — the next snapshot reconciles onto the undock.
+  // GATE ON THE WIRE STATE (TASK-78 close-out), not the pad indicator: the
+  // pad indicator needs a padId, but the starter scout docks at the HOME
+  // dock (regime 'docked', NO padId) — there the pad predicate is false and
+  // idle frames leaked, undocking the server ship and exposing it to rogue
+  // AI. wireDockedIndicator() is true for ANY regime 'docked' entity.
   React.useEffect(() => {
     const body = (nowMs: number, dtSec: number): void => {
       const p = shipPredictorRef.current;
@@ -1583,7 +1597,7 @@ function App() {
       if (!p || !world) return;
       const now = nowMs;
       const dt = Math.min(0.1, dtSec);
-      const docked = dockedIndicator();
+      const docked = wireDockedIndicator();
       const pressed = effectiveFlightPressed(pressedRef.current, {
         chartOpen: chartOpenRef.current,
       });

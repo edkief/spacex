@@ -8,25 +8,25 @@
       "step": 1,
       "description": "Pure rigid chase pose in pose-math",
       "details": "In `src/client/camera/pose-math.ts` add a pure function, e.g. `rigidChasePose(shipPos: Vec3, viewQuat: Quat): { position: Vec3; look: Vec3; up: Vec3 }`: position = shipPos + rotate((0, CHASE_HEIGHT, -CHASE_BEHIND), viewQuat); look = shipPos + rotate((0, 0, CHASE_LOOK_AHEAD), viewQuat); up = rotate((0, 1, 0), viewQuat). Reuse the existing rotate/quat helpers used by `chasePose` (do not duplicate math). Keep `chasePose` (handoff destinations use it). Unit tests in `pose-math.test.ts`: for identity and SPAWN_GATE_QUAT the camera→ship distance equals sqrt(CHASE_HEIGHT² + CHASE_BEHIND²) exactly; with viewQuat === ship quat the result matches `chasePose` position/look; a 90° pitch gives a finite, non-degenerate up vector.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "CameraRig: 'chase' steady state uses the rigid pose",
       "details": "In `CameraRig`: keep a smoothed `viewQuat` (THREE.Quaternion) for chase mode. Each steady-state chase update: `viewQuat.slerp(shipQuat, 1 - exp(-CHASE_ROT_K·dt))` with a new exported constant CHASE_ROT_K (start at 6/s — gives a little visible swing on yaw/pitch, never positional lag); then compute `rigidChasePose(ship.pos, viewQuat)` and APPLY it directly (no position lerp): camera.position = pose.position; camera orientation from `Matrix4.lookAt(position, look, pose.up)`. On prime (first frame / resetPrime) and at the END of a handoff into 'chase', set viewQuat = ship quat so there is no swing-in. Cockpit and on-foot modes and the 600 ms handoff animation stay EXACTLY as they are (their tests must not change). Block-comment the rationale (exponential world-space follow lags by v/k).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Unit tests for the speed invariant",
       "details": "In `src/client/camera/camera-rig.test.ts` (injectable clock, fixed frame grid): (a) a ship moving straight along its forward at 180 u/s for 3 s at 60 fps → camera→ship distance within 0.01 u of sqrt(4² + 14²) on EVERY frame; (b) same at 30 u/s and with a sudden 0 → 180 u/s jump in speed — distance unchanged; (c) a 90° yaw step → the camera swings around over a few hundred ms (viewQuat converges, angle error < 1° after 1 s) while the distance stays constant; (d) pitching the ship through +90° never produces NaN and the camera up vector stays continuous (no flip). Update any existing chase-mode test that asserted the old world-space lag — do NOT weaken cockpit/onfoot/handoff tests.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "E2E + verify + commit",
       "details": "Extend `app/tests/e2e/chase-camera.spec.ts` (from TASK-77) with the rigid-follow assertion using the __SELF_SHIP__ frame recorder: during thrust from spawn up to > 120 u/s, |camPos - shipPos| stays within 14.6 ± 0.5 u on every recorded frame, and the ship's projected screen position stays within 20 px of its median. Screenshots `.ralph/screenshots/TASK-78-1.png` (just after undocking, slow) and `TASK-78-2.png` (> 120 u/s) — LOOK at both: the ship must appear the SAME size in both. Record the per-speed camera distance in the LOG entry (before: grows with speed; after: constant). Then `cd app && npx tsc --noEmit`, full `npm run test`, e2e: chase-camera, flight, self-ship, camera-handoff, enter-ship, disembark, weapons, targeting; `eslint --fix` + `prettier --write`. Commit `fix(TASK-78): ...`.",
-      "pass": false
+      "pass": true
     }
   ],
   "acceptanceCriteria": [

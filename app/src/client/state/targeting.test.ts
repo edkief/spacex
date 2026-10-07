@@ -79,6 +79,30 @@ describe('toggleTargetLock', () => {
     expect(v.box?.distance).toBeCloseTo(200, 6);
   });
 
+  it('a docked ship with an OMITTED (identity) rot still locks the dead-ahead target (TASK-78 close-out)', () => {
+    // The wire omits rot for an identity quat — the docked home-dock starter
+    // reads with self.rot === undefined (NOT an identity object). Falling
+    // back to identity forward (+Z) lets it lock, matching the server.
+    ingestTargetingEntities(
+      [
+        mk('ship-p1', 'ship', { x: 0, y: 0, z: 0 }, { callsign: 'one', rot: undefined }),
+        mk('ai:dummy:1', 'ai-ship', { x: 0, y: 0, z: 200 }, { callsign: 'AI-001-1' }),
+      ],
+      'one',
+      1_000,
+    );
+    expect(toggleTargetLock(1_000)).toEqual({ type: 'lock', targetId: 'ai:dummy:1' });
+    ingestTargetingEntities(
+      [
+        mk('ship-p1', 'ship', { x: 0, y: 0, z: 0 }, { callsign: 'one', rot: undefined }),
+        mk('ai:dummy:1', 'ai-ship', { x: 0, y: 0, z: 200 }, { callsign: 'AI-001-1' }),
+      ],
+      'one',
+      1_100,
+    );
+    expect(current().box?.targetId).toBe('ai:dummy:1');
+  });
+
   it('re-press while locked → release, box clears', () => {
     ingestTargetingEntities(world(), 'one', 1_000);
     toggleTargetLock(1_000);
