@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest';
 
 import { ATMOSPHERE_BOUNDARY_M, hazeFactor } from '../physics/atmosphere';
 import {
+  PLANET_SURFACE_RADIUS_M,
   planetAnchor,
   planetAtmosphereDensity,
   planetAtmosphereRadius,
   systemRegimePlanets,
 } from './planets';
+import { DEPOSIT_SCATTER_RADIUS_M } from '../world/deposits';
+import { HAZARD_SCATTER_RADIUS_M } from '../world/hazards';
 import { generateStars } from './stars';
 import { generateSystem } from './system';
 import type { Planet, SystemGen } from './types';
@@ -113,5 +116,17 @@ describe('systemRegimePlanets (regime view of a system)', () => {
       planets: [airless, terran],
     };
     expect(systemRegimePlanets(system)).toEqual(systemRegimePlanets(system));
+  });
+});
+
+describe('PLANET_SURFACE_RADIUS_M (TASK-83 shared surface extent)', () => {
+  it('bounds the deposit + hazard scatter radii (nothing lands off the island)', () => {
+    // The placement radii must stay within the rendered island radius — the
+    // sim scatters surface content no farther than the client island.
+    expect(DEPOSIT_SCATTER_RADIUS_M).toBeLessThanOrEqual(PLANET_SURFACE_RADIUS_M);
+    expect(HAZARD_SCATTER_RADIUS_M).toBeLessThanOrEqual(PLANET_SURFACE_RADIUS_M);
+    // They actually ARE the shared constant (one edit widens both + the island).
+    expect(DEPOSIT_SCATTER_RADIUS_M).toBe(PLANET_SURFACE_RADIUS_M);
+    expect(HAZARD_SCATTER_RADIUS_M).toBe(PLANET_SURFACE_RADIUS_M);
   });
 });

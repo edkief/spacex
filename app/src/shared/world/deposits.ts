@@ -18,7 +18,7 @@
 
 import { Rng, hash2, seedFromString } from '../random';
 import { CELL_SIZE_M, heightfieldChannels } from '../galaxy/surface';
-import { planetAnchor } from '../galaxy/planets';
+import { PLANET_SURFACE_RADIUS_M, planetAnchor } from '../galaxy/planets';
 import { pickResource } from '../resources';
 import type { Planet, SystemGen } from '../galaxy/types';
 import type { ResourceId } from '../inventory';
@@ -44,8 +44,11 @@ export const DEPOSIT_SLOPE_MAX_DEG = 30;
 export const DEPOSIT_AMOUNT_MIN = 10;
 export const DEPOSIT_AMOUNT_MAX = 50;
 
-/** Scatter radius (m) around a planet's surface anchor. */
-const DEPOSIT_SCATTER_RADIUS_M = 2_000;
+/**
+ * Scatter radius (m) around a planet's surface anchor: the shared surface
+ * extent (TASK-83) — deposits never land outside the rendered island.
+ */
+export const DEPOSIT_SCATTER_RADIUS_M = PLANET_SURFACE_RADIUS_M;
 /** Rejection attempts per due deposit (bounded; Poisson-ish thinning). */
 const DEPOSIT_ATTEMPTS_PER_DEPOSIT = 24;
 

@@ -142,6 +142,7 @@ import { installInteractDebug } from '@client/interact-debug';
 import { bindDepositsDebug, installDepositsDebug } from '@client/deposits-debug';
 import { bindSelfShipDebug, installSelfShipDebug } from '@client/self-ship-debug';
 import { bindRemoteShipsDebug, installRemoteShipsDebug } from '@client/remote-ships-debug';
+import { bindPlanetsDebug, installPlanetsDebug } from '@client/planets-debug';
 import { bindHazardWorldDebug, installHazardWorldDebug } from '@client/hazard-world-debug';
 import { installTransitionDebug } from '@client/test/transitionCycle';
 import { normalizeEntityState } from '@shared/protocol/schemas';
@@ -1920,6 +1921,11 @@ function App() {
           sunScreen: world.sunScreen(), // TASK-82: the distant sun (−X)
         };
       });
+      // TASK-83: dev-only planet probe — reads the live manager lazily (the
+      // proxy re-anchors every frame, so a cached value would lie).
+      bindPlanetsDebug(planetsDebug, () =>
+        worldRef.current ? worldRef.current.planetsView() : null,
+      );
       // TASK-74: the remote-ship probes project LAZILY against the live
       // camera (same pattern — a seed-corrected re-creation stays bound).
       bindRemoteShipsDebug(remoteShipsDebug, () => {
@@ -2322,6 +2328,8 @@ const depositsDebug = installDepositsDebug();
 const selfShipDebug = installSelfShipDebug();
 // TASK-74: dev-only remote-ship probe hook (no-op in production builds).
 const remoteShipsDebug = installRemoteShipsDebug();
+// TASK-83: dev-only planet probe hook (no-op in production builds).
+const planetsDebug = installPlanetsDebug();
 // TASK-48.3: dev-only hazard-world probe hook (no-op in production builds).
 const hazardWorldDebug = installHazardWorldDebug();
 // TASK-26.2: dev-only draw-distance budget benchmark hook (no-op in prod).

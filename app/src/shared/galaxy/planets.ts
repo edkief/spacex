@@ -23,6 +23,15 @@ import type { Planet, PlanetClass, SystemGen } from './types';
 /** Spacing (u) between planet surface anchors on the shared world plane. */
 export const PLANET_ANCHOR_SPACING_M = 10_000;
 
+/**
+ * Surface extent (m): the radius around a planet's anchor that holds the
+ * planet's surface content — the deposit + hazard scatter radius (both are
+ * derived from this, so a widening placement radius is one edit). The
+ * client renders the planet's island to this radius (TASK-83) and TASK-84
+ * streams terrain within it.
+ */
+export const PLANET_SURFACE_RADIUS_M = 2_000;
+
 /** Base drag density by planet class (gas giants are thickest, rocky thin). */
 const ATMOSPHERE_DENSITY_BASE: Record<PlanetClass, number> = {
   rocky: 0.04,

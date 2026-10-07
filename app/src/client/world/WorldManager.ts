@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import type { Livery } from '@shared/protocol/schemas';
 import { SPAWN_GATE_POS } from '@shared/galaxy/spawn';
 import { planetAnchor } from '@shared/galaxy/planets';
-import type { PlanetClass, SpectralClass, SystemGen } from '@shared/galaxy/types';
+import type { SpectralClass, SystemGen } from '@shared/galaxy/types';
 import { ATMOSPHERE_BOUNDARY_M } from '@shared/physics/atmosphere';
 import type { Quat, Vec3 } from '@shared/physics/vec';
 import type { Regime } from '@shared/regime';
@@ -44,6 +44,12 @@ import { CameraRig } from '@client/camera/CameraRig';
 import { atmosphereViewFor } from './atmosphere-view';
 import { SelfShip, type SelfShipInput } from './self-ship';
 import { buildHazardDiscs, hazardDiscVisible, type HazardDiscRender } from './hazard-discs';
+import {
+  buildPlanetBodies,
+  setPlanetShellHidden,
+  updatePlanetBodies,
+  type PlanetBody,
+} from './planet-bodies';
 
 /**
  * The in-system world (TASK-8). Owns the three.js scene on the game canvas
@@ -105,14 +111,9 @@ export const STAR_COLORS: Record<SpectralClass, string> = {
   M: '#ffcc6f',
 };
 
-/** Planet-class placeholder palette (visual only). */
-export const PLANET_COLORS: Record<PlanetClass, string> = {
-  rocky: '#b08a5a',
-  terran: '#5da463',
-  ocean: '#4f83cc',
-  gas: '#c9a36b',
-  ice: '#a8cfe0',
-};
+// TASK-83: the planet-class palette now lives in planet-bodies.ts (the
+// island slabs are its main consumer); re-exported so existing imports work.
+export { PLANET_COLORS } from './planet-bodies';
 
 /**
  * Pure, deterministic near-field layout for a system (tested without
@@ -327,6 +328,13 @@ export class WorldManager {
   /** The player ship's last-known world position (null before the first
    * entity_update): drives pad-ring visibility, nothing else. */
   private selfPos: Vec3 | null = null;
+  /**
+   * TASK-83: the planet island + outer-dome groups of the current system
+   * (in the per-system world group — they die with it). Every frame each is
+   * redrawn through the scaled proxy (updatePlanetBodies) so 10–60 km
+   * anchors stay inside the 4000 u far plane with exact direction/size.
+   */
+  private planetBodies: PlanetBody[] = [];
   private readonly clock = new THREE.Clock();
   /**
    * TASK-31: the on-foot camera. The rig owns the SAME PerspectiveCamera but
@@ -516,6 +524,9 @@ export class WorldManager {
       // must track the final camera position or it drifts off as the ship flies.
       const sunPos = sunPosition(this.camera.position);
       this.sun.mesh.position.set(sunPos.x, sunPos.y, sunPos.z);
+      // TASK-83: re-anchor the planet islands through the scaled proxy
+      // BEFORE the render (same final camera position the sun tracked).
+      updatePlanetBodies(this.planetBodies, this.camera.position);
       this.renderer.render(this.scene, this.camera);
       // TASK-77: the dev frame recorder samples the RENDERED pose right
       // after the render (the __SELF_SHIP__ frame log; null otherwise).
@@ -571,6 +582,11 @@ export class WorldManager {
     // in the per-system group, so they are disposed with it on the next swap.
     this.hazardDiscs = buildHazardDiscs(this.seed, system);
     for (const disc of this.hazardDiscs) next.add(disc.group);
+    // TASK-83: the planet islands + outer atmosphere domes live in the
+    // per-system group (they die with it on the next swap); the frame loop
+    // re-anchors them through the scaled proxy every frame.
+    this.planetBodies = buildPlanetBodies(system);
+    for (const body of this.planetBodies) next.add(body.group);
     // TASK-37: the deposit list is derived from the SAME seed the server
     // uses (cached per system — a warm cache makes this a no-op; the first
     // cold derivation per system is the one-time ~100 ms placement pass).
@@ -690,6 +706,34 @@ export class WorldManager {
   /** TASK-37: the ore rocks currently known (dev probe / e2e assertions). */
   oreRocks(): OreRockView[] {
     return this.oreLayer.views();
+  }
+
+  /**
+   * TASK-83: the rendered planet bodies (dev probe / e2e assertions) — per
+   * planet: the sim anchor, the TRUE camera→anchor distance, the current
+   * proxy scale (1 = true position/scale), and the ANCHOR's screen
+   * projection — exact for proxies too (the proxy sits on the exact
+   * camera→anchor ray, so the anchor projects to the proxy's screen point).
+   */
+  planetsView(): Array<{
+    planetId: string;
+    anchor: Vec3;
+    distance: number;
+    scale: number;
+    screen: { x: number; y: number; dist: number } | null;
+  }> {
+    const cam = this.camera.position;
+    return this.planetBodies.map((b) => ({
+      planetId: b.planetId,
+      anchor: b.anchor,
+      distance: Math.hypot(
+        b.anchor.x - cam.x,
+        b.anchor.y - cam.y,
+        b.anchor.z - cam.z,
+      ),
+      scale: b.group.scale.x,
+      screen: this.projectToScreen(b.anchor),
+    }));
   }
 
   /**
@@ -1017,6 +1061,10 @@ export class WorldManager {
     } else {
       this.dome.set(0, this.tempColor);
     }
+    // TASK-83: while the camera is inside a planet's atmosphere, hide THAT
+    // planet's outer shell (the TASK-28.1 inside BackSide haze dome renders
+    // the sky — the two must never double up); in space all shells show.
+    setPlanetShellHidden(this.planetBodies, view.planet ? view.planet.id : null);
     // The no-desync contract: dome haze IN = 1 - skybox fade OUT, one number.
     // TASK-82: the sun fades with the sky too — inside a thick atmosphere the
     // distant star washes out along with the skybox (same single `fade`).
@@ -1051,6 +1099,9 @@ export class WorldManager {
     this.pads = [];
     this.padRings = [];
     this.hazardDiscs = [];
+    // The planet groups sit in worldGroup (disposed above); clear the ref
+    // (disposePlanetBodies is the standalone helper for group-less uses).
+    this.planetBodies = [];
     this.scene.remove(this.sun.mesh);
     this.sun.dispose();
     this.dome.dispose();

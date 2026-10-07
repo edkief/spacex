@@ -32,7 +32,7 @@
 
 import { Rng, hash2, seedFromString } from '../random';
 import { CELL_SIZE_M, heightfieldChannels } from '../galaxy/surface';
-import { planetAnchor } from '../galaxy/planets';
+import { PLANET_SURFACE_RADIUS_M, planetAnchor } from '../galaxy/planets';
 import { padsForSystem } from './pads';
 import type { Planet, SystemGen } from '../galaxy/types';
 import type { Vec3 } from '../physics/vec';
@@ -49,8 +49,11 @@ export const HAZARD_RADIUS_MAX = 400;
 export const HAZARD_SAFE_ZONE_M = 300;
 /** Min center spacing between two cells on the same planet (m). */
 export const HAZARD_MIN_SPACING_M = 250;
-/** Scatter radius (m) around the planet's surface anchor. */
-export const HAZARD_SCATTER_RADIUS_M = 2_000;
+/**
+ * Scatter radius (m) around the planet's surface anchor: the shared surface
+ * extent (TASK-83) — hazards never land outside the rendered island.
+ */
+export const HAZARD_SCATTER_RADIUS_M = PLANET_SURFACE_RADIUS_M;
 /** Client marker + entity streaming range (m, AC step 3). */
 export const HAZARD_RENDER_RANGE_M = 500;
 
