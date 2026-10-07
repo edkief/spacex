@@ -8,25 +8,25 @@
       "step": 1,
       "description": "Rewrite the aim block in app/tests/e2e/atmosphere-sky.spec.ts to be deterministic",
       "details": "The aim block is ~lines 299-352 (from `--- Aim the nose at the dome ANCHOR ---` through the `aimed at the anchor` console.log). Replace the steering logic: (a) yaw WITHOUT holding `w` — safe because the server's yaw is thrust-independent (`app/src/shared/physics/flight.ts` ~line 261: `input.yaw * cls.turnRate * h` is applied unconditionally; `w`/thrust only adds velocity); (b) loop against a wall-clock deadline (~8-10 s) instead of a fixed iteration count, each iteration: probe heading error via the existing `aimProbe`, press `d` or `a` (sign calibrated as today with the one 120 ms calibration press, also without `w`) for a duration proportional to |err|; (c) HARD-ASSERT convergence before measuring: after the loop, log the final heading error and `expect(Math.abs(err)).toBeLessThan(0.12)` with an explicit message — the test must fail loudly rather than silently measure with the nose pointing the wrong way; (d) keep the existing re-pin teleport after the aim (it restores the exact spot; teleport preserves orientation — verified in shard.teleportForTesting). Do NOT change the target choice (densest seeded atmosphere), the teleport offset ladder, the TOP_BAND constants, the assertion, or the screenshot path.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Re-confirm the spec FAILS with the old far plane (1000 u)",
       "details": "Temporarily edit `app/src/client/world/WorldManager.ts` so the constructor uses `new THREE.PerspectiveCamera(70, 1, 0.1, 1000)` (revert only that one argument; leave `CAMERA_FAR` exported). Run `cd app && npx playwright test --config playwright.e2e.config.ts atmosphere-sky`. Expect FAIL: the central top band mean must be <= 5 (the two earlier pre-fix runs read exactly 0.0 with the old spec; with the fixed aim the ship faces the clipped cap deterministically so this should be as dark or darker). Record the measured mean. Then restore the file EXACTLY to its committed state: `git checkout -- app/src/client/world/WorldManager.ts` and verify with `git diff -- app/src/client/world/WorldManager.ts` that it is empty. This proves the FINAL form of the spec catches the bug.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Confirm 3 consecutive post-fix passes",
       "details": "With `CAMERA_FAR = 4000` restored, run `cd app && npx playwright test --config playwright.e2e.config.ts atmosphere-sky` THREE times — the config has retries: 0, so every run must pass on its own (each run boots its own dev server, ~1-2 min overhead; the test sets a 150 s timeout). Each run must log: heading error < 0.12 rad, central top band mean > 5 (expect ~150: ocean haze tint #6fa8dc, luminance ~160, at haze ~0.93), bright >> 0, regime=atmosphere. LOOK at `.ralph/screenshots/TASK-76-1.png` after the last run: it must show a hazy blue sky, NOT black. If a run fails, debug the aim (steering loop, deadlines, probe timing) — the geometry is verified correct (aiming at the anchor IS the clipped cap; the cap spans ~67° from the nose at 794 u from the anchor, the central strip spans only ~14-38°), do NOT loosen the assertion or the TOP_BAND region.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Verify types + commit",
       "details": "`cd app && npx tsc --noEmit` (the tsconfig includes `tests/`, so the spec is type-checked). `npx vitest run src/client/world/world-manager.test.ts` (must stay 10/10 green — guard against accidentally touching the constants). Commit with message `wip(TASK-76): deterministic atmosphere-sky e2e aim; pre-fix FAIL re-confirmed (central band mean <X>), 3/3 post-fix passes (~<Y>)`. The commit must contain ONLY `app/tests/e2e/atmosphere-sky.spec.ts` (and the updated screenshot `.ralph/screenshots/TASK-76-1.png` if it changed). Update `.ralph/handoff/TASK-76.md` to reflect the new state (aim fixed, values recorded) and include it in the commit. Do NOT commit the pre-existing dirty files: `ralph.config.json`, `.ralph/screenshots/TASK-28.1-1.png`, `TASK-70-1.png`, `TASK-72-1.png`, `TASK-73-1.png` — check `git status --short` before committing.",
-      "pass": false
+      "pass": true
     }
   ],
   "acceptanceCriteria": [

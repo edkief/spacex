@@ -684,7 +684,7 @@
     "title": "Stabilize the atmosphere-sky e2e: deterministic aim, confirmed pre-fix FAIL + 3x post-fix PASS",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-76.1.json",
-    "passes": false,
+    "passes": true,
     "splitFrom": "TASK-76",
     "splitDepth": 1
   },

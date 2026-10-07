@@ -338,10 +338,10 @@ test('inside atmosphere, low and off-centre: the top band shows haze, never blac
   // The 'd'/'a' and 'r'/'f' signs are each calibrated empirically with one
   // 120 ms press (no assumption about the flight model's rotation signs),
   // also without `w`.
-  const AIM_DEADLINE_MS = 12_000;
+  const AIM_DEADLINE_MS = 18_000;
   const AIM_TOLERANCE_RAD = 0.12; // the hard assertion (spec)
   const AIM_SETTLE_RAD = 0.05; // internal exit threshold — leaves tick-overshoot margin
-  const TURN_RATE_RAD_S = 0.8; // scout (the claim's default class)
+  const TURN_RATE_RAD_S = 0.8; // scout (the claim's default class) — fallback rate
   const domeCentre = { x: anchor.x, y: 0, z: anchor.z }; // the dome mesh centre
   const aimProbe = (): Promise<{
     yawErr: number;
@@ -393,7 +393,16 @@ test('inside atmosphere, low and off-centre: the top band shows haze, never blac
   // its current altitude even while pitched, so it never lands and both
   // rotation axes stay live.
   await page.keyboard.down(' ');
-  let dSign = 1;
+  // Each 120 ms calibration press doubles as a RATE calibration: the server
+  // holds the last input frame and picks key events up at the 20 Hz tick
+  // (≤ 50 ms each end), so a press of `ms` actually rotates the ship by
+  // rate × (ms + δ) with δ ∈ [0, ~100 ms] — a press timed against the raw
+  // 0.8 rad/s turn rate therefore overshoots by the constant rate×δ and
+  // limit-cycles at ~±9°. Calibrating the EFFECTIVE rate per axis
+  // (|Δ| / 0.12) absorbs δ into the number the proportional formula uses.
+  const CALIBRATION_PRESS_S = 0.12;
+  let dSign = 1; // +1 = 'd' increases the wrapped heading
+  let rateYaw = TURN_RATE_RAD_S;
   let a = await aimProbe();
   if (a && Math.abs(a.yawErr) >= 0.15) {
     await press(['d'], 120);
@@ -403,16 +412,22 @@ test('inside atmosphere, low and off-centre: the top band shows haze, never blac
       while (dh > Math.PI) dh -= 2 * Math.PI;
       while (dh < -Math.PI) dh += 2 * Math.PI;
       dSign = dh >= 0 ? 1 : -1;
+      if (Math.abs(dh) > 1e-4) rateYaw = Math.abs(dh) / CALIBRATION_PRESS_S;
     }
   }
   // Calibrate the 'r' pitch sign the same way: one press, measure how the
-  // nose's world elevation moved.
+  // nose's world elevation moved (and the effective rate).
   let rSign = 1; // +1 = 'r' raises the nose's world elevation
+  let ratePitch = TURN_RATE_RAD_S;
   const p0 = await aimProbe();
   await press(['r'], 120);
   const p1 = await aimProbe();
-  if (p0 && p1 && Math.abs(p1.noseElev - p0.noseElev) > 1e-4) {
-    rSign = p1.noseElev - p0.noseElev >= 0 ? 1 : -1;
+  if (p0 && p1) {
+    const dn = p1.noseElev - p0.noseElev;
+    if (Math.abs(dn) > 1e-4) {
+      rSign = dn >= 0 ? 1 : -1;
+      ratePitch = Math.abs(dn) / CALIBRATION_PRESS_S;
+    }
   }
   const aimDeadline = Date.now() + AIM_DEADLINE_MS;
   while (Date.now() < aimDeadline) {
@@ -430,19 +445,25 @@ test('inside atmosphere, low and off-centre: the top band shows haze, never blac
     // proportional duration would overshoot. Single-key presses keep the
     // proven single-axis dynamics: a pitch press (local right axis) is a
     // pure elevation change, a yaw press (local up axis) a near-pure
-    // heading change. Proportional press: 80 % of the full rotation
-    // (deliberate undershoot — a press can never cross the target),
-    // clamped to [80, 450] ms (min press vs key-event latency).
+    // heading change. Proportional press: 80 % of the full rotation at the
+    // CALIBRATED effective rate (deliberate undershoot — a press can never
+    // cross the target), clamped to [80, 450] ms (min press vs key-event
+    // latency).
     for (const axis of [
-      { err: a.yawErr, key: (e: number) => (e * dSign > 0 ? 'd' : 'a') },
-      { err: a.pitchErr, key: (e: number) => (e * rSign > 0 ? 'r' : 'f') },
+      {
+        err: a.yawErr,
+        rate: rateYaw,
+        key: (e: number) => (e * dSign > 0 ? 'd' : 'a'),
+      },
+      {
+        err: a.pitchErr,
+        rate: ratePitch,
+        key: (e: number) => (e * rSign > 0 ? 'r' : 'f'),
+      },
     ]) {
       if (Math.abs(axis.err) < AIM_SETTLE_RAD) continue;
       if (Date.now() >= aimDeadline) break;
-      const ms = Math.min(
-        450,
-        Math.max(80, (Math.abs(axis.err) / TURN_RATE_RAD_S) * 1000 * 0.8),
-      );
+      const ms = Math.min(450, Math.max(80, (Math.abs(axis.err) / axis.rate) * 1000 * 0.8));
       await press([axis.key(axis.err)], ms);
       // Let the server DRAIN the last held control frame before the next
       // press/probe: the server holds a frame until the next input
