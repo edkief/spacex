@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 
-import { hash2, seedFromString } from '@shared/random';
 import type { Livery } from '@shared/protocol/schemas';
 import { SPAWN_GATE_POS } from '@shared/galaxy/spawn';
 import { planetAnchor } from '@shared/galaxy/planets';
@@ -11,6 +10,7 @@ import type { Regime } from '@shared/regime';
 import type { EntityState } from '@shared/protocol/schemas';
 import { padsForSystem, type PadInfo } from '@shared/world/pads';
 import { anchorBackgroundToCamera, createBackground } from '@client/render/starfield';
+import { createSun, sunPosition, SUN_DIRECTION, type SunHandle } from '@client/render/sun';
 
 import { CombatFx } from '@client/world/combat-fx';
 import { depositsFor } from '@shared/world/deposits';
@@ -48,29 +48,27 @@ import { buildHazardDiscs, hazardDiscVisible, type HazardDiscRender } from './ha
 /**
  * The in-system world (TASK-8). Owns the three.js scene on the game canvas
  * once the player has a system: the shared deterministic deep-space
- * background plus the CURRENT SYSTEM — star at the origin, low-detail
- * placeholder planets, and the spawn gate the warp arrives at (100 u +X of
- * the star, facing it).
+ * background, the CURRENT SYSTEM's star rendered as a distant SUN (TASK-82 —
+ * camera-anchored, toward −X, tinted by spectral class, faded with the sky
+ * inside an atmosphere), and the sim-scale spawn gate the warp arrives at
+ * (100 u +X, facing −X = the sun).
+ *
+ * TASK-82 (1 u = 1 m — the rendered world must match the sim): the miniature
+ * ~130 m orrery (a 14 m star ball at the origin + 4 m planets on 30–48 m
+ * orbits) is GONE — none of it exists in the sim (planets are 1 km atmosphere
+ * bubbles on the y = 0 plane at `planetAnchor(i) = ((i + 1) × 10 000, 0, 0)`).
+ * A ship at 120 m/s no longer crosses the whole "system" in a second. TASK-83
+ * draws the planets where the sim has them.
  *
  * `swapWorld` is the atomic warp transition: build the new system group
  * first (budget < 300 ms — measured, see WORLD_BUILD_BUDGET_MS), THEN
  * dispose + replace the old one, so the canvas never draws a blank frame.
- * Only the near-field is generated here (star + 1–2 planet spheres);
- * detailed streaming is TASK-26.
+ * The per-system group holds only sim-scale markers (spawn gate, pad rings,
+ * hazard discs); the sun is scene-level and re-tinted per system.
  */
 
 /** World-swap build budget (spec step 2): a swap must build faster than this. */
 export const WORLD_BUILD_BUDGET_MS = 300;
-/** Rendered planets: the near-field only (streaming arrives in TASK-26). */
-export const WORLD_PLANET_COUNT = 2;
-/** In-system star radius (world units; the gate sits 100 u out). */
-export const WORLD_STAR_RADIUS = 14;
-/** Placeholder planet sphere radius (visual only — LODs are TASK-26). */
-export const WORLD_PLANET_RADIUS = 4;
-/** Innermost planet orbit radius (world units). */
-export const WORLD_FIRST_ORBIT = 30;
-/** Orbit spacing between rendered planets. */
-export const WORLD_ORBIT_STEP = 18;
 /** Pad rings are visible only while the player is within this (m, TASK-29.3). */
 export const PAD_RING_VISIBLE_RANGE_M = 500;
 /** A ring floats this far above the pad surface (m) so it cannot z-fight it. */
@@ -116,48 +114,26 @@ export const PLANET_COLORS: Record<PlanetClass, string> = {
   ice: '#a8cfe0',
 };
 
-/** One rendered planet of the near-field. */
-export interface WorldPlanetLayout {
-  planetId: string;
-  color: string;
-  radius: number;
-  orbitRadius: number;
-  /** Initial orbital angle, radians (deterministic from the system id). */
-  angle: number;
-}
-
 /**
  * Pure, deterministic near-field layout for a system (tested without
- * three.js): star at the origin, the first WORLD_PLANET_COUNT planets on
- * seeded orbit angles, and the spawn gate 100 u along +X facing the star.
+ * three.js): the star's spectral class + colour, and the spawn gate 100 u
+ * along +X facing the star (−X).
+ *
+ * TASK-82: the miniature planet/orbit layout is gone — the planets are 1 km
+ * sim-scale bodies (TASK-83 draws them at `planetAnchor`), so there is no
+ * near-field orbit to lay out. The layout now only carries the star's identity
+ * (to tint the distant sun) and the sim-scale gate position.
  */
 export function buildSystemLayout(system: SystemGen): {
   systemId: string;
   starClass: SpectralClass;
   starColor: string;
-  planets: WorldPlanetLayout[];
   gate: { x: number; y: number; z: number };
 } {
-  const count = Math.min(WORLD_PLANET_COUNT, system.planets.length);
-  const subSeed = seedFromString(system.systemId);
-  const planets: WorldPlanetLayout[] = [];
-  for (let i = 0; i < count; i++) {
-    const planet = system.planets[i];
-    const angleHash = Number(hash2(subSeed, BigInt(0x7717) + BigInt(i)) % 1_000_000n);
-    const angle = (angleHash / 1_000_000) * Math.PI * 2;
-    planets.push({
-      planetId: planet.id,
-      color: PLANET_COLORS[planet.class],
-      radius: WORLD_PLANET_RADIUS,
-      orbitRadius: WORLD_FIRST_ORBIT + i * WORLD_ORBIT_STEP,
-      angle,
-    });
-  }
   return {
     systemId: system.systemId,
     starClass: system.star.class,
     starColor: STAR_COLORS[system.star.class],
-    planets,
     gate: { ...SPAWN_GATE_POS },
   };
 }
@@ -231,29 +207,17 @@ function buildPadRings(
   return rings;
 }
 
-/** Build the three.js group for one system (all geometry low-detail). */
+/**
+ * Build the three.js group for one system — the SIM-SCALE markers only
+ * (TASK-82): the spawn-gate ring. The star is a scene-level distant sun and
+ * the planets are 1 km sim bodies (TASK-83), so neither lives in this group.
+ */
 function buildWorldGroup(system: SystemGen): THREE.Group {
   const layout = buildSystemLayout(system);
   const group = new THREE.Group();
 
-  const starGeometry = new THREE.SphereGeometry(WORLD_STAR_RADIUS, 24, 16);
-  const starMaterial = new THREE.MeshBasicMaterial({ color: layout.starColor });
-  group.add(new THREE.Mesh(starGeometry, starMaterial));
-
-  for (const planet of layout.planets) {
-    const geometry = new THREE.SphereGeometry(planet.radius, 16, 10);
-    const material = new THREE.MeshBasicMaterial({ color: planet.color });
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.position.set(
-      Math.cos(planet.angle) * planet.orbitRadius,
-      0,
-      Math.sin(planet.angle) * planet.orbitRadius,
-    );
-    group.add(mesh);
-  }
-
-  // Spawn gate: a ring at the gate position, plane facing the star (i.e.
-  // perpendicular to the +X axis) — the visual marker of the warp arrival.
+  // Spawn gate: a sim-scale ring at the gate position (100 u +X), plane
+  // facing the star (−X, perpendicular to the +X axis) — the warp arrival.
   const gateGeometry = new THREE.TorusGeometry(6, 0.5, 8, 32);
   const gateMaterial = new THREE.MeshBasicMaterial({ color: '#67e8f9' });
   const gate = new THREE.Mesh(gateGeometry, gateMaterial);
@@ -328,6 +292,13 @@ export class WorldManager {
    * hence not readonly.
    */
   private background: ReturnType<typeof createBackground>;
+  /**
+   * TASK-82: the system star as a distant, camera-anchored SUN (scene-level —
+   * it survives swapWorld, is re-tinted per system, positioned per frame, and
+   * faded with the sky inside an atmosphere). The old 14 m star ball at the
+   * origin (the miniature orrery) is gone.
+   */
+  private readonly sun: SunHandle;
   /** The system currently rendered as an OBJECT (null before the first
    * swapWorld): atmosphereViewFor needs the planet list, not just the id. */
   private system: SystemGen | null = null;
@@ -460,6 +431,11 @@ export class WorldManager {
     // desync. The stars material is already transparent @ 0.95 — its BASE
     // opacity stays untouched (setAtmosphereView scales it from there).
     (this.background.sky.material as THREE.MeshBasicMaterial).transparent = true;
+    // TASK-82: the distant sun — created AFTER the background so its object
+    // id is higher than the stars (both renderOrder 1 → the higher id draws
+    // last, i.e. the sun composites over the stars). Tinted per system in
+    // swapWorld; a neutral G-class white until the first load re-tints it.
+    this.sun = createSun(STAR_COLORS.G);
     // Every atmospheric planet shares ATMOSPHERE_BOUNDARY_M, so ONE layer
     // serves all — repositioned per planet (at most one is active at a
     // time). TASK-59: the mobile floor gets the flat haze (no shader).
@@ -470,15 +446,19 @@ export class WorldManager {
     this.combatFx.setMissileTrails(PERF_PROFILES[this.profileKey].missileTrails);
     this.scene.add(this.background.sky);
     this.scene.add(this.background.stars);
+    // TASK-82: add the sun AFTER the stars (renderOrder 1 tie → in front).
+    this.scene.add(this.sun.mesh);
     this.scene.add(this.dome.mesh); // renderOrder 2: composites over sky + stars
     this.oreLayer.attach(this.scene); // TASK-37: ore rocks live scene-level
     // TASK-72: scene lighting for the self-ship's MeshStandardMaterial paint
-    // zones. Everything else in this scene (star, planets, gate, dome,
-    // character capsule) is Basic/Shader-lit and ignores lights, so this
-    // only ever affects the ship.
+    // zones. Everything else in this scene (sun, gate, dome, character
+    // capsule) is Basic/Shader-lit and ignores lights, so this only ever
+    // affects the ship. TASK-82: the key light comes FROM the sun (its
+    // default target is the origin, so position = SUN_DIRECTION makes the
+    // −X-facing side of the ship — the side a warped-in ship shows — lit).
     this.scene.add(new THREE.AmbientLight('#9fb2d0', 1.4));
     const keyLight = new THREE.DirectionalLight('#ffffff', 2.4);
-    keyLight.position.set(0.35, 1, 0.25); // fixed key direction (ship-facing)
+    keyLight.position.set(SUN_DIRECTION.x, SUN_DIRECTION.y, SUN_DIRECTION.z);
     this.scene.add(keyLight);
 
     const frame = (): void => {
@@ -531,6 +511,11 @@ export class WorldManager {
       // profile-change swapWorld replaces the handle and a cached local
       // would anchor the disposed background.
       anchorBackgroundToCamera(this.background, this.camera.position);
+      // TASK-82: re-centre the sun on the camera the same way — it is
+      // effectively infinitely far (fixed direction SUN_DISTANCE out), so it
+      // must track the final camera position or it drifts off as the ship flies.
+      const sunPos = sunPosition(this.camera.position);
+      this.sun.mesh.position.set(sunPos.x, sunPos.y, sunPos.z);
       this.renderer.render(this.scene, this.camera);
       // TASK-77: the dev frame recorder samples the RENDERED pose right
       // after the render (the __SELF_SHIP__ frame log; null otherwise).
@@ -602,6 +587,9 @@ export class WorldManager {
     this.scene.add(next);
     this.currentSystemId = system.systemId;
     this.system = system;
+    // TASK-82: a new system → a new star → re-tint the distant sun to the
+    // new system's spectral-class colour (the sun mesh survives the swap).
+    this.sun.setColor(STAR_COLORS[system.star.class]);
     this.lastSwapMs = performance.now() - t0;
     return this.lastSwapMs;
   }
@@ -684,6 +672,19 @@ export class WorldManager {
       },
       fovDeg: this.camera.fov,
     };
+  }
+
+  /**
+   * TASK-82: the distant sun's projected screen position (dev probe / e2e).
+   * The sun re-centres on the camera every frame, so this reads the LIVE mesh
+   * position at call time; null when it is behind the camera.
+   */
+  sunScreen(): { x: number; y: number; dist: number } | null {
+    return this.projectToScreen({
+      x: this.sun.mesh.position.x,
+      y: this.sun.mesh.position.y,
+      z: this.sun.mesh.position.z,
+    });
   }
 
   /** TASK-37: the ore rocks currently known (dev probe / e2e assertions). */
@@ -1017,9 +1018,12 @@ export class WorldManager {
       this.dome.set(0, this.tempColor);
     }
     // The no-desync contract: dome haze IN = 1 - skybox fade OUT, one number.
+    // TASK-82: the sun fades with the sky too — inside a thick atmosphere the
+    // distant star washes out along with the skybox (same single `fade`).
     const fade = 1 - view.haze;
     (this.background.sky.material as THREE.MeshBasicMaterial).opacity = fade;
     (this.background.stars.material as THREE.PointsMaterial).opacity = 0.95 * fade;
+    this.sun.setOpacity(fade);
   }
 
   private resize(): void {
@@ -1047,6 +1051,8 @@ export class WorldManager {
     this.pads = [];
     this.padRings = [];
     this.hazardDiscs = [];
+    this.scene.remove(this.sun.mesh);
+    this.sun.dispose();
     this.dome.dispose();
     this.background.dispose();
     this.renderer.dispose();

@@ -46,6 +46,7 @@ describe('self-ship debug probe + frame recorder (TASK-77)', () => {
       rot: null,
       camera: null,
       screen: null,
+      sunScreen: null,
     });
   });
 
@@ -56,9 +57,11 @@ describe('self-ship debug probe + frame recorder (TASK-77)', () => {
       rot: ROT,
       camera: { pos: CAM },
       screen: null,
+      sunScreen: { x: 100, y: 120, dist: 380 },
     }));
     expect(debug!.probe().classId).toBe('scout');
     expect(debug!.probe().camera).toEqual({ pos: CAM });
+    expect(debug!.probe().sunScreen).toEqual({ x: 100, y: 120, dist: 380 }); // TASK-82
     bindSelfShipDebug(debug, () => null);
     expect(debug!.probe().pos).toBeNull();
     // A null state is a no-op (production builds never install the hook).

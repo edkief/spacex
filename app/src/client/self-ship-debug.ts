@@ -56,6 +56,13 @@ export interface SelfShipProbeResult {
    * distance — null when the ship is not spawned or sits behind the camera.
    */
   screen: { x: number; y: number; dist: number } | null;
+  /**
+   * TASK-82: the distant sun's projected screen position (CSS px, top-left)
+   * + view-space distance — null when the ship is not spawned (the probe is
+   * null then) or the sun is behind the camera. The e2e asserts it is on
+   * screen and bright after a warp (the ship faces −X = the sun).
+   */
+  sunScreen: { x: number; y: number; dist: number } | null;
 }
 
 /** Shape of the debug surface the e2e tests read. */
@@ -72,10 +79,7 @@ export interface SelfShipDebug {
    */
   sampleFrame: (sample: SelfShipFrameSample) => void;
   /** Record one ClientShipPredictor.reconcile result (from the bridge). */
-  recordReconcile: (
-    mode: 'blend' | 'rewind' | 'snap',
-    correctionDistance: number,
-  ) => void;
+  recordReconcile: (mode: 'blend' | 'rewind' | 'snap', correctionDistance: number) => void;
   /** Live reconcile bookkeeping (mutated in place, read by the e2e). */
   reconcile: ReconcileStats;
 }
@@ -93,6 +97,7 @@ const EMPTY: SelfShipProbeResult = {
   rot: null,
   camera: null,
   screen: null,
+  sunScreen: null,
 };
 
 /** Install the hook (DEV builds only); the source is bound lazily. */

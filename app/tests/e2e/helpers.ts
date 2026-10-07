@@ -170,3 +170,45 @@ export async function canvasMaxLuminance(page: Page, x: number, y: number): Prom
     return max;
   }, xy);
 }
+
+/**
+ * TASK-82: mean luminance of a square `size`×`size` region centred on a
+ * CSS-pixel SCREEN position (origin top-left — exactly what
+ * WorldManager.projectToScreen reports for the sun). Handles the canvas's
+ * device-pixel scaling (GL buffer is in device px) and GL's bottom-left
+ * origin (DOM top-left → GL y = h − y). Returns -1 if the region is off-canvas
+ * or the canvas/GL context is missing.
+ */
+export async function canvasScreenRegionMean(
+  page: Page,
+  x: number,
+  y: number,
+  size = 8,
+): Promise<number> {
+  return page.evaluate(
+    ({ x, y, size }) => {
+      const canvas = document.getElementById('game-canvas');
+      if (!(canvas instanceof HTMLCanvasElement)) return -1;
+      const gl = (canvas.getContext('webgl2') ??
+        canvas.getContext('webgl')) as WebGLRenderingContext | null;
+      if (!gl) return -1;
+      // CSS px → device px (the GL drawing buffer is device-pixel sized).
+      const sx = canvas.width / (canvas.clientWidth || canvas.width);
+      const sy = canvas.height / (canvas.clientHeight || canvas.height);
+      const cx = Math.round(x * sx);
+      const cy = Math.round(y * sy);
+      // GL origin is bottom-left; DOM top-left → flip y about the height.
+      const gx = cx - Math.floor(size / 2);
+      const gy = canvas.height - cy - Math.floor(size / 2);
+      if (gx < 0 || gy < 0 || gx + size > canvas.width || gy + size > canvas.height) return -1;
+      const buf = new Uint8Array(size * size * 4);
+      gl.readPixels(gx, gy, size, size, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+      let sum = 0;
+      for (let i = 0; i < size * size; i++) {
+        sum += (buf[i * 4] + buf[i * 4 + 1] + buf[i * 4 + 2]) / 3;
+      }
+      return sum / (size * size);
+    },
+    { x, y, size },
+  );
+}

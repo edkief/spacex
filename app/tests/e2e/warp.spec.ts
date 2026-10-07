@@ -1,6 +1,11 @@
 import path from 'node:path';
 import { expect, test } from './fixtures';
-import { canvasLuminanceVariance, collectErrors, uniqueCallsign } from './helpers';
+import {
+  canvasLuminanceVariance,
+  canvasScreenRegionMean,
+  collectErrors,
+  uniqueCallsign,
+} from './helpers';
 import { ClaimPage } from './pages/claim';
 
 /**
@@ -114,6 +119,28 @@ test('warp: in-world transition to the target system', async ({ browser, e2eServ
   });
   expect(nearCenter, 'chase camera should stay on the ship after the swap').toBe(true);
 
+  // TASK-82: the star is now a DISTANT SUN toward −X (the miniature orrery is
+  // gone). After a fresh warp the ship faces −X = the sun, so the sun's
+  // projected position is inside the viewport and a sampled 8×8 region there
+  // is bright (> 150 mean — the disc is a near-white spectral-class colour).
+  const dims = await page.evaluate(() => {
+    const c = document.getElementById('game-canvas') as HTMLCanvasElement;
+    return { w: c.clientWidth, h: c.clientHeight };
+  });
+  const sun = await page.evaluate(() => window.__SELF_SHIP__?.probe()?.sunScreen ?? null);
+  expect(sun, 'the distant sun should project on screen after a warp').not.toBeNull();
+  expect(sun!.x, `sun x (${sun!.x}) in [0, ${dims.w}]`).toBeGreaterThanOrEqual(0);
+  expect(sun!.x, `sun x (${sun!.x}) in [0, ${dims.w}]`).toBeLessThanOrEqual(dims.w);
+  expect(sun!.y, `sun y (${sun!.y}) in [0, ${dims.h}]`).toBeGreaterThanOrEqual(0);
+  expect(sun!.y, `sun y (${sun!.y}) in [0, ${dims.h}]`).toBeLessThanOrEqual(dims.h);
+  const sunLum = await canvasScreenRegionMean(page, sun!.x, sun!.y, 8);
+  expect(sunLum, `sun 8×8 mean luminance (${sunLum.toFixed(1)}) should be > 150`).toBeGreaterThan(
+    150,
+  );
+
+  await page.screenshot({
+    path: path.join(__dirname, '../../../.ralph/screenshots/TASK-82-1.png'),
+  });
   await page.screenshot({ path: path.join(__dirname, '../../../.ralph/screenshots/TASK-8-3.png') });
 
   assertClean();

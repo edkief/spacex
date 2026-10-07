@@ -50,7 +50,11 @@ describe('GuidanceHint', () => {
     const el = renderHint();
     const hint = el.querySelector('#guidance-hint');
     expect(hint).not.toBeNull();
-    expect(hint?.textContent).toContain('Hold W to fly toward the star');
+    // TASK-82: step 1 no longer says "fly toward the star" — it points the
+    // player at the nav marker (the star is now a distant sun, −X).
+    expect(hint?.textContent).toContain('Hold W to fly');
+    expect(hint?.textContent).toContain('nav marker');
+    expect(hint?.textContent).not.toContain('toward the star');
     expect(hint?.textContent).toContain('X — dismiss');
     const style = getComputedStyle(hint!);
     expect(style.position).toBe('fixed');

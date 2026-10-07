@@ -27,13 +27,8 @@ import {
   PAD_RING_VISIBLE_RANGE_M,
   padRingVisible,
   padRingsFor,
-  PLANET_COLORS,
   STAR_COLORS,
   WORLD_BUILD_BUDGET_MS,
-  WORLD_FIRST_ORBIT,
-  WORLD_ORBIT_STEP,
-  WORLD_PLANET_COUNT,
-  WORLD_PLANET_RADIUS,
 } from './WorldManager';
 import { DOME_RADIUS_FACTOR } from '@client/render/atmosphere-dome';
 import { ATMOSPHERE_BOUNDARY_M } from '@shared/physics/atmosphere';
@@ -61,7 +56,7 @@ describe('buildSystemLayout (TASK-8)', () => {
     expect(buildSystemLayout(sys0)).toEqual(buildSystemLayout(sys0));
   });
 
-  it('differs across systems (seeded orbit angles, star class, id)', () => {
+  it('differs across systems (star class, id)', () => {
     const a = buildSystemLayout(sys0);
     const b = buildSystemLayout(sys1);
     expect(a.systemId).not.toBe(b.systemId);
@@ -74,22 +69,17 @@ describe('buildSystemLayout (TASK-8)', () => {
     expect(layout.starColor).toBe(STAR_COLORS[sys0.star.class]);
   });
 
-  it('lays out at most WORLD_PLANET_COUNT planets on spaced orbits with class colors', () => {
-    const layout = buildSystemLayout(sys0);
-    expect(layout.planets.length).toBe(Math.min(WORLD_PLANET_COUNT, sys0.planets.length));
-    layout.planets.forEach((p, i) => {
-      expect(p.planetId).toBe(sys0.planets[i].id);
-      expect(p.color).toBe(PLANET_COLORS[sys0.planets[i].class]);
-      expect(p.radius).toBe(WORLD_PLANET_RADIUS);
-      expect(p.orbitRadius).toBe(WORLD_FIRST_ORBIT + i * WORLD_ORBIT_STEP);
-      expect(p.angle).toBeGreaterThanOrEqual(0);
-      expect(p.angle).toBeLessThan(Math.PI * 2);
-    });
-  });
-
   it('puts the spawn gate exactly at the shared SPAWN_GATE_POS (100 u +X)', () => {
     expect(buildSystemLayout(sys0).gate).toEqual({ ...SPAWN_GATE_POS });
     expect(WORLD_BUILD_BUDGET_MS).toBe(300);
+  });
+
+  it('no longer lays out a miniature orrery (TASK-82: the star is a distant sun)', () => {
+    // The near-field planet/orbit layout is gone — the layout only carries the
+    // star's identity (to tint the distant sun) and the sim-scale gate.
+    const layout = buildSystemLayout(sys0);
+    expect(Object.keys(layout).sort()).toEqual(['gate', 'starClass', 'starColor', 'systemId']);
+    expect('planets' in layout).toBe(false);
   });
 });
 

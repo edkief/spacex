@@ -129,7 +129,8 @@ Excludes dotfiles, tests, and config.
 │       │   └── render/
 │       │       ├── atmosphere-dome.ts # TASK-28: back-face atmosphere dome — one shared haze number drives color = mix(uSkyColor, uAtmoColor, uHaze), alpha = uHaze (hidden at 0); raw ShaderMaterial (no color-space math), ATMOSPHERE_HAZE_COLORS per planet class, renderOrder 2 (sky 0 < stars 1 < dome 2)
 │       │       ├── ship-mesh.ts # TASK-21: ShipMeshBuilder — 3 paint-zone materials + in-place applyLivery
-│       │       └── starfield.ts # TASK-70: deterministic three.js starfield on #game-canvas (PRNG sky sphere + point sprites, preserveDrawingBuffer for e2e pixel sampling) — placeholder until TASK-26
+│       │       ├── starfield.ts # TASK-70: deterministic three.js starfield on #game-canvas (PRNG sky sphere + point sprites, preserveDrawingBuffer for e2e pixel sampling) — placeholder until TASK-26
+│       │       └── sun.ts # TASK-82: the system star as a distant, camera-anchored SUN — SUN_DIRECTION (−X, +0.12Y, unit) / SUN_DISTANCE 380 (< 420 sky shell) / SUN_ANGULAR_RADIUS_DEG 2 + pure sunPosition(cam) (camera-relative, no parallax) + createSun(color) (unlit 2° disc, renderOrder 1, drawn over sky/stars; setOpacity fades with the sky, setColor re-tints per spectral class)
 │       ├── server/
 │       │   ├── env.ts        # zod-validated env (PROJECT_ROOT/.env.local)
 │       │   ├── index.ts      # process entry: Fastify + ws, REST routes + token auth, galaxy router (shards on demand + reaper + periodic flush + stopAll on signal), 10 s shutdown watchdog (TASK-12), input routed per-conn system, listens on PORT

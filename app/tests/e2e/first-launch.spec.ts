@@ -77,7 +77,8 @@ test('first launch: fresh claim → dock spawn → guidance step 1 → X dismiss
   // (5) Guidance: step 1's hint line, bottom-center, for a fresh profile.
   const hint = page.locator('#guidance-hint');
   await expect(hint).toBeVisible({ timeout: 15_000 });
-  await expect(hint).toContainText('Hold W to fly toward the star');
+  // TASK-82: step 1 points at the nav marker (not "fly toward the star").
+  await expect(hint).toContainText('nav marker');
 
   // (6) X dismisses the guidance for good — persisted as 4, never returns.
   await page.keyboard.press('x');

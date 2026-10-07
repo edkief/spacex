@@ -1917,6 +1917,7 @@ function App() {
           rot: v.rot,
           camera: { pos: world.cameraSample().pos }, // TASK-77: the chase camera
           screen: world.projectToScreen(v.pos),
+          sunScreen: world.sunScreen(), // TASK-82: the distant sun (−X)
         };
       });
       // TASK-74: the remote-ship probes project LAZILY against the live

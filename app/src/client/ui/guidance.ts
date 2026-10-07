@@ -8,7 +8,10 @@
  * the furthest event instead of restarting.
  *
  * Steps (1-based; 4 = the finale, auto-hides 5 s after the first sale):
- * 1. 'Hold W to fly toward the star. Press M for the star chart.'
+ * 1. 'Hold W to fly. Steer with A/D and R/F to follow the nav marker to the
+ *    planet. Press M for the star chart.' (TASK-82: the star is a distant sun —
+ *    flying "toward the star" now flies AWAY from every planet, so the hint
+ *    points at the nav marker instead)
  * 2. 'Press E at a docked ship to go on foot. Find an ore deposit.'
  *    (reached by a dock AFTER flying, or by disembarking)
  * 3. 'Load your ore into the cargo hold (E at your ship), then sell it at
@@ -25,7 +28,7 @@ import { canonicalJson } from '@shared/canonical';
 
 /** The four hint lines, index = step - 1 (index 3 is the finale). */
 export const GUIDANCE_TEXTS = [
-  'Hold W to fly toward the star. Press M for the star chart.',
+  'Hold W to fly. Steer with A/D and R/F to follow the nav marker to the planet. Press M for the star chart.',
   'Press E at a docked ship to go on foot. Find an ore deposit.',
   'Load your ore into the cargo hold (E at your ship), then sell it at the dock terminal.',
   'You are drifting. Good luck.',
