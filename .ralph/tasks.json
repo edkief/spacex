@@ -744,7 +744,7 @@
     "title": "True-scale system view (2/4): planets rendered at their sim anchors, visible from anywhere",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-83.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-84",

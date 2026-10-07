@@ -31,6 +31,7 @@ import {
   WORLD_BUILD_BUDGET_MS,
 } from './WorldManager';
 import { DOME_RADIUS_FACTOR } from '@client/render/atmosphere-dome';
+import { SKY_RADIUS } from '@client/render/starfield';
 import { ATMOSPHERE_BOUNDARY_M } from '@shared/physics/atmosphere';
 import { generateStars } from '@shared/galaxy/stars';
 import { generateSystem } from '@shared/galaxy/system';
@@ -148,7 +149,8 @@ describe('pad ring markers (TASK-29.3)', () => {
  * the dome (radius ATMOSPHERE_BOUNDARY_M × DOME_RADIUS_FACTOR) has a longest
  * chord of 2 × that radius, so the far plane must reach at least that far to
  * never clip the far wall from any point inside the dome. It must also clear
- * the 420 u sky radius the skybox is centred on (TASK-75).
+ * the SKY_RADIUS u sky shell the skybox is centred on (TASK-75) — a sky
+ * beyond the far plane clips entirely and the clear color shows through.
  */
 describe('CAMERA_FAR (TASK-76) contains the whole atmosphere dome', () => {
   it("reaches the dome's longest chord (2 × radius), so the far wall is never clipped", () => {
@@ -156,8 +158,8 @@ describe('CAMERA_FAR (TASK-76) contains the whole atmosphere dome', () => {
     expect(CAMERA_FAR).toBeGreaterThanOrEqual(domeDiameter);
   });
 
-  it('comfortably exceeds the sky radius the skybox is centred on (420 u)', () => {
-    expect(CAMERA_FAR).toBeGreaterThan(420);
+  it('comfortably exceeds the sky radius the skybox is centred on (SKY_RADIUS)', () => {
+    expect(CAMERA_FAR).toBeGreaterThan(SKY_RADIUS);
   });
 });
 

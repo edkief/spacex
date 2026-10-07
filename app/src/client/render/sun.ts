@@ -22,10 +22,10 @@ import { vecAdd, vecNormalize, vecScale, type Vec3 } from '@shared/physics/vec';
 export const SUN_DIRECTION: Vec3 = vecNormalize({ x: -1, y: 0.12, z: 0 });
 
 /**
- * Distance from the camera to the sun (u). Chosen INSIDE the 420 u sky shell
- * so the sun composites OVER the skybox (TASK-75 keeps both camera-centred, so
- * the sun can never be left behind). The 2° angular radius at this distance is
- * the on-screen disc size.
+ * Distance from the camera to the sun (u). Chosen INSIDE the sky shell
+ * (SKY_RADIUS, starfield.ts) so the sun composites OVER the skybox (TASK-75
+ * keeps both camera-centred, so the sun can never be left behind). The 2°
+ * angular radius at this distance is the on-screen disc size.
  */
 export const SUN_DISTANCE = 380;
 

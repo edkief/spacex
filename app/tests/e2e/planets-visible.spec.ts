@@ -35,7 +35,10 @@ const NEAR_POINT = { x: ANCHOR0.x - 1_500, y: 400, z: 0 };
 const TOP_BAND = { x0: 0, y0: 0, x1: 1, y1: 0.3 };
 
 /** Rendered self ship's distance from a world target (u); -1 if not spawned. */
-function probeDistance(page: import('@playwright/test').Page, t: { x: number; y: number; z: number }): Promise<number> {
+function probeDistance(
+  page: import('@playwright/test').Page,
+  t: { x: number; y: number; z: number },
+): Promise<number> {
   return page.evaluate((target) => {
     const p = window.__SELF_SHIP__?.probe()?.pos;
     if (!p) return -1;
@@ -89,8 +92,8 @@ function samplePlanet(
       const s = probe && probe.length > 0 ? probe[0].screen : null;
       if (!s) return null; // behind the camera
       const canvas = document.getElementById('game-canvas') as HTMLCanvasElement | null;
-      const gl =
-        (canvas?.getContext('webgl2') ?? canvas?.getContext('webgl')) as WebGLRenderingContext | null;
+      const gl = (canvas?.getContext('webgl2') ??
+        canvas?.getContext('webgl')) as WebGLRenderingContext | null;
       if (!canvas || !gl) return null;
       const w = canvas.clientWidth || canvas.width;
       const h = canvas.clientHeight || canvas.height;
@@ -105,7 +108,8 @@ function samplePlanet(
         const buf = new Uint8Array(size * size * 4);
         gl.readPixels(gx, gy, size, size, gl.RGBA, gl.UNSIGNED_BYTE, buf);
         let sum = 0;
-        for (let i = 0; i < size * size; i++) sum += (buf[i * 4] + buf[i * 4 + 1] + buf[i * 4 + 2]) / 3;
+        for (let i = 0; i < size * size; i++)
+          sum += (buf[i * 4] + buf[i * 4 + 1] + buf[i * 4 + 2]) / 3;
         return sum / (size * size);
       };
       // The top sky band (DOM fractions, top-left origin) — GL y is flipped.
@@ -114,8 +118,15 @@ function samplePlanet(
       const bbuf = new Uint8Array(bw * bh * 4);
       gl.readPixels(0, canvas.height - bh, bw, bh, gl.RGBA, gl.UNSIGNED_BYTE, bbuf);
       let bsum = 0;
-      for (let i = 0; i < bw * bh; i++) bsum += (bbuf[i * 4] + bbuf[i * 4 + 1] + bbuf[i * 4 + 2]) / 3;
-      return { x: s.x, y: s.y, planetMean: regionMean(s.x, s.y), skyMean: bsum / (bw * bh), dist: s.dist };
+      for (let i = 0; i < bw * bh; i++)
+        bsum += (bbuf[i * 4] + bbuf[i * 4 + 1] + bbuf[i * 4 + 2]) / 3;
+      return {
+        x: s.x,
+        y: s.y,
+        planetMean: regionMean(s.x, s.y),
+        skyMean: bsum / (bw * bh),
+        dist: s.dist,
+      };
     },
     { size, margin, band: TOP_BAND },
   );
@@ -233,7 +244,9 @@ test('planet 0 is visible at its sim anchor from 6 km (scaled proxy)', async ({
 
   // Visual artifact: the terran island (+ outer dome) from 6 km, as a proxy
   // (.ralph/screenshots/TASK-83-1.png).
-  await page.screenshot({ path: path.join(__dirname, '../../../.ralph/screenshots/TASK-83-1.png') });
+  await page.screenshot({
+    path: path.join(__dirname, '../../../.ralph/screenshots/TASK-83-1.png'),
+  });
 
   // (4) Close in to 1 500 m from the anchor — island + dome clearly visible
   // (.ralph/screenshots/TASK-83-2.png). The ship still faces the planet.
@@ -250,7 +263,9 @@ test('planet 0 is visible at its sim anchor from 6 km (scaled proxy)', async ({
     .toBeLessThan(50);
   // Let the chase camera settle on the new pose before the shot.
   await page.waitForTimeout(600);
-  await page.screenshot({ path: path.join(__dirname, '../../../.ralph/screenshots/TASK-83-2.png') });
+  await page.screenshot({
+    path: path.join(__dirname, '../../../.ralph/screenshots/TASK-83-2.png'),
+  });
 
   console.log(
     `[TASK-83] planet@6km mean=${planetMean.toFixed(1)} sky=${skyMean.toFixed(1)} ` +

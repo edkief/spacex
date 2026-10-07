@@ -92,8 +92,10 @@ export const PAD_RING_SURFACE_OFFSET_M = 0.25;
  * a clip there is exactly the "black sky inside the atmosphere" bug (the
  * BackSide dome beyond the far plane simply does not draw, and the black
  * clear color shows through the nearly-transparent skybox). 4000 u leaves
- * ~98 % headroom over the 2020 u bound and is comfortably larger than the
- * 420 u sky radius (which TASK-75 keeps centred on the camera).
+ * ~98 % headroom over the 2020 u bound and just clears the SKY_RADIUS u sky shell
+ * (SKY_RADIUS, which TASK-75 keeps centred on the camera) — the sky must sit
+ * INSIDE the far plane, and just inside it, so every real fragment in the
+ * depth range tests in front of the sky and nothing is hidden behind it.
  *
  * near stays 0.1: depth precision at 0.1 / 4000 is fine for this low-detail
  * scene, and logarithmicDepthBuffer is deliberately NOT enabled (it changes
@@ -733,11 +735,7 @@ export class WorldManager {
       return {
         planetId: b.planetId,
         anchor: b.anchor,
-        distance: Math.hypot(
-          b.anchor.x - cam.x,
-          b.anchor.y - cam.y,
-          b.anchor.z - cam.z,
-        ),
+        distance: Math.hypot(b.anchor.x - cam.x, b.anchor.y - cam.y, b.anchor.z - cam.z),
         scale: b.group.scale.x,
         screen: this.projectToScreen(proxy.pos),
       };

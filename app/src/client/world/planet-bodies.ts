@@ -108,10 +108,23 @@ export function buildPlanetBodies(system: SystemGen): PlanetBody[] {
           depthWrite: false,
         }),
       );
+      // Transparent-pass layering (atmosphere-dome.ts): sky 0 < stars 1 <
+      // domes 2. Without it the shell (depthWrite false, 2.5–3.5 km out)
+      // would sort BEFORE the sky sphere — which is camera-centred and thus
+      // "nearest" in three's back-to-front transparent sort — and the
+      // opacity-1 space sky would paint over the whole bubble.
+      shell.renderOrder = 2;
       group.add(shell);
     }
 
-    return { planetId: planet.id, index, anchor, hasAtmosphere: planet.hasAtmosphere, group, shell };
+    return {
+      planetId: planet.id,
+      index,
+      anchor,
+      hasAtmosphere: planet.hasAtmosphere,
+      group,
+      shell,
+    };
   });
 }
 

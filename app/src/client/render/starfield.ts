@@ -22,6 +22,20 @@ export const STARFIELD_RADIUS_MIN = 150;
 export const STARFIELD_RADIUS_MAX = 200;
 export const DEFAULT_STAR_COUNT = 2500;
 
+/**
+ * Sky-shell radius (u). Must sit JUST INSIDE the world camera's far plane
+ * (CAMERA_FAR = 4000, WorldManager.ts) so that every real fragment in the
+ * depth range depth-tests IN FRONT of the sky: the sky is an opaque-opacity
+ * (in space) transparent shell, so a fragment of it 420 u out (the old
+ * value) painted OVER anything drawn beyond 420 u — the planet islands
+ * (TASK-83, 2 000–4 000 u as scaled proxies) were invisible behind it. With
+ * the shell at 3 950 u it fills only genuinely empty pixels. Must stay <
+ * CAMERA_FAR or the whole sphere clips and the sky goes black (and just
+ * inside it: the island slab's far edge reaches 4 000 u as a proxy, so a
+ * wider margin would paint sky over the island's far rim).
+ */
+export const SKY_RADIUS = 3_950;
+
 /** Sub-seed tag so the starfield never consumes another entity's PRNG stream. */
 const STAR_SUBSEED = 0x5a7f2e9c1n;
 
@@ -78,7 +92,7 @@ export interface BackgroundHandle {
 }
 
 export function createBackground(seed: string, count = DEFAULT_STAR_COUNT): BackgroundHandle {
-  const skyGeometry = buildSkyGeometry(420);
+  const skyGeometry = buildSkyGeometry(SKY_RADIUS);
   const skyMaterial = new THREE.MeshBasicMaterial({
     vertexColors: true,
     side: THREE.BackSide,
@@ -86,8 +100,8 @@ export function createBackground(seed: string, count = DEFAULT_STAR_COUNT): Back
   });
   const sky = new THREE.Mesh(skyGeometry, skyMaterial);
   // Draw layering (the skybox crossfade, TASK-28.1): the sky is the farthest
-  // shell (r=420), the stars sit closer (r=150–200) and must composite OVER
-  // it. When the sky is made transparent (WorldManager) both land in the
+  // shell (r=SKY_RADIUS), the stars sit closer (r=150–200) and must composite
+  // OVER it. When the sky is made transparent (WorldManager) both land in the
   // transparent pass at the same origin depth, so an explicit renderOrder
   // keeps the stars in front regardless of three's z/id tie-break.
   sky.renderOrder = 0;
@@ -126,7 +140,7 @@ export function createBackground(seed: string, count = DEFAULT_STAR_COUNT): Back
 
 /**
  * TASK-75: re-centre the background on the camera (the standard skybox
- * technique). WHY: the sky is a 420 u inverted sphere and the stars a
+ * technique). WHY: the sky is a SKY_RADIUS u inverted sphere and the stars a
  * 150–200 u shell — both FAR smaller than the distances a ship flies
  * (120–180 u/s leaves the sky sphere in ~3 s of thrust). A BackSide sphere
  * seen from outside draws nothing, so a world-anchored background goes
@@ -184,7 +198,9 @@ export function createStarfield(
     preserveDrawingBuffer: true,
   });
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 1000);
+  // Far plane just beyond SKY_RADIUS — the boot scene renders the sky shell,
+  // so a 1000 u far (the pre-TASK-76 value) would clip the whole sphere.
+  const camera = new THREE.PerspectiveCamera(70, 1, 0.1, SKY_RADIUS + 100);
 
   const background = createBackground(seed, count);
   scene.add(background.sky);

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { createSun, SUN_ANGULAR_RADIUS_DEG, SUN_DIRECTION, SUN_DISTANCE, sunPosition } from './sun';
+import { SKY_RADIUS } from './starfield';
 import { vecLength, vecSub, type Vec3 } from '@shared/physics/vec';
 
 /**
@@ -17,8 +18,8 @@ describe('sun placement (TASK-82)', () => {
     expect(SUN_DIRECTION.z).toBe(0);
   });
 
-  it('the sun sits SUN_DISTANCE from the origin, inside the 420 u sky shell', () => {
-    expect(SUN_DISTANCE).toBeLessThan(420);
+  it('the sun sits SUN_DISTANCE from the origin, inside the sky shell', () => {
+    expect(SUN_DISTANCE).toBeLessThan(SKY_RADIUS);
     expect(vecLength(sunPosition({ x: 0, y: 0, z: 0 }))).toBeCloseTo(SUN_DISTANCE, 9);
   });
 
