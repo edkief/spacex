@@ -154,9 +154,10 @@ import type {
 import { inputToCharacterInput, shipInputToPayload } from '@shared/protocol/inputs';
 import { InputFrameSender, effectiveFlightPressed, shipInputKey } from '@client/input/flight-loop';
 import { ClientShipPredictor, shipStateFromWire } from '@client/net/prediction';
+import { CorrectionSmoother } from '@client/net/correction-smoother';
 import type { ShipClassId } from '@shared/ships';
 import type { Regime } from '@shared/regime';
-import type { Vec3 } from '@shared/physics/vec';
+import type { Quat, Vec3 } from '@shared/physics/vec';
 
 /**
  * TASK-70: the starfield seed. Matches the server's default GALAXY_SEED so
@@ -720,6 +721,15 @@ function App() {
   // + the last input seq the server APPLIED (shared by both predictors —
   // only the ACTIVE one reconciles).
   const shipPredictorRef = React.useRef<ClientShipPredictor | null>(null);
+  // TASK-79: the VISUAL correction smoother between the predictor and the
+  // renderer — a reconcile correction becomes an offset that decays to zero
+  // over ~100 ms, so the rendered pose (and the camera rigidly attached to
+  // it, TASK-77/78) glides to the corrected prediction instead of snapping.
+  // The predictor's internal state is never touched by the smoother.
+  const correctionSmoother = React.useMemo(() => new CorrectionSmoother(), []);
+  // TASK-79: the SMOOTHED pose the frame hook drove the mesh with last frame
+  // (the "before" side of the next reconcile correction).
+  const lastRenderedShipPoseRef = React.useRef<{ pos: Vec3; quat: Quat } | null>(null);
   const inputAckedSeqRef = React.useRef(0);
   // TASK-77: the flight step, registered as the WorldManager's pre-render
   // hook (it runs INSIDE the manager's frame — no separate rAF). The ref
@@ -957,6 +967,9 @@ function App() {
         // TASK-73: disembark drops the ship predictor (the shared seq
         // counter survives — re-entry re-seeds the predictor, not the seq).
         shipPredictorRef.current = null;
+        // TASK-79: no ship prediction → no rendered-ship smoothing either.
+        correctionSmoother.reset();
+        lastRenderedShipPoseRef.current = null;
         store.setSelfOnFoot(true); // TASK-36: PlayerList icon (self row)
         setHudMode('onfoot'); // TASK-52: HUD root → on-foot subtree (atomic with the handoff)
         selfShipRef.current = false; // TASK-43: on foot = no weapons (v1)
@@ -1027,6 +1040,10 @@ function App() {
           // (tracker regime + atmosphere + class) and RECONCILES against
           // the last APPLIED seq (the shared ack — the server's authority).
           if (!shipPredictorRef.current) {
+            // TASK-79: a re-seeded predictor starts with a clean smoother
+            // (no offset from a dropped / previous life).
+            correctionSmoother.reset();
+            lastRenderedShipPoseRef.current = null;
             shipPredictorRef.current = new ClientShipPredictor(shipStateFromWire(self), {
               regime: regimeWiring.regime,
               shipClass: self.classId as ShipClassId,
@@ -1041,12 +1058,23 @@ function App() {
           }
           // TASK-77: record the reconcile outcome (blend/rewind/snap +
           // correction distance) into the dev probe (no-op in production).
+          // TASK-79: the pose being rendered when this reconcile lands — the
+          // last smoothed pose the frame hook drove the mesh with (on the
+          // first frame the mesh still sits at the snapshot pose).
+          const wireSelf = shipStateFromWire(self);
+          const renderedBefore =
+            lastRenderedShipPoseRef.current ?? { pos: wireSelf.pos, quat: wireSelf.quat };
           const recon = shipPredictorRef.current.reconcile(
-            shipStateFromWire(self),
+            wireSelf,
             inputAckedSeqRef.current,
             performance.now(),
           );
           if (selfShipDebug) selfShipDebug.recordReconcile(recon.mode, recon.correctionDistance);
+          // TASK-79: feed the VISUAL smoother the rendered→predicted delta.
+          // It becomes an offset decaying to zero over ~100 ms (snapped on
+          // > 50 u discontinuities) — the physics reconcile above stays the
+          // untouched authority; only the rendered pose glides.
+          correctionSmoother.onCorrection(renderedBefore, shipPredictorRef.current.getState());
         } else {
           selfShipRef.current = false;
           setSelfShip(null);
@@ -1061,7 +1089,13 @@ function App() {
         charPredictorRef.current = null;
         // TASK-73: no self ship (system swap / boot / destroyed) drops the
         // ship predictor too — re-entry re-seeds it from the first update.
-        if (self?.kind !== 'ship') shipPredictorRef.current = null;
+        if (self?.kind !== 'ship') {
+          shipPredictorRef.current = null;
+          // TASK-79: the smoother dies with the prediction (destroy/respawn
+          // are snap-class discontinuities — no stale offset may carry over).
+          correctionSmoother.reset();
+          lastRenderedShipPoseRef.current = null;
+        }
         resolvedTargetRef.current = null;
         resolvedDistanceRef.current = undefined;
         interactNullStreakRef.current = 0;
@@ -1127,6 +1161,10 @@ function App() {
       // TASK-73: a system swap drops the ship predictor (the next snapshot's
       // self-ship update re-seeds it; the shared seq counter survives).
       shipPredictorRef.current = null;
+      // TASK-79: a system swap (warp) is a snap-class discontinuity — the
+      // smoother must not glide the old pose into the new system.
+      correctionSmoother.reset();
+      lastRenderedShipPoseRef.current = null;
     },
     // TASK-38: the server's channel frame → the mining HUD store. The
     // '+1 <resource>' float's resource is the deposit's (the target list
@@ -1624,7 +1662,13 @@ function App() {
       // The mesh + chase camera track the prediction at render rate
       // (smooth 60 fps, not the 10 Hz snapshot feed) — this write is the
       // ONLY pose write the mesh/rig sees while the predictor exists.
-      const st = p.getState();
+      // TASK-79: render the SMOOTHED pose (prediction + the decaying
+      // reconcile-correction offset) — a snapshot correction glides in over
+      // ~100 ms instead of snapping the whole view. The prediction itself
+      // (and shipNavSample, which reads the raw prediction) is untouched.
+      const raw = p.getState();
+      const st = correctionSmoother.apply(raw, dt);
+      lastRenderedShipPoseRef.current = st;
       world.setSelfShipTransform(st.pos, st.quat);
     };
     // TASK-77: register the step on the CURRENT world (a world re-creation
