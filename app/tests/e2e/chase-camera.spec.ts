@@ -24,6 +24,16 @@ import { collectErrors, uniqueCallsign } from './helpers';
  * (that correction is a one-frame pose jump; smoothing it is TASK-79) —
  * a snapshot yank regression shows up on a NORMAL frame, where the bound
  * still applies. A snapshot yank of 10-20 u blows the bound by far.
+ *
+ * TASK-78 — the RIGID follow: a SECOND frame window is recorded from
+ * SPAWN (the ship docked at the home dock) through the teleport and the
+ * whole 0 → cap thrust ramp (up to the scout's 120 u/s maxVelocity — the
+ * AC's "> 120 u/s" is the settled cap; the soft speed cap never reports
+ * above it). On EVERY frame of that window the camera→ship distance must
+ * stay within 14.6 ± 0.5 u (pre-fix the world-space exponential follow
+ * lagged by v/k, so the distance GREW with speed), and the ship's
+ * projected screen position stays within 20 px of its median (the ship is
+ * rigidly attached to the camera — same size at any speed).
  */
 
 interface Vec3 {
@@ -150,7 +160,9 @@ test('chase camera: no per-frame ship displacement spike in steady thrust (TASK-
   e2eServer,
 }) => {
   const { baseURL } = e2eServer;
-  test.setTimeout(90_000);
+  // TASK-78: the spawn → cap window adds the full thrust ramp (~10 s on the
+  // slow end) on top of the TASK-77 steady window.
+  test.setTimeout(120_000);
   const callsign = uniqueCallsign('chase');
 
   // (a) Claim + a fresh page joined straight into the home system.
@@ -176,6 +188,28 @@ test('chase camera: no per-frame ship displacement spike in steady thrust (TASK-
     })
     .toBe(true);
 
+  // (a2) TASK-78: wait until the camera actually SITS at the chase distance
+  // (screen != null can be true from the boot spectator vantage before the
+  // rig's first-frame snap), then open the rigid-follow recording. The
+  // window starts at SPAWN (docked at the home dock) and stays open through
+  // the teleport and the whole 0 → cap thrust ramp.
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const p = window.__SELF_SHIP__?.probe();
+          if (!p?.pos || !p?.camera?.pos) return 1e9;
+          return Math.hypot(
+            p.camera.pos.x - p.pos.x,
+            p.camera.pos.y - p.pos.y,
+            p.camera.pos.z - p.pos.z,
+          );
+        }),
+      { timeout: 10_000, message: 'chase camera never reached the chase distance' },
+    )
+    .toBeLessThan(20);
+  await page.evaluate(() => window.__SELF_SHIP__?.startRecording());
+
   // (b) Teleport the ship into empty space (the home system has rogue AI
   // ships) and wait for the rendered ship to arrive.
   const EMPTY = { x: 0, y: 50, z: 3000 };
@@ -199,10 +233,8 @@ test('chase camera: no per-frame ship displacement spike in steady thrust (TASK-
     )
     .toBeLessThan(50);
 
-  // (c) HOLD W until the ship is in STEADY thrust: faster than 100 u/s AND
-  // settled at the scout's maxVelocity (120) — the median-deviation rule
-  // measures steady flight, not the 100→120 acceleration ramp.
-  await page.keyboard.down('w');
+  // (c) TASK-78: the thrust ramp from the dock, the rigid-follow window
+  // (opened at spawn) still recording.
   const latestSpeed = (): Promise<number> =>
     page.evaluate(() => {
       const ups = (window as unknown as { __shipStates?: ShipUpdate[] }).__shipStates ?? [];
@@ -210,6 +242,22 @@ test('chase camera: no per-frame ship displacement spike in steady thrust (TASK-
       const u = ups[ups.length - 1];
       return Math.hypot(u.vel.x, u.vel.y, u.vel.z);
     });
+  await page.keyboard.down('w');
+  // (c1) "just after undocking, slow" — the ship has just left the dock
+  // (> 10 u/s, far from the cap). Screenshot while still slow: the ship
+  // must appear the SAME size as at the cap (TASK-78-2).
+  await expect
+    .poll(latestSpeed, {
+      timeout: 15_000,
+      message: 'speed never exceeded 10 u/s after undock',
+    })
+    .toBeGreaterThan(10);
+  await page.screenshot({
+    path: path.join(__dirname, '../../../.ralph/screenshots/TASK-78-1.png'),
+  });
+  // (c2) Full thrust up to the cap: > 100 u/s AND settled at the scout's
+  // maxVelocity (120) — the AC's "up to > 120 u/s" (the soft cap never
+  // reports above 120). Close the rigid-follow window at the cap.
   await expect
     .poll(latestSpeed, {
       timeout: 20_000,
@@ -222,9 +270,18 @@ test('chase camera: no per-frame ship displacement spike in steady thrust (TASK-
       message: 'speed never settled at the maxVelocity cap while holding W',
     })
     .toBeGreaterThanOrEqual(115);
+  const t78Frames = (
+    await page.evaluate(() => window.__SELF_SHIP__?.stopRecording() ?? [])
+  ) as FrameSample[];
+  await page.screenshot({
+    path: path.join(__dirname, '../../../.ralph/screenshots/TASK-78-2.png'),
+  });
+  // W stays held through the TASK-77 window below (a stray keyup would end
+  // thrust).
 
   // (d) Record ~3 s of rendered frames (>= 90 even at headless' ~40 fps;
   // 120 u/s × 3 s = 360 u of travel — plenty of signal for the spike rule).
+  // A FRESH recording: stopRecording above closed the TASK-78 window.
   await page.evaluate(tapReconcile);
   await page.evaluate(() => window.__SELF_SHIP__?.startRecording());
   const recStart = Date.now();
@@ -340,6 +397,60 @@ test('chase camera: no per-frame ship displacement spike in steady thrust (TASK-
       `(${excluded.size} excluded; worst clean frame ${worstCleanFrame}; ` +
       `overall worst frame ${worst} had ${badEvents.length} correlated rewind/snap event(s))`,
   ).toBeLessThanOrEqual(3);
+
+  // (f) TASK-78 acceptance: the RIGID follow over the whole spawn → cap
+  // window (docked + teleport + 0 → 120 u/s ramp). Pre-fix the world-space
+  // exponential follow lags by v/k, so the camera→ship distance GREW with
+  // speed (120 u/s → ≈ 29 u instead of 14.56). Post-fix it is constant on
+  // EVERY frame, and the ship's screen position stays put (same size at
+  // any speed — the rigid offset never stretches).
+  const t78Dists = t78Frames.map((f) => dist(f.camPos, f.shipPos));
+  const t78Min = t78Dists.length > 0 ? Math.min(...t78Dists) : Infinity;
+  const t78Max = t78Dists.length > 0 ? Math.max(...t78Dists) : -Infinity;
+  // Per-speed buckets (the LOG record: pre-fix grows with speed, post-fix
+  // constant).
+  const buckets: Array<{ label: string; lo: number; hi: number; min: number; max: number; n: number }> = [
+    { label: '<20', lo: 0, hi: 20, min: Infinity, max: -Infinity, n: 0 },
+    { label: '20-60', lo: 20, hi: 60, min: Infinity, max: -Infinity, n: 0 },
+    { label: '60-100', lo: 60, hi: 100, min: Infinity, max: -Infinity, n: 0 },
+    { label: '>=100', lo: 100, hi: Infinity, min: Infinity, max: -Infinity, n: 0 },
+  ];
+  for (let i = 0; i < t78Frames.length; i++) {
+    const v = speedAt(t78Frames[i].t);
+    const b = buckets.find((bk) => v >= bk.lo && v < bk.hi) ?? buckets[buckets.length - 1];
+    b.n += 1;
+    b.min = Math.min(b.min, t78Dists[i]);
+    b.max = Math.max(b.max, t78Dists[i]);
+  }
+  const t78Screens = t78Frames.filter((f) => f.screen !== null);
+  const medSX = median(t78Screens.map((f) => f.screen!.x));
+  const medSY = median(t78Screens.map((f) => f.screen!.y));
+  const maxScreenDev =
+    t78Screens.length > 0
+      ? Math.max(
+          ...t78Screens.map(
+            (f) => Math.max(Math.abs(f.screen!.x - medSX), Math.abs(f.screen!.y - medSY)),
+          ),
+        )
+      : 0;
+
+  console.log(
+    `[TASK-78] spawn→cap window: frames=${t78Frames.length} ` +
+      `cam->ship distance: min=${t78Min.toFixed(2)} max=${t78Max.toFixed(2)} u ` +
+      `(AC 14.6 ± 0.5; rigid target ${Math.hypot(4, 14).toFixed(2)} u) ` +
+      `per-speed buckets: ` +
+      buckets
+        .map((b) => `${b.label}u/s [${b.n ? `${b.min.toFixed(1)}..${b.max.toFixed(1)}` : 'n/a'}] (n=${b.n})`)
+        .join(' ') +
+      ` ` +
+      `ship screen: median=(${medSX.toFixed(1)}, ${medSY.toFixed(1)}) px, ` +
+      `max dev from median=${maxScreenDev.toFixed(1)} px (AC <= 20)`,
+  );
+
+  expect(t78Frames.length, 'TASK-78 spawn→cap recorded frames').toBeGreaterThanOrEqual(60);
+  expect(t78Min, 'cam->ship distance, whole spawn→cap window (min)').toBeGreaterThanOrEqual(14.1);
+  expect(t78Max, 'cam->ship distance, whole spawn→cap window (max)').toBeLessThanOrEqual(15.1);
+  expect(maxScreenDev, 'ship screen position deviation from median').toBeLessThanOrEqual(20);
 
   assertClean();
   await context.close();
