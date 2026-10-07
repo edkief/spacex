@@ -1923,8 +1923,11 @@ function App() {
       });
       // TASK-83: dev-only planet probe — reads the live manager lazily (the
       // proxy re-anchors every frame, so a cached value would lie).
-      bindPlanetsDebug(planetsDebug, () =>
-        worldRef.current ? worldRef.current.planetsView() : null,
+      bindPlanetsDebug(
+        planetsDebug,
+        () => (worldRef.current ? worldRef.current.planetsView() : null),
+        // TASK-84: the live streamed-terrain mount (planet id + chunk count).
+        () => (worldRef.current ? worldRef.current.terrainView() : null),
       );
       // TASK-74: the remote-ship probes project LAZILY against the live
       // camera (same pattern — a seed-corrected re-creation stays bound).

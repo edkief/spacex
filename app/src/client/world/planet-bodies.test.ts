@@ -64,6 +64,20 @@ describe('buildPlanetBodies (TASK-83)', () => {
       expect(top).toBeCloseTo(-2, 6);
     }
   });
+
+  it('splits the slab top into its own mesh (TASK-84) at the same plane', () => {
+    for (const body of BODIES) {
+      // The top cap is a separate mesh sharing the slab material, flat at
+      // y = -2 in group space — hiding it never changes the side wall.
+      const circle = body.slabTop.geometry as import('three').CircleGeometry;
+      expect(circle.parameters.radius).toBeCloseTo(PLANET_SURFACE_RADIUS_M, 6);
+      expect(body.slabTop.position.y).toBeCloseTo(-2, 6);
+      expect(body.slabTop.material).toBe(
+        (body.group.children[0] as import('three').Mesh).material,
+      );
+      expect(body.slabTop.visible).toBe(true);
+    }
+  });
 });
 
 describe('updatePlanetBodies (TASK-83 scaled proxy per frame)', () => {

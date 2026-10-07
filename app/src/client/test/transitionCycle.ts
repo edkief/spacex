@@ -61,6 +61,7 @@ import { ATMOSPHERE_BOUNDARY_M } from '@shared/physics/atmosphere';
 import type { Vec3 } from '@shared/physics/vec';
 import { padsForSystem } from '@shared/world/pads';
 import { chunkOfMeters, chunkKey, ChunkStreamer } from '@client/world/chunks';
+import { chunkInSurface } from '@client/world/planet-terrain';
 import { ChunkScene } from '@client/world/chunk-scene';
 import { ATMOSPHERE_HAZE_COLORS, createAtmosphereDome } from '@client/render/atmosphere-dome';
 import { atmosphereViewFor } from '@client/world/atmosphere-view';
@@ -524,18 +525,16 @@ export function runTransitionCycle(options: TransitionCycleOptions = {}): CycleR
     padsForSystem(seed, system).find((p) => p.planetId === planet.id) ??
     padsForSystem(seed, system)[0];
   if (!pad) throw new Error('TASK-30: fixture system has no landing pad');
-  // TWO coordinate spaces, as in the live client: the FLIGHT space (shared
-  // sim u, planet anchor at (10000, 0)) for regime + atmosphere, and the
-  // LOCAL surface space (chunk metres, chunk (0,0) at the origin) for the
-  // streaming pipeline + the on-foot character. The pad's local position is
-  // its world position minus the anchor (its chunk (0,0) offset).
-  const padLocal: Vec3 = {
-    x: pad.pos.x - anchor.x,
-    y: pad.pos.y,
-    z: pad.pos.z - anchor.z,
-  };
-
-  const streamer = new ChunkStreamer(seed, planet);
+  // TASK-84: the streaming pipeline runs in WORLD coordinates — the SAME
+  // frame as the live WorldManager (the server's frame: the server samples
+  // TerrainContext in world metres, and the live client feeds the pad's
+  // world position, NOT a planet-local offset). The flight space, the
+  // streamer, and the on-foot character all share it now, so the benchmark
+  // measures what players run.
+  const streamer = new ChunkStreamer(seed, planet, {
+    pad,
+    chunkFilter: (cx, cz) => chunkInSurface(cx, cz, anchor),
+  });
   const scene = new ChunkScene(streamer, { monitor });
   const threeScene = new THREE.Scene();
   threeScene.add(scene.group);
@@ -657,13 +656,13 @@ export function runTransitionCycle(options: TransitionCycleOptions = {}): CycleR
   let simRegime: Regime = 'space';
   let alt = START_ALT_M;
   let streaming = false;
-  // Descent starts at padLocal.x + STREAM_TRAVEL_M (499 m out); the
-  // streaming control precedes it and closes CONTROL_TRAVEL_M.
-  let streamerX = padLocal.x + STREAM_TRAVEL_M + CONTROL_TRAVEL_M;
+  // Descent starts at pad.pos.x + STREAM_TRAVEL_M (499 m out); the
+  // streaming control precedes it and closes CONTROL_TRAVEL_M. WORLD frame.
+  let streamerX = pad.pos.x + STREAM_TRAVEL_M + CONTROL_TRAVEL_M;
   /** The rig's injectable sim clock (frameIndex → ms), updated per frame. */
   let simNowMs = 0;
   let rigActive = false;
-  let charX = padLocal.x;
+  let charX = pad.pos.x;
   let charMesh: ReturnType<typeof buildCharacterMesh> | null = null;
   let lastTris = 0;
   let burstLeft = 0;
@@ -672,7 +671,7 @@ export function runTransitionCycle(options: TransitionCycleOptions = {}): CycleR
   let padNearReadyFrame = -1;
 
   const shipPos = (): Vec3 => ({ x: anchor.x, y: alt, z: anchor.z });
-  const charPos = (): Vec3 => ({ x: charX, y: padLocal.y, z: padLocal.z });
+  const charPos = (): Vec3 => ({ x: charX, y: pad.pos.y, z: pad.pos.z });
 
   const samples: FrameSample[] = [];
   let frameIndex = 0;
@@ -692,8 +691,8 @@ export function runTransitionCycle(options: TransitionCycleOptions = {}): CycleR
   };
 
   const isPadNearRingReady = (): boolean => {
-    const pcx = chunkOfMeters(padLocal.x);
-    const pcz = chunkOfMeters(padLocal.z);
+    const pcx = chunkOfMeters(pad.pos.x);
+    const pcz = chunkOfMeters(pad.pos.z);
     for (let dx = -1; dx <= 1; dx++) {
       for (let dz = -1; dz <= 1; dz++) {
         if (!streamer.isReady(chunkKey(pcx + dx, pcz + dz))) return false;
@@ -765,11 +764,11 @@ export function runTransitionCycle(options: TransitionCycleOptions = {}): CycleR
         let stats: ReturnType<ChunkStreamer['update']> | null = null;
         if (streaming) {
           const t = performance.now();
-          stats = streamer.update(streamerX, padLocal.z, speed);
+          stats = streamer.update(streamerX, pad.pos.z, speed);
           streamerMs = performance.now() - t;
           const ts = performance.now();
           const meshesBefore = scene.group.children.length;
-          const tris = scene.sync(streamerX, padLocal.z, speed);
+          const tris = scene.sync(streamerX, pad.pos.z, speed);
           lastTris = tris.near + tris.mid + tris.far;
           sceneMs = performance.now() - ts;
           // A newly mounted mesh = a biome material first created / a mip
@@ -832,7 +831,7 @@ export function runTransitionCycle(options: TransitionCycleOptions = {}): CycleR
           // ship still has 6 s of cruise to burn, so the cold-start burst
           // lands on the baseline-source control frames — the descent
           // starts with the surface pipeline already warm.
-          streamer.update(streamerX, padLocal.z, speed);
+          streamer.update(streamerX, pad.pos.z, speed);
           oneShotMs += performance.now() - t;
           tags.push('streamer-boot', 'chunk-boundary');
           burstLeft = BURST_DRAIN_FRAMES;

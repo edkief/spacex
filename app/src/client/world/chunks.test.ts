@@ -347,3 +347,48 @@ describe('ChunkStreamer scheduling + LRU', () => {
     expect(streamer.pendingCount).toBe(0);
   });
 });
+
+describe('ChunkStreamer chunkFilter + pad (TASK-84)', () => {
+  it('filtered chunks are never generated, never cached, never mounted', () => {
+    // Island clip: only the z = 0 chunk row is allowed (a degenerate
+    // chunkInSurface stand-in — the contract is the same).
+    const filter = (cx: number, cz: number) => cz === 0;
+    const streamer = new ChunkStreamer(SEED, PLANET, { chunkFilter: filter });
+    warm(streamer, 160, 160, 0);
+    expect(streamer.pendingCount).toBe(0);
+    expect(streamer.readyCount).toBeGreaterThan(0);
+    for (const e of streamer.entries()) {
+      expect(filter(e.chunkX, e.chunkZ)).toBe(true);
+    }
+    const mounted = streamer.mountable(160, 160, 0);
+    expect(mounted.length).toBeGreaterThan(0);
+    for (const m of mounted) {
+      expect(filter(m.entry.chunkX, m.entry.chunkZ)).toBe(true);
+    }
+    // Nothing outside the filter was ever cached, even in the far window.
+    for (const a of activeSet(160, 160, 0)) {
+      if (!filter(a.chunkX, a.chunkZ)) expect(streamer.isReady(chunkKey(a.chunkX, a.chunkZ))).toBe(false);
+    }
+  });
+
+  it('the pad option flattens the built chunk at the pad plane (shared padSurfaceHeight)', () => {
+    // A synthetic pad at the center of chunk (0,0) with a distinct height.
+    const pad = {
+      padId: 'unit-pad',
+      planetId: PLANET.id,
+      pos: { x: 160, y: 12.5, z: 160 },
+      normal: { x: 0, y: 1, z: 0 },
+      radius: 20,
+    };
+    const streamer = new ChunkStreamer(SEED, PLANET, { pad });
+    warm(streamer, 160, 160, 0);
+    const entry = streamer.getCached(chunkKey(0, 0))!;
+    const pos = entry.built.geometries.near!.getAttribute('position').array as Float32Array;
+    // Local vertex (32, 32) is (160, 160) = the pad center: on the flat disc.
+    const y = pos[(32 * 65 + 32) * 3 + 1];
+    expect(y).toBeCloseTo(12.5, 3);
+    // 5 m out is still inside the 20 m disc.
+    const y2 = pos[(33 * 65 + 32) * 3 + 1];
+    expect(y2).toBeCloseTo(12.5, 3);
+  });
+});

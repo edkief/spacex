@@ -52,6 +52,9 @@ export interface PlanetBody {
   hasAtmosphere: boolean;
   /** The group the WorldManager adds to the per-system world group. */
   group: THREE.Group;
+  /** The island SLAB TOP (TASK-84): hidden while this planet's real streamed
+   * terrain is mounted, so it never pokes through dips in the terrain. */
+  slabTop: THREE.Mesh;
   /** The OUTSIDE dome shell (null when airless); hidden while the camera is
    * inside this planet's atmosphere (setPlanetShellHidden). */
   shell: THREE.Mesh | null;
@@ -69,20 +72,33 @@ export function buildPlanetBodies(system: SystemGen): PlanetBody[] {
     const group = new THREE.Group();
     group.position.set(anchor.x, anchor.y, anchor.z);
 
-    // The island SLAB: a slightly tapered cylinder (top radius = the shared
-    // surface extent, base × 0.9). A flat plane at y = 0 viewed from y ≈ 0
-    // is invisible edge-on; a 300 m slab is not.
+    // The island SLAB: a tapered cylinder SIDE (top radius = the shared
+    // surface extent, base × 0.9) + a separate TOP cap. A flat plane at
+    // y = 0 viewed from y ≈ 0 is invisible edge-on; a 300 m slab is not.
+    // The top is its own mesh (TASK-84): once the real streamed terrain is
+    // mounted over the island, the top hides so it never pokes through
+    // dips — the side wall stays (it is what makes the island visible).
+    const slabMat = new THREE.MeshBasicMaterial({ color: PLANET_COLORS[planet.class] });
     const slab = new THREE.Mesh(
       new THREE.CylinderGeometry(
         PLANET_SURFACE_RADIUS_M,
         PLANET_SURFACE_RADIUS_M * 0.9,
         ISLAND_SLAB_HEIGHT_M,
         48,
+        1,
+        true,
       ),
-      new THREE.MeshBasicMaterial({ color: PLANET_COLORS[planet.class] }),
+      slabMat,
     );
     slab.position.y = ISLAND_TOP_Y_M - ISLAND_SLAB_HEIGHT_M / 2;
     group.add(slab);
+    const slabTop = new THREE.Mesh(
+      new THREE.CircleGeometry(PLANET_SURFACE_RADIUS_M, 48),
+      slabMat,
+    );
+    slabTop.rotation.x = -Math.PI / 2; // flat, facing up
+    slabTop.position.y = ISLAND_TOP_Y_M;
+    group.add(slabTop);
 
     // The OUTSIDE atmosphere shell: the upper hemisphere of the shared
     // atmosphere dome (same radius factor + class haze palette the INSIDE
@@ -123,6 +139,7 @@ export function buildPlanetBodies(system: SystemGen): PlanetBody[] {
       anchor,
       hasAtmosphere: planet.hasAtmosphere,
       group,
+      slabTop,
       shell,
     };
   });

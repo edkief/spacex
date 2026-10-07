@@ -24,6 +24,7 @@ import {
   heightfieldChannels,
 } from '@shared/galaxy/surface';
 import type { Planet, SurfaceChunk } from '@shared/galaxy/types';
+import { PAD_FLAT_BLEND_OUTER_M, padSurfaceHeight, type PadInfo } from '@shared/world/pads';
 
 /** One streaming chunk edge in meters (64 cells x 5 m — the TASK-5 grid). */
 export const CHUNK_METERS = CHUNK_SIZE * CELL_SIZE_M; // 320
@@ -98,13 +99,41 @@ export class ChunkBuild {
   private nearRow = 0;
   private surfaceChunk: SurfaceChunk | null = null;
   private result: BuiltChunk | null = null;
+  /**
+   * TASK-84: the planet's landing pad (at most one per planet — the same
+   * PadInfo the server's padSurfaceHeight wrap uses). Its flat disc + blend
+   * is applied to the rendered vertex heights only (in WORLD coordinates,
+   * so the pad sits flush with the sim). `padActive` is true only for the
+   * few chunks whose 320 m square can reach the PAD_FLAT_BLEND_OUTER_M
+   * circle — every other chunk pays zero blend cost (the build cost stays
+   * flat, verified by the render/transition benches).
+   */
+  private readonly pad: PadInfo | null;
+  private readonly padActive: boolean;
 
-  constructor(seed: string, planet: Planet, chunkX: number, chunkZ: number) {
+  constructor(
+    seed: string,
+    planet: Planet,
+    chunkX: number,
+    chunkZ: number,
+    pad?: PadInfo,
+  ) {
     this.seed = seed;
     this.planet = planet;
     this.chunkX = chunkX;
     this.chunkZ = chunkZ;
     this.field = heightfieldChannels(seed, planet);
+    this.pad = pad ?? null;
+    // The blend only matters where the pad's outer blend circle can touch a
+    // vertex of this chunk: the closest point of the chunk square to the pad
+    // center must be within PAD_FLAT_BLEND_OUTER_M (typically one, at most
+    // four, chunks per planet).
+    this.padActive =
+      this.pad !== null &&
+      Math.hypot(
+        clampToChunkEdge(chunkX, this.pad.pos.x) - this.pad.pos.x,
+        clampToChunkEdge(chunkZ, this.pad.pos.z) - this.pad.pos.z,
+      ) <= PAD_FLAT_BLEND_OUTER_M;
   }
 
   get done(): boolean {
@@ -199,15 +228,15 @@ export class ChunkBuild {
         const xL = x > 0 ? x - 1 : x;
         const xR = x < NEAR_GRID - 1 ? x + 1 : x;
         const dx =
-          (this.grid[z * NEAR_GRID + xR] - this.grid[z * NEAR_GRID + xL]) /
+          (this.blendedAt(xR, z) - this.blendedAt(xL, z)) /
           ((xR - xL) * CELL_SIZE_M || 1);
         const dz =
-          (this.grid[zDn * NEAR_GRID + x] - this.grid[zUp * NEAR_GRID + x]) /
+          (this.blendedAt(x, zDn) - this.blendedAt(x, zUp)) /
           ((zDn - zUp) * CELL_SIZE_M || 1);
         const len = Math.hypot(dx, 1, dz);
         const i = (z * NEAR_GRID + x) * 3;
         this.nearPos[i] = x * CELL_SIZE_M;
-        this.nearPos[i + 1] = this.grid[z * NEAR_GRID + x];
+        this.nearPos[i + 1] = this.blendedAt(x, z);
         this.nearPos[i + 2] = z * CELL_SIZE_M;
         this.nearNrm[i] = -dx / len;
         this.nearNrm[i + 1] = 1 / len;
@@ -216,6 +245,24 @@ export class ChunkBuild {
     }
     this.nearRow = end;
     if (this.nearRow >= NEAR_GRID) this.stage = 'near-index';
+  }
+
+  /**
+   * TASK-84: the rendered height of grid vertex (x, z) — the TASK-5 field
+   * rounded to metres, with the SHARED pad flattening applied in WORLD
+   * coordinates (the same padSurfaceHeight the server sim wraps — the pad
+   * disc renders flush with the sim's pad plane). The raw `grid` (and thus
+   * the placement pass + biome/pad derivation) stays un-blended: it must
+   * remain bit-identical to the server's generateSurfaceChunk heightmap.
+   * Pads sit on grid vertices (5 m cells), so this never changes which cell
+   * a vertex falls in.
+   */
+  private blendedAt(gx: number, gz: number): number {
+    const h = this.grid[gz * NEAR_GRID + gx];
+    if (!this.padActive || !this.pad) return h;
+    const wx = (this.chunkX * CHUNK_SIZE + gx) * CELL_SIZE_M;
+    const wz = (this.chunkZ * CHUNK_SIZE + gz) * CELL_SIZE_M;
+    return padSurfaceHeight(wx, wz, h, this.pad);
   }
 
   /** Near-LOD index (Uint16 — 4225 vertices fits with room to spare). */
@@ -254,7 +301,7 @@ export class ChunkBuild {
    * 2048 m-8 km ring reads as a flat horizon band).
    */
   private advanceFar(): void {
-    const h = this.grid[32 * NEAR_GRID + 32];
+    const h = this.blendedAt(32, 32);
     const pos = new Float32Array([
       0,
       h,
@@ -292,6 +339,12 @@ export class ChunkBuild {
     };
     this.stage = 'done';
   }
+}
+
+/** Clamp a world coordinate to the 320 m edge range of one chunk (negative-safe). */
+function clampToChunkEdge(chunk: number, v: number): number {
+  const lo = chunk * CHUNK_METERS;
+  return Math.min(Math.max(v, lo), lo + CHUNK_METERS);
 }
 
 /** (rows-1)^2 quads of a rows×rows grid, consistent winding, row-major. */

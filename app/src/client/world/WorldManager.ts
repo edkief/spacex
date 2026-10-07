@@ -51,6 +51,10 @@ import {
   type PlanetBody,
 } from './planet-bodies';
 import { proxyTransform } from '@client/render/scaled-proxy';
+import { ChunkStreamer } from './chunks';
+import { ChunkScene } from './chunk-scene';
+import { chunkInSurface, terrainPlanetFor } from './planet-terrain';
+import type { Planet } from '@shared/galaxy/types';
 
 /**
  * The in-system world (TASK-8). Owns the three.js scene on the game canvas
@@ -338,6 +342,19 @@ export class WorldManager {
    * anchors stay inside the 4000 u far plane with exact direction/size.
    */
   private planetBodies: PlanetBody[] = [];
+  /**
+   * TASK-84: the streamed terrain of the ONE mounted planet (null in space /
+   * before the first mount) — at most one ChunkStreamer + ChunkScene at a
+   * time, fed in WORLD coordinates (the server's frame), scene.group in the
+   * per-system world group. Re-evaluated every frame by updateTerrain
+   * (terrainPlanetFor with hysteresis).
+   */
+  private terrainStreamer: ChunkStreamer | null = null;
+  private terrainScene: ChunkScene | null = null;
+  /** The planet id whose terrain is mounted (hysteresis anchor). */
+  private terrainPlanetId: string | null = null;
+  /** Previous terrain-feed position — derives the horizontal speed for update(). */
+  private lastTerrainPos: Vec3 | null = null;
   private readonly clock = new THREE.Clock();
   /**
    * TASK-31: the on-foot camera. The rig owns the SAME PerspectiveCamera but
@@ -510,6 +527,8 @@ export class WorldManager {
       // TASK-37: stream the ore-rock 500 m ring + drive the near-depletion
       // pulse (same player position as the pad-ring culling above).
       this.oreLayer.update(this.selfPos, nowMs);
+      // TASK-84: stream the mounted planet's terrain (WORLD coordinates).
+      this.updateTerrain(dtSec);
       // TASK-43: age the combat FX (flashes self-cull) and apply the
       // decaying 2 px screen shake as a camera nudge around the render.
       const shake = this.combatFx.frame(nowMs);
@@ -585,6 +604,10 @@ export class WorldManager {
     // in the per-system group, so they are disposed with it on the next swap.
     this.hazardDiscs = buildHazardDiscs(this.seed, system);
     for (const disc of this.hazardDiscs) next.add(disc.group);
+    // TASK-84: the streamed terrain belongs to the system being left — tear
+    // it down (frees the chunk + merged geometries) BEFORE the old world
+    // group is disposed; the next frame re-mounts if the feed is near a planet.
+    this.teardownTerrain();
     // TASK-83: the planet islands + outer atmosphere domes live in the
     // per-system group (they die with it on the next swap); the frame loop
     // re-anchors them through the scaled proxy every frame.
@@ -740,6 +763,113 @@ export class WorldManager {
         screen: this.projectToScreen(proxy.pos),
       };
     });
+  }
+
+  /**
+   * TASK-84: the streamed terrain mount (dev probe / e2e assertions) — the
+   * planet whose terrain is mounted + how many of its chunks are mounted.
+   * Null when no planet's terrain is mounted (deep space / far from all).
+   */
+  terrainView(): { planetId: string; mountedChunks: number } | null {
+    if (!this.terrainPlanetId || !this.terrainScene) return null;
+    return {
+      planetId: this.terrainPlanetId,
+      mountedChunks: this.terrainScene.mountedCount,
+    };
+  }
+
+  /**
+   * TASK-84: one frame of streamed terrain. Reads the player's live feed
+   * pose (the predicted ship pose while flying, the character position on
+   * foot), runs the pure terrainPlanetFor decision (hysteresis), swaps the
+   * mount on a target change, and drives the 4 ms/frame update + sync in
+   * WORLD coordinates (the server's frame). A no-op with ~zero cost when no
+   * planet's terrain is mounted.
+   */
+  private updateTerrain(dtSec: number): void {
+    if (!this.system || !this.worldGroup) return;
+    // Feed pose: on foot the character (60 fps predicted), in a ship the
+    // self-ship mesh (60 fps predicted via the frame hook). Both are
+    // world-space; the terrain streams around whichever is live.
+    let feed: { x: number; y: number; z: number } | null = null;
+    if (this.isOnFoot && this.characterMesh) {
+      const p = this.characterMesh.position;
+      feed = { x: p.x, y: p.y, z: p.z };
+    } else {
+      const s = this.selfShip.position();
+      if (s) feed = { x: s.x, y: s.y, z: s.z };
+    }
+    if (!feed) return;
+    // Horizontal speed (the streamer widens to the 7x7 ring at/above
+    // FAST_TRAVEL_SPEED). Derived from the feed's per-frame displacement.
+    let speed = 0;
+    if (this.lastTerrainPos && dtSec > 0) {
+      speed = Math.hypot(feed.x - this.lastTerrainPos.x, feed.z - this.lastTerrainPos.z) / dtSec;
+    }
+    this.lastTerrainPos = { ...feed };
+
+    const target = terrainPlanetFor(feed, this.system, this.terrainPlanetId);
+    if (target !== this.terrainPlanetId) {
+      this.teardownTerrain();
+      if (target) this.mountTerrain(target);
+    }
+    if (this.terrainStreamer && this.terrainScene) {
+      this.terrainStreamer.update(feed.x, feed.z, speed);
+      this.terrainScene.sync(feed.x, feed.z, speed);
+    }
+  }
+
+  /**
+   * TASK-84: build the streamer + scene for one planet and mount them in the
+   * per-system world group. The feed is WORLD coordinates (the planet anchor
+   * is NOT subtracted — unlike the legacy transitionCycle benchmark); the
+   * island clip (chunkInSurface) keeps the terrain inside the surface radius,
+   * and the planet's single pad flattens the rendered pad flush with the sim.
+   */
+  private mountTerrain(planetId: string): void {
+    const index = this.system!.planets.findIndex((p) => p.id === planetId);
+    if (index < 0) return;
+    const planet: Planet = this.system!.planets[index];
+    const anchor = planetAnchor(index);
+    const pad = this.pads.find((p) => p.planetId === planetId);
+    const streamer = new ChunkStreamer(this.seed, planet, {
+      pad,
+      chunkFilter: (cx, cz) => chunkInSurface(cx, cz, anchor),
+      // Route through this.terrainScene (not a local) so the streamer's
+      // options stay referentially stable and the scene is never null here.
+      onChunkEvict: (key) => this.terrainScene?.handleEvict(key),
+    });
+    const scene = new ChunkScene(streamer);
+    this.worldGroup!.add(scene.group);
+    this.terrainStreamer = streamer;
+    this.terrainScene = scene;
+    this.terrainPlanetId = planetId;
+    // Hide the mounted planet's island slab TOP so it never pokes through
+    // dips in the real terrain (the side wall stays — it is the island's
+    // silhouette). Reveal the others.
+    for (const body of this.planetBodies) {
+      body.slabTop.visible = body.planetId !== planetId;
+    }
+  }
+
+  /**
+   * TASK-84: tear down the mounted terrain (warp / planet change / dispose).
+   * The scene frees its merged geometries + biome materials, the streamer
+   * frees its chunk geometries, and the group is detached from the world.
+   */
+  private teardownTerrain(): void {
+    if (this.terrainScene) {
+      if (this.worldGroup) this.worldGroup.remove(this.terrainScene.group);
+      this.terrainScene.dispose();
+    }
+    if (this.terrainStreamer) {
+      this.terrainStreamer.reset();
+    }
+    this.terrainScene = null;
+    this.terrainStreamer = null;
+    this.terrainPlanetId = null;
+    this.lastTerrainPos = null;
+    for (const body of this.planetBodies) body.slabTop.visible = true;
   }
 
   /**
@@ -1093,6 +1223,7 @@ export class WorldManager {
   dispose(): void {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
+    this.teardownTerrain(); // TASK-84: free the streamed terrain first
     if (this.worldGroup) {
       this.scene.remove(this.worldGroup);
       disposeGroup(this.worldGroup);

@@ -27,6 +27,7 @@ import {
 } from './chunk-geometry';
 import { perfWarn } from '@client/perf/logger';
 import type { Planet } from '@shared/galaxy/types';
+import type { PadInfo } from '@shared/world/pads';
 
 /** LOD ring boundaries (meters, player to chunk CENTER) — the HIGH preset. */
 export const LOD_NEAR_MAX_M = 512;
@@ -223,6 +224,20 @@ export interface StreamerOptions {
   clock?: () => number;
   onChunkReady?: (key: string) => void;
   onChunkEvict?: (key: string) => void;
+  /**
+   * TASK-84: the planet's landing pad — passed through to each full ChunkBuild
+   * so the shared pad flattening (padSurfaceHeight) is baked into the
+   * rendered vertex heights (the pad sits flush with the sim's pad plane).
+   * At most one pad per landable planet; impostor-only builds ignore it.
+   */
+  pad?: PadInfo;
+  /**
+   * TASK-84: island clip (the live wiring uses planet-terrain's
+   * chunkInSurface). Filtered chunks are NEVER generated or mounted —
+   * checked in the active-set scheduling, the far impostor window, and the
+   * mountable set alike.
+   */
+  chunkFilter?: (chunkX: number, chunkZ: number) => boolean;
 }
 
 type Build = ChunkBuild | ImpostorBuild;
@@ -242,6 +257,10 @@ export class ChunkStreamer {
   private readonly clock: () => number;
   private readonly onChunkReady?: (key: string) => void;
   private readonly onChunkEvict?: (key: string) => void;
+  /** TASK-84: the planet's pad (rendered into the full builds), or null. */
+  private readonly pad: PadInfo | null;
+  /** TASK-84: island clip — filtered chunks are never generated or mounted. */
+  private readonly chunkFilter: ((chunkX: number, chunkZ: number) => boolean) | null;
 
   private readonly builds = new Map<string, { build: Build; workMs: number; isFar: boolean }>();
   private readonly cached = new Map<string, CachedChunk>();
@@ -262,6 +281,13 @@ export class ChunkStreamer {
     this.clock = options.clock ?? (() => performance.now());
     this.onChunkReady = options.onChunkReady;
     this.onChunkEvict = options.onChunkEvict;
+    this.pad = options.pad ?? null;
+    this.chunkFilter = options.chunkFilter ?? null;
+  }
+
+  /** TASK-84: island clip — a chunk that fails the filter is never built or drawn. */
+  private allowed(chunkX: number, chunkZ: number): boolean {
+    return this.chunkFilter === null || this.chunkFilter(chunkX, chunkZ);
   }
 
   /** Ready (fully generated) chunks, including impostor-only entries. */
@@ -310,6 +336,7 @@ export class ChunkStreamer {
     const out: Array<{ entry: CachedChunk; ring: 'near' | 'mid' | 'far' }> = [];
     const seen = new Set<string>();
     for (const a of activeSet(playerX, playerZ, speed)) {
+      if (!this.allowed(a.chunkX, a.chunkZ)) continue; // TASK-84 island clip
       const entry = this.cached.get(chunkKey(a.chunkX, a.chunkZ));
       if (!entry) continue;
       let ring = lodRingForChunk(a.chunkX, a.chunkZ, playerX, playerZ);
@@ -325,6 +352,7 @@ export class ChunkStreamer {
     }
     for (const entry of this.cached.values()) {
       if (seen.has(entry.key)) continue;
+      if (!this.allowed(entry.chunkX, entry.chunkZ)) continue; // TASK-84 island clip
       if (lodRingForChunk(entry.chunkX, entry.chunkZ, playerX, playerZ) !== 'far') continue;
       entry.lastAccessFrame = this.frame;
       // Horizon: the impostor quad by design (a full build OUTSIDE the
@@ -355,12 +383,13 @@ export class ChunkStreamer {
     // long before the chunk edge — the scene keeps the quad mounted until
     // the replacement entry lands, so there is no blank frame).
     for (const a of active) {
+      if (!this.allowed(a.chunkX, a.chunkZ)) continue; // TASK-84 island clip
       const key = chunkKey(a.chunkX, a.chunkZ);
       if (this.builds.has(key)) continue;
       const existing = this.cached.get(key);
       if (existing && existing.built.chunk !== null) continue; // full: done
       this.builds.set(key, {
-        build: new ChunkBuild(this.seed, this.planet, a.chunkX, a.chunkZ),
+        build: new ChunkBuild(this.seed, this.planet, a.chunkX, a.chunkZ, this.pad ?? undefined),
         workMs: 0,
         isFar: false,
       });
@@ -375,6 +404,7 @@ export class ChunkStreamer {
           const cx = pcx + dx;
           const cz = pcz + dz;
           const key = chunkKey(cx, cz);
+          if (!this.allowed(cx, cz)) continue; // TASK-84 island clip
           if (activeKeys.has(key) || this.cached.has(key) || this.builds.has(key)) continue;
           if (lodRingForChunk(cx, cz, playerX, playerZ) !== 'far') continue;
           const { dx: ox, dz: oz } = chunkCenterOffset(cx, cz, playerX, playerZ);

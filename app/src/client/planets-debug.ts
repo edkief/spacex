@@ -28,10 +28,20 @@ export interface PlanetProbe {
   screen: { x: number; y: number; dist: number } | null;
 }
 
+/** TASK-84: the live streamed-terrain mount (null = no terrain mounted). */
+export interface TerrainProbe {
+  /** The planet whose terrain is mounted. */
+  planetId: string;
+  /** How many of that planet's chunks are currently mounted. */
+  mountedChunks: number;
+}
+
 /** Shape of the debug surface the e2e tests read. */
 export interface PlanetsDebug {
   /** One live probe over the current system's planets (empty = no world). */
   probe: () => PlanetProbe[];
+  /** The live streamed-terrain mount (TASK-84; null in space / no world). */
+  terrain: () => TerrainProbe | null;
 }
 
 declare global {
@@ -44,7 +54,7 @@ declare global {
 /** Install the hook (DEV builds only); the source is bound lazily. */
 export function installPlanetsDebug(): PlanetsDebug | null {
   if (!import.meta.env.DEV) return null;
-  const state: PlanetsDebug = { probe: () => [] };
+  const state: PlanetsDebug = { probe: () => [], terrain: () => null };
   window.__PLANETS__ = state;
   return state;
 }
@@ -52,11 +62,16 @@ export function installPlanetsDebug(): PlanetsDebug | null {
 /**
  * Point the hook at a live source (the WorldManager). The getter reads the
  * source on every call, so a later WorldManager re-creation (seed
- * correction) keeps working through the same ref.
+ * correction) keeps working through the same ref. `terrainSource` is the
+ * TASK-84 streamed-terrain mount (bound independently so the two probes
+ * stay decoupled).
  */
 export function bindPlanetsDebug(
   state: PlanetsDebug | null,
   source: () => PlanetProbe[] | null,
+  terrainSource?: () => TerrainProbe | null,
 ): void {
-  if (state) state.probe = () => source() ?? [];
+  if (!state) return;
+  state.probe = () => source() ?? [];
+  if (terrainSource) state.terrain = terrainSource;
 }
