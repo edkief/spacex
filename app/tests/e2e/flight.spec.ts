@@ -63,7 +63,9 @@ const IDENTITY = { x: 0, y: 0, z: 0, w: 1 };
  * script sees every frame without touching app code.
  */
 function tapShipUpdates(callsign: string): void {
-  const w = window as unknown as { __shipUpdates?: Array<{ pos: Vec3; regime: string }> };
+  const w = window as unknown as {
+    __shipUpdates?: Array<{ pos: Vec3; vel: Vec3; regime: string }>;
+  };
   w.__shipUpdates = [];
   const Orig = window.WebSocket;
   window.WebSocket = class extends Orig {
@@ -79,7 +81,12 @@ function tapShipUpdates(callsign: string): void {
           const e = (m.payload?.entities ?? []).find(
             (t) => t.kind === 'ship' && t.callsign === callsign,
           );
-          if (e) w.__shipUpdates?.push({ pos: e.pos, regime: e.regime });
+          if (e)
+            w.__shipUpdates?.push({
+              pos: e.pos,
+              vel: e.vel ?? { x: 0, y: 0, z: 0 },
+              regime: e.regime,
+            });
         } catch {
           // never break the page's networking from a tap
         }
@@ -156,6 +163,7 @@ test('flight: holding W from spawn flies the ship forward (server position)', as
   // broadcast): it must move FORWARD along the spawn facing (thrust is
   // along +Z-of-quat), and the docked state must not reassert.
   await page.keyboard.down('w');
+  const wDownAt = Date.now();
   // Forward-travel of the ship per the SERVER's own entity_update broadcast
   // (the tap records every update; a SINGLE arg — bundle the constants).
   const bestTravelled = (): Promise<number> =>
@@ -182,6 +190,33 @@ test('flight: holding W from spawn flies the ship forward (server position)', as
     .toBeGreaterThan(5);
   const travelled = await bestTravelled();
 
+  // TASK-81: thrust is not a top speed. After 8 s of full W the
+  // SERVER-reported speed |vel| must stay under the scout's maxVelocity
+  // (120) + 1 u/s — pre-fix the soft cap bled 5 %/tick while thrust added
+  // a·dt/tick, so the ship settled at ~160 u/s.
+  await expect
+    .poll(() => page.evaluate((since: number) => Date.now() - since, wDownAt), {
+      timeout: 15_000,
+      message: '8 s of W elapsed',
+    })
+    .toBeGreaterThanOrEqual(8_000);
+  const topSpeed = await page.evaluate(() => {
+    const ups =
+      (
+        window as unknown as {
+          __shipUpdates?: Array<{ vel: Vec3; regime: string }>;
+        }
+      ).__shipUpdates ?? [];
+    let top = 0;
+    for (const u of ups) {
+      if (u.regime === 'docked') continue;
+      top = Math.max(top, Math.hypot(u.vel.x, u.vel.y, u.vel.z));
+    }
+    return top;
+  });
+  expect(topSpeed, 'server-reported speed while holding W (8 s)').toBeLessThanOrEqual(121);
+  expect(topSpeed, 'the ship actually flew').toBeGreaterThan(5);
+
   // The visual artifact: mid-flight, still holding W — the ship from the
   // chase camera (the mesh + camera are driven from the prediction at
   // render rate, so the ship sits ahead of a tracking camera, centred).
@@ -203,11 +238,15 @@ test('flight: holding W from spawn flies the ship forward (server position)', as
   await page.screenshot({
     path: path.join(__dirname, '../../../.ralph/screenshots/TASK-73-1.png'),
   });
+  await page.screenshot({
+    path: path.join(__dirname, '../../../.ralph/screenshots/TASK-81-1.png'),
+  });
   await page.keyboard.up('w');
 
   console.log(
-    `[TASK-73] callsign=${callsign} spawn=(${spawn.pos.x.toFixed(1)}, ${spawn.pos.y.toFixed(1)}, ${spawn.pos.z.toFixed(1)}) ` +
-      `forward-travel=${travelled.toFixed(1)} u (server entity_update, non-docked)`,
+    `[TASK-73/81] callsign=${callsign} spawn=(${spawn.pos.x.toFixed(1)}, ${spawn.pos.y.toFixed(1)}, ${spawn.pos.z.toFixed(1)}) ` +
+      `forward-travel=${travelled.toFixed(1)} u (server entity_update, non-docked) ` +
+      `top-speed=${topSpeed.toFixed(1)} u/s (scout maxVelocity 120)`,
   );
 
   assertClean();

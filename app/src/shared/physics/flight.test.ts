@@ -14,8 +14,8 @@ import {
   type ShipInput,
   type ShipState,
 } from './flight';
-import { quatRotateVector, vec, vecLength, type Quat } from './vec';
-import type { ShipClassId } from '../ships';
+import { quatRotateVector, vec, vecLength, vecScale, vecSub, type Quat } from './vec';
+import { SHIP_CLASSES, type ShipClassId } from '../ships';
 
 const DT = 0.05; // server fixed tick (1/20 s)
 
@@ -285,6 +285,67 @@ describe('space regime', () => {
     };
     const s = runSteps(state, NO_INPUT, DT, 1000, 'space');
     expect(vecLength(s.vel)).toBeLessThanOrEqual(120 + 1e-9); // float noise only
+  });
+});
+
+describe('thrust top speed (TASK-81)', () => {
+  it('full thrust from rest (60 s): every class caps at maxVelocity and still reaches it', () => {
+    // Regression: the pre-fix soft cap only bled 5%/tick while full thrust
+    // added a·dt per tick, so ships settled at maxVelocity + 20·a·dt
+    // (scout 120 → ~160). Now: thrust can never push speed past maxVelocity.
+    for (const cls of Object.values(SHIP_CLASSES)) {
+      let s = restShipState({ x: 0, y: 0, z: 0 }, 'space');
+      for (let i = 0; i < 1200; i++) {
+        s = integrateShip(s, { ...NO_INPUT, thrust: 1 }, DT, 'space', undefined, cls.id);
+        expect(vecLength(s.vel), `${cls.id} t=${((i + 1) * DT).toFixed(2)}s`).toBeLessThanOrEqual(
+          cls.maxVelocity + 1e-9,
+        );
+      }
+      // …and the class still reaches top speed (99 %) under sustained thrust.
+      expect(vecLength(s.vel), `${cls.id} final`).toBeGreaterThanOrEqual(0.99 * cls.maxVelocity);
+    }
+  });
+
+  it('at top speed: full thrust + full yaw redirects velocity without overshoot', () => {
+    for (const cls of Object.values(SHIP_CLASSES)) {
+      let s: ShipState = {
+        pos: vec(0, 0, 0),
+        vel: vec(0, 0, cls.maxVelocity),
+        quat: { x: 0, y: 0, z: 0, w: 1 },
+        regime: 'space',
+      };
+      for (let i = 0; i < 200; i++) {
+        s = integrateShip(s, { ...NO_INPUT, thrust: 1, yaw: 1 }, DT, 'space', undefined, cls.id);
+        expect(vecLength(s.vel), `${cls.id} t=${((i + 1) * DT).toFixed(2)}s`).toBeLessThanOrEqual(
+          cls.maxVelocity + 1e-9,
+        );
+      }
+      // steering actually redirected the velocity (it is no longer +Z)
+      const forward = quatRotateVector(s.quat, vec(0, 0, 1));
+      expect(vecLength(vecSub(s.vel, vecScale(forward, cls.maxVelocity)))).toBeGreaterThan(1);
+    }
+  });
+
+  it('excess from elsewhere with full thrust: speed never increases, decay is 0.95/tick', () => {
+    // E.g. a dive/collision/server correction left 30 u/s of excess; holding
+    // full thrust must not grow it — the soft cap keeps bleeding it off.
+    for (const cls of Object.values(SHIP_CLASSES)) {
+      let s: ShipState = {
+        pos: vec(0, 0, 0),
+        vel: vec(0, 0, cls.maxVelocity + 30),
+        quat: { x: 0, y: 0, z: 0, w: 1 },
+        regime: 'space',
+      };
+      let prev = vecLength(s.vel);
+      for (let i = 0; i < 400; i++) {
+        s = integrateShip(s, { ...NO_INPUT, thrust: 1 }, DT, 'space', undefined, cls.id);
+        const speed = vecLength(s.vel);
+        expect(speed, `${cls.id} step ${i + 1}`).toBeLessThanOrEqual(prev + 1e-9);
+        prev = speed;
+      }
+      // excess fully decayed (30 · 0.95^400 ≈ 1e-8)
+      expect(prev, `${cls.id} final`).toBeLessThanOrEqual(cls.maxVelocity + 1e-3);
+    }
   });
 });
 

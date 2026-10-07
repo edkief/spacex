@@ -709,7 +709,7 @@
     "title": "Flight: maxVelocity is not a top speed — thrust overshoots it by 20 × acceleration × dt",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-81.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-77",

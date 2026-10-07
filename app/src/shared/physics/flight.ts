@@ -13,7 +13,9 @@
  * Units: 1 u ≈ 1 m, velocities in u/s, angles in radians.
  * Regimes (TASK-25: the shared Regime union gained 'surface'):
  * - 'space': thrust along the ship's forward axis, no drag, rotation at
- *   turnRate, soft speed cap (excess above maxVelocity decays 5%/step).
+ *   turnRate. Speed cap (TASK-81): thrust never exceeds maxVelocity (it can
+ *   only redirect velocity at top speed); any excess from elsewhere (a dive,
+ *   a collision, a server correction) decays 5 %/tick (SOFT_CAP_DECAY).
  * - 'atmosphere': quadratic drag (k·|v|·v, opposing velocity), gravity,
  *   VTOL vertical lift, ground collision at terrain height (substepped so
  *   fast ships never tunnel: substep whenever |vel|·dt > 2 u). Drag ramps
@@ -140,7 +142,13 @@ export const GRAVITY = 9.8;
 export const VTOL_LIFT = GRAVITY;
 /** Max horizontal speed (u/s) at which VTOL lift still applies. */
 export const VTOL_HORIZONAL_LIMIT = 5;
-/** Per-step decay of the speed excess above maxVelocity (soft cap). */
+/**
+ * Per-step decay of the speed excess above maxVelocity (soft cap, TASK-81).
+ * The rule: THRUST can never push the ship past maxVelocity (it may only
+ * redirect velocity at top speed); an excess that comes from elsewhere
+ * (gravity in a dive, a collision, a server correction) decays this factor
+ * per tick — 5 % of the excess bled off each step.
+ */
 export const SOFT_CAP_DECAY = 0.95;
 /** Substep when |vel|·dt exceeds this travel (u) to avoid ground tunneling. */
 export const SUBSTEP_MAX_TRAVEL_M = 2;
@@ -279,7 +287,17 @@ function integrateStep(
   if (regime === 'space') {
     // Pure Newtonian: thrust along the forward axis, no drag, no damping.
     const forward = quatRotateVector(quat, FORWARD);
+    const speed0 = vecLength(vel);
     vel = vecAdd(vel, vecScale(forward, input.thrust * cls.acceleration * h));
+    // TASK-81: thrust is not a top speed. If the thrust push raised the speed
+    // past maxVelocity, rescale to length max(speed0, maxVelocity), keeping
+    // the NEW direction (that is what lets a ship steer at top speed). Excess
+    // that predates the thrust is left untouched here — the per-tick
+    // SOFT_CAP_DECAY in integrateShip bleeds it off.
+    const speed1 = vecLength(vel);
+    if (speed1 > cls.maxVelocity && speed1 > speed0) {
+      vel = vecScale(vecNormalize(vel), Math.max(speed0, cls.maxVelocity));
+    }
   } else {
     // Quadratic drag opposing velocity, ramped continuously from the
     // atmosphere enter radius (0 in space) down to the surface (1) — the
