@@ -35,16 +35,37 @@ import {
   FLAT_GROUND,
   HANDOFF_DURATION_MS,
   onFootPose,
+  rigidChasePose,
   samplePath,
   type CameraMode,
   type CharacterState,
   type Pose,
+  type RigidChasePose,
   type ShipState,
   type Vec3,
 } from './pose-math';
 
-/** Exponential follow rate (spec: k = 8/s ≈ 100 ms time constant). */
+/**
+ * Exponential follow rate (spec: k = 8/s ≈ 100 ms time constant).
+ * TASK-78: still the cockpit/on-foot steady-state rate — the chase mode no
+ * longer smooths position at all (see CHASE_ROT_K below).
+ */
 export const SMOOTH_K = 8;
+
+/**
+ * TASK-78: chase-mode ORIENTATION smoothing rate. Each frame
+ * `viewQuat.slerp(shipQuat, 1 - exp(-CHASE_ROT_K·dt))` — 6/s gives a little
+ * visible swing on yaw/pitch (a 90° step is < 1° of error after 1 s) while
+ * the camera position is NEVER lerped: it is rigidly attached at the chase
+ * offset of the CURRENT ship position.
+ *
+ * Why not just raise SMOOTH_K: any world-space exponential position follower
+ * settles at a lag of v/k behind a target moving at v (120 u/s → +15 u,
+ * 180 u/s → +22.5 u on top of the designed 14 u behind), so the camera
+ * "drops off" the faster the ship flies. Rigid position + slerped
+ * orientation is the standard chase-camera design.
+ */
+export const CHASE_ROT_K = 6;
 
 /** The single camera the rig drives (spec: one camera, FOV 75 constant). */
 export const CAMERA_FOV = 75;
@@ -98,6 +119,16 @@ export class CameraRig {
   private curPos: THREE.Vector3;
   private curQuat: THREE.Quaternion;
   private primed = false;
+
+  // TASK-78: chase-mode-only smoothed view quaternion (the lagged copy of
+  // the ship quat the rigid pose is derived from). `viewQuatArmed` tracks
+  // whether it holds a value for the CURRENT chase stretch: it is armed at
+  // prime (first frame / resetPrime) and at the END of a handoff into
+  // 'chase', so a fresh chase stretch never swings in.
+  private readonly viewQuat = new THREE.Quaternion();
+  private viewQuatArmed = false;
+
+  private readonly tmpQuat = new THREE.Quaternion();
 
   // In-flight handoff (null = steady-state following).
   private handoffTo: CameraMode | null = null;
@@ -166,8 +197,13 @@ export class CameraRig {
 
   /**
    * One frame. During a handoff the camera walks the precomputed path
-   * (eased); in steady state it exponentially chases the mode's target
-   * pose (position lerp + quaternion slerp, k = 8/s).
+   * (eased). Steady state:
+   *  - 'chase'  — TASK-78 RIGID: viewQuat slerps toward the ship quat
+   *    (CHASE_ROT_K), and the rigid pose of the CURRENT ship position is
+   *    applied directly (no position lerp — the distance camera→ship is
+   *    constant at any speed).
+   *  - others   — the legacy exponential chase of the target pose
+   *    (position lerp + quaternion slerp, k = SMOOTH_K).
    */
   update(dtSec: number): void {
     if (dtSec <= 0) return;
@@ -184,11 +220,40 @@ export class CameraRig {
         this.mode = this.handoffTo;
         this.handoffTo = null;
         this.inputLocked = false;
+        if (this.mode === 'chase') this.armViewQuat();
         this.onHandoffEnd?.(this.mode);
         return;
       }
       const pose = samplePath(this.lastPath ?? [this.currentPose()], easeInOutCubic(t));
       this.applyPose(pose);
+      return;
+    }
+
+    if (this.mode === 'chase') {
+      // TASK-78: rigid chase — see CHASE_ROT_K for the rationale (a
+      // world-space position lerp lags by v/k behind a moving ship).
+      if (!this.primed || !this.viewQuatArmed) {
+        // Prime (first frame / resetPrime) or first frame after a handoff
+        // into chase that did not arm: snap the view quat too — no swing-in.
+        this.armViewQuat();
+      }
+      const f = 1 - Math.exp(-CHASE_ROT_K * dtSec);
+      this.viewQuat.slerp(
+        this.tmpQuat.set(
+          this.ship.quat.x,
+          this.ship.quat.y,
+          this.ship.quat.z,
+          this.ship.quat.w,
+        ),
+        f,
+      );
+      const pose = rigidChasePose(this.ship.pos, {
+        x: this.viewQuat.x,
+        y: this.viewQuat.y,
+        z: this.viewQuat.z,
+        w: this.viewQuat.w,
+      });
+      this.applyRigidChase(pose);
       return;
     }
 
@@ -245,6 +310,36 @@ export class CameraRig {
    */
   resetPrime(): void {
     this.primed = false;
+    // TASK-78: the view quat re-arms on the next chase frame (no swing-in
+    // after a boot / warp / snapshot-reset snap).
+    this.viewQuatArmed = false;
+  }
+
+  /** TASK-78: snap the chase view quat to the CURRENT ship quat. */
+  private armViewQuat(): void {
+    this.viewQuat.set(
+      this.ship.quat.x,
+      this.ship.quat.y,
+      this.ship.quat.z,
+      this.ship.quat.w,
+    );
+    this.viewQuatArmed = true;
+  }
+
+  /**
+   * TASK-78: apply a rigid chase pose DIRECTLY (no lerp): the camera sits
+   * exactly at `pose.position`, oriented by a lookAt toward `pose.look`
+   * with the SHIP'S up (the camera rolls with the ship, never flips).
+   */
+  private applyRigidChase(pose: RigidChasePose): void {
+    const pos = targetVec3(pose.position);
+    const look = targetVec3(pose.look);
+    this.tmpMatrix.lookAt(pos, look, targetVec3(pose.up));
+    this.curPos.copy(pos);
+    this.curQuat.copy(quatFromMatrix(this.tmpMatrix));
+    this.primed = true;
+    this.camera.position.copy(this.curPos);
+    this.camera.quaternion.copy(this.curQuat);
   }
 
   /** Snap the smoothed state (and the camera) to an exact pose. */

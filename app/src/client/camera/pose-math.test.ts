@@ -25,6 +25,7 @@ import {
   lerpPose,
   nudgeOutOfTerrain,
   onFootPose,
+  rigidChasePose,
   samplePath,
   slerpVec,
   type Pose,
@@ -93,6 +94,55 @@ describe('pose construction', () => {
     expect(p.position.z).toBeCloseTo(0);
     expect(p.look.x).toBeCloseTo(CHASE_LOOK_AHEAD);
     expect(p.look.z).toBeCloseTo(0);
+  });
+
+  it('rigidChasePose (TASK-78): camera→ship distance is the offset length exactly', () => {
+    // The invariant the whole task rests on: |position - shipPos| is
+    // |ship-local (0, CHASE_HEIGHT, -CHASE_BEHIND)| for ANY view quat.
+    const dist = Math.hypot(CHASE_HEIGHT, CHASE_BEHIND); // ≈ 14.560
+    for (const q of [quatIdentity(), SPAWN_GATE_QUAT]) {
+      const pos = { x: 12, y: -5, z: 77 };
+      const p = rigidChasePose(pos, q);
+      const d = Math.hypot(p.position.x - pos.x, p.position.y - pos.y, p.position.z - pos.z);
+      expect(d, 'distance').toBeCloseTo(dist, 12);
+    }
+  });
+
+  it('rigidChasePose: viewQuat === ship quat reproduces chasePose exactly', () => {
+    for (const q of [quatIdentity(), SPAWN_GATE_QUAT, YAW_90]) {
+      const pos = { x: -3, y: 40, z: 120 };
+      const rigid = rigidChasePose(pos, q);
+      const chase = chasePose({ pos, quat: q });
+      for (const k of ['x', 'y', 'z'] as const) {
+        expect(rigid.position[k]).toBeCloseTo(chase.position[k], 12);
+        expect(rigid.look[k]).toBeCloseTo(chase.look[k], 12);
+      }
+      // The up is the ship's own up rotated into world.
+      const shipUp = quatRotateVector(q, { x: 0, y: 1, z: 0 });
+      for (const k of ['x', 'y', 'z'] as const) {
+        expect(rigid.up[k]).toBeCloseTo(shipUp[k], 12);
+      }
+    }
+  });
+
+  it('rigidChasePose: a 90° pitch gives a finite, non-degenerate up', () => {
+    const q = quatFromEuler(0, Math.PI / 2, 0); // nose straight up
+    const p = rigidChasePose({ x: 0, y: 0, z: 0 }, q);
+    for (const v of [p.position, p.look, p.up]) {
+      expect(Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z)).toBe(true);
+    }
+    // |up| ≈ 1 and up is not (anti)parallel to the look direction —
+    // lookAt would degenerate there.
+    const lookDir = {
+      x: p.look.x - p.position.x,
+      y: p.look.y - p.position.y,
+      z: p.look.z - p.position.z,
+    };
+    const upLen = Math.hypot(p.up.x, p.up.y, p.up.z);
+    const ldLen = Math.hypot(lookDir.x, lookDir.y, lookDir.z);
+    const cos = (p.up.x * lookDir.x + p.up.y * lookDir.y + p.up.z * lookDir.z) / (upLen * ldLen);
+    expect(upLen).toBeCloseTo(1, 12);
+    expect(Math.abs(cos)).toBeLessThan(0.5);
   });
 
   it('on-foot: 4 m behind the character, 1.6 m up, looking at the head', () => {

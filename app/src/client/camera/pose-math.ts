@@ -120,6 +120,40 @@ export function chasePose(ship: ShipState): Pose {
 }
 
 /**
+ * TASK-78: rigid chase pose — the camera is ATTACHED to the ship: position
+ * = shipPos + viewQuat × (0, CHASE_HEIGHT, -CHASE_BEHIND), look =
+ * shipPos + viewQuat × (0, 0, CHASE_LOOK_AHEAD), up = viewQuat × (0, 1, 0).
+ *
+ * Unlike `chasePose` (which derives everything from the ship's own quat),
+ * this takes an INDEPENDENT `viewQuat` — the rig's lagged (slerped) copy of
+ * the ship quat. The rig then applies the pose directly every frame with NO
+ * position lerp, so the camera→ship distance is exactly
+ * sqrt(CHASE_HEIGHT² + CHASE_BEHIND²) at every speed (an exponential
+ * world-space position follower lags by v/k — the drop-off TASK-78 fixes),
+ * while the lagged quat keeps turns as a visible camera swing. The up
+ * vector is the ship's own up, so the camera rolls with the ship and never
+ * flips when it pitches through vertical.
+ *
+ * `chasePose` stays: handoff destinations (and the boot prime) still use it.
+ */
+export interface RigidChasePose {
+  position: Vec3;
+  look: Vec3;
+  /** The ship up rotated by viewQuat — the camera's roll axis. */
+  up: Vec3;
+}
+
+export function rigidChasePose(shipPos: Vec3, viewQuat: Quat): RigidChasePose {
+  const offset: Vec3 = { x: 0, y: CHASE_HEIGHT, z: -CHASE_BEHIND };
+  const ahead: Vec3 = { x: 0, y: 0, z: CHASE_LOOK_AHEAD };
+  return {
+    position: vecAdd(shipPos, quatRotateVector(viewQuat, offset)),
+    look: vecAdd(shipPos, quatRotateVector(viewQuat, ahead)),
+    up: quatRotateVector(viewQuat, { x: 0, y: 1, z: 0 }),
+  };
+}
+
+/**
  * On-foot pose: the head point (feet + 1.6 m) is the look target; the
  * camera sits 4 m BEHIND it along the yaw/pitch look direction.
  */

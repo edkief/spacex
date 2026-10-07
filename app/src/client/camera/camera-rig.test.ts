@@ -5,6 +5,11 @@
  * same rig in reverse, a second handoff (and only a second handoff)
  * cancels the first, and steady-state following has the ~100 ms lag.
  *
+ * TASK-78: the chase mode is now RIGID — the camera is attached at the chase
+ * offset of the CURRENT ship position, rotated by a slerped copy of the ship
+ * quat (CHASE_ROT_K). The camera→ship distance is constant at any speed (no
+ * v/k lag), while turns still read as a camera swing.
+ *
  * A controllable fake clock + a real (unattached) THREE camera — the rig
  * is DOM-free, so all of this runs in plain node.
  */
@@ -16,6 +21,8 @@ import { quatFromEuler } from '@shared/physics/vec';
 
 import { CameraRig, CAMERA_FOV, SMOOTH_K } from './CameraRig';
 import {
+  CHASE_BEHIND,
+  CHASE_HEIGHT,
   chasePose,
   cockpitPose,
   HANDOFF_DURATION_MS,
@@ -69,6 +76,17 @@ function makeRig(): RigHarness {
 /** Run cockpit frames until the k = 8/s chase has settled (≈ 0.5 % left). */
 function settle(h: RigHarness): void {
   h.step(150);
+}
+
+/**
+ * TASK-78: settle a chase mode. The orientation slerp (CHASE_ROT_K = 6/s) is
+ * SLOWER than the old position lerp (8/s) — by design, it is the visible
+ * camera swing — so a 90° step needs 3 s to converge to ~2e-8 rad
+ * (≈ 4e-7 u at the 14.56 u camera radius; the old test's 1.5 s was sized
+ * for the faster position lerp).
+ */
+function settleChase(h: RigHarness): void {
+  h.step(300);
 }
 
 describe('CameraRig handoff', () => {
@@ -234,16 +252,17 @@ describe('CameraRig chase mode (TASK-72)', () => {
     const h = makeRig();
     h.rig.mode = 'chase';
     h.step();
-    settle(h);
+    settleChase(h);
     const dest0 = chasePose({ pos: SHIP_POS, quat: IDENTITY_QUAT });
     expect(h.rig.camera.position.x).toBeCloseTo(dest0.position.x, 3);
     expect(h.rig.camera.position.y).toBeCloseTo(dest0.position.y, 3);
     expect(h.rig.camera.position.z).toBeCloseTo(dest0.position.z, 3);
 
-    // The ship yaws 90°: the camera orbits to the new -Z (world -X) side.
+    // The ship yaws 90°: the camera swings around to the new -Z (world -X)
+    // side — TASK-78: with the SAME distance (the swing is pure rotation).
     const yaw = quatFromEuler(Math.PI / 2, 0, 0);
     h.rig.setShip(SHIP_POS, yaw);
-    settle(h);
+    settleChase(h);
     const dest1 = chasePose({ pos: SHIP_POS, quat: yaw });
     expect(h.rig.camera.position.x).toBeCloseTo(dest1.position.x, 3);
     expect(h.rig.camera.position.z).toBeCloseTo(dest1.position.z, 3);
@@ -294,6 +313,114 @@ describe('CameraRig chase mode (TASK-72)', () => {
     expect(h.rig.camera.position.x).toBeCloseTo(dest.position.x, 6);
     expect(h.rig.camera.position.y).toBeCloseTo(dest.position.y, 6);
     expect(h.rig.camera.position.z).toBeCloseTo(dest.position.z, 6);
+  });
+});
+
+describe('CameraRig rigid chase: the speed invariant (TASK-78)', () => {
+  // The rigid camera→ship distance: |ship-local (0, CHASE_HEIGHT, -CHASE_BEHIND)|.
+  const CHASE_DIST = Math.hypot(CHASE_HEIGHT, CHASE_BEHIND); // ≈ 14.560
+  const DEG = 180 / Math.PI;
+
+  /** A chase-mode rig: armed, primed (snapped), view quat aligned. */
+  function makeChaseRig(): RigHarness {
+    const h = makeRig();
+    h.rig.mode = 'chase';
+    h.rig.setShip({ x: 0, y: 0, z: 0 }, IDENTITY_QUAT);
+    h.step(); // prime: snap + arm the view quat
+    return h;
+  }
+
+  /** Camera→ship distance on the current frame (the invariant under test). */
+  function camDist(h: RigHarness, ship: Vec3): number {
+    const c = h.rig.camera.position;
+    return Math.hypot(c.x - ship.x, c.y - ship.y, c.z - ship.z);
+  }
+
+  it('(a) 180 u/s straight for 3 s at 60 fps: distance within 0.01 u on EVERY frame', () => {
+    const h = makeChaseRig();
+    const perFrame = 180 * (STEP_MS / 1000); // 3 u per frame
+    for (let i = 1; i <= 180; i++) {
+      const ship = { x: 0, y: 0, z: i * perFrame };
+      h.rig.setShip(ship, IDENTITY_QUAT);
+      h.step();
+      expect(camDist(h, ship), `frame ${i}`).toBeCloseTo(CHASE_DIST, 2);
+    }
+  });
+
+  it('(b) 30 u/s, then a sudden 0→180 u/s jump: distance unchanged on every frame', () => {
+    const h = makeChaseRig();
+    let z = 0;
+    for (let i = 1; i <= 60; i++) {
+      z += 30 * (STEP_MS / 1000); // 0.5 u per frame
+      h.rig.setShip({ x: 0, y: 0, z }, IDENTITY_QUAT);
+      h.step();
+      expect(camDist(h, { x: 0, y: 0, z }), `slow frame ${i}`).toBeCloseTo(CHASE_DIST, 2);
+    }
+    for (let i = 1; i <= 120; i++) {
+      z += 180 * (STEP_MS / 1000); // the jump: 0.5 → 3 u per frame
+      h.rig.setShip({ x: 0, y: 0, z }, IDENTITY_QUAT);
+      h.step();
+      expect(camDist(h, { x: 0, y: 0, z }), `fast frame ${i}`).toBeCloseTo(CHASE_DIST, 2);
+    }
+  });
+
+  it('(c) 90° yaw step: the camera swings around (error < 1° after 1 s), distance constant', () => {
+    const h = makeChaseRig();
+    const ship = { x: 0, y: 0, z: 0 };
+    const yaw = quatFromEuler(Math.PI / 2, 0, 0);
+    const targetOffset = chasePose({ pos: ship, quat: yaw }).position;
+    // Angle between the current camera offset and the fully-converged one.
+    const angleErrDeg = (): number => {
+      const c = h.rig.camera.position;
+      const dot =
+        (c.x * targetOffset.x + c.y * targetOffset.y + c.z * targetOffset.z) /
+        (CHASE_DIST * CHASE_DIST);
+      return Math.acos(Math.min(1, Math.max(-1, dot))) * DEG;
+    };
+    h.rig.setShip(ship, yaw);
+    for (let i = 1; i <= 100; i++) {
+      h.step();
+      expect(camDist(h, ship), `frame ${i}`).toBeCloseTo(CHASE_DIST, 2);
+      if (i === 30) {
+        // 300 ms in: already most of the way around the 90° step.
+        expect(angleErrDeg(), 'swing at 300 ms').toBeLessThan(45);
+      }
+    }
+    expect(angleErrDeg(), 'swing after 1 s').toBeLessThan(1);
+  });
+
+  it('(d) pitching through +90°: never NaN, and the camera up stays continuous (no flip)', () => {
+    const h = makeChaseRig();
+    const ship = { x: 0, y: 0, z: 0 };
+    const up = new THREE.Vector3();
+    let prevUp: THREE.Vector3 | null = null;
+    for (let pitchDeg = -90; pitchDeg <= 90; pitchDeg += 10) {
+      h.rig.setShip(ship, quatFromEuler(0, (pitchDeg * Math.PI) / 180, 0));
+      h.step();
+      const c = h.rig.camera.position;
+      expect(
+        Number.isFinite(c.x) && Number.isFinite(c.y) && Number.isFinite(c.z),
+        `pitch ${pitchDeg}°`,
+      ).toBe(true);
+      up.set(0, 1, 0).applyQuaternion(h.rig.camera.quaternion);
+      expect(
+        Number.isFinite(up.x) && Number.isFinite(up.y) && Number.isFinite(up.z),
+        `pitch ${pitchDeg}°`,
+      ).toBe(true);
+      if (prevUp) {
+        // Consecutive ups stay well inside 90° of each other — a flip
+        // (world-up basis flip through vertical) would be ~180°.
+        expect(up.dot(prevUp), `pitch ${pitchDeg}°`).toBeGreaterThan(0.5);
+      }
+      prevUp = up.clone();
+    }
+    // And it lands on the rigid pose of the final attitude (3 s: the loop's
+    // 600°/s pitch left a large slerp lag that e^{-6·3} ≈ 1.5e-8 clears).
+    const final = chasePose({ pos: ship, quat: quatFromEuler(0, Math.PI / 2, 0) });
+    h.step(300);
+    expect(h.rig.camera.position.x).toBeCloseTo(final.position.x, 3);
+    expect(h.rig.camera.position.y).toBeCloseTo(final.position.y, 3);
+    expect(h.rig.camera.position.z).toBeCloseTo(final.position.z, 3);
   });
 });
 
