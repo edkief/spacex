@@ -758,6 +758,6 @@
     "title": "True-scale system view (4/4): space cruise boost (Shift) for the 10 km legs between planets",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-85.json",
-    "passes": false
+    "passes": true
   }
 ]

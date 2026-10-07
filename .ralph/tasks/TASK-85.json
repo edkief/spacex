@@ -8,25 +8,25 @@
       "step": 1,
       "description": "Shared rule + physics (tests first)",
       "details": "`src/shared/physics/flight.ts`: add `boost?: number` (0..1, default 0) to `ShipInput` and `cruiseAllowed?: boolean` (default false) to `FlightOptions`; export CRUISE_SPEED_FACTOR = 4, CRUISE_ACCEL_FACTOR = 2. In integrateShip/integrateStep, when `regime === 'space' && input.boost > 0 && options?.cruiseAllowed`, use maxVelocity × CRUISE_SPEED_FACTOR and acceleration × CRUISE_ACCEL_FACTOR — including in the TASK-81 'thrust never exceeds maxVelocity' clamp (it must use the EFFECTIVE max) — otherwise the class values. The per-tick soft cap uses the effective max too, so after release the excess decays exactly as today. New pure shared helper in `src/shared/regime.ts` (or a new small `src/shared/physics/cruise.ts`): `export const CRUISE_CLEARANCE_M = 1_500;` and `cruiseAllowedAt(pos: Vec3, planets: RegimePlanet[]): boolean` — true when the 3D distance to every planet anchor is >= its atmosphereRadius (use ATMOSPHERE_BOUNDARY_M for airless planets too, so you cannot cruise into an island) + CRUISE_CLEARANCE_M. Write these unit tests FIRST: scout boosting in deep space tops out at 480 (±1e-9, never above); boosting with cruiseAllowed false or in 'atmosphere' tops out at 120; after release at 480 the speed decays monotonically to <= 121 within 6 s; boost = 0 reproduces the committed golden fixtures EXACTLY (no fixture regeneration in this task — if they change, you broke the default path); cruiseAllowedAt false at 2 400 m from an anchor, true at 2 600 m.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Wire protocol + server",
       "details": "`src/shared/protocol/inputs.ts`: ship mapping — `action: 'boost'` ↔ `boost: 1` (the `action` field is already a free string, schemas.ts ~line 339; no schema change). `up > 0` (VTOL, atmosphere only) still maps to 'vtol' and wins if both are set. `shipInputToPayload` / `inputToShipInput` must round-trip every channel (extend the existing round-trip test). On-foot mapping (`inputToCharacterInput`) is unaffected — 'run' stays 'run'. Server: wherever the shard tick calls `integrateShip` for PLAYER ships, pass `cruiseAllowed: cruiseAllowedAt(ship.pos, this.regimePlanets)`. AI ships keep ZERO_SHIP_INPUT-style inputs with boost 0 — do not give the AI cruise. Unit test in a shard test: a player ship sending boost in deep space exceeds 120 m/s within 5 s of thrust; the same near a planet does not.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Client: Shift in the space scheme, predictor, HUD tag",
       "details": "`src/client/input/controls.ts`: add a `boost: Key | null` to `ControlScheme` — 'Shift' in the space scheme (main.tsx already captures Shift as the key name 'Shift', see `keyOf` ~line 1411), null in atmosphere/surface — and set `boost` in `readInput`. `ClientShipPredictor` (src/client/net/prediction.ts): pass `cruiseAllowed: cruiseAllowedAt(state.pos, systemRegimePlanets(system))` into the integrateShip options it uses (extend its context with the regime planets via `setContext`), so prediction matches the server. `scaleLookDemand` (TASK-55) must leave boost untouched. Ship HUD (src/client/ui/ship-hud): show a 'CRUISE' tag next to the regime indicator while boost is held AND allowed at the predicted position; show 'CRUISE BLOCKED' (dim) while Shift is held but not allowed — players must understand why it does nothing near planets. Keep the text accessible (TASK-54 contrast/shape rules).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "E2E + verify + commit",
       "details": "New `app/tests/e2e/cruise.spec.ts`: fresh player, undock, teleport to deep space { x: 0, y: 50, z: 4 000 }, hold W + Shift for 8 s → server-reported speed (entity_update tap from flight.spec.ts) > 300 and the HUD shows 'CRUISE'; release Shift, keep W for 6 s → speed <= 121. Then teleport to 2 km from planet 0's anchor ({ x: 8 000, y: 300, z: 0 }), hold W + Shift 6 s → speed <= 121 and 'CRUISE BLOCKED' visible. Screenshot `.ralph/screenshots/TASK-85-1.png` mid-cruise (TASK-83 planet proxies growing ahead if facing them). Record measured leg time (spawn-side deep space → planet 0 clearance boundary) in the LOG entry. Then `cd app && npx tsc --noEmit`, full `npm run test` (golden flight fixtures unchanged), e2e: cruise, flight, chase-camera, rogue-ai, pvp-kill, landing, keyboard-only, walk (Shift = run on foot must still work); `eslint --fix` + `prettier --write`. Commit `feat(TASK-85): ...`.",
-      "pass": false
+      "pass": true
     }
   ],
   "acceptanceCriteria": [

@@ -43,10 +43,6 @@ const NEAR: Vec3 = { x: 8_000, y: 300, z: 0 };
 /** Scout turn rate (rad/s) — the steering math must match the class. */
 const TURN_RATE = 0.8;
 
-function dist(a: Vec3, b: Vec3): number {
-  return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
-}
-
 /**
  * Tap the page's WebSocket: every entity_update carrying OUR ship lands in
  * `window.__shipUpdates` with a local receive timestamp (the server's own
@@ -119,10 +115,18 @@ const yawError = (page: import('@playwright/test').Page): Promise<number | null>
   }, PLANET0);
 
 /**
+ * The server keeps applying the HELD yaw frame for ~200 ms after the key
+ * is released (the zero-yaw frame travels at the 20 Hz send cadence, and
+ * the held frame re-integrates every tick until a newer one arrives).
+ * faceAnchor compensates by pressing for LESS than |err| / turn rate.
+ */
+const YAW_RELEASE_LAG_S = 0.2;
+
+/**
  * Nose at the anchor (±0.12 rad): one axis pressed at a time for the
- * computed time (|err| / turn rate), re-measured each pass (the 20 Hz
- * server absorbs the key pickup, so overshoot is corrected on the next
- * pass instead of calibrated).
+ * computed time (|err| / turn rate, minus the release lag), settled, and
+ * re-measured each pass — the measured err after the settle is honest, so
+ * the loop converges instead of limit-cycling on the in-flight overshoot.
  */
 async function faceAnchor(page: import('@playwright/test').Page): Promise<void> {
   const t0 = Date.now();
@@ -135,10 +139,12 @@ async function faceAnchor(page: import('@playwright/test').Page): Promise<void> 
       continue;
     }
     const key = err > 0 ? 'a' : 'd'; // +err = target to the LEFT = A (TASK-80)
+    const pressS = Math.max(0.1, Math.abs(err) / TURN_RATE - YAW_RELEASE_LAG_S);
     await page.keyboard.down(key);
-    // A little over: the correction pass trims the overshoot.
-    await page.waitForTimeout(Math.ceil((Math.abs(err) / TURN_RATE) * 1000) + 120);
+    await page.waitForTimeout(Math.ceil(pressS * 1000));
     await page.keyboard.up(key);
+    // Let the yaw fully stop (release lag) before re-measuring.
+    await page.waitForTimeout(400);
   }
 }
 
@@ -200,7 +206,7 @@ test('cruise: Shift boosts in deep space, bleeds off on release, blocks near pla
   await page.keyboard.down('w');
   await page.keyboard.down('Shift');
   await expect
-    .poll(lastSpeed(page), {
+    .poll(() => lastSpeed(page), {
       timeout: 15_000,
       message: 'server speed never exceeded 300 while holding W+Shift in deep space',
     })
@@ -220,7 +226,7 @@ test('cruise: Shift boosts in deep space, bleeds off on release, blocks near pla
   await page.keyboard.up('Shift');
   await page.waitForTimeout(6_000);
   await expect
-    .poll(lastSpeed(page), {
+    .poll(() => lastSpeed(page), {
       timeout: 15_000,
       message: 'speed never decayed to ≤ 121 after releasing Shift (6 s in)',
     })
@@ -234,16 +240,19 @@ test('cruise: Shift boosts in deep space, bleeds off on release, blocks near pla
   await page.waitForTimeout(2_000);
   expect(await cruiseTagText(page), 'HUD tag in the clearance band').toBe('CRUISE BLOCKED');
   await page.waitForTimeout(4_000); // 6 s total of W+Shift
-  const nearTop = await page.evaluate(() => {
+  const nearTop = await page.evaluate((nearTarget: Vec3) => {
     const ups = (window as unknown as { __shipUpdates?: TapEntry[] }).__shipUpdates ?? [];
-    // speed over the near-planet run (after the last teleport = vel zeroed)
+    // speed over the near-planet run (after the last teleport = vel zeroed).
+    // Inline the distance math: the evaluate body runs in the PAGE, where
+    // module helpers do not exist (and has no closures — NEAR passed as arg).
+    const near = (p: Vec3, q: Vec3) => Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z);
     let top = 0;
     for (let i = ups.length - 1; i >= 0; i--) {
-      if (dist(ups[i].pos, NEAR) > 900) break; // updates from the run so far
+      if (near(ups[i].pos, nearTarget) > 900) break; // updates from the run so far
       top = Math.max(top, Math.hypot(ups[i].vel.x, ups[i].vel.y, ups[i].vel.z));
     }
     return top;
-  });
+  }, NEAR);
   expect(nearTop, 'no boost inside the clearance band').toBeLessThanOrEqual(121);
   await page.keyboard.up('w');
   await page.keyboard.up('Shift');
