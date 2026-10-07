@@ -4,10 +4,13 @@
 
 The geometry mystery is RESOLVED by measurement, and the verdict is bad for the spec as
 written: with the committed deterministic aim the pre-fix run can never read ≤ 5 — the band
-reads ~33 (PNG 33.2, live 32.4/45.5) for two independent, compounding reasons, so the
-remaining gate is a DECIDE (aim vs threshold) before the 3× post-fix PASS + close-out.
-Steps 1 (aim) and 4 (type/unit gates) are effectively done; step 2 (pre-fix FAIL) is
-blocked on that decision; step 3 (3× post-fix) is ready to run once decided.
+reads ~29-43 (this iteration: PNG 28.6 / live 43.2; prior: PNG 33.2, live 32.4/45.5) for
+two independent, compounding reasons. Step 3 (3× post-fix PASS) is DONE (4/4 consecutive
+passes, 65.8-68.7). The ONLY remaining gate is a DECIDE (aim vs threshold) on the pre-fix
+AC — it is decided nothing else can be done without a human: every fix path (A/B/C below)
+requires changing something the spec forbids me to change unilaterally (assertion, band,
+target). Steps 1 (aim) and 4 (type/unit gates) are effectively done; step 2 (pre-fix FAIL)
+is blocked on that decision.
 
 ## Done
 
@@ -17,7 +20,21 @@ blocked on that decision; step 3 (3× post-fix) is ready to run once decided.
   spec (lines 412-460 of app/tests/e2e/atmosphere-sky.spec.ts — REMOVE before the final
   commit per step 4); WorldManager.ts restored to committed state (constructor line 422 =
   `new THREE.PerspectiveCamera(70, 1, 0.1, CAMERA_FAR)`).
-- (THIS iteration — analysis + measurement only, no e2e runs, no code changes):
+- (THIS iteration — e2e runs + fresh evidence, no code changes to app/):
+  - **Step 3 DONE: 4/4 consecutive post-fix PASSes** (CAMERA_FAR=4000, committed spec
+    unmodified), runs 1-3 = the required triple: central top band mean **66.8 / 68.7 /
+    65.8** (live, bright 83210-83328, regime=atmosphere, heading error 0.4° each run);
+    run 4 (65.8) taken AFTER the pre-fix run to leave the post-fix frame on disk.
+  - **Fresh pre-fix data point (current spec form, far=1000, then `git checkout --`
+    restored clean):** central top band mean **43.2 live / 28.6 PNG** (bright 46255),
+    heading error -1.8°, regime=atmosphere. NOTE: with the current assertion (`> 5`) the
+    pre-fix run PASSES (43.2 > 5) — direct proof the committed AC cannot catch the bug.
+    Same structure as the prior dark-disk frame (bright ~66 sliver rows 0-0.1, dark
+    plateau below) — consistent with the committed HEAD frame (33.2).
+  - Verified `.ralph/measure-png.mjs` still works (ran it on both frames).
+  - Full run logs: `.ralph/logs/t761/` (prefix-run.log, postfix-run2..4.log) — untracked,
+    kept as working-tree evidence.
+- (Prior iteration — analysis + measurement only, no e2e runs, no code changes):
   - Measured the on-disk pre-fix screenshot (`.ralph/screenshots/TASK-76-1.png`, 1280×720,
     the run-2 dark-disk frame) with `.ralph/measure-png.mjs` (NEW this iteration — fixed a
     ×10 bug from the previous throwaway, verified: topBand mean **33.2**, bright 32931):
@@ -61,19 +78,20 @@ blocked on that decision; step 3 (3× post-fix) is ready to run once decided.
 
 ## Working tree
 
-- HEAD = f8ac38e (aim + NaN guards + TEMP attitude log + prior handoff + pre-fix screenshot).
-- THIS iteration's changes (uncommitted until the handoff commit):
+- HEAD = the wip(TASK-76.1) commit recording the 3× post-fix PASS + fresh pre-fix data
+  (b50d6e6 + one): aim + NaN guards + TEMP attitude log + measure tool + post-fix
+  hazy-blue frame (65.8) on disk.
+- THIS iteration's changes (committed in the wip checkpoint):
   - `.ralph/handoff/TASK-76.1.md` — rewritten (this file).
-  - `.ralph/measure-png.mjs` — NEW screenshot-measuring tool (chromium loads the PNG;
-    reports topBand/fullBand means with the exact canvasRegionStats math, per-row profile,
-    centre-column transitions). Verified this iteration. Keep until the task closes;
-    delete in the final commit if the final commit is constrained to spec+screenshot only.
+  - `.ralph/screenshots/TASK-76-1.png` — the FRESH POST-FIX frame (run 4, topBand 65.8
+    live / 66 PNG, uniform hazy blue, no dark disk). The pre-fix dark-disk frames remain
+    in git history (b50d6e6: 33.2).
+  - `.ralph/logs/t761/` — untracked raw run logs (5 runs); evidence only, not committed.
 - Uncommitted pre-existing dirt — do NOT commit: `ralph.config.json`,
   `.ralph/screenshots/TASK-28.1-1.png`, `TASK-70-1.png`, `TASK-72-1.png`, `TASK-73-1.png`.
-- `.ralph/screenshots/TASK-76-1.png` shows as modified vs f8ac38e — it is the run-2 pre-fix
-  dark-disk frame (measured 33.2 this iteration); it is this task's evidence, commit it.
 - `app/src/client/world/WorldManager.ts` is at committed state (CAMERA_FAR=4000 in the
-  constructor, line 422) — re-edit to 1000 for pre-fix runs, then `git checkout --` it.
+  constructor, line 422; verified `git diff` empty after this iteration's pre-fix run) —
+  re-edit to 1000 for pre-fix runs, then `git checkout --` it.
 - The spec (app/tests/e2e/atmosphere-sky.spec.ts) is clean vs HEAD; the TEMP-TASK-76.1 block
   (lines 412-460) IS committed and must be removed in the final commit (step 4).
 - tsc/eslint/vitest were clean at dade5dd; nothing in app/ changed this iteration. No
@@ -82,37 +100,43 @@ blocked on that decision; step 3 (3× post-fix) is ready to run once decided.
 ## Next steps
 
 1. **ESCALATE (DECIDE) first — the spec's pre-fix AC (≤ 5) is unreachable for this seed at
-   60 u local altitude, at ANY nose attitude.** Measured numbers: pre-fix band 33.2 (PNG) /
-   32.4-45.5 (live), post-fix ~75; clipped-region plateau ~11 (not ~3, haze 0.58 not 0.93).
-   The spec forbids changing TOP_BAND / the target / the assertion, and the prior handoff
-   says escalate rather than loosen unilaterally. The options, with my analysis:
+   60 u local altitude, at ANY nose attitude. This is now the ONLY blocker** (step 3 is
+   done). Measured numbers: pre-fix band 28.6-43.2 (PNG 28.6 & 33.2, live 32.4/43.2/45.5),
+   post-fix 65.8-68.7; clipped-region plateau ~11 (not ~3, haze 0.58 not 0.93). With the
+   committed assertion (`> 5`) the pre-fix run PASSES (43.2) — direct proof the committed
+   AC cannot catch the bug, so the AC itself must change. The spec forbids changing
+   TOP_BAND / the target / the assertion, and the prior handoff says escalate rather than
+   loosen unilaterally. The options, with my analysis:
    - **(A) Pitch-down aim at the dome centre + small threshold revision (my recommendation).**
      Aim the nose at (anchor.x, 0, anchor.z) — yaw loop as-is PLUS a pitch loop on 'r'/'f'
      (controls.ts:60, same turnRate 0.8, same hover/drain/retry pattern; assert both
      |yaw err| < 0.12 AND |pitch err| < 0.12 — extend aimProbe to return the pitch error via
      nose.y = 2(qx·qz... ) — see the TEMP attitude block for the quat→nose math). Pre-fix
-     the whole band sits in the clipped cap → band ≈ 11-13; post-fix unchanged (~75).
-     Pre-fix AC becomes "≤ 20" (clean margin both sides: 13 vs 75). This is also arguably
-     the more faithful reading of "aim the nose at the anchor" (the anchor direction is 26°
-     down, not level).
+     the whole band sits in the clipped cap → band ≈ 11-13; post-fix unchanged (65.8-68.7
+     measured). Pre-fix AC becomes "≤ 20" (clean margin both sides: 13 vs 66). This is also
+     arguably the more faithful reading of "aim the nose at the anchor" (the anchor
+     direction is 26° down, not level).
    - **(B) Keep the yaw-only level aim, revise the threshold to pre-fix ≤ 40 / post-fix > 60**
-     (measured 33.2 vs 75). Cheapest, keeps all committed aim work, but a weaker separator
-     and the screenshot still shows the bright sliver.
+     (measured 28.6-43.2 vs 65.8-68.7). Cheapest, keeps all committed aim work, but a
+     weaker separator and the screenshot still shows the bright sliver.
    - **(C) Scan for a low-terrain spot (world y ≤ ~150, terrain ≤ ~90) inside the dome /
      atmosphere regime and keep ≤ 5.** Most faithful to the original AC but changes the
      spot derivation (spec: "do NOT change the target") and may not exist — highest risk.
-   Phrasing for the DECIDE tag: "TASK-76.1: pre-fix ≤5 unreachable at this seed (band 33.2
-   pre / 75 post; clipped cap reads ~11 not ~3 — haze 0.58 at world-y 413, and the dome
-   centre is 26° below a level boresight): (A) pitch-down aim at dome centre + pre-fix AC
-   ≤20 vs (B) keep level yaw aim + AC ≤40 vs (C) low-terrain spot scan to keep ≤5?"
+   Phrasing for the DECIDE tag: "TASK-76.1: pre-fix ≤5 unreachable at this seed (band
+   28.6-43.2 pre / 65.8-68.7 post; clipped cap reads ~11 not ~3 — haze 0.58 at world-y 413,
+   and the dome centre is 26° below a level boresight): (A) pitch-down aim at dome centre
+   + pre-fix AC ≤20 vs (B) keep level yaw aim + AC ≤40 vs (C) low-terrain spot scan to
+   keep ≤5?"
 2. **Once decided, run step 2 for real:** WorldManager.ts line 422 → 1000, run the spec,
    record the central-band value (it must FAIL the revised/original threshold). Expect ~11-13
-   under (A) or ~33 under (B). Restore WorldManager.ts exactly (`git checkout --` + empty
+   under (A) or ~29-43 under (B). Restore WorldManager.ts exactly (`git checkout --` + empty
    `git diff`).
-3. **Step 3 — 3× post-fix PASS** with CAMERA_FAR=4000. Expect ~75 per run (previously
-   measured 74.5 live / 75 PNG). Each run ~1-2 min (own dev server). After the LAST run,
-   `.ralph/screenshots/TASK-76-1.png` must show uniform hazy blue #314b65, not black —
-   eyeball it AND `node ../.ralph/measure-png.mjs` (topBand mean ~75, no dark plateau).
+3. **Step 3 — DONE this iteration: 4/4 consecutive post-fix PASSes** with CAMERA_FAR=4000,
+   committed spec unmodified: central top band mean 66.8 / 68.7 / 65.8 (the required
+   triple) + run 4 (65.8) to leave the post-fix frame on disk; heading error 0.4° each
+   run; regime=atmosphere. `.ralph/screenshots/TASK-76-1.png` on disk is the uniform
+   hazy-blue frame (topBand 66 PNG, no dark disk). If a decision changes the aim (option
+   A), re-run this triple with the new aim.
 4. **Step 4 close-out:** remove the TEMP-TASK-76.1 block (spec lines 412-460), `npx tsc
    --noEmit` (cd app), `npx vitest run src/client/world/world-manager.test.ts` (10/10),
    `git status --short` (only the spec + screenshot + handoff + measure tool in the commit;
