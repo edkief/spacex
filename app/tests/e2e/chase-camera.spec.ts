@@ -164,29 +164,36 @@ test('chase camera: no per-frame ship displacement spike in steady thrust (TASK-
     )
     .toBeLessThan(50);
 
-  // (c) HOLD W until the ship is faster than 100 u/s (per the server's own
-  // 10 Hz broadcast).
+  // (c) HOLD W until the ship is in STEADY thrust: faster than 100 u/s AND
+  // settled at the scout's maxVelocity (120) — the median-deviation rule
+  // measures steady flight, not the 100→120 acceleration ramp.
   await page.keyboard.down('w');
-  const topSpeed = (): Promise<number> =>
+  const latestSpeed = (): Promise<number> =>
     page.evaluate(() => {
       const ups = (window as unknown as { __shipStates?: ShipUpdate[] }).__shipStates ?? [];
-      let top = 0;
-      for (const u of ups) top = Math.max(top, Math.hypot(u.vel.x, u.vel.y, u.vel.z));
-      return top;
+      if (ups.length === 0) return 0;
+      const u = ups[ups.length - 1];
+      return Math.hypot(u.vel.x, u.vel.y, u.vel.z);
     });
   await expect
-    .poll(topSpeed, {
+    .poll(latestSpeed, {
       timeout: 20_000,
       message: 'speed never exceeded 100 u/s while holding W',
     })
     .toBeGreaterThan(100);
+  await expect
+    .poll(latestSpeed, {
+      timeout: 10_000,
+      message: 'speed never settled at the maxVelocity cap while holding W',
+    })
+    .toBeGreaterThanOrEqual(115);
 
-  // (d) Record ~2.2 s of rendered frames (>= 90 at 60 fps; 120 u/s × 2.2 s =
-  // 264 u of travel — plenty of signal for the spike rule).
+  // (d) Record ~3 s of rendered frames (>= 90 even at headless' ~40 fps;
+  // 120 u/s × 3 s = 360 u of travel — plenty of signal for the spike rule).
   await page.evaluate(() => window.__SELF_SHIP__?.startRecording());
   const recStart = Date.now();
   // Keep W held through the whole window (a stray keyup would end thrust).
-  while (Date.now() - recStart < 2_200) {
+  while (Date.now() - recStart < 3_000) {
     await page.waitForTimeout(100);
   }
   const frames = await page.evaluate(
@@ -209,7 +216,6 @@ test('chase camera: no per-frame ship displacement spike in steady thrust (TASK-
   //  - per-frame |shipPos delta| minus speed×dt (the residual: ~0 for a
   //    smooth ship; reported, max + p95);
   //  - camera→ship distance min/max (the chase distance stays ~14 u).
-  expect(frames.length, 'recorded frames').toBeGreaterThanOrEqual(90);
   const disp: number[] = [];
   const dt: number[] = [];
   const camDist: number[] = [];
@@ -232,6 +238,16 @@ test('chase camera: no per-frame ship displacement spike in steady thrust (TASK-
   const maxDev = Math.max(...disp.map((d) => Math.abs(d - med)));
   const meanDps = disp.reduce((a, b) => a + b, 0) / disp.length / (dt.reduce((a, b) => a + b, 0) / dt.length);
 
+  // DIAG (temporary): frame-time stats + the worst displacement outliers
+  const dtSorted = [...dt].sort((x, y) => x - y);
+  const outlier = disp
+    .map((d, i) => ({ d, i, dev: Math.abs(d - med), dt: dt[i] }))
+    .sort((a, b) => b.dev - a.dev)
+    .slice(0, 5)
+    .map((o) => `${o.d.toFixed(2)}u(dev ${o.dev.toFixed(2)}, dt ${(o.dt * 1000).toFixed(1)}ms)`);
+  console.log(
+    `[TASK-77-DIAG] dt ms: min=${(dtSorted[0] * 1000).toFixed(1)} p50=${(pct(dtSorted, 0.5) * 1000).toFixed(1)} p95=${(pct(dtSorted, 0.95) * 1000).toFixed(1)} max=${(dtSorted[dtSorted.length - 1] * 1000).toFixed(1)} worst=${outlier.join(' | ')}`,
+  );
   console.log(
     `[TASK-77] callsign=${callsign} frames=${frames.length} ` +
       `per-frame displacement: median=${med.toFixed(2)} u, max-dev-from-median=${maxDev.toFixed(2)} u (AC <= 3) ` +
@@ -242,7 +258,9 @@ test('chase camera: no per-frame ship displacement spike in steady thrust (TASK-
       `lastCorrection=${reconcile.lastCorrectionDistance?.toFixed(2)} u`,
   );
 
-  // THE acceptance: no per-frame displacement spike > 3 u from the median.
+  // THE acceptance: >= 90 recorded frames, and no per-frame displacement
+  // spike > 3 u from the median (a snapshot yank at 150 u/s is a 10+ u spike).
+  expect(frames.length, 'recorded frames').toBeGreaterThanOrEqual(90);
   expect(maxDev, 'per-frame displacement deviation from the median').toBeLessThanOrEqual(3);
 
   assertClean();

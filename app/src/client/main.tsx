@@ -1002,8 +1002,17 @@ function App() {
           // TASK-72: drive the self-ship mesh (first call spawns it + arms
           // the chase camera) and run the re-entry handoff when a capsule
           // exists (onfoot → chase).
-          world.setSelfShip(selfShipStateFrom(self));
-          world.reEnterShip(self.pos, self.rot ?? { x: 0, y: 0, z: 0, w: 1 });
+          // TASK-77: while the predictor exists the PREDICTION is the only
+          // writer of the mesh/rig pose — the 10 Hz snapshot must not place
+          // the ship (its pose is older than the prediction by latency + up
+          // to one snapshot period: at 150 u/s that is a 10-20 u yank 10×/s).
+          // First snapshot (no predictor yet) and re-entry (predictor was
+          // dropped at disembark) still place from the snapshot.
+          const predicted = shipPredictorRef.current !== null;
+          world.setSelfShip(selfShipStateFrom(self), { drivePose: !predicted });
+          world.reEnterShip(self.pos, self.rot ?? { x: 0, y: 0, z: 0, w: 1 }, {
+            drivePose: !predicted,
+          });
           // TASK-73: SEED the ship predictor from the first self ship
           // snapshot; every later update re-sets the flight context
           // (tracker regime + atmosphere + class) and RECONCILES against
@@ -1547,10 +1556,14 @@ function App() {
     return () => cancelAnimationFrame(raf);
   }, [interactRegistry]);
 
-  // TASK-73: the SHIP prediction loop — one rAF per frame, active only
-  // while the self entity is the player's ship (the predictor exists; the
-  // on-foot / snapshot / destroyed paths clear it). Reads the SHARED
-  // pressed set through the
+  // TASK-73: the SHIP prediction step — registered as the WorldManager's
+  // PRE-RENDER hook (TASK-77): it runs inside the manager's own frame,
+  // before the camera rig update and the render, so every rendered frame
+  // shows THIS frame's prediction (the prediction is the ONLY writer of
+  // the self-ship pose; the old separate rAF raced the render's rAF and
+  // the 10 Hz snapshot writes). Active only while the self entity is the
+  // player's ship (the predictor exists; the on-foot / snapshot /
+  // destroyed paths clear it). Reads the SHARED pressed set through the
   // ACTIVE control scheme (the RegimeWiring's remapper follows the regime
   // tracker: WASD+QE flight, Space VTOL in atmosphere, surface = zero),
   // stamps the SHARED monotonic seq (20 Hz / on-change cadence), steps the
@@ -1564,16 +1577,12 @@ function App() {
   // (atmosphere gravity would sink it off the pad); only a real control
   // demand is sent — the next snapshot reconciles onto the undock.
   React.useEffect(() => {
-    let raf = 0;
-    let last = performance.now();
-    const loop = (): void => {
-      raf = requestAnimationFrame(loop);
-      const now = performance.now();
-      const dt = Math.min(0.1, (now - last) / 1000);
-      last = now;
+    const body = (nowMs: number, dtSec: number): void => {
       const p = shipPredictorRef.current;
       const world = worldRef.current;
       if (!p || !world) return;
+      const now = nowMs;
+      const dt = Math.min(0.1, dtSec);
       const docked = dockedIndicator();
       const pressed = effectiveFlightPressed(pressedRef.current, {
         chartOpen: chartOpenRef.current,
@@ -1599,12 +1608,20 @@ function App() {
         p.step(dt, now);
       }
       // The mesh + chase camera track the prediction at render rate
-      // (smooth 60 fps, not the 10 Hz snapshot feed).
+      // (smooth 60 fps, not the 10 Hz snapshot feed) — this write is the
+      // ONLY pose write the mesh/rig sees while the predictor exists.
       const st = p.getState();
       world.setSelfShipTransform(st.pos, st.quat);
     };
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
+    // TASK-77: register the step on the CURRENT world (a world re-creation
+    // re-registers it from the world-creation effect via flightStepRef);
+    // unregister on teardown / re-registration.
+    flightStepRef.current = body;
+    worldRef.current?.setFrameHook(body);
+    return () => {
+      flightStepRef.current = null;
+      worldRef.current?.setFrameHook(null);
+    };
   }, [regimeWiring]);
 
   // TASK-8: the warp controller. The chart dispatches 'warp-started' on the
