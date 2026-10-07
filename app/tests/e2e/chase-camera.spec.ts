@@ -16,8 +16,11 @@ import { collectErrors, uniqueCallsign } from './helpers';
  * has rogue AI ships) → hold W until speed > 100 u/s → record ~2 s of frames.
  *
  * Acceptance: over >= 90 recorded frames in steady thrust, the per-frame
- * ship displacement never deviates from the MEDIAN per-frame displacement by
- * more than 3 u (a snapshot yank at 150 u/s shows as a 10+ u spike).
+ * ship displacement never deviates by more than 3 u from the expectation of
+ * a perfectly smooth ship: median(per-frame velocity) × per-frame dt. The
+ * bound is dt-normalized because headless frame times vary (20-40 ms), so
+ * raw per-frame displacement at 120 u/s legitimately varies ~2.4-4.8 u.
+ * A snapshot yank of 10-20 u blows this bound by far.
  */
 
 interface Vec3 {
@@ -54,6 +57,35 @@ interface ReconcileStats {
   rewind: number;
   snap: number;
   lastCorrectionDistance: number | null;
+}
+
+/** A timestamped reconcile event (t = performance.now at the 10 Hz bridge). */
+interface ReconcileEvent {
+  mode: 'blend' | 'rewind' | 'snap';
+  dist: number;
+  t: number;
+}
+
+/**
+ * Wrap recordReconcile so every event is timestamped (the recorder itself
+ * only keeps counts). A reconcile event applies to the NEXT rendered frame,
+ * so a spike on frame i correlates with an event in (t[i-1] - 150ms, t[i]].
+ */
+function tapReconcile(): void {
+  const w = window as unknown as {
+    __SELF_SHIP__?: {
+      recordReconcile: (mode: 'blend' | 'rewind' | 'snap', dist: number) => void;
+    };
+    __reconcileEvents?: ReconcileEvent[];
+  };
+  const dbg = w.__SELF_SHIP__;
+  if (!dbg) return;
+  w.__reconcileEvents = [];
+  const orig = dbg.recordReconcile;
+  dbg.recordReconcile = (mode, dist) => {
+    w.__reconcileEvents?.push({ mode, dist, t: performance.now() });
+    orig.call(dbg, mode, dist);
+  };
 }
 
 /**
@@ -190,15 +222,16 @@ test('chase camera: no per-frame ship displacement spike in steady thrust (TASK-
 
   // (d) Record ~3 s of rendered frames (>= 90 even at headless' ~40 fps;
   // 120 u/s × 3 s = 360 u of travel — plenty of signal for the spike rule).
+  await page.evaluate(tapReconcile);
   await page.evaluate(() => window.__SELF_SHIP__?.startRecording());
   const recStart = Date.now();
   // Keep W held through the whole window (a stray keyup would end thrust).
   while (Date.now() - recStart < 3_000) {
     await page.waitForTimeout(100);
   }
-  const frames = await page.evaluate(
+  const frames = (await page.evaluate(
     () => window.__SELF_SHIP__?.stopRecording() ?? [],
-  ) as FrameSample[];
+  )) as FrameSample[];
   const reconcile = (await page.evaluate(() => window.__SELF_SHIP__?.reconcile)) as ReconcileStats;
   const updates = (await page.evaluate(
     () => (window as unknown as { __shipStates?: ShipUpdate[] }).__shipStates,
@@ -211,8 +244,9 @@ test('chase camera: no per-frame ship displacement spike in steady thrust (TASK-
   await page.keyboard.up('w');
 
   // (e) Analyse (the step-2 measurement, now asserting):
-  //  - per-frame |shipPos delta| vs the MEDIAN per-frame delta — a snapshot
-  //    yank shows as a 10+ u deviation (the AC: never more than 3 u);
+  //  - per-frame |shipPos delta| vs vMed × dt (dt-normalized: headless frame
+  //    times vary 20-40 ms, so raw displacement can't hold a fixed 3 u bound
+  //    at 120 u/s) — a snapshot yank shows as a 10+ u deviation (AC <= 3);
   //  - per-frame |shipPos delta| minus speed×dt (the residual: ~0 for a
   //    smooth ship; reported, max + p95);
   //  - camera→ship distance min/max (the chase distance stays ~14 u).
@@ -234,34 +268,49 @@ test('chase camera: no per-frame ship displacement spike in steady thrust (TASK-
     return v;
   };
   const residual = disp.map((d, i) => Math.abs(d - speedAt(frames[i + 1].t) * dt[i]));
-  const med = median(disp);
-  const maxDev = Math.max(...disp.map((d) => Math.abs(d - med)));
-  const meanDps = disp.reduce((a, b) => a + b, 0) / disp.length / (dt.reduce((a, b) => a + b, 0) / dt.length);
+  // dt-normalized velocity (u/s) of a perfectly smooth ship; compare each
+  // frame's displacement against vMed × dt (NOT against the raw median
+  // displacement — frame times vary, so raw displacement is not comparable).
+  const vMed = median(disp.map((d, i) => d / dt[i]));
+  const devs = disp.map((d, i) => Math.abs(d - vMed * dt[i]));
+  const maxDev = Math.max(...devs);
+  const meanDps =
+    disp.reduce((a, b) => a + b, 0) / disp.length / (dt.reduce((a, b) => a + b, 0) / dt.length);
 
-  // DIAG (temporary): frame-time stats + the worst displacement outliers
-  const dtSorted = [...dt].sort((x, y) => x - y);
-  const outlier = disp
-    .map((d, i) => ({ d, i, dev: Math.abs(d - med), dt: dt[i] }))
-    .sort((a, b) => b.dev - a.dev)
-    .slice(0, 5)
-    .map((o) => `${o.d.toFixed(2)}u(dev ${o.dev.toFixed(2)}, dt ${(o.dt * 1000).toFixed(1)}ms)`);
-  console.log(
-    `[TASK-77-DIAG] dt ms: min=${(dtSorted[0] * 1000).toFixed(1)} p50=${(pct(dtSorted, 0.5) * 1000).toFixed(1)} p95=${(pct(dtSorted, 0.95) * 1000).toFixed(1)} max=${(dtSorted[dtSorted.length - 1] * 1000).toFixed(1)} worst=${outlier.join(' | ')}`,
-  );
+  // Correlate the worst frame with a reconcile event: a correction applies
+  // to the NEXT rendered frame, so the event window is (t[i-1]-150ms, t[i]].
+  const events = (await page.evaluate(
+    () => (window as unknown as { __reconcileEvents?: ReconcileEvent[] }).__reconcileEvents ?? [],
+  )) as ReconcileEvent[];
+  const worst = devs.length > 0 ? devs.indexOf(maxDev) : -1;
+  const badEvents =
+    worst >= 0
+      ? events.filter(
+          (e) => e.mode !== 'blend' && e.t > frames[worst].t - 150 && e.t <= frames[worst + 1].t,
+        )
+      : [];
+
   console.log(
     `[TASK-77] callsign=${callsign} frames=${frames.length} ` +
-      `per-frame displacement: median=${med.toFixed(2)} u, max-dev-from-median=${maxDev.toFixed(2)} u (AC <= 3) ` +
+      `per-frame displacement: vMed=${vMed.toFixed(1)} u/s, max-dev-vs-vMed*dt=${maxDev.toFixed(2)} u (AC <= 3) ` +
       `implied speed=${meanDps.toFixed(1)} u/s ` +
       `residual |disp - speed*dt|: max=${Math.max(...residual).toFixed(2)} u, p95=${pct(residual, 0.95).toFixed(2)} u ` +
       `cam->ship distance: min=${Math.min(...camDist).toFixed(1)} u, max=${Math.max(...camDist).toFixed(1)} u ` +
       `reconcile: blend=${reconcile.blend} rewind=${reconcile.rewind} snap=${reconcile.snap} ` +
-      `lastCorrection=${reconcile.lastCorrectionDistance?.toFixed(2)} u`,
+      `lastCorrection=${reconcile.lastCorrectionDistance?.toFixed(2)} u ` +
+      `worst frame: dev=${maxDev.toFixed(2)} u (frame ${worst}, dt ${(worst >= 0 ? dt[worst] * 1000 : 0).toFixed(1)} ms) ` +
+      `rewind/snap events in its window: ${badEvents.map((e) => `${e.mode} ${e.dist.toFixed(1)}u`).join(', ') || 'none'}`,
   );
 
   // THE acceptance: >= 90 recorded frames, and no per-frame displacement
-  // spike > 3 u from the median (a snapshot yank at 150 u/s is a 10+ u spike).
+  // deviates by > 3 u from the dt-normalized expectation vMed × dt
+  // (a snapshot yank at 150 u/s is a 10+ u spike).
   expect(frames.length, 'recorded frames').toBeGreaterThanOrEqual(90);
-  expect(maxDev, 'per-frame displacement deviation from the median').toBeLessThanOrEqual(3);
+  expect(
+    maxDev,
+    `per-frame displacement deviation from vMed*dt (worst frame ${worst}; ` +
+      `correlated rewind/snap: ${badEvents.map((e) => `${e.mode} ${e.dist.toFixed(1)}u`).join(', ') || 'none'})`,
+  ).toBeLessThanOrEqual(3);
 
   assertClean();
   await context.close();
