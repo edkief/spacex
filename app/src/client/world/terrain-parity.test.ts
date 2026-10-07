@@ -34,9 +34,7 @@ const star = generateStars(SEED)[0];
 const system = generateSystem(SEED, star.id);
 const planet = system.planets[0];
 const anchor = planetAnchor(0);
-const pad: PadInfo | undefined = padsForSystem(SEED, system).find(
-  (p) => p.planetId === planet.id,
-);
+const pad: PadInfo | undefined = padsForSystem(SEED, system).find((p) => p.planetId === planet.id);
 
 /** All sampled points are exact grid vertices (multiples of CELL_SIZE_M). */
 function gridVertex(m: number): boolean {
@@ -97,7 +95,9 @@ describe('client terrain == server terrain (TASK-84 parity)', () => {
   it('samples real (varying) terrain, not a flat degenerate field', () => {
     const ctx = new TerrainContext(SEED, planet);
     const hs = new Set<number>();
-    for (const p of samplePoints().filter((p) => Math.hypot(p.x - pad!.pos.x, p.z - pad!.pos.z) > 100)) {
+    for (const p of samplePoints().filter(
+      (p) => Math.hypot(p.x - pad!.pos.x, p.z - pad!.pos.z) > 100,
+    )) {
       ctx.update(p.x, p.z);
       hs.add(ctx.heightAt(p.x, p.z));
     }
@@ -138,7 +138,10 @@ describe('client terrain == server terrain (TASK-84 parity)', () => {
   });
 
   it('the pad disc renders FLAT at the sim pad height, blending out to 30 m', () => {
-    const built = buildChunk(Math.floor(pad!.pos.x / CHUNK_METERS), Math.floor(pad!.pos.z / CHUNK_METERS));
+    const built = buildChunk(
+      Math.floor(pad!.pos.x / CHUNK_METERS),
+      Math.floor(pad!.pos.z / CHUNK_METERS),
+    );
     const pos = built.built.geometries.near!.getAttribute('position').array as Float32Array;
     const hAt = (x: number, z: number): number => {
       const cX = Math.floor(pad!.pos.x / CHUNK_METERS);

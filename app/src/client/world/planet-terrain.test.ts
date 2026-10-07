@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { MOUNT_RANGE_M, MOUNT_RELEASE_RANGE_M, chunkInSurface, terrainPlanetFor } from './planet-terrain';
+import {
+  MOUNT_RANGE_M,
+  MOUNT_RELEASE_RANGE_M,
+  chunkInSurface,
+  terrainPlanetFor,
+} from './planet-terrain';
 import { PLANET_SURFACE_RADIUS_M } from '@shared/galaxy/planets';
 import type { Planet, SystemGen } from '@shared/galaxy/types';
 
@@ -31,7 +36,11 @@ const SYSTEM: SystemGen = {
   systemId: 'sys-terrain-unit',
   name: 'Terrain unit system',
   star: { class: 'G', name: 'Terrainstar' },
-  planets: [makePlanet('p-land-0', true), makePlanet('p-gas-1', false), makePlanet('p-land-2', true)],
+  planets: [
+    makePlanet('p-land-0', true),
+    makePlanet('p-gas-1', false),
+    makePlanet('p-land-2', true),
+  ],
 };
 
 describe('terrainPlanetFor (TASK-84 mount target)', () => {

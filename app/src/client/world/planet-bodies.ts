@@ -92,10 +92,7 @@ export function buildPlanetBodies(system: SystemGen): PlanetBody[] {
     );
     slab.position.y = ISLAND_TOP_Y_M - ISLAND_SLAB_HEIGHT_M / 2;
     group.add(slab);
-    const slabTop = new THREE.Mesh(
-      new THREE.CircleGeometry(PLANET_SURFACE_RADIUS_M, 48),
-      slabMat,
-    );
+    const slabTop = new THREE.Mesh(new THREE.CircleGeometry(PLANET_SURFACE_RADIUS_M, 48), slabMat);
     slabTop.rotation.x = -Math.PI / 2; // flat, facing up
     slabTop.position.y = ISLAND_TOP_Y_M;
     group.add(slabTop);

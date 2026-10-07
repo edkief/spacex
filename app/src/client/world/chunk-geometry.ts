@@ -111,13 +111,7 @@ export class ChunkBuild {
   private readonly pad: PadInfo | null;
   private readonly padActive: boolean;
 
-  constructor(
-    seed: string,
-    planet: Planet,
-    chunkX: number,
-    chunkZ: number,
-    pad?: PadInfo,
-  ) {
+  constructor(seed: string, planet: Planet, chunkX: number, chunkZ: number, pad?: PadInfo) {
     this.seed = seed;
     this.planet = planet;
     this.chunkX = chunkX;
@@ -227,12 +221,9 @@ export class ChunkBuild {
       for (let x = 0; x < NEAR_GRID; x++) {
         const xL = x > 0 ? x - 1 : x;
         const xR = x < NEAR_GRID - 1 ? x + 1 : x;
-        const dx =
-          (this.blendedAt(xR, z) - this.blendedAt(xL, z)) /
-          ((xR - xL) * CELL_SIZE_M || 1);
+        const dx = (this.blendedAt(xR, z) - this.blendedAt(xL, z)) / ((xR - xL) * CELL_SIZE_M || 1);
         const dz =
-          (this.blendedAt(x, zDn) - this.blendedAt(x, zUp)) /
-          ((zDn - zUp) * CELL_SIZE_M || 1);
+          (this.blendedAt(x, zDn) - this.blendedAt(x, zUp)) / ((zDn - zUp) * CELL_SIZE_M || 1);
         const len = Math.hypot(dx, 1, dz);
         const i = (z * NEAR_GRID + x) * 3;
         this.nearPos[i] = x * CELL_SIZE_M;

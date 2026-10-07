@@ -72,9 +72,7 @@ describe('buildPlanetBodies (TASK-83)', () => {
       const circle = body.slabTop.geometry as import('three').CircleGeometry;
       expect(circle.parameters.radius).toBeCloseTo(PLANET_SURFACE_RADIUS_M, 6);
       expect(body.slabTop.position.y).toBeCloseTo(-2, 6);
-      expect(body.slabTop.material).toBe(
-        (body.group.children[0] as import('three').Mesh).material,
-      );
+      expect(body.slabTop.material).toBe((body.group.children[0] as import('three').Mesh).material);
       expect(body.slabTop.visible).toBe(true);
     }
   });

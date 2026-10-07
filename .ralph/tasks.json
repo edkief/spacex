@@ -751,7 +751,7 @@
     "title": "True-scale system view (3/4): mount the streamed terrain in the live game, in the server's coordinate frame",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-84.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-85",

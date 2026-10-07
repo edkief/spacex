@@ -367,7 +367,8 @@ describe('ChunkStreamer chunkFilter + pad (TASK-84)', () => {
     }
     // Nothing outside the filter was ever cached, even in the far window.
     for (const a of activeSet(160, 160, 0)) {
-      if (!filter(a.chunkX, a.chunkZ)) expect(streamer.isReady(chunkKey(a.chunkX, a.chunkZ))).toBe(false);
+      if (!filter(a.chunkX, a.chunkZ))
+        expect(streamer.isReady(chunkKey(a.chunkX, a.chunkZ))).toBe(false);
     }
   });
 

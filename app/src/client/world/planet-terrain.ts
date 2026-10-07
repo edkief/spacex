@@ -47,10 +47,7 @@ export function terrainPlanetFor(
 ): string | null {
   const anchors = system.planets.map((planet, index) => ({
     planet,
-    dist: Math.hypot(
-      pos.x - planetAnchor(index).x,
-      pos.z - planetAnchor(index).z,
-    ),
+    dist: Math.hypot(pos.x - planetAnchor(index).x, pos.z - planetAnchor(index).z),
   }));
   if (current !== null) {
     const cur = anchors.find((a) => a.planet.id === current);

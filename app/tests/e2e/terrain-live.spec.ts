@@ -132,11 +132,7 @@ test('streamed terrain mounts in the live game; the pad is flush with the ground
     await client.next((m) => m.type === 'enter_system', 'enter_system (home)');
     if (target.systemId !== session.homeSystemId) {
       send('warp', { destinationSystemId: target.systemId });
-      await client.next(
-        (m) => m.type === 'warp_arrived',
-        'warp_arrived (pad system)',
-        10_000,
-      );
+      await client.next((m) => m.type === 'warp_arrived', 'warp_arrived (pad system)', 10_000);
     }
     client.close();
   }
