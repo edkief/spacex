@@ -2,143 +2,157 @@
 
 ## Status
 
-The aim is deterministic and converged (0.4° / -1.8° in this iteration's runs — step 1 is
-effectively done), and the NaN-frame guards are committed — BUT step 2 (pre-fix FAIL
-re-confirmation) did NOT reproduce: with the constructor at `far = 1000` the spec now
-PASSES the band assert (live means 45.5 and 32.4, two runs) instead of failing with ≤ 5.
-The earlier 0.0 pre-fix readings (commit 22eab45) came from the pre-VTOL-hover aim, which
-left the ship non-level; with the level aim the rendered black region no longer covers the
-central TOP_BAND. Root-causing that geometry mismatch is the one remaining problem before
-the 3× post-fix PASS + close-out.
+The geometry mystery is RESOLVED by measurement, and the verdict is bad for the spec as
+written: with the committed deterministic aim the pre-fix run can never read ≤ 5 — the band
+reads ~33 (PNG 33.2, live 32.4/45.5) for two independent, compounding reasons, so the
+remaining gate is a DECIDE (aim vs threshold) before the 3× post-fix PASS + close-out.
+Steps 1 (aim) and 4 (type/unit gates) are effectively done; step 2 (pre-fix FAIL) is
+blocked on that decision; step 3 (3× post-fix) is ready to run once decided.
 
 ## Done
 
-- (Prior iterations, committed — all still in place): VTOL-hover closed-loop yaw aim with
-  wall-clock deadline, NaN-probe retry, server-drain 300 ms settle, hard |err| < 0.12 rad
-  assert; client NaN-frame guards (prediction.ts / WorldManager.ts / shipStateFromWire) +
-  unit tests; all earlier temp diagnostics removed.
-- (THIS iteration):
-  - Ran the pre-fix check twice with `new THREE.PerspectiveCamera(70, 1, 0.1, 1000)`:
-    both PASSED. Run 1: aim 0.4°, central band 45.5 (bright 45854), full band 57.0.
-    Run 2: aim -1.8°, central band 32.4 (bright 31666), full band 57.6. No FAIL recorded.
-  - Added a TEMP-TASK-76.1 attitude log to the spec (marked `TEMP-TASK-76.1 (remove before
-    commit)`, sits between the aim assert and `keyboard.up(' ')`): prints dome centre,
-    spot, and full rendered attitude via `__SELF_SHIP__.probe()`. Run 2 output:
-    pitch=0, roll=0, noseHeading=-163.98°, anchorDepression=26.37°, anchorDist=886.6,
-    shipY≈394 (spot y=413). Ship is perfectly LEVEL and yaw-aimed (dome centre is ~1.8°
-    left of the nose, 26.4° BELOW the boresight).
-  - Measured the run-1 screenshot (`.ralph/screenshots/TASK-76-1.png`, the dark-disk
-    pre-fix frame) with throwaway chromium-pixel scripts (deleted): same DOM-fraction
-    band mapping as `canvasRegionStats` reads **13.7** (not the live 45.5; live ≠ PNG,
-    see Dead ends). The frame shows a big dark starry DISK filling most of the view with
-    a bright haze RING around it. The traced disk edge in the centre column sits at
-    v≈67 px = ~15.7° ABOVE the boresight, i.e. ~42° from the dome-centre direction.
+- (Prior iterations, committed at f8ac38e — all still in place): VTOL-hover closed-loop yaw
+  aim (wall-clock deadline, NaN-probe retry, 300 ms server-drain settle, hard |err| < 0.12
+  rad assert); client NaN-frame guards + unit tests; TEMP-TASK-76.1 attitude log in the
+  spec (lines 412-460 of app/tests/e2e/atmosphere-sky.spec.ts — REMOVE before the final
+  commit per step 4); WorldManager.ts restored to committed state (constructor line 422 =
+  `new THREE.PerspectiveCamera(70, 1, 0.1, CAMERA_FAR)`).
+- (THIS iteration — analysis + measurement only, no e2e runs, no code changes):
+  - Measured the on-disk pre-fix screenshot (`.ralph/screenshots/TASK-76-1.png`, 1280×720,
+    the run-2 dark-disk frame) with `.ralph/measure-png.mjs` (NEW this iteration — fixed a
+    ×10 bug from the previous throwaway, verified: topBand mean **33.2**, bright 32931):
+    - Rows 0→0.1 (37.5°→30° above boresight): BRIGHT, ~66, color **#2b4259** — the VISIBLE
+      part of the dome (haze ~0.58, see below).
+    - Rows 0.15→0.4 (30°→22.5° above boresight and below): DARK DISK, plateau **lum ~11**,
+      color **#060a11** — the clipped cap (skybox at opacity 1-haze over black clear).
+    - Center-column dark/bright transition at y=72 (frac 0.10) = 30° above the boresight.
+  - Measured the committed post-fix screenshot (`git show dade5dd:.ralph/screenshots/TASK-76-1.png`):
+    uniform dome haze **#314b65, lum ~75** everywhere in the frame (topBand ~75).
+  - Confirmed from code (no runs needed): nothing ever overrides `camera.far` (constructor
+    is the live far plane — only CameraRig.ts:115 sets fov, resize() sets aspect);
+    `CAMERA_FOV = 75` (vertical, canvas fills the page — so DOM-fraction rows map to
+    ±37.5°); the atmosphere control scheme HAS pitch: `pitch: ['r','f']` in
+    src/client/input/controls.ts:60 (r = nose down, f = nose up), same turnRate as yaw.
+  - **Root cause, two compounding spec-assumption failures (both measured):**
+    1. **The cap edge misses the band top for a LEVEL nose.** Attitude at measurement
+       (committed TEMP log, run 2): pitch=0, roll=0, dome centre 26.4° BELOW the boresight
+       (anchorDepression=26.37°, anchorDist=886.6, shipY≈394, spot y=413). The far=1000
+       clip cap is a ~63°-half-angle cone centred 26.4° below the boresight, so in the
+       centre column it reaches only ~30-37° above the boresight — the band spans 15°-37.5°,
+       so its top third sits over the visible (bright ~66) dome. Band mean = ~1/3 bright +
+       ~2/3 dark ≈ 33.
+    2. **The clipped region reads ~11, not ~3.** The shared hazeFactor uses WORLD-y altitude
+       (flat client terrain, anchors at y=0 — atmosphere-view.ts:68 `altitude = pos.y`), not
+       local-above-terrain altitude. This seed's densest planet has the pad at y=229 and the
+       spot terrain ≈ 353, so "60 u local" = world y ≈ 413 → boundary 0.587 → **haze ≈ 0.58**
+       (the spec's "haze 0.93" assumed world y = 60). The clipped cap renders the skybox at
+       opacity 1-0.58 = 0.42 over the black clear → lum ≈ 11-14, never ≤ 5. (Verified:
+       visible-dome math mix(#0c131f,#6fa8dc,0.58) over skybox·0.42 = (43,66,90) ≈ measured
+       #2b4259 exactly.)
+  - **Key consequence (why option A alone is not enough):** aiming the nose DOWN at the dome
+    centre would put the ENTIRE band inside the clipped cap (cap radius ~63° > band top
+    37.5°), but the band would then read ~11-13 (skybox at 0.42 + stars) — STILL > 5.
+    Reaching ≤ 5 at the current spot is impossible at any nose attitude (needs haze ≥ 0.85,
+    i.e. world y ≤ ~150, terrain ≤ ~90 there — unverified). The pre-fix AC "≤ 5" and the
+    aim style must change together, or the threshold must be revised. See Next steps.
+  - Also resolved the old "live 45.5 vs PNG 13.7" mismatch: 13.7 was a mis-mapped earlier
+    measurement; the exact band math on the same run's PNG reads 33.2 ≈ live 32.4. There is
+    no buffer-timing problem — live readPixels and the PNG agree.
 
 ## Working tree
 
-- Committed at dade5dd (aim + guards + post-fix screenshot); this handoff commit adds the
-  spec's TEMP attitude log.
-- UNCOMMITTED: `app/tests/e2e/atmosphere-sky.spec.ts` (only change = the TEMP-TASK-76.1
-  block; keep it — it's the diagnostic the next run needs; REMOVE it before the final
-  commit per step 4).
-- `app/src/client/world/WorldManager.ts` was RESTORED to the committed state this
-  iteration (constructor line 422 reads `new THREE.PerspectiveCamera(70, 1, 0.1, CAMERA_FAR)`
-  again) — re-edit it to 1000 for the pre-fix run.
-- Pre-existing dirt — do NOT commit: `ralph.config.json`,
+- HEAD = f8ac38e (aim + NaN guards + TEMP attitude log + prior handoff + pre-fix screenshot).
+- THIS iteration's changes (uncommitted until the handoff commit):
+  - `.ralph/handoff/TASK-76.1.md` — rewritten (this file).
+  - `.ralph/measure-png.mjs` — NEW screenshot-measuring tool (chromium loads the PNG;
+    reports topBand/fullBand means with the exact canvasRegionStats math, per-row profile,
+    centre-column transitions). Verified this iteration. Keep until the task closes;
+    delete in the final commit if the final commit is constrained to spec+screenshot only.
+- Uncommitted pre-existing dirt — do NOT commit: `ralph.config.json`,
   `.ralph/screenshots/TASK-28.1-1.png`, `TASK-70-1.png`, `TASK-72-1.png`, `TASK-73-1.png`.
-- No background processes (the e2e fixture self-tears-down).
-- tsc/eslint were clean at dade5dd; the TEMP block is type-checked by the same `tsc`
-  (spec is in the tsconfig), but re-run before committing anything.
+- `.ralph/screenshots/TASK-76-1.png` shows as modified vs f8ac38e — it is the run-2 pre-fix
+  dark-disk frame (measured 33.2 this iteration); it is this task's evidence, commit it.
+- `app/src/client/world/WorldManager.ts` is at committed state (CAMERA_FAR=4000 in the
+  constructor, line 422) — re-edit to 1000 for pre-fix runs, then `git checkout --` it.
+- The spec (app/tests/e2e/atmosphere-sky.spec.ts) is clean vs HEAD; the TEMP-TASK-76.1 block
+  (lines 412-460) IS committed and must be removed in the final commit (step 4).
+- tsc/eslint/vitest were clean at dade5dd; nothing in app/ changed this iteration. No
+  background processes.
 
 ## Next steps
 
-Verification only, no fix work until the geometry question is answered.
-
-1. **Resolve the geometry mystery first (why the pre-fix frame is not dark in the band).**
-   Facts: dome centre = (anchor.x, **0**, anchor.z) — `planetAnchor` returns only {x,z}
-   (planets.ts) and WorldManager.setAtmosphereView sets the dome mesh y to 0; dome radius
-   1010 u; camera ≈ ship - 14·nose + 4·up (pose-math.ts chasePose, CHASE_BEHIND 14,
-   CHASE_HEIGHT 4); ship→dome-centre distance ≈ 887 u (horiz 794, vertical 412); band
-   spans 14.5°-35° ABOVE the boresight.
-   - With far=1000 the clipped cap is a cone of ~63° half-angle centred 26.4° BELOW the
-     boresight → its centre-column top would be ~36.6° above the boresight, i.e. the ENTIRE
-     TOP_BAND (and the top of the frame) should be clipped/dark. The screenshot shows the
-     dark disk edge at only ~15.7° above the boresight in the centre column → the rendered
-     dark region is ~20° smaller than the predicted clip circle. That is inconsistent with
-     ANY far plane ≥ 1000 for a 1010 u dome at 887 u (verified by ray math). So either the
-     dark disk is NOT the far-clip cap of the dome, or the far plane in effect is not the
-     constructor value.
-   - Discriminating runs (each ~1 min, far variants in WorldManager.ts line 422):
-     (a) far=500: if the disk shrinks → the constructor IS the live far plane and the disk
-         is a clip artifact of something else with a larger radius; if the disk is
-         unchanged → the live far plane is not this camera's.
-     (b) far=2000: the disk should grow/shrink the opposite way (or vanish if it is the
-         1010 u dome's clip).
-     (c) If still ambiguous, add a TEMP in-page probe (page.evaluate) logging
-         `worldManager`-level facts: camera.position, camera.far, dome mesh
-         position/visible/haze (the dome material uniforms uHaze/uAtmoColor are exposed on
-         `material.uniforms` — reach via scene traversal, or extend atmosphere-debug.ts),
-         and compare camera.position to the ship's spot.
-   - Also check whether the dark starry disk is the PLANET SURFACE or a background artifact
-     rather than the dome: it is a smooth circle offset ~11° left of frame centre, and its
-     "stars" are the skybox — a surface mesh would occlude the skybox, so verify by
-     teleporting the aim spot to the opposite side of the dome (or 100 u off-centre in the
-     other direction) and seeing whether the disk follows the ANCHOR or the TERRAIN.
-   - Live-vs-PNG mismatch (45.5 vs 13.7 for the same run's band): the renderer runs with
-     `preserveDrawingBuffer: true` (WorldManager.ts ~line 414, comment says e2e readPixels
-     depends on it), so the buffer is preserved — yet live readPixels and the PNG of the
-     same run disagree. Suspect SwiftShader buffer presentation timing (readPixels catching
-     a mid-swap state) — re-run with a `page.waitForTimeout(500)` inserted between
-     `canvasRegionStats` and `page.screenshot` and compare which one moves. Decide which
-     signal the band value in the commit message should come from (the SPEC asserts the
-     live value; the AC threshold is 5).
-2. **Then re-attempt step 2 properly**: constructor → 1000, run the spec, record the
-   central-band value; it must FAIL (≤ 5) for the AC. If the mystery shows the spec's
-   band/geometry assumption ("cap spans ~67° from the nose, band spans 14-38° → band fully
-   inside the cap") is simply wrong for a LEVEL nose — which the current evidence suggests —
-   that is a SPEC problem, not an aim problem: the spec forbids changing TOP_BAND / the
-   target / the assertion, and step 1 says yaw only (no pitch). In that case ESCALATE
-   (DECIDE) with the measured numbers rather than loosening the assertion: the options are
-   (A) allow a pitch-down aim at the dome centre (dome centre is 26.4° below horizontal —
-   aiming there would put the whole cap in the top band pre-fix) vs (B) accept the current
-   measured pre-fix value (13.7 PNG / 32-45 live) and revise the AC threshold. Do NOT pick
-   one unilaterally.
-3. **3× post-fix PASS (step 3)** as per spec, with the constructor restored to CAMERA_FAR
-   (currently correct). Expect ~66-150 (instrumented runs read 74.5 live / 66.7 PNG).
-   Screenshot after the last run must show hazy blue sky, not black.
-4. **Close-out (step 4)**: remove the TEMP-TASK-76.1 block from the spec, `npx tsc
-   --noEmit`, `npx vitest run src/client/world/world-manager.test.ts` (10/10), commit
-   (spec + screenshot + handoff per the spec's step 4, Conventional Commit, note the client
-   NaN-frame fix as the minimal src change), delete THIS handoff, LOG.md entry,
-   `passes: true` bookkeeping.
+1. **ESCALATE (DECIDE) first — the spec's pre-fix AC (≤ 5) is unreachable for this seed at
+   60 u local altitude, at ANY nose attitude.** Measured numbers: pre-fix band 33.2 (PNG) /
+   32.4-45.5 (live), post-fix ~75; clipped-region plateau ~11 (not ~3, haze 0.58 not 0.93).
+   The spec forbids changing TOP_BAND / the target / the assertion, and the prior handoff
+   says escalate rather than loosen unilaterally. The options, with my analysis:
+   - **(A) Pitch-down aim at the dome centre + small threshold revision (my recommendation).**
+     Aim the nose at (anchor.x, 0, anchor.z) — yaw loop as-is PLUS a pitch loop on 'r'/'f'
+     (controls.ts:60, same turnRate 0.8, same hover/drain/retry pattern; assert both
+     |yaw err| < 0.12 AND |pitch err| < 0.12 — extend aimProbe to return the pitch error via
+     nose.y = 2(qx·qz... ) — see the TEMP attitude block for the quat→nose math). Pre-fix
+     the whole band sits in the clipped cap → band ≈ 11-13; post-fix unchanged (~75).
+     Pre-fix AC becomes "≤ 20" (clean margin both sides: 13 vs 75). This is also arguably
+     the more faithful reading of "aim the nose at the anchor" (the anchor direction is 26°
+     down, not level).
+   - **(B) Keep the yaw-only level aim, revise the threshold to pre-fix ≤ 40 / post-fix > 60**
+     (measured 33.2 vs 75). Cheapest, keeps all committed aim work, but a weaker separator
+     and the screenshot still shows the bright sliver.
+   - **(C) Scan for a low-terrain spot (world y ≤ ~150, terrain ≤ ~90) inside the dome /
+     atmosphere regime and keep ≤ 5.** Most faithful to the original AC but changes the
+     spot derivation (spec: "do NOT change the target") and may not exist — highest risk.
+   Phrasing for the DECIDE tag: "TASK-76.1: pre-fix ≤5 unreachable at this seed (band 33.2
+   pre / 75 post; clipped cap reads ~11 not ~3 — haze 0.58 at world-y 413, and the dome
+   centre is 26° below a level boresight): (A) pitch-down aim at dome centre + pre-fix AC
+   ≤20 vs (B) keep level yaw aim + AC ≤40 vs (C) low-terrain spot scan to keep ≤5?"
+2. **Once decided, run step 2 for real:** WorldManager.ts line 422 → 1000, run the spec,
+   record the central-band value (it must FAIL the revised/original threshold). Expect ~11-13
+   under (A) or ~33 under (B). Restore WorldManager.ts exactly (`git checkout --` + empty
+   `git diff`).
+3. **Step 3 — 3× post-fix PASS** with CAMERA_FAR=4000. Expect ~75 per run (previously
+   measured 74.5 live / 75 PNG). Each run ~1-2 min (own dev server). After the LAST run,
+   `.ralph/screenshots/TASK-76-1.png` must show uniform hazy blue #314b65, not black —
+   eyeball it AND `node ../.ralph/measure-png.mjs` (topBand mean ~75, no dark plateau).
+4. **Step 4 close-out:** remove the TEMP-TASK-76.1 block (spec lines 412-460), `npx tsc
+   --noEmit` (cd app), `npx vitest run src/client/world/world-manager.test.ts` (10/10),
+   `git status --short` (only the spec + screenshot + handoff + measure tool in the commit;
+   never ralph.config.json or the four old screenshots), commit per the spec's step-4
+   message format with the recorded numbers, delete `.ralph/handoff/TASK-76.1.md` +
+   `.ralph/measure-png.mjs` in that commit, LOG.md entry, `passes: true` bookkeeping.
 
 ## Dead ends
 
-- Expecting the pre-fix run to FAIL at ≤ 5 with the level VTOL-hover aim: it passed twice
-  (45.5, 32.4 live). The 0.0 readings at 22eab45 predate the VTOL hover; without hover the
-  ship fell/landed during the aim and the attitude at measurement was non-level, which put
-  the cap over the band. The level aim is deterministic — the old 0.0 was an accidental
-  aim artifact, not the intended repro.
-- Fitting the dark disk as a far-plane clip cone of the 1010 u dome at 887 u with
-  far=1000 (grid-search over pitch/cap-angle in a throwaway script): best-fit residual
-  5.7-6.6° with a nonsense pitch offset; the disk edge in the centre column (15.7° above
-  boresight) cannot be produced by ANY far plane ≥ 1000 for that dome/distance. So the
-  "disk = dome clip" model does not fit the pixels; do not keep refining it.
-- `planetAnchor()` has no `.y` — a first TEMP-log version crashed with
-  `Cannot read properties of undefined (reading 'toFixed')`; the dome centre is
-  (anchor.x, 0, anchor.z).
-- pngjs is not installed; reading pixels off a PNG required a chromium `file://` page +
-  canvas copy (throwaway scripts used that; all deleted).
+- Expecting the pre-fix run to FAIL at ≤ 5 with the level yaw aim: it passes (45.5, 32.4
+  live; 33.2 PNG). The band's top third (30°-37.5° above boresight) is over the VISIBLE
+  dome — the dome centre is 26.4° below a level nose, so the clip cap (cone ~63° around a
+  direction 26.4° down) does not cover the band top. Measured from the on-disk PNG, not
+  guessed.
+- Pitch-aim alone does NOT reach ≤ 5: even with the whole band inside the clipped cap the
+  region reads ~11-13 (skybox at opacity 1-0.58 = 0.42 over black), because haze at the
+  spot is 0.58 (world y ≈ 413), not the spec's assumed 0.93 (world y = 60). "60 u local
+  altitude" ≠ "60 u world altitude" on this seed (pad y=229, spot terrain ≈ 353).
+- The previous "live ≠ PNG" buffer-timing hypothesis: WRONG — the exact band math on the
+  run-2 PNG reads 33.2 vs live 32.4. Do not chase SwiftShader presentation timing.
+- `planetAnchor()` has no `.y` — the dome centre is (anchor.x, **0**, anchor.z); an earlier
+  TEMP-log version crashed on `anchor.y.toFixed`.
+- pngjs is not installed; the measurement tool works around it with a chromium `file://`-
+  style data-URI page + 2d canvas (`.ralph/measure-png.mjs`).
+- `camera.far` is never touched after the constructor (checked: only CameraRig.ts:115 sets
+  fov; resize() sets aspect) — the constructor arg IS the live far plane, so far-variant
+  experiments are not needed to resolve which camera renders.
 
 ## How to verify
 
 - Run: `cd app && npx playwright test --config playwright.e2e.config.ts atmosphere-sky`
   (fresh vite+server per run, ~30-60 s; 150 s test timeout; workers 1, retries 0).
 - Watch for: `[TASK-76] aimed at the anchor: heading error <X>°` (must be < 6.9°),
-  `[TASK-76] TEMP attitude: {...}` (the TEMP block — pitch/roll should be 0), and the band
-  log line `central top band mean=<M> bright=<B>, full top band mean=<F>`.
-- Screenshot: `.ralph/screenshots/TASK-76-1.png` (overwritten each run). Pre-fix it
-  currently shows the dark disk + haze ring; post-fix it should be uniformly hazy blue.
+  `[TASK-76] TEMP attitude: {...}` (pitch/roll 0 in the committed level-aim form), and
+  `central top band mean=<M> bright=<B>, full top band mean=<F>`.
+- Measure any screenshot: `cd app && node ../.ralph/measure-png.mjs <png>` → topBand mean,
+  per-row profile, centre-column transitions. Reference colors: visible dome haze #2b4259
+  (lum ~66, pre-fix), post-fix uniform #314b65 (lum ~75), clipped cap #060a11 (lum ~11),
+  skybox-only ~#03060b (lum ~7) only if haze were ≥ 0.9.
 - Type/lint: `cd app && npx tsc --noEmit`; unit: `npx vitest run src/client/world/world-manager.test.ts`.
-- `git status --short` before committing: only the spec (after TEMP removal in step 4),
-  the screenshot, the handoff, LOG.md, tasks.json — never the pre-existing dirty files.
+- `git status --short` before committing: spec (TEMP removed in the final commit),
+  `.ralph/screenshots/TASK-76-1.png`, handoff, (measure tool until final), LOG.md,
+  tasks.json — never the pre-existing dirty files.
