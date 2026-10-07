@@ -535,9 +535,9 @@ test('chase camera: no per-frame ship displacement spike in steady thrust (TASK-
     })
     .toBeGreaterThan(100);
   await page.evaluate(() => window.__SELF_SHIP__?.startRecording());
-  const here = (await page.evaluate(() => window.__SELF_SHIP__?.probe()?.pos ?? null)) as
-    | Vec3
-    | null;
+  const here = (await page.evaluate(
+    () => window.__SELF_SHIP__?.probe()?.pos ?? null,
+  )) as Vec3 | null;
   expect(here, 'self ship pos before the mid-flight teleport').not.toBeNull();
   const TARGET = { x: here!.x, y: here!.y, z: here!.z + 400 }; // 400 u > 50 u snap gate
   const tele2 = await page.request.post(`${baseURL}/api/dev/teleport`, {
@@ -582,7 +582,9 @@ test('chase camera: no per-frame ship displacement spike in steady thrust (TASK-
   const camArrival =
     jumpIdx >= 0 ? Math.max(camDispAt(jumpIdx), camDispAt(jumpIdx + 1), camDispAt(jumpIdx + 2)) : 0;
   const tpStart = jumpIdx >= 0 ? jumpIdx : 0;
-  const tpMaxDist = Math.max(...tpFrames.slice(tpStart, tpStart + 10).map((f) => dist(f.camPos, f.shipPos)));
+  const tpMaxDist = Math.max(
+    ...tpFrames.slice(tpStart, tpStart + 10).map((f) => dist(f.camPos, f.shipPos)),
+  );
 
   console.log(
     `[TASK-79] mid-flight teleport: frames=${tpFrames.length} ` +
@@ -600,9 +602,10 @@ test('chase camera: no per-frame ship displacement spike in steady thrust (TASK-
     camArrival,
     'camera arrives at the new place within 2 frames of the ship snapshot (no glide)',
   ).toBeGreaterThanOrEqual(50);
-  expect(tpMaxDist, 'chase distance stays in band after the jump (no long glide)').toBeLessThanOrEqual(
-    16,
-  );
+  expect(
+    tpMaxDist,
+    'chase distance stays in band after the jump (no long glide)',
+  ).toBeLessThanOrEqual(16);
 
   assertClean();
   await context.close();

@@ -1062,8 +1062,10 @@ function App() {
           // last smoothed pose the frame hook drove the mesh with (on the
           // first frame the mesh still sits at the snapshot pose).
           const wireSelf = shipStateFromWire(self);
-          const renderedBefore =
-            lastRenderedShipPoseRef.current ?? { pos: wireSelf.pos, quat: wireSelf.quat };
+          const renderedBefore = lastRenderedShipPoseRef.current ?? {
+            pos: wireSelf.pos,
+            quat: wireSelf.quat,
+          };
           const recon = shipPredictorRef.current.reconcile(
             wireSelf,
             inputAckedSeqRef.current,
