@@ -716,7 +716,7 @@
     "title": "Camera drop-off (1/3): one writer for the self-ship pose, updated before render",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-77.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-78",

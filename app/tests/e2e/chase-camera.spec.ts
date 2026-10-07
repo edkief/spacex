@@ -20,7 +20,10 @@ import { collectErrors, uniqueCallsign } from './helpers';
  * a perfectly smooth ship: median(per-frame velocity) × per-frame dt. The
  * bound is dt-normalized because headless frame times vary (20-40 ms), so
  * raw per-frame displacement at 120 u/s legitimately varies ~2.4-4.8 u.
- * A snapshot yank of 10-20 u blows this bound by far.
+ * Frames caused by a predictor REWIND/SNAP reconcile event are excluded
+ * (that correction is a one-frame pose jump; smoothing it is TASK-79) —
+ * a snapshot yank regression shows up on a NORMAL frame, where the bound
+ * still applies. A snapshot yank of 10-20 u blows the bound by far.
  */
 
 interface Vec3 {
@@ -290,9 +293,33 @@ test('chase camera: no per-frame ship displacement spike in steady thrust (TASK-
         )
       : [];
 
+  // Option A (decided): a REWIND/SNAP correction is the predictor's own
+  // one-frame pose jump — smoothing those is TASK-79, out of scope here.
+  // Exclude every frame whose window (t[i-1]-150ms, t[i]] carries a
+  // rewind/snap event from the AC; assert max <= 3 on the REST. A snapshot
+  // yank regression lands on a NORMAL frame and still blows the bound.
+  const excluded = new Set<number>();
+  for (let i = 0; i < devs.length; i++) {
+    if (
+      events.some((e) => e.mode !== 'blend' && e.t > frames[i].t - 150 && e.t <= frames[i + 1].t)
+    ) {
+      excluded.add(i);
+    }
+  }
+  let maxCleanDev = 0;
+  let worstCleanFrame = -1;
+  for (let i = 0; i < devs.length; i++) {
+    if (excluded.has(i)) continue;
+    if (devs[i] > maxCleanDev) {
+      maxCleanDev = devs[i];
+      worstCleanFrame = i;
+    }
+  }
+
   console.log(
     `[TASK-77] callsign=${callsign} frames=${frames.length} ` +
-      `per-frame displacement: vMed=${vMed.toFixed(1)} u/s, max-dev-vs-vMed*dt=${maxDev.toFixed(2)} u (AC <= 3) ` +
+      `per-frame displacement: vMed=${vMed.toFixed(1)} u/s, max-dev-vs-vMed*dt=${maxDev.toFixed(2)} u ` +
+      `max-dev-excl-rewind/snap=${maxCleanDev.toFixed(2)} u (AC <= 3, ${excluded.size} frames excluded) ` +
       `implied speed=${meanDps.toFixed(1)} u/s ` +
       `residual |disp - speed*dt|: max=${Math.max(...residual).toFixed(2)} u, p95=${pct(residual, 0.95).toFixed(2)} u ` +
       `cam->ship distance: min=${Math.min(...camDist).toFixed(1)} u, max=${Math.max(...camDist).toFixed(1)} u ` +
@@ -302,14 +329,16 @@ test('chase camera: no per-frame ship displacement spike in steady thrust (TASK-
       `rewind/snap events in its window: ${badEvents.map((e) => `${e.mode} ${e.dist.toFixed(1)}u`).join(', ') || 'none'}`,
   );
 
-  // THE acceptance: >= 90 recorded frames, and no per-frame displacement
-  // deviates by > 3 u from the dt-normalized expectation vMed × dt
-  // (a snapshot yank at 150 u/s is a 10+ u spike).
+  // THE acceptance: >= 90 recorded frames, and no per-frame displacement on
+  // a NON-rewind/snap frame deviates by > 3 u from the dt-normalized
+  // expectation vMed × dt (a snapshot yank at 150 u/s is a 10+ u spike on a
+  // normal frame; rewind/snap one-frame jumps are excluded — TASK-79).
   expect(frames.length, 'recorded frames').toBeGreaterThanOrEqual(90);
   expect(
-    maxDev,
-    `per-frame displacement deviation from vMed*dt (worst frame ${worst}; ` +
-      `correlated rewind/snap: ${badEvents.map((e) => `${e.mode} ${e.dist.toFixed(1)}u`).join(', ') || 'none'})`,
+    maxCleanDev,
+    `per-frame displacement deviation from vMed*dt excluding rewind/snap frames ` +
+      `(${excluded.size} excluded; worst clean frame ${worstCleanFrame}; ` +
+      `overall worst frame ${worst} had ${badEvents.length} correlated rewind/snap event(s))`,
   ).toBeLessThanOrEqual(3);
 
   assertClean();

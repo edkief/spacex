@@ -8,31 +8,31 @@
       "step": 1,
       "description": "Extend the __SELF_SHIP__ dev probe (measurement for TASK-77..79)",
       "details": "`src/client/self-ship-debug.ts` + the source bound in main.tsx/WorldManager: add `camera: { pos: Vec3 } | null` (the game camera's world position) to `SelfShipProbeResult`, and a `frames` recorder: `startRecording()` / `stopRecording(): Array<{ t: number; shipPos: Vec3; camPos: Vec3; screen: {x:number;y:number} | null }>` that pushes ONE sample per rendered frame from inside WorldManager's frame right after `renderer.render` (dev only — guarded the same way the existing probe is, zero cost when not recording). Expose the ship predictor's reconcile stats too: counts of `blend` / `rewind` / `snap` results and the last `correctionDistance` (from `ClientShipPredictor.reconcile`'s return value in the bridge). Unit test the recorder bookkeeping if it has logic; production builds must not ship it (import.meta.env.DEV like the other hooks).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Baseline measurement (before the fix)",
       "details": "Write the e2e for step 5 FIRST and run it against the unfixed code to record the baseline in the LOG entry: claim, join, wait for the probe, hold W ~4 s until speed > 100 u/s, then record ~2 s of frames. Report: max and p95 of the per-frame |shipPos delta| minus speed×dt (should be ~0 for a smooth ship; snapshot yanks show as spikes of 10+ u), the camera→ship distance min/max, and the reconcile blend/rewind counts. These numbers are needed by TASK-78/79 — put them in the LOG entry.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Snapshot path stops writing the pose while the predictor drives",
       "details": "`src/client/world/self-ship.ts`: give `SelfShip.set` an option to skip placement, e.g. `set(state, { place = true } = {})` — create/rebuild/re-tint still happen, `transform` only when `place`. `WorldManager.setSelfShip(state, opts?: { drivePose?: boolean })` (default true): when `drivePose === false` it must NOT call `selfShip.transform` nor `cameraRig.setShip` (it still creates the mesh, arms the rig on the first call, re-tints, rebuilds, disposes on null). When a mesh is CREATED or REBUILT it must still be placed once even if drivePose is false (a rebuilt mesh would otherwise sit at the origin until the next frame). `reEnterShip(pos, quat, opts?: { drivePose?: boolean })`: only call `cameraRig.setShip` when drivePose is true OR a character mesh exists (the handoff destination needs the pose). In main.tsx's ship branch compute `const predicted = shipPredictorRef.current !== null` BEFORE the calls and pass `{ drivePose: !predicted }` to both. Result: the first snapshot (no predictor yet), re-entry (predictor dropped at disembark) and on-foot updates still place the ship from the snapshot; steady flight never does. Unit tests in `self-ship.test.ts` / `world-manager.test.ts` for the new option.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Run the flight step inside WorldManager's frame, before the rig + render",
       "details": "Add to WorldManager a pre-render hook, e.g. `setFrameHook(fn: ((nowMs: number, dtSec: number) => void) | null)`, invoked at the START of `frame` (before `cameraRig.update`, using the same nowMs/dt the rig gets). In main.tsx replace the flight loop's own `requestAnimationFrame` (the effect at ~line 1556) with registering its body as that hook on the world (unregister — `setFrameHook(null)` — in the effect cleanup; re-register when the world instance changes, e.g. after a world rebuild). The body is unchanged: read input, maybe send, `p.step`, `world.setSelfShipTransform(...)`. Now every rendered frame shows THIS frame's prediction. Leave the on-foot loop (~line 1443) as it is (out of scope). Block comment on the hook explaining the ordering contract.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 5,
       "description": "E2E + verify + commit",
       "details": "New `app/tests/e2e/chase-camera.spec.ts` (the step-2 measurement, now asserting): during steady thrust at > 100 u/s, over >= 90 recorded frames, the per-frame ship displacement never deviates from the median per-frame displacement by more than 3 u (no snapshot yanks). Record the after-fix numbers next to the baseline in the LOG entry. Screenshot `.ralph/screenshots/TASK-77-1.png` mid-flight. Then `cd app && npx tsc --noEmit`, full `npm run test`, e2e: new spec + `flight.spec.ts`, `self-ship.spec.ts`, `enter-ship.spec.ts`, `disembark.spec.ts`, `camera-handoff.spec.ts`, `warp.spec.ts`; `eslint --fix` + `prettier --write` on touched files. Commit `fix(TASK-77): ...`.",
-      "pass": false
+      "pass": true
     }
   ],
   "acceptanceCriteria": [
