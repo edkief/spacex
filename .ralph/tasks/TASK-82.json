@@ -8,31 +8,31 @@
       "step": 1,
       "description": "Pure sun placement",
       "details": "New `src/client/render/sun.ts`. Export `SUN_DIRECTION` = normalize(-1, 0.12, 0) — the sim star is at the origin and every planet anchor lies along +X, so from anywhere in the system the star is toward −X (the spawn gate at (100, 0, 0) faces −X: SPAWN_GATE_QUAT in src/shared/galaxy/spawn.ts — a warped-in ship looks straight at the sun); the small +Y keeps it above the y = 0 horizon. Export `SUN_DISTANCE = 380` (inside the 420 m sky shell so it draws over the sky, TASK-75 keeps both camera-centred) and `SUN_ANGULAR_RADIUS_DEG = 2`. Export a pure `sunPosition(cameraPos: Vec3): Vec3` = cameraPos + SUN_DIRECTION × SUN_DISTANCE. Unit test (`sun.test.ts`): direction is unit length, points to −X with positive y; sunPosition is camera-relative (moving the camera by D moves the sun by exactly D).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Sun mesh",
       "details": "In sun.ts export `createSun(color: string): { mesh: THREE.Mesh; setOpacity(o: number): void; dispose(): void }`: a small sphere (radius = SUN_DISTANCE × tan(SUN_ANGULAR_RADIUS_DEG)) with MeshBasicMaterial in the star color (STAR_COLORS[system.star.class] — keep STAR_COLORS where it is in WorldManager.ts or move it next to the sun, your call), `transparent: true`, `depthWrite: false`, `fog: false`, renderOrder 1.5 is not allowed (integers only) — use renderOrder 1 like the stars and add it to the scene AFTER the stars so it draws over them. A soft glow is optional (a second, larger sphere at low opacity) — keep it cheap: at most 2 draw calls.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Wire the sun into WorldManager; delete the orrery",
       "details": "In WorldManager: create the sun in the constructor, add it to the scene, and every frame — right where TASK-75 anchors the background to the camera (immediately before render) — set `sun.mesh.position` from `sunPosition(camera.position)`. Re-tint on `swapWorld` (new system → new star class color). In `setAtmosphereView` scale the sun's opacity by the same `fade` as the stars (inside a thick atmosphere the sun fades with the sky — the one-number no-desync contract of TASK-28.1). Point the existing DirectionalLight `keyLight` along SUN_DIRECTION (keyLight.position = SUN_DIRECTION) so the ship is lit from the sun. In `buildWorldGroup` DELETE the star sphere and the planet spheres; keep the spawn gate torus (it is already sim-scale: 100 m from the origin) and the pad rings / hazard discs. Remove `buildSystemLayout`'s planet/orbit layout and the now-unused WORLD_STAR_RADIUS / WORLD_PLANET_RADIUS / WORLD_FIRST_ORBIT / WORLD_ORBIT_STEP / WORLD_PLANET_COUNT / PLANET_COLORS exports IF nothing else imports them (grep first — PLANET_COLORS will be needed again by TASK-83: keep it). Update `world-manager.test.ts` (and any other test asserting the orrery) to the new layout — change expectations, do not delete coverage of the gate/pads.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Onboarding text points at the nav marker, not the star",
       "details": "`src/client/ui/guidance.ts` (~line 28) step 1 reads 'Hold W to fly toward the star. Press M for the star chart.' — flying toward the star now flies AWAY from every planet. Change it to e.g. 'Hold W to fly. Steer with A/D and R/F to follow the nav marker to the planet. Press M for the star chart.' and update `guidance-hint.test.tsx`. Keep it one line in the HUD.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 5,
       "description": "E2E + screenshots + verify + commit",
       "details": "Update any e2e that asserted the star sphere at the canvas centre (grep tests/e2e for `canvasCenterLuminanceMean`, 'star', 'orrery': e.g. warp.spec.ts TASK-8 asserts a bright canvas centre after warp because the star sat at the origin — after warp the ship faces −X = the sun, so the sun is near the centre: re-point the assertion at the sun's projected position via a dev probe if needed). Add to an existing in-system spec: the sun's projected screen position after a fresh warp is inside the viewport and the sampled 8×8 region there is bright (> 150 mean). Screenshots `.ralph/screenshots/TASK-82-1.png` (spawn: sun visible, no miniature planets/star ball) — LOOK at it. Then `cd app && npx tsc --noEmit`, full `npm run test`, e2e: warp, core-flow, self-ship, flight, deep-space, atmosphere-view, star-chart, first-launch; `npm run bench:render` gates still green; `eslint --fix` + `prettier --write`. Commit `feat(TASK-82): ...`.",
-      "pass": false
+      "pass": true
     }
   ],
   "acceptanceCriteria": [

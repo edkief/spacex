@@ -737,7 +737,7 @@
     "title": "True-scale system view (1/4): remove the miniature orrery, render the star as a distant sun",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-82.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-83",
