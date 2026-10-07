@@ -270,9 +270,9 @@ test('chase camera: no per-frame ship displacement spike in steady thrust (TASK-
       message: 'speed never settled at the maxVelocity cap while holding W',
     })
     .toBeGreaterThanOrEqual(115);
-  const t78Frames = (
-    await page.evaluate(() => window.__SELF_SHIP__?.stopRecording() ?? [])
-  ) as FrameSample[];
+  const t78Frames = (await page.evaluate(
+    () => window.__SELF_SHIP__?.stopRecording() ?? [],
+  )) as FrameSample[];
   await page.screenshot({
     path: path.join(__dirname, '../../../.ralph/screenshots/TASK-78-2.png'),
   });
@@ -409,7 +409,14 @@ test('chase camera: no per-frame ship displacement spike in steady thrust (TASK-
   const t78Max = t78Dists.length > 0 ? Math.max(...t78Dists) : -Infinity;
   // Per-speed buckets (the LOG record: pre-fix grows with speed, post-fix
   // constant).
-  const buckets: Array<{ label: string; lo: number; hi: number; min: number; max: number; n: number }> = [
+  const buckets: Array<{
+    label: string;
+    lo: number;
+    hi: number;
+    min: number;
+    max: number;
+    n: number;
+  }> = [
     { label: '<20', lo: 0, hi: 20, min: Infinity, max: -Infinity, n: 0 },
     { label: '20-60', lo: 20, hi: 60, min: Infinity, max: -Infinity, n: 0 },
     { label: '60-100', lo: 60, hi: 100, min: Infinity, max: -Infinity, n: 0 },
@@ -428,8 +435,8 @@ test('chase camera: no per-frame ship displacement spike in steady thrust (TASK-
   const maxScreenDev =
     t78Screens.length > 0
       ? Math.max(
-          ...t78Screens.map(
-            (f) => Math.max(Math.abs(f.screen!.x - medSX), Math.abs(f.screen!.y - medSY)),
+          ...t78Screens.map((f) =>
+            Math.max(Math.abs(f.screen!.x - medSX), Math.abs(f.screen!.y - medSY)),
           ),
         )
       : 0;
@@ -440,7 +447,10 @@ test('chase camera: no per-frame ship displacement spike in steady thrust (TASK-
       `(AC 14.6 ± 0.5; rigid target ${Math.hypot(4, 14).toFixed(2)} u) ` +
       `per-speed buckets: ` +
       buckets
-        .map((b) => `${b.label}u/s [${b.n ? `${b.min.toFixed(1)}..${b.max.toFixed(1)}` : 'n/a'}] (n=${b.n})`)
+        .map(
+          (b) =>
+            `${b.label}u/s [${b.n ? `${b.min.toFixed(1)}..${b.max.toFixed(1)}` : 'n/a'}] (n=${b.n})`,
+        )
         .join(' ') +
       ` ` +
       `ship screen: median=(${medSX.toFixed(1)}, ${medSY.toFixed(1)}) px, ` +

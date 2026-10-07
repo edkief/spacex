@@ -239,12 +239,7 @@ export class CameraRig {
       }
       const f = 1 - Math.exp(-CHASE_ROT_K * dtSec);
       this.viewQuat.slerp(
-        this.tmpQuat.set(
-          this.ship.quat.x,
-          this.ship.quat.y,
-          this.ship.quat.z,
-          this.ship.quat.w,
-        ),
+        this.tmpQuat.set(this.ship.quat.x, this.ship.quat.y, this.ship.quat.z, this.ship.quat.w),
         f,
       );
       const pose = rigidChasePose(this.ship.pos, {
@@ -317,12 +312,7 @@ export class CameraRig {
 
   /** TASK-78: snap the chase view quat to the CURRENT ship quat. */
   private armViewQuat(): void {
-    this.viewQuat.set(
-      this.ship.quat.x,
-      this.ship.quat.y,
-      this.ship.quat.z,
-      this.ship.quat.w,
-    );
+    this.viewQuat.set(this.ship.quat.x, this.ship.quat.y, this.ship.quat.z, this.ship.quat.w);
     this.viewQuatArmed = true;
   }
 
