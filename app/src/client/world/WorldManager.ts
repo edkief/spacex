@@ -50,6 +50,7 @@ import {
   updatePlanetBodies,
   type PlanetBody,
 } from './planet-bodies';
+import { proxyTransform } from '@client/render/scaled-proxy';
 
 /**
  * The in-system world (TASK-8). Owns the three.js scene on the game canvas
@@ -711,9 +712,13 @@ export class WorldManager {
   /**
    * TASK-83: the rendered planet bodies (dev probe / e2e assertions) — per
    * planet: the sim anchor, the TRUE camera→anchor distance, the current
-   * proxy scale (1 = true position/scale), and the ANCHOR's screen
-   * projection — exact for proxies too (the proxy sits on the exact
-   * camera→anchor ray, so the anchor projects to the proxy's screen point).
+   * proxy scale (1 = true position/scale), and the planet's screen
+   * projection. We project the PROXY position (camera + dir × PROXY_DISTANCE_M),
+   * NOT the true anchor: for a 10–60 km anchor that sits far beyond
+   * CAMERA_FAR, so `projectToScreen` would reject it on the far-plane guard
+   * (v.z > 1) even though its on-screen point is valid. The proxy lies on the
+   * exact camera→anchor ray, so its screen point is identical to the anchor's
+   * (the scaled-proxy contract) and is always within the far plane.
    */
   planetsView(): Array<{
     planetId: string;
@@ -723,17 +728,20 @@ export class WorldManager {
     screen: { x: number; y: number; dist: number } | null;
   }> {
     const cam = this.camera.position;
-    return this.planetBodies.map((b) => ({
-      planetId: b.planetId,
-      anchor: b.anchor,
-      distance: Math.hypot(
-        b.anchor.x - cam.x,
-        b.anchor.y - cam.y,
-        b.anchor.z - cam.z,
-      ),
-      scale: b.group.scale.x,
-      screen: this.projectToScreen(b.anchor),
-    }));
+    return this.planetBodies.map((b) => {
+      const proxy = proxyTransform(cam, b.anchor);
+      return {
+        planetId: b.planetId,
+        anchor: b.anchor,
+        distance: Math.hypot(
+          b.anchor.x - cam.x,
+          b.anchor.y - cam.y,
+          b.anchor.z - cam.z,
+        ),
+        scale: b.group.scale.x,
+        screen: this.projectToScreen(proxy.pos),
+      };
+    });
   }
 
   /**

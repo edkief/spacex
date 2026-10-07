@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { expect, test } from './fixtures';
-import { canvasRegionStats, canvasScreenRegionMean, collectErrors, uniqueCallsign } from './helpers';
+import { collectErrors, uniqueCallsign } from './helpers';
 import { ClaimPage } from './pages/claim';
 
 /**
@@ -43,24 +43,82 @@ function probeDistance(page: import('@playwright/test').Page, t: { x: number; y:
   }, t);
 }
 
+/** Wrap a signed angle (rad) to [-π, π] — the shortest arc. */
+function wrapAngle(a: number): number {
+  let r = a % (2 * Math.PI);
+  if (r > Math.PI) r -= 2 * Math.PI;
+  if (r < -Math.PI) r += 2 * Math.PI;
+  return r;
+}
+
 /**
- * Planet 0's anchor screen point (CSS px, canvas-relative) when it is in
- * front of the camera and inside the canvas — null otherwise. This is the
- * SCALED-PROXY-exact point: the proxy sits on the camera→anchor ray, so the
- * anchor projects to the proxy's screen position.
+ * The ship's world YAW (rad): forward = rot·(0,0,1), φ = atan2(fx, fz). The
+ * nose is +Z in the ship's local frame (ship-mesh.ts), so a +Y rotation
+ * carries +Z → +X and φ = +π/2 reads "facing +X". Null until the ship spawns.
  */
-function planetAnchorScreen(page: import('@playwright/test').Page): Promise<{ x: number; y: number; dist: number } | null> {
+function shipYaw(page: import('@playwright/test').Page): Promise<number | null> {
   return page.evaluate(() => {
-    const probe = window.__PLANETS__?.probe?.();
-    if (!probe || probe.length === 0) return null;
-    const s = probe[0].screen;
-    if (!s) return null; // behind the camera
-    const canvas = document.getElementById('game-canvas') as HTMLCanvasElement | null;
-    const w = canvas?.clientWidth || window.innerWidth;
-    const h = canvas?.clientHeight || window.innerHeight;
-    if (s.x < 0 || s.x > w || s.y < 0 || s.y > h) return null;
-    return { x: s.x, y: s.y, dist: s.dist };
+    const p = window.__SELF_SHIP__?.probe();
+    if (!p?.rot) return null;
+    const { x, y, z, w } = p.rot;
+    const fx = 2 * (y * w + z * x);
+    const fz = 1 - 2 * (x * x + y * y);
+    return Math.atan2(fx, fz);
   });
+}
+
+/**
+ * ATOMIC planet-visibility sample: in ONE evaluate, read planet 0's anchor
+ * screen point and, if it sits comfortably inside the canvas (≥ margin px),
+ * sample the mean luminance of a `size`×`size` GL region there AND of the top
+ * sky band — so the point and the sample can never disagree on pose. Returns
+ * null while the anchor is out of the safe box (still converging / at the
+ * edge); the caller polls until non-null. Sampling in the same frame is what
+ * kills the read→sample race (a separate read of the screen point can land on
+ * one side of the viewport boundary while the sample lands on the other).
+ */
+function samplePlanet(
+  page: import('@playwright/test').Page,
+  opts: { size?: number; margin?: number } = {},
+): Promise<{ x: number; y: number; planetMean: number; skyMean: number; dist: number } | null> {
+  const size = opts.size ?? 12;
+  const margin = opts.margin ?? 90;
+  return page.evaluate(
+    ({ size, margin, band }) => {
+      const probe = window.__PLANETS__?.probe?.();
+      const s = probe && probe.length > 0 ? probe[0].screen : null;
+      if (!s) return null; // behind the camera
+      const canvas = document.getElementById('game-canvas') as HTMLCanvasElement | null;
+      const gl =
+        (canvas?.getContext('webgl2') ?? canvas?.getContext('webgl')) as WebGLRenderingContext | null;
+      if (!canvas || !gl) return null;
+      const w = canvas.clientWidth || canvas.width;
+      const h = canvas.clientHeight || canvas.height;
+      if (s.x < margin || s.x > w - margin || s.y < margin || s.y > h - margin) return null;
+      // Mean of a size×size GL region centred on a CSS-px (top-left) point.
+      const regionMean = (cx: number, cy: number) => {
+        const sx = canvas.width / (canvas.clientWidth || canvas.width);
+        const sy = canvas.height / (canvas.clientHeight || canvas.height);
+        const gx = Math.round(cx * sx) - (size >> 1);
+        const gy = canvas.height - Math.round(cy * sy) - (size >> 1);
+        if (gx < 0 || gy < 0 || gx + size > canvas.width || gy + size > canvas.height) return -1;
+        const buf = new Uint8Array(size * size * 4);
+        gl.readPixels(gx, gy, size, size, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+        let sum = 0;
+        for (let i = 0; i < size * size; i++) sum += (buf[i * 4] + buf[i * 4 + 1] + buf[i * 4 + 2]) / 3;
+        return sum / (size * size);
+      };
+      // The top sky band (DOM fractions, top-left origin) — GL y is flipped.
+      const bw = Math.ceil(band.x1 * canvas.width);
+      const bh = Math.ceil(band.y1 * canvas.height);
+      const bbuf = new Uint8Array(bw * bh * 4);
+      gl.readPixels(0, canvas.height - bh, bw, bh, gl.RGBA, gl.UNSIGNED_BYTE, bbuf);
+      let bsum = 0;
+      for (let i = 0; i < bw * bh; i++) bsum += (bbuf[i * 4] + bbuf[i * 4 + 1] + bbuf[i * 4 + 2]) / 3;
+      return { x: s.x, y: s.y, planetMean: regionMean(s.x, s.y), skyMean: bsum / (bw * bh), dist: s.dist };
+    },
+    { size, margin, band: TOP_BAND },
+  );
 }
 
 test('planet 0 is visible at its sim anchor from 6 km (scaled proxy)', async ({
@@ -106,23 +164,67 @@ test('planet 0 is visible at its sim anchor from 6 km (scaled proxy)', async ({
     })
     .toBeLessThan(50);
 
-  // (2) The ship faces −X (the sun) on arrival; planet 0 is at +X, behind it.
-  // Hold D (right turn) until the anchor's screen point is in the viewport.
+  // (2) Face planet 0's anchor. On arrival the ship faces −X (the sun) and
+  // the anchor sits at +X — dead behind it. We steer by the ship's ACTUAL
+  // nose yaw, not a blind timed hold: a timed D-hold races the anchor's
+  // ~0.2 s transit through the viewport (it leaves before the key release
+  // lands). Instead read the nose bearing, probe D for one short burst to
+  // learn which key closes the angle, then hold THAT key until the nose is
+  // within ~14° of the anchor bearing. Polling the YAW (a wide, monotonic
+  // signal) — not the anchor's narrow in-viewport window — is what kills the
+  // race: the instant the nose is close we release, the ship is stationary,
+  // and the island (a ~37° disc at 6 km) sits well inside the ~107° FOV.
+  const targetYaw = Math.atan2(ANCHOR0.x - FAR_POINT.x, ANCHOR0.z - FAR_POINT.z);
+  const y0 = await shipYaw(page);
+  if (y0 === null) throw new Error('ship yaw probe was null before the turn');
+  // Learn D's sign: a short burst, then compare the bearing change. (400 ms
+  // hold + 400 ms settle — the rendered pose lags the input behind the 10 Hz
+  // snapshot reconcile, so a longer burst gives a clean, signed bearing move.)
   await page.keyboard.down('d');
-  await expect
-    .poll(() => planetAnchorScreen(page) !== null, {
-      timeout: 10_000,
-      message: 'planet 0 anchor never entered the viewport while turning (D)',
-    })
-    .toBe(true);
+  await page.waitForTimeout(400);
   await page.keyboard.up('d');
-  const screen = await planetAnchorScreen(page);
-  if (screen === null) throw new Error('planet 0 anchor screen point was null after the turn');
+  await page.waitForTimeout(400); // let the predictor + chase camera settle
+  const y1 = await shipYaw(page);
+  if (y1 === null) throw new Error('ship yaw probe was null after the D probe');
+  const dSign = Math.sign(wrapAngle(y1 - y0));
+  const key = Math.sign(wrapAngle(targetYaw - y1)) === dSign ? 'd' : 'a';
+  // Hold the chosen key until the nose is within ~14° of the anchor bearing.
+  await page.keyboard.down(key);
+  await expect
+    .poll(
+      async () => {
+        const s = await shipYaw(page);
+        return s !== null && Math.abs(wrapAngle(targetYaw - s)) < 0.25;
+      },
+      { timeout: 15_000, message: 'ship never turned within 14° of planet 0' },
+    )
+    .toBe(true);
+  await page.keyboard.up(key);
+  // The rendered pose lags the key release (the ship PREDICTOR reconciles
+  // against 10 Hz server snapshots, so a few frames of server-side coast +
+  // the CHASE_ROT_K camera slerp keep the pose micro-shifting). Settle, then
+  // poll the ATOMIC sampler — it returns a point + region + sky mean all in
+  // ONE frame, and only when the anchor is ≥ 90px clear of every edge, so a
+  // pose change can never split the read from the sample.
+  await page.waitForTimeout(900);
+  let sample: { x: number; y: number; planetMean: number; skyMean: number; dist: number } | null =
+    null;
+  const settleT0 = Date.now();
+  while (sample === null && Date.now() - settleT0 < 8_000) {
+    sample = await samplePlanet(page);
+    if (sample === null) await page.waitForTimeout(120);
+  }
+  if (sample === null) {
+    throw new Error(
+      'planet 0 anchor was never comfortably in-viewport (turn did not settle on target)',
+    );
+  }
+  const screen = { x: sample.x, y: sample.y, dist: sample.dist };
 
   // (3) The island is VISIBLE at 6 km: the 12×12 region around the anchor
   // differs from the sky band by more than 10 in mean luminance.
-  const planetMean = await canvasScreenRegionMean(page, screen.x, screen.y, 12);
-  const skyMean = (await canvasRegionStats(page, TOP_BAND)).mean;
+  const planetMean = sample.planetMean;
+  const skyMean = sample.skyMean;
   expect(planetMean, 'planet region should be sampled (not off-canvas)').toBeGreaterThan(0);
   expect(
     Math.abs(planetMean - skyMean),
