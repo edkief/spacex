@@ -26,11 +26,22 @@ export interface ControlScheme {
   label: string;
   /** Thrust demand axis (flight regimes; W/S style pairs). */
   thrust: [Key, Key] | null; // [up, down]
-  /** Yaw axis [right, left] (pair[0] = positive demand; +yaw turns right). */
+  /**
+   * Yaw axis [right, left] — pair[0] is the key that turns the NOSE TO THE
+   * RIGHT ON SCREEN (the remap UI will label the pair that way, TASK-80).
+   * `readInput` translates the on-screen direction into the physics
+   * convention (positive yaw = nose toward local +X = a LEFT turn), so the
+   * pair stays [right, left] no matter what the physics signs are.
+   */
   yaw: [Key, Key] | null;
-  /** Pitch axis [down, up] (nose down / nose up). */
+  /** Pitch axis [down, up] (nose down / nose up; R = down, F = up). */
   pitch: [Key, Key] | null;
-  /** Roll axis [left, right]. */
+  /**
+   * Roll axis [left, right] — pair[0] is the key that ROLLS THE TOP TO THE
+   * LEFT AS SEEN FROM BEHIND (TASK-80); `readInput` applies the same
+   * sign translation as yaw (positive roll = clockwise seen from behind =
+   * roll right in the physics convention).
+   */
   roll: [Key, Key] | null;
   /** VTOL vertical lift key (atmosphere only; full demand while held). */
   vtol: Key | null;
@@ -135,16 +146,29 @@ export class ControlsRemapper {
    * Map the currently pressed keys to this tick's flight input (the active
    * scheme's key map; surface returns a zero frame — walking is
    * CharacterInput, TASK-31).
+   *
+   * Sign translation (TASK-80, the ONE place the on-screen key pairs meet
+   * the physics convention): the flight model is right-handed with +Y up
+   * and +Z forward, where positive yaw turns the nose toward local +X —
+   * screen LEFT for the chase camera, and positive roll is clockwise seen
+   * from behind — roll RIGHT. The scheme pairs are documented ON SCREEN
+   * ([right, left] / [left, right]), so yaw and roll demands are negated
+   * here; pitch (R down / F up) already matches and is left alone.
+   * `integrateShip`, the server AI and the wire mapping all keep the raw
+   * physics convention untouched.
    */
   readInput(pressed: ReadonlySet<Key>): ShipInput {
     const s = this.active;
     const axis = (pair: [Key, Key] | null): number =>
       pair ? (pressed.has(pair[0]) ? 1 : 0) - (pressed.has(pair[1]) ? 1 : 0) : 0;
+    // Negate without producing −0 (Object.is/toEqual distinguish −0 from +0
+    // — the idle frame must stay the canonical zero frame).
+    const flip = (v: number): number => (v === 0 ? 0 : -v);
     return {
       thrust: axis(s.thrust),
-      yaw: axis(s.yaw),
+      yaw: flip(axis(s.yaw)),
       pitch: axis(s.pitch),
-      roll: axis(s.roll),
+      roll: flip(axis(s.roll)),
       up: s.vtol && pressed.has(s.vtol) ? 1 : 0,
     };
   }

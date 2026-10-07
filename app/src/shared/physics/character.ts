@@ -101,9 +101,18 @@ const FORWARD_LOCAL: Vec3 = { x: 0, y: 0, z: 1 };
 export interface CharacterInput {
   forward: boolean;
   back: boolean;
-  /** Turn the facing left (−yaw); ground only (no air control). */
+  /**
+   * Turn the facing LEFT ON SCREEN (TASK-80): a +yaw rotation about +Y,
+   * which swings local +Z toward local +X — screen-left in the right-handed
+   * +Y-up/+Z-forward frame (the on-foot camera looks along the facing).
+   * Ground only (no air control).
+   */
   left: boolean;
-  /** Turn the facing right (+yaw); ground only (no air control). */
+  /**
+   * Turn the facing RIGHT ON SCREEN (TASK-80): a −yaw rotation about +Y,
+   * which swings local +Z toward local −X — the character's right. Ground
+   * only (no air control).
+   */
   right: boolean;
   /** Double the move speed (the shift key). */
   run: boolean;
@@ -205,10 +214,13 @@ function characterSubstep(
 
   if (onGround) {
     // Turning: yaw only, ground only (air control is ignored — spec).
+    // TASK-80: right-handed, +Y up, +Z forward ⇒ the character's right is
+    // local −X, so RIGHT turns by a NEGATIVE rotation about +Y (nose
+    // toward −X = screen-right) and left by a positive one.
     if (input.right && !input.left) {
-      quat = quatNormalize(quatMultiply(quat, quatFromAxisAngle(Y_AXIS, CHAR_TURN_RATE * h)));
-    } else if (input.left && !input.right) {
       quat = quatNormalize(quatMultiply(quat, quatFromAxisAngle(Y_AXIS, -CHAR_TURN_RATE * h)));
+    } else if (input.left && !input.right) {
+      quat = quatNormalize(quatMultiply(quat, quatFromAxisAngle(Y_AXIS, CHAR_TURN_RATE * h)));
     }
 
     if (input.forward || input.back) {

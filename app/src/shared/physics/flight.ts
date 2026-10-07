@@ -75,7 +75,17 @@ export interface ShipState {
   onPad?: string;
 }
 
-/** Per-tick control input. All channels are [-1, 1] (up is [0, 1]). */
+/**
+ * Per-tick control input. All channels are [-1, 1] (up is [0, 1]).
+ *
+ * PHYSICS CONVENTION (right-handed frame, +Y up, +Z forward — TASK-80):
+ * positive YAW turns the nose toward local +X, which is a LEFT turn for
+ * the chase camera (it looks along +Z, so screen-right is local -X);
+ * positive ROLL is a positive rotation about +Z — CLOCKWISE seen from
+ * behind, i.e. roll RIGHT; positive PITCH noses down. Key → on-screen
+ * direction belongs to the input layer (the client's readInput translates
+ * it; the server AI and the wire frame carry the raw convention).
+ */
 export interface ShipInput {
   /** Main thruster: -1..1, thrust along the ship's forward (+Z) axis. */
   thrust: number;

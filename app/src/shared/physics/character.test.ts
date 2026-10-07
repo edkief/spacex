@@ -15,7 +15,7 @@ import {
   type CharacterInput,
   type CharacterState,
 } from './character';
-import { quatFromEuler, quatIdentity, type Vec3 } from './vec';
+import { quatFromEuler, quatIdentity, quatRotateVector, type Vec3 } from './vec';
 
 /**
  * TASK-32: the shared character movement model. Pure: no DOM, no clock, no
@@ -127,18 +127,36 @@ describe('integrateCharacter: speeds (TASK-32 step 1)', () => {
     for (let i = 0; i < 20; i++) {
       s = integrateCharacter(s, { ...ZERO_CHARACTER_INPUT, right: true }, 0.05, FLAT);
     }
-    // 1 s of right-turn = exactly CHAR_TURN_RATE radians about +Y.
-    const expected = quatFromEuler(CHAR_TURN_RATE, 0, 0);
+    // 1 s of right-turn = exactly CHAR_TURN_RATE radians of −yaw about +Y
+    // (TASK-80: right-handed, +Y up, +Z forward ⇒ right = local −X).
+    const expected = quatFromEuler(-CHAR_TURN_RATE, 0, 0);
     expect(s.quat.x).toBeCloseTo(expected.x, 6);
     expect(s.quat.y).toBeCloseTo(expected.y, 6);
     expect(s.quat.z).toBeCloseTo(expected.z, 6); // yaw-only: no pitch/roll part
     expect(s.quat.w).toBeCloseTo(expected.w, 6);
-    // Rotating +Z by yaw θ about Y gives (sin θ, 0, cos θ) — and the NEXT
-    // forward step must follow the NEW facing.
-    const fwdNow = { x: Math.sin(CHAR_TURN_RATE), y: 0, z: Math.cos(CHAR_TURN_RATE) };
+    // Rotating +Z by yaw θ about Y gives (sin θ, 0, cos θ) — with θ
+    // negative (a right turn toward −X) — and the NEXT forward step must
+    // follow the NEW facing.
+    const fwdNow = { x: -Math.sin(CHAR_TURN_RATE), y: 0, z: Math.cos(CHAR_TURN_RATE) };
     const s2 = integrateCharacter(s, { ...ZERO_CHARACTER_INPUT, forward: true }, 0.05, FLAT);
     expect(s2.pos.x).toBeCloseTo(fwdNow.x * CHAR_WALK_SPEED * 0.05, 5);
     expect(s2.pos.z).toBeCloseTo(fwdNow.z * CHAR_WALK_SPEED * 0.05, 5);
+  });
+
+  it('turn direction (TASK-80): right turns toward local -X (screen-right); left toward +X', () => {
+    // Frame: right-handed, +Y up, +Z forward ⇒ right = local −X
+    // (the on-foot camera looks along the facing +Z, so screen-right = −X).
+    const fwd = (s: CharacterState): Vec3 => quatRotateVector(s.quat, { x: 0, y: 0, z: 1 });
+    let s = restCharacterState({ x: 0, y: 0, z: 0 });
+    for (let i = 0; i < 10; i++) {
+      s = integrateCharacter(s, { ...ZERO_CHARACTER_INPUT, right: true }, 0.05, FLAT);
+    }
+    expect(fwd(s).x).toBeLessThan(0); // facing turned toward −X = screen-right
+    s = restCharacterState({ x: 0, y: 0, z: 0 });
+    for (let i = 0; i < 10; i++) {
+      s = integrateCharacter(s, { ...ZERO_CHARACTER_INPUT, left: true }, 0.05, FLAT);
+    }
+    expect(fwd(s).x).toBeGreaterThan(0); // facing turned toward +X = screen-left
   });
 
   it('dt guards: zero/negative/NaN dt throw', () => {
