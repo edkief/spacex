@@ -730,7 +730,7 @@
     "title": "Camera drop-off (3/3): smooth prediction corrections instead of snapping",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-79.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-82",
