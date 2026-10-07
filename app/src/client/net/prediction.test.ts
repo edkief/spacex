@@ -385,3 +385,62 @@ describe('shipStateFromWire', () => {
     expect(s.quat).toEqual(quatIdentity());
   });
 });
+
+describe('ClientShipPredictor: cruise boost (TASK-85)', () => {
+  // One atmospheric planet at the first anchor slot: the no-cruise band is
+  // 1 000 + 1 500 = 2 500 u around (10 000, 0, 0).
+  const PLANETS = [
+    { id: 'planet-0', x: 10_000, z: 0, atmosphereRadius: 1000, landable: true },
+  ];
+  const BOOST: ShipInput = { thrust: 1, yaw: 0, pitch: 0, roll: 0, up: 0, boost: 1 };
+
+  function makeCruisePredictor(pos: { x: number; y: number; z: number }): ClientShipPredictor {
+    return new ClientShipPredictor(restShipState(pos, 'space'), {
+      regime: 'space',
+      shipClass: 'scout',
+      regimePlanets: PLANETS,
+    });
+  }
+
+  function run(p: ClientShipPredictor, input: ShipInput, seconds: number, dt = TICK_DT): number {
+    let t = 0;
+    p.step(dt, (t += 50), { seq: 1, input });
+    for (let i = 1; i < seconds / dt; i++) p.step(dt, (t += 50)); // held control
+    return vecLength(p.getState().vel);
+  }
+
+  it('deep space: boost + thrust exceeds 120 m/s within 5 s (matches the server rule)', () => {
+    const p = makeCruisePredictor({ x: 0, y: 50, z: 0 });
+    const top = run(p, BOOST, 5);
+    expect(top).toBeGreaterThan(120);
+  });
+
+  it('inside the clearance band: the same input tops out at 120', () => {
+    // 2 000 m from the anchor < 2 500 → cruiseAllowedAt is false.
+    const p = makeCruisePredictor({ x: 8_000, y: 300, z: 0 });
+    const top = run(p, BOOST, 5);
+    expect(top).toBeLessThanOrEqual(120 + 1e-6);
+  });
+
+  it('cruise drops out in the band: a boosted state decays toward the normal cap', () => {
+    // Build up cruise speed in deep space (≈480 after 12 s)…
+    const p = makeCruisePredictor({ x: 0, y: 50, z: 0 });
+    const atCruise = run(p, BOOST, 12);
+    expect(atCruise).toBeGreaterThan(400);
+    // …then a predictor holding the SAME velocity INSIDE the band, still
+    // boosting: the position-dependent clearance must bleed the excess off
+    // at the soft cap (and never below the normal cap while thrusting).
+    const inBand = new ClientShipPredictor(
+      {
+        pos: { x: 8_000, y: 300, z: 0 }, // 2 000 m from the anchor
+        vel: p.getState().vel,
+        quat: p.getState().quat,
+        regime: 'space',
+      },
+      { regime: 'space', shipClass: 'scout', regimePlanets: PLANETS },
+    );
+    const after = run(inBand, BOOST, 2, 1);
+    expect(after, 'decaying toward 120').toBeLessThan(atCruise - 10);
+    expect(after).toBeGreaterThan(120); // thrust holds it above the normal cap
+  });
+});

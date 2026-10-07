@@ -3,6 +3,8 @@ import atmoFixture from './__fixtures__/flight-atmo-30s.json';
 import spaceFixture from './__fixtures__/flight-space-60s.json';
 import { ATMOSPHERE_BOUNDARY_M, boundaryFactor, reentryTintFactor } from './atmosphere';
 import {
+  CRUISE_ACCEL_FACTOR,
+  CRUISE_SPEED_FACTOR,
   GRAVITY,
   integrateShip,
   PAD_RADIUS,
@@ -346,6 +348,147 @@ describe('thrust top speed (TASK-81)', () => {
       // excess fully decayed (30 · 0.95^400 ≈ 1e-8)
       expect(prev, `${cls.id} final`).toBeLessThanOrEqual(cls.maxVelocity + 1e-3);
     }
+  });
+});
+
+describe('space cruise boost (TASK-85)', () => {
+  // Scout: maxVelocity 120, acceleration 40 → cruise cap 480, accel 80.
+  const CRUISE_CAP = 120 * CRUISE_SPEED_FACTOR;
+
+  it('scout boosting in deep space tops out at maxVelocity × 4 (480, never above)', () => {
+    let s = restShipState({ x: 0, y: 0, z: 0 }, 'space');
+    for (let i = 0; i < 1200; i++) {
+      s = integrateShip(
+        s,
+        { ...NO_INPUT, thrust: 1, boost: 1 },
+        DT,
+        'space',
+        undefined,
+        'scout',
+        { cruiseAllowed: true },
+      );
+      expect(vecLength(s.vel), `t=${((i + 1) * DT).toFixed(2)}s`).toBeLessThanOrEqual(
+        CRUISE_CAP + 1e-9,
+      );
+    }
+    // …and it actually reaches the cruise cap (reaches it in ~6 s: 480/80).
+    expect(vecLength(s.vel)).toBeGreaterThanOrEqual(0.99 * CRUISE_CAP);
+  });
+
+  it('at cruise top speed: thrust + full yaw redirects without exceeding the EFFECTIVE cap', () => {
+    // The TASK-81 clamp must use the boosted max — a plain maxVelocity
+    // clamp here would pin the ship at 120 and bleed it off every tick.
+    let s: ShipState = {
+      pos: vec(0, 0, 0),
+      vel: vec(0, 0, CRUISE_CAP),
+      quat: { x: 0, y: 0, z: 0, w: 1 },
+      regime: 'space',
+    };
+    for (let i = 0; i < 200; i++) {
+      s = integrateShip(
+        s,
+        { ...NO_INPUT, thrust: 1, boost: 1, yaw: 1 },
+        DT,
+        'space',
+        undefined,
+        'scout',
+        { cruiseAllowed: true },
+      );
+      expect(vecLength(s.vel), `t=${((i + 1) * DT).toFixed(2)}s`).toBeLessThanOrEqual(
+        CRUISE_CAP + 1e-9,
+      );
+    }
+    const forward = quatRotateVector(s.quat, vec(0, 0, 1));
+    expect(vecLength(vecSub(s.vel, vecScale(forward, CRUISE_CAP)))).toBeGreaterThan(1);
+  });
+
+  it('boost with cruiseAllowed false, or in the atmosphere, tops out at maxVelocity (120)', () => {
+    // Not allowed: the demand is ignored (the caller cleared it).
+    let s = restShipState({ x: 0, y: 0, z: 0 }, 'space');
+    for (let i = 0; i < 600; i++) {
+      s = integrateShip(
+        s,
+        { ...NO_INPUT, thrust: 1, boost: 1 },
+        DT,
+        'space',
+        undefined,
+        'scout',
+        { cruiseAllowed: false },
+      );
+      expect(vecLength(s.vel), `t=${((i + 1) * DT).toFixed(2)}s`).toBeLessThanOrEqual(
+        120 + 1e-9,
+      );
+    }
+    // Atmosphere: the space-only gate (thrust itself does not apply there).
+    let sa = restShipState({ x: 0, y: 200, z: 0 }, 'atmosphere');
+    for (let i = 0; i < 600; i++) {
+      sa = integrateShip(
+        sa,
+        { ...NO_INPUT, thrust: 1, boost: 1 },
+        DT,
+        'atmosphere',
+        atmo(0.01),
+        'scout',
+        { cruiseAllowed: true },
+      );
+      expect(vecLength(sa.vel), `t=${((i + 1) * DT).toFixed(2)}s`).toBeLessThanOrEqual(
+        120 + 1e-9,
+      );
+    }
+  });
+
+  it('after release at 480: speed decays MONOTONICALLY to ≤ 121 within 6 s (soft cap)', () => {
+    let s: ShipState = {
+      pos: vec(0, 0, 0),
+      vel: vec(0, 0, CRUISE_CAP),
+      quat: { x: 0, y: 0, z: 0, w: 1 },
+      regime: 'space',
+    };
+    let prev = CRUISE_CAP;
+    for (let i = 0; i < 120; i++) {
+      // Shift released: zero boost, zero thrust — the 5 %/tick bleed from
+      // the NORMAL max does the 'drop out of cruise'.
+      s = integrateShip(s, NO_INPUT, DT, 'space', undefined, 'scout', {
+        cruiseAllowed: true,
+      });
+      const speed = vecLength(s.vel);
+      expect(speed, `step ${i + 1}`).toBeLessThanOrEqual(prev + 1e-9);
+      prev = speed;
+    }
+    expect(prev, '6 s after release').toBeLessThanOrEqual(121);
+  });
+
+  it('boost = 0 is bit-identical to no boost channel (the default path is untouched)', () => {
+    const a = integrateShip(
+      restShipState({ x: 1, y: 2, z: 3 }, 'space'),
+      { ...NO_INPUT, thrust: 0.7, yaw: 0.2, boost: 0 },
+      DT,
+      'space',
+      undefined,
+      'scout',
+      { cruiseAllowed: true },
+    );
+    const b = integrateShip(
+      restShipState({ x: 1, y: 2, z: 3 }, 'space'),
+      { ...NO_INPUT, thrust: 0.7, yaw: 0.2 },
+      DT,
+      'space',
+      undefined,
+      'scout',
+    );
+    expect(a).toStrictEqual(b);
+    // …and a negative boost demand is clamped to 0 (no reverse-boost).
+    expect(a).toStrictEqual(
+      integrateShip(
+        restShipState({ x: 1, y: 2, z: 3 }, 'space'),
+        { ...NO_INPUT, thrust: 0.7, yaw: 0.2, boost: -1 },
+        DT,
+        'space',
+        undefined,
+        'scout',
+        { cruiseAllowed: true },
+      ),
+    );
   });
 });
 

@@ -11,18 +11,28 @@ import type { CharacterInput } from '../physics/character';
 import type { ShipInput } from '../physics/flight';
 import type { InputPayload } from './schemas';
 
+/** The 'action' string is a '+'-joined channel list ('vtol', 'boost', …). */
+function actionTags(action: string | undefined): string[] {
+  return action ? action.split('+') : [];
+}
+
 /**
  * Map a wire input frame onto the flight-model input channels.
- * turn → roll; action 'vtol' engages full VTOL lift (the protocol v1 input
- * frame has no dedicated up channel); fire/lock are reserved for TASK-43/44.
+ * turn → roll; action 'vtol' engages full VTOL lift and action 'boost'
+ * (the combined form 'vtol+boost' carries both) engages the space-cruise
+ * boost (TASK-85 — the protocol v1 input frame has no dedicated up/boost
+ * channel, so the `action` string carries them); fire/lock are reserved
+ * for TASK-43/44.
  */
 export function inputToShipInput(input: InputPayload): ShipInput {
+  const tags = actionTags(input.action);
   return {
     thrust: input.thrust,
     yaw: input.yaw,
     pitch: input.pitch,
     roll: input.turn,
-    up: input.action === 'vtol' ? 1 : 0,
+    up: tags.includes('vtol') ? 1 : 0,
+    boost: tags.includes('boost') ? 1 : 0,
   };
 }
 
@@ -31,12 +41,19 @@ export function inputToShipInput(input: InputPayload): ShipInput {
  * wire frame. The client's ship prediction loop maps the active control
  * scheme's readout through this so the EXACT same channels the server
  * integrates (`inputToShipInput`) leave the socket:
- * thrust → thrust, yaw → yaw, pitch → pitch, ROLL → turn, and VTOL
- * demand (`up > 0`) → action 'vtol'. `fire`/`lock` stay false — firing
- * and target lock are separate one-shot messages ('fire' / 'target_lock',
- * TASK-43/44). Round-trips exactly: `inputToShipInput(shipInputToPayload(s, i)) === i`.
+ * thrust → thrust, yaw → yaw, pitch → pitch, ROLL → turn, VTOL demand
+ * (`up > 0`) → 'vtol' and cruise demand (`boost > 0`, TASK-85) → 'boost'
+ * in the `action` string (VTOL wins: it is listed first in the combined
+ * 'vtol+boost' form — boost only engages in space anyway, where VTOL lift
+ * does nothing, so 'vtol wins' is physics-neutral). `fire`/`lock` stay
+ * false — firing and target lock are separate one-shot messages
+ * ('fire' / 'target_lock', TASK-43/44). Round-trips exactly:
+ * `inputToShipInput(shipInputToPayload(s, i)) === i`.
  */
 export function shipInputToPayload(seq: number, input: ShipInput): InputPayload {
+  const tags: string[] = [];
+  if (input.up > 0) tags.push('vtol');
+  if ((input.boost ?? 0) > 0) tags.push('boost');
   return {
     seq,
     thrust: input.thrust,
@@ -45,7 +62,7 @@ export function shipInputToPayload(seq: number, input: ShipInput): InputPayload 
     turn: input.roll,
     fire: false,
     lock: false,
-    ...(input.up > 0 ? { action: 'vtol' } : {}),
+    ...(tags.length > 0 ? { action: tags.join('+') } : {}),
   };
 }
 

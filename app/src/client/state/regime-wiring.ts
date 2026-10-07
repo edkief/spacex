@@ -33,6 +33,7 @@ import {
 } from '@shared/galaxy/planets';
 import { boundaryFactor } from '@shared/physics/atmosphere';
 import type { PlanetAtmo } from '@shared/physics/flight';
+import type { RegimePlanet } from '@shared/regime';
 import { vecLength, type Vec3 } from '@shared/physics/vec';
 import type { Planet } from '@shared/galaxy/types';
 import type { EntityState } from '@shared/protocol/schemas';
@@ -56,6 +57,8 @@ export class RegimeWiring {
    * generated planets instead.
    */
   private systemPlanets: Planet[] = [];
+  /** The regime-manager view of the system's planets (TASK-85: cruise). */
+  private regimePlanetList: RegimePlanet[] = [];
 
   constructor(options: RegimeWiringOptions = {}) {
     this.remapper = new ControlsRemapper('space', options.log);
@@ -76,9 +79,11 @@ export class RegimeWiring {
     this.tracker.reset();
     const system = systemForId(seed, systemId);
     if (system) {
-      this.tracker.setPlanets(systemRegimePlanets(system));
+      this.regimePlanetList = systemRegimePlanets(system);
+      this.tracker.setPlanets(this.regimePlanetList);
       this.systemPlanets = system.planets;
     } else {
+      this.regimePlanetList = [];
       this.systemPlanets = [];
     }
   }
@@ -96,6 +101,16 @@ export class RegimeWiring {
   /** The regime the controls/rendering currently use (for future consumers). */
   get regime() {
     return this.tracker.regime;
+  }
+
+  /**
+   * TASK-85: the system's regime planets (the same list the tracker
+   * resolves regimes from) — the ship predictor resolves
+   * `cruiseAllowedAt(pos, …)` against it every frame so the client
+   * boost engages/drops out exactly where the server tick does.
+   */
+  get regimePlanets(): RegimePlanet[] {
+    return this.regimePlanetList;
   }
 
   /**

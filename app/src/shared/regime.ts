@@ -27,6 +27,7 @@
  * module stays free of chunk generation.
  */
 
+import { ATMOSPHERE_BOUNDARY_M } from './physics/atmosphere';
 import type { Vec3 } from './physics/vec';
 
 /** The three flight regimes (space ↔ atmosphere ↔ surface). */
@@ -61,6 +62,31 @@ export interface RegimePlanet {
 export interface RegimeResult {
   regime: Regime;
   planetId?: string;
+}
+
+/**
+ * Open-space clearance for cruise boost (TASK-85): the ship must be at
+ * least this far outside EVERY atmosphere boundary before SHIFT raises its
+ * top speed (landing zones and dogfights keep normal speeds).
+ */
+export const CRUISE_CLEARANCE_M = 1_500;
+
+/**
+ * Whether the space-cruise boost is ALLOWED at a position (TASK-85): true
+ * when the 3D distance to every planet's anchor is at least its
+ * atmosphere radius + {@link CRUISE_CLEARANCE_M}. Airless planets
+ * (atmosphereRadius 0) still count at ATMOSPHERE_BOUNDARY_M — the same
+ * boundary their domes/slabs are drawn at, so no one cruises into an
+ * island. Pure and deterministic (server tick, client predictor and HUD
+ * all call the same function); an empty planet list allows cruise.
+ */
+export function cruiseAllowedAt(pos: Vec3, planets: RegimePlanet[]): boolean {
+  for (const p of planets) {
+    const radius = p.atmosphereRadius > 0 ? p.atmosphereRadius : ATMOSPHERE_BOUNDARY_M;
+    const clear = radius + CRUISE_CLEARANCE_M;
+    if (anchorDistanceSquared(pos, p) < clear * clear) return false;
+  }
+  return true;
 }
 
 /** Squared 3D distance from pos to the planet's surface anchor. */

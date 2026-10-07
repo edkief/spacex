@@ -50,7 +50,9 @@ export class InputFrameSender {
 
 /** One channel key → its demand, as a stable cadence string. */
 export function shipInputKey(input: ShipInput): string {
-  return `${input.thrust}|${input.yaw}|${input.pitch}|${input.roll}|${input.up}`;
+  return `${input.thrust}|${input.yaw}|${input.pitch}|${input.roll}|${input.up}|${
+    input.boost ?? 0
+  }`;
 }
 
 const EMPTY_PRESSED: ReadonlySet<string> = new Set();

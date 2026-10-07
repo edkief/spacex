@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { SelfShipView } from '@client/state/ship-hud';
 import { __resetShipHud, flashHullHit, setSelfShipView } from '@client/state/ship-hud';
 import { __resetChartTarget, setChartTarget } from '@client/state/chart-target';
+import { __resetCruiseState, setCruiseState } from '@client/state/cruise';
 
 import { allPairwiseDisjoint, protectedRects, type Viewport } from '../combat-hud/layout';
 import { shipHudRects } from './layout';
@@ -59,6 +60,7 @@ const rafTick = (ms = 50): Promise<void> =>
 beforeEach(() => {
   __resetShipHud();
   __resetChartTarget();
+  __resetCruiseState();
 });
 
 afterEach(() => {
@@ -111,6 +113,37 @@ describe('ShipHud readouts', () => {
   it('hides the docked tag when not on a pad', () => {
     const el = renderHud(mkView());
     expect(el.querySelector('#ship-hud-docked')).toBeNull();
+  });
+});
+
+describe('ShipHud cruise tag (TASK-85)', () => {
+  it('is hidden while boost is not held', () => {
+    const el = renderHud(mkView({ regime: 'space' }));
+    expect(el.querySelector('#ship-hud-cruise')).toBeNull();
+  });
+
+  it('shows CRUISE (bright) while boost is held AND allowed', () => {
+    act(() => setCruiseState({ held: true, allowed: true }));
+    const el = renderHud(mkView({ regime: 'space' }));
+    const tag = el.querySelector('#ship-hud-cruise') as HTMLElement | null;
+    expect(tag?.textContent).toBe('CRUISE');
+    expect(String(tag?.style.color).toLowerCase()).toBe('#67e8f9'); // bright cyan
+  });
+
+  it('shows dimmed CRUISE BLOCKED while held but not allowed (near a planet)', () => {
+    act(() => setCruiseState({ held: true, allowed: false }));
+    const el = renderHud(mkView({ regime: 'space' }));
+    const tag = el.querySelector('#ship-hud-cruise') as HTMLElement | null;
+    expect(tag?.textContent).toBe('CRUISE BLOCKED');
+    const opacity = Number(tag?.style.opacity);
+    expect(opacity).toBeLessThan(1); // dimmed
+  });
+
+  it('live-updates when the clearance state changes (subscribe runs)', () => {
+    const el = renderHud(mkView({ regime: 'space' }));
+    act(() => setCruiseState({ held: true, allowed: true }));
+    act(() => setCruiseState({ held: true, allowed: false }));
+    expect(el.querySelector('#ship-hud-cruise')?.textContent).toBe('CRUISE BLOCKED');
   });
 });
 

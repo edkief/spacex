@@ -128,7 +128,7 @@ import {
   planetAtmosphereRadius,
   systemRegimePlanets,
 } from '@shared/galaxy/planets';
-import { regimeFor, type RegimePlanet } from '@shared/regime';
+import { cruiseAllowedAt, regimeFor, type RegimePlanet } from '@shared/regime';
 import type { Repository } from '@server/db/repo';
 import type { DepositRow, ShipRow } from '@server/db/schema';
 import { validRegime, type ShipsLoad } from './persist';
@@ -3906,9 +3906,15 @@ export class SystemShard implements Shard {
    * Space entities get no planet context at all.
    */
   private resolveRegimeCtx(entity: SimEntity): { planet?: PlanetAtmo; options: FlightOptions } {
+    // TASK-85: the cruise rule is the SHARED integrator's — the server tick
+    // passes the same clearance the client predictor uses
+    // (cruiseAllowedAt on the system's regime planets), so player ships
+    // may boost only >= 1.5 km outside every atmosphere boundary. AI ships
+    // never reach these options (they integrate without options, boost 0).
+    const cruiseAllowed = cruiseAllowedAt(entity.ship.pos, this.regimePlanets);
     const empty = {
       planet: undefined as PlanetAtmo | undefined,
-      options: { heightAt: () => 0, pads: [] },
+      options: { heightAt: () => 0, pads: [], cruiseAllowed },
     };
     if (entity.ship.regime === 'space' || !entity.planetId) return empty;
     const planet = this.system.planets.find((p) => p.id === entity.planetId);
@@ -3928,6 +3934,9 @@ export class SystemShard implements Shard {
         heightAt: (x, z) =>
           padSurfaceHeight(x, z, ctx.heightAt(x, z), this.planetPads.get(planet.id)),
         pads: ctx.pads(),
+        // In atmosphere the boost never engages (space-only gate), but the
+        // same value keeps the options shape uniform across regimes.
+        cruiseAllowed,
       },
     };
   }

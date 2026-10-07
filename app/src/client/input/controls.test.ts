@@ -108,7 +108,14 @@ describe('ControlsRemapper', () => {
 
   it('readInput maps pressed keys through the ACTIVE scheme (instant remap)', () => {
     const remapper = new ControlsRemapper('space');
-    expect(remapper.readInput(keys('w'))).toEqual({ thrust: 1, yaw: 0, pitch: 0, roll: 0, up: 0 });
+    expect(remapper.readInput(keys('w'))).toEqual({
+      thrust: 1,
+      yaw: 0,
+      pitch: 0,
+      roll: 0,
+      up: 0,
+      boost: 0,
+    });
     expect(remapper.readInput(keys('s'))).toMatchObject({ thrust: -1 });
     // TASK-80 sign translation: the on-screen [right, left] pair arrives in
     // the physics convention, where +yaw = nose toward local +X (screen
@@ -130,7 +137,27 @@ describe('ControlsRemapper', () => {
       pitch: 0,
       roll: 0,
       up: 0,
+      boost: 0,
     });
+  });
+
+  it('TASK-85: Shift is the cruise boost in space only (atmosphere/surface: no boost)', () => {
+    const remapper = new ControlsRemapper('space');
+    expect(CONTROL_SCHEMES.space.boost).toBe('Shift');
+    expect(CONTROL_SCHEMES.atmosphere.boost).toBeNull();
+    expect(CONTROL_SCHEMES.surface.boost).toBeNull();
+    // In space, Shift reads the boost demand and nothing else.
+    const inSpace = remapper.readInput(keys('Shift'));
+    expect(inSpace).toMatchObject({ boost: 1, thrust: 0, up: 0, yaw: 0, pitch: 0, roll: 0 });
+    // W + Shift together: thrust AND boost (a key change either way).
+    expect(remapper.readInput(keys('w', 'Shift'))).toMatchObject({ thrust: 1, boost: 1 });
+    // Atmosphere: Shift does nothing to the ship (no boost channel).
+    remapper.setRegime('atmosphere');
+    expect(remapper.readInput(keys('Shift')).boost).toBe(0);
+    // Surface: flight input stays all-zero (Shift = run is read on foot
+    // directly from the pressed set, not through readInput).
+    remapper.setRegime('surface');
+    expect(remapper.readInput(keys('Shift', 'w')).boost).toBe(0);
   });
 
   it('readCharacterInput reports walk/interact only in the surface scheme', () => {

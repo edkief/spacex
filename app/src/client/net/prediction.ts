@@ -60,6 +60,7 @@ import {
   vecLength,
   type Vec3,
 } from '@shared/physics/vec';
+import { cruiseAllowedAt, type RegimePlanet } from '@shared/regime';
 import type { ShipClass, ShipClassId } from '@shared/ships';
 
 /** Distance (u) below which a reconcile correction blends instead of rewinds. */
@@ -90,7 +91,7 @@ const ZERO_SHIP_INPUT: ShipInput = { thrust: 0, yaw: 0, pitch: 0, roll: 0, up: 0
  * re-integrate a NaN rotation on top of every later state.
  */
 function inputFinite(i: ShipInput): boolean {
-  return Number.isFinite(i.thrust + i.yaw + i.pitch + i.roll + i.up);
+  return Number.isFinite(i.thrust + i.yaw + i.pitch + i.roll + i.up + (i.boost ?? 0));
 }
 
 /** TASK-76.1: a state the predictor may adopt (see inputFinite). */
@@ -129,6 +130,13 @@ export interface PredictionContext {
   shipClass: ShipClass | ShipClassId;
   planet?: PlanetAtmo;
   options?: FlightOptions;
+  /**
+   * The system's regime planets (TASK-85): the predictor resolves
+   * `cruiseAllowedAt(pos, ...)` at the CURRENT predicted position on
+   * every integrate call, exactly like the server tick — so a boost
+   * demand engages/drops out at the same place on client and server.
+   */
+  regimePlanets?: RegimePlanet[];
 }
 
 /** How the last reconcile resolved (for HUD debug + tests). */
@@ -141,6 +149,16 @@ export interface ReconcileResult {
   correctionAngle: number;
   /** Number of unacked inputs re-applied on top of the server state. */
   replayedInputs: number;
+}
+
+/**
+ * TASK-85: the options for one integrate call — the context options with
+ * `cruiseAllowed` resolved at the CURRENT position of the state being
+ * integrated (the shared `cruiseAllowedAt`, same call as the server tick).
+ */
+function optionsAt(ctx: PredictionContext, pos: Vec3): FlightOptions | undefined {
+  if (!ctx.regimePlanets) return ctx.options;
+  return { ...ctx.options, cruiseAllowed: cruiseAllowedAt(pos, ctx.regimePlanets) };
 }
 
 function cloneState(s: ShipState): ShipState {
@@ -179,7 +197,7 @@ function replayOnServerTimeline(
         ctx.regime,
         ctx.planet,
         ctx.shipClass,
-        ctx.options,
+        optionsAt(ctx, s.pos),
       );
     }
   };
@@ -222,7 +240,7 @@ function replay(
     // Timestamps are ms; integrateShip takes seconds.
     const dur = Math.max(0, (i + 1 < inputs.length ? inputs[i + 1].t : now) - q.t) / 1000;
     if (dur > 0) {
-      s = integrateShip(s, q.input, dur, ctx.regime, ctx.planet, ctx.shipClass, ctx.options);
+      s = integrateShip(s, q.input, dur, ctx.regime, ctx.planet, ctx.shipClass, optionsAt(ctx, s.pos));
     }
   }
   return s;
@@ -297,7 +315,7 @@ export class ClientShipPredictor {
       this.ctx.regime,
       this.ctx.planet,
       this.ctx.shipClass,
-      this.ctx.options,
+      optionsAt(this.ctx, this.predicted.pos),
     );
     // TASK-76.1: a non-finite result (a NaN demand that slipped into the
     // held input, a corrupt context) must never be adopted — the render

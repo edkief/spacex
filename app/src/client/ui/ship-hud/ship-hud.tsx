@@ -12,6 +12,7 @@
  * disjointness test).
  */
 import React from 'react';
+import { cruiseState, cruiseStateSubscribe, type CruiseState } from '@client/state/cruise';
 import { selfShipView, selfShipViewSubscribe, type SelfShipView } from '@client/state/ship-hud';
 import { speedBlockRect } from './layout';
 import { styleFromRect, type Viewport } from '@client/ui/combat-hud/layout';
@@ -34,6 +35,10 @@ export interface ShipHudProps {
 export function ShipHud(props: ShipHudProps): React.ReactElement | null {
   const [view, setView] = React.useState<SelfShipView | null>(selfShipView);
   React.useEffect(() => selfShipViewSubscribe(setView), []);
+  // TASK-85: the cruise tag (CRUISE / CRUISE BLOCKED) — render-rate input
+  // through the emit-on-change store, so it only re-renders on changes.
+  const [cruise, setCruise] = React.useState<CruiseState>(cruiseState);
+  React.useEffect(() => cruiseStateSubscribe(setCruise), []);
   const [dockedName, setDockedName] = React.useState<string | null>(null);
   // The docked tag's station name only changes with the view (10 Hz).
   React.useEffect(() => {
@@ -81,6 +86,7 @@ export function ShipHud(props: ShipHudProps): React.ReactElement | null {
           >
             {regimeTag(view.regime)}
           </span>
+          <CruiseTag state={cruise} />
         </div>
         <div style={{ marginTop: 4, minHeight: 14 }}>
           <NavReadout sample={props.navSample} dockTarget={props.dockTarget} />
@@ -139,6 +145,38 @@ function ThrustVectorBar({
           transform: `translate(-50%, -50%) rotate(${yaw}deg) translateY(-5px)`,
         }}
       />
+    </span>
+  );
+}
+
+/**
+ * TASK-85: the cruise tag next to the regime indicator. 'CRUISE' (bright
+ * cyan, the space-regime colour) while boost is held AND allowed at the
+ * predicted position; dimmed 'CRUISE BLOCKED' while Shift is held but the
+ * clearance band is not clear — the player must see WHY nothing happens
+ * near planets. Hidden entirely when Shift is not held. TASK-54: the tag
+ * text carries the state (not just colour), and both colours clear
+ * ≥ 4.5:1 on the tag background.
+ */
+function CruiseTag({ state }: { state: CruiseState }): React.ReactElement | null {
+  if (!state.held) return null;
+  const active = state.allowed;
+  return (
+    <span
+      id="ship-hud-cruise"
+      role="status"
+      style={{
+        fontSize: 9,
+        padding: '1px 6px',
+        borderRadius: 3,
+        border: '1px solid #2a3346',
+        letterSpacing: '0.1em',
+        color: active ? '#67e8f9' : '#f59e0b',
+        opacity: active ? 1 : 0.65,
+        background: 'rgba(11, 14, 20, 0.7)',
+      }}
+    >
+      {active ? 'CRUISE' : 'CRUISE BLOCKED'}
     </span>
   );
 }

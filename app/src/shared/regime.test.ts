@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  CRUISE_CLEARANCE_M,
   REGIME_EXIT_FACTOR,
   SURFACE_ENTER_ALT_M,
   SURFACE_HYSTERESIS_M,
   SURFACE_SPEED_LIMIT_M_S,
+  cruiseAllowedAt,
   regimeFor,
   type RegimePlanet,
 } from './regime';
@@ -222,5 +224,39 @@ describe('regimeFor: determinism + shared client/server inputs', () => {
       const client = regimeFor(p, clientPlanets, 'space', 0);
       expect(client).toEqual(server);
     }
+  });
+});
+
+describe('cruiseAllowedAt (TASK-85)', () => {
+  // A sits at the origin with the full 1 km atmosphere: the no-cruise
+  // zone is a R + CRUISE_CLEARANCE_M = 2 500 u sphere around its anchor.
+  it('is false at 2 400 m from the anchor and true at 2 600 m', () => {
+    expect(R + CRUISE_CLEARANCE_M).toBe(2500);
+    const planets = [A];
+    expect(cruiseAllowedAt({ x: 2400, y: 0, z: 0 }, planets)).toBe(false);
+    expect(cruiseAllowedAt({ x: 2600, y: 0, z: 0 }, planets)).toBe(true);
+    // exactly on the boundary is allowed (>=)
+    expect(cruiseAllowedAt({ x: 2500, y: 0, z: 0 }, planets)).toBe(true);
+  });
+
+  it('uses 3D distance (altitude counts) and every planet must be clear', () => {
+    const planets = [A];
+    // horizontal 1 200 + altitude 2 400 → 3D distance 2 683 > 2 500
+    expect(cruiseAllowedAt({ x: 1200, y: 2400, z: 0 }, planets)).toBe(true);
+    const B = { id: 'planet-b', x: 10_000, z: 0, atmosphereRadius: R, landable: true };
+    // clear of A (7 700) but not of B (2 300 < 2 500)
+    expect(cruiseAllowedAt({ x: 7700, y: 0, z: 0 }, planets.concat(B))).toBe(false);
+    // 9 000 off B's line → distance √(2300² + 9000²) > 2 500: clear of both
+    expect(cruiseAllowedAt({ x: 7700, y: 0, z: 9_000 }, planets.concat(B))).toBe(true);
+  });
+
+  it('counts airless planets at ATMOSPHERE_BOUNDARY_M (no cruising into an island)', () => {
+    const airless: RegimePlanet = { id: 'moon', x: 0, z: 0, atmosphereRadius: 0, landable: true };
+    expect(cruiseAllowedAt({ x: 2400, y: 0, z: 0 }, [airless])).toBe(false);
+    expect(cruiseAllowedAt({ x: 2600, y: 0, z: 0 }, [airless])).toBe(true);
+  });
+
+  it('allows cruise with no planets at all', () => {
+    expect(cruiseAllowedAt({ x: 0, y: 0, z: 0 }, [])).toBe(true);
   });
 });

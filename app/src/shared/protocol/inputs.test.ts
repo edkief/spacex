@@ -91,20 +91,23 @@ describe('inputToCharacterInput (TASK-32)', () => {
  */
 describe('shipInputToPayload (TASK-73)', () => {
   const CASES: Array<{ name: string; input: ShipInput }> = [
-    { name: 'coast (all zero)', input: { thrust: 0, yaw: 0, pitch: 0, roll: 0, up: 0 } },
-    { name: 'thrust +', input: { thrust: 1, yaw: 0, pitch: 0, roll: 0, up: 0 } },
-    { name: 'thrust -', input: { thrust: -1, yaw: 0, pitch: 0, roll: 0, up: 0 } },
-    { name: 'yaw +', input: { thrust: 0, yaw: 1, pitch: 0, roll: 0, up: 0 } },
-    { name: 'yaw -', input: { thrust: 0, yaw: -1, pitch: 0, roll: 0, up: 0 } },
-    { name: 'pitch +', input: { thrust: 0, yaw: 0, pitch: 1, roll: 0, up: 0 } },
-    { name: 'pitch -', input: { thrust: 0, yaw: 0, pitch: -1, roll: 0, up: 0 } },
-    { name: 'roll +', input: { thrust: 0, yaw: 0, pitch: 0, roll: 1, up: 0 } },
-    { name: 'roll -', input: { thrust: 0, yaw: 0, pitch: 0, roll: -1, up: 0 } },
-    { name: 'VTOL up', input: { thrust: 0, yaw: 0, pitch: 0, roll: 0, up: 1 } },
+    { name: 'coast (all zero)', input: { thrust: 0, yaw: 0, pitch: 0, roll: 0, up: 0, boost: 0 } },
+    { name: 'thrust +', input: { thrust: 1, yaw: 0, pitch: 0, roll: 0, up: 0, boost: 0 } },
+    { name: 'thrust -', input: { thrust: -1, yaw: 0, pitch: 0, roll: 0, up: 0, boost: 0 } },
+    { name: 'yaw +', input: { thrust: 0, yaw: 1, pitch: 0, roll: 0, up: 0, boost: 0 } },
+    { name: 'yaw -', input: { thrust: 0, yaw: -1, pitch: 0, roll: 0, up: 0, boost: 0 } },
+    { name: 'pitch +', input: { thrust: 0, yaw: 0, pitch: 1, roll: 0, up: 0, boost: 0 } },
+    { name: 'pitch -', input: { thrust: 0, yaw: 0, pitch: -1, roll: 0, up: 0, boost: 0 } },
+    { name: 'roll +', input: { thrust: 0, yaw: 0, pitch: 0, roll: 1, up: 0, boost: 0 } },
+    { name: 'roll -', input: { thrust: 0, yaw: 0, pitch: 0, roll: -1, up: 0, boost: 0 } },
+    { name: 'VTOL up', input: { thrust: 0, yaw: 0, pitch: 0, roll: 0, up: 1, boost: 0 } },
     {
       name: 'combined burn',
-      input: { thrust: 1, yaw: 0.5, pitch: -0.5, roll: 1, up: 1 },
+      input: { thrust: 1, yaw: 0.5, pitch: -0.5, roll: 1, up: 1, boost: 0 },
     },
+    // TASK-85: the cruise boost channel round-trips through the action string.
+    { name: 'boost (space cruise)', input: { thrust: 1, yaw: 0, pitch: 0, roll: 0, up: 0, boost: 1 } },
+    { name: 'VTOL + boost combined', input: { thrust: 1, yaw: 0, pitch: 0, roll: 0, up: 1, boost: 1 } },
   ];
 
   it.each(CASES)('round-trips $name through inputToShipInput exactly', ({ input }) => {
@@ -120,12 +123,21 @@ describe('shipInputToPayload (TASK-73)', () => {
   });
 
   it('VTOL demand rides the action string; zero up has no action', () => {
-    expect(shipInputToPayload(1, { thrust: 0, yaw: 0, pitch: 0, roll: 0, up: 1 }).action).toBe(
-      'vtol',
-    );
     expect(
-      shipInputToPayload(1, { thrust: 0, yaw: 0, pitch: 0, roll: 0, up: 0 }).action,
+      shipInputToPayload(1, { thrust: 0, yaw: 0, pitch: 0, roll: 0, up: 1, boost: 0 }).action,
+    ).toBe('vtol');
+    expect(
+      shipInputToPayload(1, { thrust: 0, yaw: 0, pitch: 0, roll: 0, up: 0, boost: 0 }).action,
     ).toBeUndefined();
+  });
+
+  it('TASK-85: boost rides the action string; vtol wins (listed first) when both', () => {
+    expect(
+      shipInputToPayload(1, { thrust: 1, yaw: 0, pitch: 0, roll: 0, up: 0, boost: 1 }).action,
+    ).toBe('boost');
+    expect(
+      shipInputToPayload(1, { thrust: 1, yaw: 0, pitch: 0, roll: 0, up: 1, boost: 1 }).action,
+    ).toBe('vtol+boost');
   });
 
   it('every produced payload is a valid wire frame (strict schema)', () => {
@@ -146,7 +158,16 @@ describe('inputToShipInput (regression guard, TASK-14)', () => {
       pitch: 0.5,
       roll: -1,
       up: 1,
+      boost: 0,
     });
     expect(inputToShipInput(frame()).up).toBe(0);
+    // TASK-85: the boost channel (action 'boost' / the combined 'vtol+boost').
+    expect(inputToShipInput(frame({ action: 'boost' })).boost).toBe(1);
+    expect(inputToShipInput(frame({ action: 'vtol+boost' }))).toMatchObject({
+      up: 1,
+      boost: 1,
+    });
+    // a foreign action string never leaks into the ship channels
+    expect(inputToShipInput(frame({ action: 'run' }))).toMatchObject({ up: 0, boost: 0 });
   });
 });

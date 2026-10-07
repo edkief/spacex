@@ -45,6 +45,12 @@ export interface ControlScheme {
   roll: [Key, Key] | null;
   /** VTOL vertical lift key (atmosphere only; full demand while held). */
   vtol: Key | null;
+  /**
+   * Space cruise boost key (TASK-85; full demand while held). Space only —
+   * null in atmosphere/surface so the SAME Shift key keeps meaning 'run'
+   * on foot (the on-foot loop reads it directly from the pressed set).
+   */
+  boost: Key | null;
   /** Character-mode channels (surface; behavior is the TASK-31 stub). */
   move: { forward?: Key; back?: Key; left?: Key; right?: Key } | null;
   interact: Key | null;
@@ -60,6 +66,7 @@ export const CONTROL_SCHEMES: Record<Regime, ControlScheme> = {
     pitch: ['r', 'f'],
     roll: ['q', 'e'],
     vtol: null,
+    boost: 'Shift',
     move: null,
     interact: null,
   },
@@ -71,6 +78,7 @@ export const CONTROL_SCHEMES: Record<Regime, ControlScheme> = {
     pitch: ['r', 'f'],
     roll: ['q', 'e'],
     vtol: ' ',
+    boost: null,
     move: null,
     interact: null,
   },
@@ -82,6 +90,7 @@ export const CONTROL_SCHEMES: Record<Regime, ControlScheme> = {
     pitch: null,
     roll: null,
     vtol: null,
+    boost: null,
     move: { forward: 'w', back: 's', left: 'a', right: 'd' },
     interact: 'e',
   },
@@ -170,6 +179,7 @@ export class ControlsRemapper {
       pitch: axis(s.pitch),
       roll: flip(axis(s.roll)),
       up: s.vtol && pressed.has(s.vtol) ? 1 : 0,
+      boost: s.boost && pressed.has(s.boost) ? 1 : 0,
     };
   }
 

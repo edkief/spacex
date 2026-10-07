@@ -158,6 +158,8 @@ import { ClientShipPredictor, shipStateFromWire } from '@client/net/prediction';
 import { CorrectionSmoother } from '@client/net/correction-smoother';
 import type { ShipClassId } from '@shared/ships';
 import type { Regime } from '@shared/regime';
+import { cruiseAllowedAt } from '@shared/regime';
+import { setCruiseState } from '@client/state/cruise';
 import type { Quat, Vec3 } from '@shared/physics/vec';
 
 /**
@@ -1049,12 +1051,16 @@ function App() {
               regime: regimeWiring.regime,
               shipClass: self.classId as ShipClassId,
               planet: regimeWiring.planetAtmo,
+              // TASK-85: the predictor resolves cruise clearance at its
+              // CURRENT position every frame (same shared call as the server).
+              regimePlanets: regimeWiring.regimePlanets,
             });
           } else {
             shipPredictorRef.current.setContext({
               regime: regimeWiring.regime,
               shipClass: self.classId as ShipClassId,
               planet: regimeWiring.planetAtmo,
+              regimePlanets: regimeWiring.regimePlanets,
             });
           }
           // TASK-77: record the reconcile outcome (blend/rewind/snap +
@@ -1654,7 +1660,14 @@ function App() {
         input.yaw !== 0 ||
         input.pitch !== 0 ||
         input.roll !== 0 ||
-        input.up !== 0;
+        input.up !== 0 ||
+        (input.boost ?? 0) !== 0;
+      // TASK-85: the HUD cruise tag — demand held (Shift in the space
+      // scheme) + clearance at the PREDICTED position (shared rule).
+      setCruiseState({
+        held: (input.boost ?? 0) > 0,
+        allowed: cruiseAllowedAt(p.getState().pos, regimeWiring.regimePlanets),
+      });
       const seq = !docked || nonzero ? inputSender.shouldSend(now, shipInputKey(input)) : null;
       if (seq !== null) {
         clientRef.current?.send('input', shipInputToPayload(seq, input));

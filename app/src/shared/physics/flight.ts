@@ -99,6 +99,15 @@ export interface ShipInput {
   roll: number;
   /** VTOL lift demand, 0..1 (atmosphere only). */
   up: number;
+  /**
+   * Space cruise boost demand, 0..1 (SHIFT, TASK-85). Engages the
+   * × {@link CRUISE_SPEED_FACTOR} top speed / × {@link CRUISE_ACCEL_FACTOR}
+   * acceleration only in the 'space' regime when
+   * {@link FlightOptions.cruiseAllowed} is true; ignored everywhere else.
+   * Optional: default 0 (every pre-TASK-85 call site behaves exactly as
+   * before — the golden fixtures must not move).
+   */
+  boost?: number;
 }
 
 /**
@@ -130,7 +139,19 @@ export interface FlightOptions {
   heightAt?: (x: number, z: number) => number;
   /** Pads the ship can VTOL-land on. Defaults to none. */
   pads?: LandingPadRef[];
+  /**
+   * Whether cruise boost is allowed at the ship's position (TASK-85, via
+   * shared/regime `cruiseAllowedAt`). Defaults to false: a caller that
+   * does not know the planet geometry must never boost (the server tick
+   * and the client predictor both pass it; AI ships never do).
+   */
+  cruiseAllowed?: boolean;
 }
+
+/** Cruise (TASK-85) top-speed multiplier (class maxVelocity × this). */
+export const CRUISE_SPEED_FACTOR = 4;
+/** Cruise (TASK-85) acceleration multiplier (class acceleration × this). */
+export const CRUISE_ACCEL_FACTOR = 2;
 
 /** Gravity in the atmosphere regime (u/s²). */
 export const GRAVITY = 9.8;
@@ -222,13 +243,27 @@ export function integrateShip(
   const heightAt = options?.heightAt ?? defaultHeightAt();
   const k = dragCoefficient(planet, cls);
 
+  // boost is a 0..1 demand (SHIFT on or off) — clamp, never negate.
+  const boost = Math.min(1, Math.max(0, input.boost ?? 0));
   const clamped: ShipInput = {
     thrust: clampUnit(input.thrust),
     yaw: clampUnit(input.yaw),
     pitch: clampUnit(input.pitch),
     roll: clampUnit(input.roll),
     up: clampUnit(input.up),
+    boost,
   };
+
+  // TASK-85: cruise engages ONLY in open space with a positive boost demand
+  // AND caller-allowed clearance (shared/regime `cruiseAllowedAt`). The
+  // EFFECTIVE max/acceleration replace the class values for the whole tick:
+  // the TASK-81 thrust clamp, the thrust add and the per-tick soft cap all
+  // use it, so after release the excess above the NORMAL max bleeds off at
+  // SOFT_CAP_DECAY exactly as before. With boost 0 / not allowed every
+  // number is bit-identical to the pre-TASK-85 path.
+  const cruising = regime === 'space' && boost > 0 && options?.cruiseAllowed === true;
+  const maxVelocity = cruising ? cls.maxVelocity * CRUISE_SPEED_FACTOR : cls.maxVelocity;
+  const acceleration = cruising ? cls.acceleration * CRUISE_ACCEL_FACTOR : cls.acceleration;
 
   // Substep so no single step travels more than SUBSTEP_MAX_TRAVEL_M —
   // guarantees ground collision can never tunnel at high speed.
@@ -243,14 +278,14 @@ export function integrateShip(
     regime,
   };
   for (let i = 0; i < steps; i++) {
-    s = integrateStep(s, clamped, h, regime, k, planet, cls, heightAt);
+    s = integrateStep(s, clamped, h, regime, k, planet, cls, heightAt, maxVelocity, acceleration);
   }
 
   // Soft speed cap (once per tick, independent of substepping): the excess
-  // above maxVelocity decays SOFT_CAP_DECAY per step.
+  // above the EFFECTIVE maxVelocity decays SOFT_CAP_DECAY per step.
   const speed = vecLength(s.vel);
-  if (speed > cls.maxVelocity) {
-    const over = speed - cls.maxVelocity;
+  if (speed > maxVelocity) {
+    const over = speed - maxVelocity;
     const back = vecScale(vecNormalize(s.vel), over * (1 - SOFT_CAP_DECAY));
     s = { ...s, vel: vecSub(s.vel, back) };
   }
@@ -272,6 +307,8 @@ function integrateStep(
   planet: PlanetAtmo | undefined,
   cls: ShipClass,
   heightAt: (x: number, z: number) => number,
+  maxVelocity: number,
+  acceleration: number,
 ): ShipState {
   // Rotation: angular velocity = demand × turnRate, applied about the
   // ship's local axes (yaw Y, pitch X, roll Z).
@@ -286,17 +323,20 @@ function integrateStep(
 
   if (regime === 'space') {
     // Pure Newtonian: thrust along the forward axis, no drag, no damping.
+    // maxVelocity/acceleration are the EFFECTIVE (cruise-adjusted) values
+    // resolved once per tick by integrateShip (TASK-85).
     const forward = quatRotateVector(quat, FORWARD);
     const speed0 = vecLength(vel);
-    vel = vecAdd(vel, vecScale(forward, input.thrust * cls.acceleration * h));
+    vel = vecAdd(vel, vecScale(forward, input.thrust * acceleration * h));
     // TASK-81: thrust is not a top speed. If the thrust push raised the speed
-    // past maxVelocity, rescale to length max(speed0, maxVelocity), keeping
-    // the NEW direction (that is what lets a ship steer at top speed). Excess
-    // that predates the thrust is left untouched here — the per-tick
-    // SOFT_CAP_DECAY in integrateShip bleeds it off.
+    // past the EFFECTIVE maxVelocity, rescale to length
+    // max(speed0, maxVelocity), keeping the NEW direction (that is what lets
+    // a ship steer at top speed). Excess that predates the thrust is left
+    // untouched here — the per-tick SOFT_CAP_DECAY in integrateShip bleeds
+    // it off.
     const speed1 = vecLength(vel);
-    if (speed1 > cls.maxVelocity && speed1 > speed0) {
-      vel = vecScale(vecNormalize(vel), Math.max(speed0, cls.maxVelocity));
+    if (speed1 > maxVelocity && speed1 > speed0) {
+      vel = vecScale(vecNormalize(vel), Math.max(speed0, maxVelocity));
     }
   } else {
     // Quadratic drag opposing velocity, ramped continuously from the
