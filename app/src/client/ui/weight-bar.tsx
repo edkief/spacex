@@ -11,7 +11,9 @@ import { INVENTORY_MAX_WEIGHT, listStacks, RESOURCE_WEIGHTS } from '@shared/inve
  *
  * Driven by state/inventory (the server's self entity_update — the bar
  * updates within one snapshot of any pickup/drop). Cosmetic only; null
- * (unmounted) until the server reports an inventory for the player.
+ * (unmounted) until the player's own entity first arrives — an absent
+ * inventory on that entity means EMPTY (the wire omits empties, TASK-18),
+ * so the bar renders 0/40u on foot.
  */
 
 /** Fill fraction at which the bar turns amber (the "near the cap" band). */

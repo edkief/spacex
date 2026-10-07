@@ -474,7 +474,11 @@ function useGameSession(
           }
           // TASK-34: weight bar — the server's self entity carries the
           // inventory (updates within one snapshot of any pickup/drop).
-          setInventory(self?.inventory ?? null);
+          // The wire OMITS empty inventories (TASK-18 compression), but the
+          // self entity is always player-owned (the server always holds an
+          // inventory for it — loaded on join), so an absent field means
+          // EMPTY, not "no data yet": the bar renders 0/40u on foot.
+          setInventory(self?.inventory ?? (self ? { stacks: {}, weightUsed: 0 } : null));
           // TASK-56: the FIRST pickup (any weight on the person) advances
           // the guidance to the 'load + sell' step.
           if (self?.inventory && self.inventory.weightUsed > 0) {
