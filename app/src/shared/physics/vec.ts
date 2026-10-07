@@ -127,6 +127,17 @@ export function quatNormalize(a: Quat): Quat {
 }
 
 /**
+ * Inverse quaternion (conjugate normalized — exact for unit quats, safe for
+ * near-unit ones). q⁻¹ undoes q: quatMultiply(q, quatInverse(q)) ≈ identity.
+ */
+export function quatInverse(a: Quat): Quat {
+  const len2 = a.x * a.x + a.y * a.y + a.z * a.z + a.w * a.w;
+  if (len2 === 0) return quatIdentity();
+  const inv = 1 / len2;
+  return { x: -a.x * inv, y: -a.y * inv, z: -a.z * inv, w: a.w * inv };
+}
+
+/**
  * Rotation matrix for q as a row-major number[9].
  * Row i starts at index 3*i.
  */
