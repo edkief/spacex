@@ -8,31 +8,31 @@
       "step": 1,
       "description": "Failing tests first: keys → on-screen direction",
       "details": "Write the tests BEFORE the fix and see them fail. (a) `src/client/input/controls.test.ts`: a helper that runs `remapper.readInput(new Set(['d']))` (space scheme) through `integrateShip` for 0.5 s from the identity quat (space regime, scout class) and asserts the new forward (+Z rotated by the quat) has x < 0, i.e. it turned toward the ship's right = local −X; same for 'a' → x > 0. Roll: holding 'q' 0.5 s → the ship's up vector (+Y rotated) has x > 0 (top tilts to the LEFT as seen from behind, where screen-left is +X), 'e' → x < 0. Pitch unchanged: 'r' → forward.y < 0. Also hold 'd' on the atmosphere scheme (same keys). (b) `src/shared/physics/character.test.ts`: `right: true` for 0.5 s from identity → facing forward x < 0; `left: true` → x > 0. Add a one-line comment in both tests stating the frame: right-handed, +Y up, +Z forward ⇒ right = −X.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Ship fix: client input mapping only",
       "details": "In `src/client/input/controls.ts` keep the scheme key pairs and their documented meaning ([right, left] for yaw, [left, right] for roll) and translate them to the physics convention in ONE place — `readInput`: `yaw: -axis(s.yaw)`, `roll: -axis(s.roll)` (pitch and thrust unchanged). Fix the doc comments: on `ControlScheme.yaw` / `roll` say which key is which on screen, and on `ShipInput.yaw` / `ShipInput.roll` in src/shared/physics/flight.ts add a short block comment stating the physics convention (positive yaw = nose toward local +X = a LEFT turn; positive roll = clockwise seen from behind = roll RIGHT; right-handed, +Y up, +Z forward). Do NOT change `integrateShip`, `quatFromEuler`, the AI, or the wire mapping in inputs.ts (`shipInputToPayload` / `inputToShipInput` must still round-trip exactly). `scaleLookDemand` (TASK-55 sensitivity) is sign-preserving — confirm with its test.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "On-foot fix: shared character step",
       "details": "In `src/shared/physics/character.ts` (~line 208) make `right` rotate by −CHAR_TURN_RATE·h and `left` by +CHAR_TURN_RATE·h about +Y, and correct the doc comments on `CharacterInput.left/right` (~line 104: today they say right = +yaw). This is shared code — the server's character sim uses the same function, so client prediction and server stay in lockstep; no protocol change. Update any existing test in character.test.ts / src/server/shard/shard.character*.test.ts / src/client/net/character-prediction.test.ts that encoded the old direction (change the EXPECTED direction, never delete the test). Leave `SHIP_RIGHT_LOCAL` / `characterSpawnPos` alone in this task (it uses +X as 'right', which is really the ship's left — cosmetic; mention it in the LOG entry as a follow-up).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "E2E: pressing D turns right on screen",
       "details": "New `app/tests/e2e/controls-direction.spec.ts` (fixtures + claim flow as in flight.spec.ts). SHIP: wait for `window.__SELF_SHIP__.probe()`; tap W briefly to undock, then teleport into empty space (`POST /api/dev/teleport` { x: 0, y: 50, z: 3000 }) so nothing interferes; read `rot` → forward0 and right0 = rotate((−1, 0, 0), rot) (do the quaternion math inline in the spec — Playwright cannot import @shared). Hold D for 1 s, read `rot` again → forward1; assert dot(forward1, right0) > 0.2 (turned toward the ship's right). Repeat with A → dot < −0.2. ON FOOT: follow disembark.spec.ts to get on foot (dock + E), read `window.__CHAR__.rot`, hold D 0.5 s, assert the facing turned toward its initial right (−X local) the same way. Screenshot `.ralph/screenshots/TASK-80-1.png` after holding D in the ship — LOOK at it: the nose points right of the camera.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 5,
       "description": "Verify + commit",
       "details": "`cd app && npx tsc --noEmit`; full `npm run test` (flight fixtures / determinism / AI tests must be untouched and green — if any of them fails you changed the physics, revert that); e2e: controls-direction, flight, walk, disembark, enter-ship, determinism, rogue-ai, keyboard-only; `eslint --fix` + `prettier --write` on touched files. Commit `fix(TASK-80): ...`.",
-      "pass": false
+      "pass": true
     }
   ],
   "acceptanceCriteria": [
