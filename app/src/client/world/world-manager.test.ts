@@ -298,3 +298,46 @@ describe('WorldManager pose policy + pre-render hook (TASK-77)', () => {
     expect(samples).toBe(3);
   });
 });
+
+// ---------------------------------------------------------------------------
+// TASK-88: the on-foot ground — once the character exists, WorldManager's
+// groundHeightAt must be the SERVER expression (seeded terrain + pad blend),
+// because that is what the CharacterPredictor walks on. The old wiring fed
+// the predictor a FLAT pad plane; a few seconds off the pad the predicted
+// feet (and the camera tracking them) were inside the real terrain — the
+// all-black on-foot screen.
+
+describe('on-foot ground (TASK-88)', () => {
+  let nowMs = 1000;
+
+  beforeEach(() => {
+    nowMs = 1000;
+    vi.stubGlobal('requestAnimationFrame', () => 1);
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    vi.spyOn(performance, 'now').mockImplementation(() => (nowMs += 16));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('groundHeightAt is the pad height on the pad and real terrain beyond the blend radius', () => {
+    const seed = 'DRIFT-SEED-0001'; // the e2e dev-server seed (env default)
+    const canvas = { clientWidth: 800, clientHeight: 600 } as unknown as HTMLCanvasElement;
+    const w = new WorldManager(canvas, seed);
+    const stars = generateStars(seed);
+    const system = generateSystem(seed, stars[0].id);
+    const planet = system.planets.find((p) => p.landable && p.hasAtmosphere)!;
+    const pad = padsForSystem(seed, system).find((p) => p.planetId === planet.id)!;
+    w.swapWorld(system);
+    w.setCharacterPos({ ...pad.pos }); // disembark on the pad
+    // Inside the pad disc: exactly the pad height (the flat spawn surface).
+    expect(w.groundHeightAt(pad.pos.x, pad.pos.z)).toBeCloseTo(pad.pos.y, 6);
+    // ~45 m out: real seeded terrain — for this seed it rises far above the
+    // pad plane (the old flat prediction buried the character here in ~8 s
+    // of walking).
+    expect(w.groundHeightAt(pad.pos.x, pad.pos.z + 45)).toBeGreaterThan(pad.pos.y + 20);
+    w.dispose();
+  });
+});

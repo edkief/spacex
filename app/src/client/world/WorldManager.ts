@@ -54,6 +54,7 @@ import { proxyTransform } from '@client/render/scaled-proxy';
 import { ChunkStreamer } from './chunks';
 import { ChunkScene } from './chunk-scene';
 import { chunkInSurface, terrainPlanetFor } from './planet-terrain';
+import { CharacterGround } from './character-ground';
 import type { Planet } from '@shared/galaxy/types';
 
 /**
@@ -390,6 +391,12 @@ export class WorldManager {
   /** The pad plane height feeding the handoff nudge (flat disc under the feet). */
   private rigPadHeight = 0;
   /**
+   * TASK-88: the on-foot ground (seeded terrain + pad blend — the server's
+   * exact expression). Feeds the CharacterPredictor via groundHeightAt so
+   * the predicted feet track the ground the server collides with.
+   */
+  private characterGround: CharacterGround;
+  /**
    * TASK-36 (+ TASK-74 ships): the remote-entity render layer
    * (interpolated remote characters + ships + shared ground items, the 200
    * ms TASK-14 buffer). Meshes attach to the per-system world group; the
@@ -421,6 +428,7 @@ export class WorldManager {
 
   constructor(canvas: HTMLCanvasElement, seed: string) {
     this.seed = seed;
+    this.characterGround = new CharacterGround(seed);
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: false,
@@ -941,10 +949,11 @@ export class WorldManager {
       this.characterMats = { body: model.body, head: model.head };
       this.scene.add(model.group);
       // The pad the character stands on = the closest seeded pad (at most a
-      // handful per system); its flat height feeds the handoff nudge AND the
-      // local CharacterPredictor's terrain (flat on the pad disc — prediction
-      // matches the server exactly there and the 10 Hz snapshot corrects
-      // any off-pad drift, TASK-32).
+      // handful per system); its flat height feeds the handoff nudge.
+      // TASK-88: the pad's PLANET feeds the predictor's ground — the same
+      // seeded terrain + pad blend the server collides with (previously the
+      // prediction ran on the flat pad plane and sank inside real terrain a
+      // few seconds after walking off the pad: the on-foot blackout).
       let bestIdx: number | null = null;
       let bestD = Infinity;
       for (let i = 0; i < this.pads.length; i++) {
@@ -957,6 +966,7 @@ export class WorldManager {
       }
       const pad = bestIdx !== null ? this.pads[bestIdx] : undefined;
       this.rigPadHeight = pad ? pad.pos.y : pos.y;
+      this.characterGround.setPlanet(this.system, pad?.planetId ?? null);
       this.rigActive = true;
       this.cameraRig.handoff('onfoot');
     }
@@ -979,9 +989,17 @@ export class WorldManager {
     if (livery !== undefined) this.setCharacterLivery(livery);
   }
 
-  /** The pad plane height under the character (the predictor's terrain). */
-  get characterPadHeight(): number {
-    return this.rigPadHeight;
+  /**
+   * TASK-88: the on-foot ground height at world (x, z) — seeded terrain
+   * blended into the character's pad, the SAME expression the server sim
+   * uses for character physics (shard.ts: `padSurfaceHeight(x, z,
+   * ctx.heightAt(x, z), pad)`). Feeds the local CharacterPredictor so its
+   * feet track the ground the server collides with for arbitrarily long
+   * walks (a flat pad plane buried the predicted character — and the
+   * camera tracking it — inside real terrain: the on-foot all-black screen).
+   */
+  groundHeightAt(x: number, z: number): number {
+    return this.characterGround.heightAt(x, z);
   }
 
   /** One character model placement: the group's origin is the FEET. */

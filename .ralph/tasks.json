@@ -779,6 +779,6 @@
     "title": "On-foot blackout: screen goes all black within ~2-10 s of walking on a planet",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-88.json",
-    "passes": false
+    "passes": true
   }
 ]

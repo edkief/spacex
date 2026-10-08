@@ -1,0 +1,52 @@
+{
+  "id": "TASK-88",
+  "title": "On-foot blackout: screen goes all black within ~2-10 s of walking on a planet",
+  "category": "functional",
+  "description": "BUG (owner-reported): after exiting the ship (disembark) and walking on a planet surface, the screen EVENTUALLY turns ALL BLACK — usually 2 to 10 seconds into walking. The DOM HUD keeps drawing (same signature as the space blackout fixed in TASK-75), so this is a render/camera/scene issue, not a crash. Repro: dock the ship on a planet (e2e flow from disembark.spec.ts / terrain-live.spec.ts), disembark (E), then walk (W) in a straight line; within ~2-10 s the 3D canvas is fully black. Suspected areas (starting points, not conclusions — reproduce first, then trace which background object the on-foot camera leaves behind or stops drawing): (a) the skybox/starfield camera-anchoring fix from TASK-75 (src/client/render/starfield.ts `anchorBackgroundToCamera`, called from the WorldManager frame closure right before render) — TASK-75 fixed the SPACE regime for the ship's chase camera; check whether the on-foot CHARACTER camera rig (src/client/camera/CameraRig.ts, the disembark handoff from TASK-27/31) gets the anchoring, gets a camera far enough, and whether the character camera's position/offset puts it outside the sky sphere or dome; (b) the atmosphere dome far-plane clip documented at src/client/world/WorldManager.ts ~line 96-97 (a BackSide dome beyond the far plane draws nothing → black) — the on-foot camera is much lower than the ship camera, the dome geometry may clip differently; (c) chunk streaming (src/client/world/chunks.ts, TASK-26) — check whether walking unloads/disposes chunks or moves a world root so the ground + everything falls out of the view; (d) the character prediction path (src/client/net/character-prediction.ts) moving the camera to NaN/off-map positions over time. Fix the actual root cause so on-foot walking of any duration keeps the scene visible.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Reproduce and root-cause",
+      "details": "Reproduce in the e2e browser: dock + disembark (disembark.spec.ts flow), hold W, sample the canvas with the TASK-75 helper canvasRegionStats from tests/e2e/helpers.ts (TOP band {x0:0, y0:0, x1:1, y0..y1: 0.3} AND the whole canvas) every ~1 s and record the time of first all-black frame plus, at that moment: the camera position (expose or read via window.__SELF_SHIP__ / camera-debug hooks), the sky/stars/dome object positions vs the camera (starfield handles), the far plane, and the mounted chunk count (stream-debug). Pin down exactly which object(s) stop covering the view. Write a failing unit test for the specific defect (e.g. 'anchoring helper is applied on the on-foot rig' / 'dome not clipped at on-foot camera height' — whatever the root cause is) that FAILS before the fix.",
+      "pass": true
+    },
+    {
+      "step": 2,
+      "description": "Fix the on-foot blackout",
+      "details": "Implement the minimal fix at the identified root cause so the 3D view stays fully drawn while on foot, for arbitrarily long walking, in every regime the on-foot camera can occupy (surface under the dome, and any atmosphere/space view if reachable on foot). Do not regress the TASK-75 space blackout fix (deep-space.spec.ts must stay green) and do not change the sky/star radii or renderOrder without a reason recorded in the commit. If the root cause is 'the anchoring is not applied in the character rig', apply it there (same one-writer-before-render pattern as TASK-77).",
+      "pass": true
+    },
+    {
+      "step": 3,
+      "description": "E2E regression: walk for 30 s, never black",
+      "details": "New spec tests/e2e/onfoot-blackout.spec.ts (reuse fixtures + the disembark flow from disembark.spec.ts + canvasRegionStats from helpers.ts): (a) dock on the planet, disembark, assert the surface view is drawn (terrain visible, not black); (b) hold W for 30 s straight-line walking, sampling the canvas every 1 s; assert at EVERY sample the canvas is NOT all-black: whole-canvas mean luminance > 5 AND top-band bright-pixel count >= 10 (same thresholds TASK-75 used for 'not black'); (c) also sample at t=2 s and t=8 s (the reported 2-10 s window) and assert the same; (d) save .ralph/screenshots/TASK-88-1.png at t=15 s and LOOK at it: ground under the character, sky/dome above, no black frame.",
+      "pass": true
+    },
+    {
+      "step": 4,
+      "description": "Verify + commit",
+      "details": "cd app && npx tsc --noEmit; full npm run test; e2e: the new onfoot-blackout.spec.ts plus deep-space.spec.ts (TASK-75 regression), disembark.spec.ts, terrain-live.spec.ts, camera-handoff.spec.ts, self-ship.spec.ts, core-flow.spec.ts via npx playwright test --config playwright.e2e.config.ts <files>; eslint --fix + prettier --write on touched files. Commit fix(TASK-88): ...",
+      "pass": true
+    }
+  ],
+  "acceptanceCriteria": [
+    "On-foot straight-line walking for 30 s never produces an all-black canvas (e2e onfoot-blackout.spec.ts samples every second; mean luminance > 5 and top-band bright pixels >= 10 at every sample, including the reported 2-10 s window)",
+    "The root cause is identified in code (not papered over) and a unit test encoding the defect fails before the fix and passes after",
+    "The TASK-75 space blackout fix is not regressed (deep-space.spec.ts green, sky/star anchoring + far plane behaviour unchanged or explained)",
+    "Screenshot .ralph/screenshots/TASK-88-1.png at t=15 s of walking shows the ground and the sky/dome, not a black frame",
+    "npx tsc --noEmit green; full npm run test green; listed e2e specs green; one commit"
+  ],
+  "dependencies": [
+    "TASK-31",
+    "TASK-32",
+    "TASK-75",
+    "TASK-84"
+  ],
+  "estimatedComplexity": "medium",
+  "notes": [
+    "Signature match: TASK-75 (2026-10-06) fixed the SAME 'all-black canvas, HUD still drawn' symptom for the SHIP camera in space — skybox/starfield at the world origin left behind by the camera. This bug is the same family in the ON-FOOT camera regime: suspect the character camera rig never got the camera-follow treatment, or the dome's far-plane clip at character height. Verify before assuming.",
+    "The '2-10 s' window suggests a distance/position threshold (leaving the sky sphere / dome, unloading a chunk, camera offset growing), not a timer — look for what changes at that moment in the repro instrumentation from step 1.",
+    "The file/line hints above were gathered at planning time; re-verify locations before editing.",
+    "Do NOT commit pre-existing dirty .ralph/screenshots/*.png mods."
+  ]
+}

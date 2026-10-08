@@ -992,13 +992,17 @@ function App() {
         world.setSelfShip(ship ? selfShipStateFrom(ship) : null);
         updatePanelShip(ship); // TASK-53: the shared panel views the DOCKED ship
         // TASK-32: the character is the local prediction target — seed the
-        // predictor from the first snapshot (flat pad-plane terrain; the
-        // 10 Hz snapshot corrects any off-pad drift) and reconcile every
-        // self update against the last APPLIED seq (the ack).
+        // predictor from the first snapshot and reconcile every self update
+        // against the last APPLIED seq (the ack).
+        // TASK-88: the predictor's terrain is the SAME seeded terrain + pad
+        // blend the server sim collides with (world.groundHeightAt) — the
+        // old flat pad plane left the predicted character (and the on-foot
+        // camera tracking it) buried inside real terrain a few seconds
+        // after walking off the pad: the all-black screen.
         charLiveryRef.current = self.livery ?? null;
         if (!charPredictorRef.current) {
           charPredictorRef.current = new CharacterPredictor(characterStateFromWire(self), {
-            heightAt: () => worldRef.current?.characterPadHeight ?? self.pos.y,
+            heightAt: (x, z) => worldRef.current?.groundHeightAt(x, z) ?? self.pos.y,
           });
         }
         charPredictorRef.current.reconcile(
