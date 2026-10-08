@@ -194,15 +194,18 @@ export const SOFT_CAP_DECAY = 0.95;
 export const SUBSTEP_MAX_TRAVEL_M = 2;
 /**
  * Ground friction (1/s) for a ship grounded on an AIRLESS surface (TASK-87):
- * an airless body has no atmosphere, so no drag — the only thing that slows
- * a fast approach to a landing is the surface itself. While the ship rests on
- * the terrain (any regime) its horizontal velocity decays exponentially
- * (v *= (1 − FRICTION·h) per substep ≈ e^(−FRICTION·t)): 1.0/s stops a
- * 120 u/s approach in ~3 s / ~115 m — well inside the 2 km surface disc.
- * Atmospheric bodies keep drag as their stop (the density does the work), so
- * this only applies when there is NO planet atmosphere.
+ * an airless body has no atmosphere, so no drag — the surface is the ONLY
+ * thing that can stop a fast approach. While the ship rests on the terrain
+ * its horizontal velocity decays (v *= (1 − FRICTION·h) per substep).
+ * FRICTION must DOMINATE full thrust: under sustained thrust the velocity
+ * asymptotes to acceleration/FRICTION, so FRICTION > acceleration/5 (10 >
+ * 40/5) is what brings a ship that keeps holding W below the regime
+ * machine's 5 u/s surface threshold and lands it. The cost is a hard
+ * grind-stop (a 120 u/s approach stops in ~15 m, ~100 g) — documented
+ * v1 arcade behaviour for the airless surface; atmospheric bodies keep
+ * drag as their stop, so this only applies when there is NO planet atmosphere.
  */
-export const SURFACE_FRICTION = 1.0;
+export const SURFACE_FRICTION = 10.0;
 /** Radius (u) of a landing pad for docking. */
 export const PAD_RADIUS = 4;
 /** Max |vel.y| (u/s) for a ship to count as settled on a pad. */
@@ -309,7 +312,19 @@ export function integrateShip(
     regime,
   };
   for (let i = 0; i < steps; i++) {
-    s = integrateStep(s, clamped, h, regime, k, planet, cls, heightAt, maxVelocity, acceleration, surfaceDisc);
+    s = integrateStep(
+      s,
+      clamped,
+      h,
+      regime,
+      k,
+      planet,
+      cls,
+      heightAt,
+      maxVelocity,
+      acceleration,
+      surfaceDisc,
+    );
   }
 
   // Soft speed cap (once per tick, independent of substepping): the excess
@@ -353,6 +368,19 @@ function integrateStep(
 
   let vel = { ...s.vel };
 
+  // TASK-87: a ship inside a landable airless planet's surface disc is
+  // physically ON that planet — the disc is its solid body. Gravity applies
+  // there (not only in atmosphere), so a ship the ground clamp lifts onto a
+  // ridge falls back into the next dip and stays in ground contact; without
+  // it the one-way clamp leaves it skimming over the terrain at full
+  // approach speed (an ungrounded ship gets no friction) and it tunnels
+  // through the planet.
+  const inDisc =
+    surfaceDisc !== undefined &&
+    (s.pos.x - surfaceDisc.x) * (s.pos.x - surfaceDisc.x) +
+      (s.pos.z - surfaceDisc.z) * (s.pos.z - surfaceDisc.z) <=
+      surfaceDisc.radius * surfaceDisc.radius;
+
   if (regime === 'space') {
     // Pure Newtonian: thrust along the forward axis, no drag, no damping.
     // maxVelocity/acceleration are the EFFECTIVE (cruise-adjusted) values
@@ -370,6 +398,8 @@ function integrateStep(
     if (speed1 > maxVelocity && speed1 > speed0) {
       vel = vecScale(vecNormalize(vel), Math.max(speed0, maxVelocity));
     }
+    // TASK-87: gravity inside the surface disc (see above).
+    if (inDisc) vel.y -= GRAVITY * h;
   } else {
     // Quadratic drag opposing velocity, ramped continuously from the
     // atmosphere enter radius (0 in space) down to the surface (1) — the
@@ -401,12 +431,8 @@ function integrateStep(
   // skip over the surface (no tunneling). On the ground, a ship over an
   // AIRLESS body (no atmosphere → no drag) is slowed by SURFACE_FRICTION —
   // what brings a fast airless approach to rest, where the regime machine
-  // resolves 'surface'.
-  const inDisc =
-    surfaceDisc !== undefined &&
-    (pos.x - surfaceDisc.x) * (pos.x - surfaceDisc.x) +
-      (pos.z - surfaceDisc.z) * (pos.z - surfaceDisc.z) <=
-      surfaceDisc.radius * surfaceDisc.radius;
+  // resolves 'surface'. inDisc is the (s.pos) test computed before the
+  // motion; the ≤ 2 u substep move cannot change the 2 km disc verdict.
   const grounded = regime !== 'space' || inDisc;
   if (grounded) {
     const groundY = heightAt(pos.x, pos.z);

@@ -64,7 +64,12 @@ interface ApproachResult {
  * the ship is integrated with the resolved regime (atmosphere/surface get the
  * planet context, space gets none — as the server's resolveRegimeCtx wires).
  */
-function runApproach(startX: number, startY: number, approachSpeed: number, ticks = 6000): ApproachResult {
+function runApproach(
+  startX: number,
+  startY: number,
+  approachSpeed: number,
+  ticks = 6000,
+): ApproachResult {
   const sequence: Regime[] = ['space'];
   let regime: Regime = 'space';
   let pos = { x: startX, y: startY, z: ANCHOR_Z };
@@ -155,7 +160,11 @@ describe('TASK-87 planet approach: space → surface, no tunnel-through', () => 
      * (density 0) and the surfaceDisc so the flight model's ground collision
      * + friction engage.
      */
-    function runAirlessApproach(startX: number, approachSpeed: number, ticks = 6000): ApproachResult {
+    function runAirlessApproach(
+      startX: number,
+      approachSpeed: number,
+      ticks = 6000,
+    ): ApproachResult {
       const sequence: Regime[] = ['space'];
       let regime: Regime = 'space';
       let pos = { x: startX, y: 0, z: ANCHOR_Z };
@@ -209,6 +218,74 @@ describe('TASK-87 planet approach: space → surface, no tunnel-through', () => 
     it('the ship stays on the ground once landed (friction stops it fully)', () => {
       const r = runAirlessApproach(ANCHOR_X + 2_500, 120);
       expect(r.endSpeed).toBeLessThanOrEqual(1e-6);
+    });
+
+    it('a drop-off-terrain approach still lands (gravity re-settles the ship)', () => {
+      // The live e2e failure: the disc edge is a RIDGE (terrain ~300 u) that
+      // drops to ~100 u just inside. The ground clamp only pushes UP, so
+      // without gravity a 'space' ship clamped onto the ridge keeps its
+      // height over the drop, leaves the ground, loses the friction, and
+      // skims through the whole disc at full approach speed (it tunneled).
+      // Gravity inside the disc settles the ship back onto the terrain so the
+      // friction stops it INSIDE the disc.
+      const BUMPY: RegimePlanet = {
+        id: 'planet-bumpy',
+        x: ANCHOR_X,
+        z: ANCHOR_Z,
+        atmosphereRadius: 0,
+        landable: true,
+        // Ridge at the disc edge (x=12000, h=300), dropping to ~100 by
+        // x=11700, then gentle bumps. (The entry half-space is high, the
+        // rest is low — the ship must fall back onto the low ground.)
+        heightAt: (x) =>
+          x > 11_700
+            ? 100 + 200 * Math.cos((Math.PI * (x - 12_000)) / 600) ** 2
+            : 100 + 20 * Math.sin(x / 300),
+      };
+      const DISC = { x: ANCHOR_X, z: ANCHOR_Z, radius: 2_000, planetId: 'planet-bumpy' };
+      const sequence: Regime[] = ['space'];
+      let regime: Regime = 'space';
+      let pos = { x: ANCHOR_X + 2_500, y: 0, z: ANCHOR_Z };
+      let vel = { x: -120, y: 0, z: 0 };
+      let quat = { x: 0, y: 0, z: 0, w: 1 };
+      let minAltitude = Infinity;
+      let speed = 120;
+      for (let i = 0; i < 6000; i++) {
+        const resolved = regimeFor(pos, [BUMPY], regime, speed);
+        if (resolved.regime !== regime) {
+          regime = resolved.regime;
+          sequence.push(regime);
+        }
+        const next = integrateShip(
+          { pos, vel, quat, regime },
+          NO_INPUT,
+          DT,
+          regime,
+          undefined,
+          'scout',
+          { heightAt: BUMPY.heightAt!, surfaceDisc: DISC },
+        );
+        pos = next.pos;
+        vel = next.vel;
+        quat = next.quat;
+        speed = vecLength(vel);
+        // "Never inside the planet body" = never below the terrain INSIDE the
+        // disc (the disc IS the body; the terrain outside is scenery).
+        const inBody =
+          (pos.x - ANCHOR_X) * (pos.x - ANCHOR_X) + (pos.z - ANCHOR_Z) * (pos.z - ANCHOR_Z) <=
+          2_000 * 2_000;
+        if (inBody) {
+          const altitude = pos.y - BUMPY.heightAt!(pos.x, pos.z);
+          if (altitude < minAltitude) minAltitude = altitude;
+        }
+        if (regime === 'surface' && speed <= 1e-6) break;
+      }
+      expect(sequence).toEqual(['space', 'surface']);
+      expect(regime).toBe('surface');
+      expect(minAltitude).toBeGreaterThanOrEqual(-0.5);
+      // Landed INSIDE the disc (did not tunnel through to the far side).
+      expect(Math.abs(pos.x - ANCHOR_X)).toBeLessThan(2_000);
+      expect(speed).toBeLessThanOrEqual(1e-6);
     });
   });
 });

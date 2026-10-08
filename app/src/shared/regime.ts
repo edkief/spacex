@@ -157,19 +157,15 @@ export function regimeFor(
     if (nearest.landable) {
       const dx = pos.x - nearest.x;
       const dz = pos.z - nearest.z;
-      const inDisc =
-        dx * dx + dz * dz <= PLANET_SURFACE_RADIUS_M * PLANET_SURFACE_RADIUS_M;
+      const inDisc = dx * dx + dz * dz <= PLANET_SURFACE_RADIUS_M * PLANET_SURFACE_RADIUS_M;
       const alt = pos.y - (nearest.heightAt ? nearest.heightAt(pos.x, pos.z) : 0);
       const slow = speed <= SURFACE_SPEED_LIMIT_M_S;
       if (current === 'surface') {
         // Surface holds while in the disc, low and slow; leaving the disc,
         // climbing out of the band, or speeding up returns it to space (an
         // airless body has no atmosphere to fall back into).
-        const stillSurface =
-          inDisc && alt <= SURFACE_ENTER_ALT_M + SURFACE_HYSTERESIS_M && slow;
-        return stillSurface
-          ? { regime: 'surface', planetId: nearest.id }
-          : { regime: 'space' };
+        const stillSurface = inDisc && alt <= SURFACE_ENTER_ALT_M + SURFACE_HYSTERESIS_M && slow;
+        return stillSurface ? { regime: 'surface', planetId: nearest.id } : { regime: 'space' };
       }
       if (inDisc && alt < SURFACE_ENTER_ALT_M && slow) {
         return { regime: 'surface', planetId: nearest.id };

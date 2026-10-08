@@ -1,56 +1,62 @@
-# TASK-87 handoff (2026-10-08, iteration 6 of 100, ran out of time)
+# Handoff: TASK-87
 
 ## Status
-**Fix implemented and unit-verified.** The root cause (airless-planet pass-through: regime stays 'space' forever + no ground collision in space) is fixed at the shared source. Full unit suite + tsc are GREEN. The e2e spec is written and passed once (atmospheric target) but is **flaky on the canvas lower-half variance check** and has **not yet exercised the airless browser path** in a live run. Remaining: make the e2e robust (verify airless + fix the variance flake), run the full e2e set, lint/format, final commit `fix(TASK-87): ...`, close out.
 
-## Done (this iteration — no code was shipped in the prior one)
-Implemented the fix (hybrid of the handoff's options A+B, kept `integrateShip`/`regimeFor` the single shared source):
+The airless-planet pass-through (regime stuck in `space`, ship flying through the planet) is **fully fixed at the shared source** and unit-verified (new drop-off test fails pre-fix AND without gravity); the e2e spec is **green end-to-end for the atmospheric path** (43.6 s), and the **airless path passed all physics + terrain assertions in a live run** — only the final canvas check changed after that run, so one more airless e2e pass is the main remaining proof, plus the full e2e set, final `fix(TASK-87):` commit, and close-out.
 
-1. **`app/src/shared/galaxy/planets.ts`** — added `SurfaceDisc` interface + `surfaceDiscAt(pos, planets)`: returns the 2 km surface disc of the landable AIRLESS planet (atmosphereRadius 0) under the ship, else undefined. Shared source of the solid-surface rule (regime machine, flight model, server, client all call it → agree). Imports `Vec3` type.
+## Done
 
-2. **`app/src/shared/regime.ts`** — relaxed the TASK-25 "airless stay space" rule (line ~139, the `nearest.atmosphereRadius <= 0` branch). Now a LANDABLE airless planet yields **'surface'** when the ship is inside its 2 km disc, `alt < SURFACE_ENTER_ALT_M` (2 u), and `speed <= SURFACE_SPEED_LIMIT_M_S` (5 u/s) — resolved DIRECTLY from 'space' (airless has no atmosphere to step through). Surface hysteresis: holds while in disc + low + slow; drops to 'space' (not 'atmosphere') when leaving the disc / climbing out of the band / speeding up. Non-landable airless stays space. Updated module + `regimeFor` doc comments to document the new airless→surface path.
+**Previous iterations (already committed `b345c9d` + `0d667a3`):** root cause (airless planets: `atmosphereRadius 0` → regime machine never left `space`, no ground collision in space); fix: `surfaceDiscAt()` in `shared/galaxy/planets.ts` (2 km solid disc of a landable airless planet), `regimeFor` resolves `space → surface` directly for landable airless inside disc + low + slow, `integrateShip` ground-clamps `space` ships in the disc + `SURFACE_FRICTION`, `shard.ts` `resolveRegimeCtx` + `prediction.ts` `optionsAt` both wire the same disc; contract tests in `shared/planet-approach.test.ts` + `shared/regime.test.ts`; e2e `tests/e2e/planet-approach.spec.ts`.
 
-3. **`app/src/shared/physics/flight.ts`** — (a) `FlightOptions.surfaceDisc?: SurfaceDisc`; (b) `integrateShip` reads it and threads it into `integrateStep`; (c) ground handling rewritten: `'atmosphere'/'surface'` always clamp to terrain (unchanged), and a **'space' ship INSIDE a `surfaceDisc` also clamps to terrain (no tunnel-through)**; (d) new `SURFACE_FRICTION = 1.0` (1/s): while grounded with NO atmosphere (airless → no drag), horizontal vel decays `v *= (1 − FRICTION·h)` per substep, stopping a 120 u/s approach in ~3 s / ~115 m (inside the 2 km disc) so it can resolve 'surface'. Updated header doc.
+**This iteration (iteration 7) — uncommitted:**
 
-4. **`app/src/server/shard/shard.ts`** — `resolveRegimeCtx` (line ~3908): for a 'space' entity, if `surfaceDiscAt` matches a landable airless planet, wire that planet's terrain (`heightAt` via `padSurfaceHeight`+`TerrainContext`, `pads`, `surfaceDisc`) with `planet: undefined` (airless → no drag). Imports `surfaceDiscAt`. Non-space path unchanged.
+1. **Root-caused the live airless e2e failure** (run 1: regime stayed `space`, ship ended x=7984 past the 2 km disc, minY=0). Two stacked physics bugs the flat-terrain unit tests couldn't see (real terrain undulates, e.g. system `d30ed9b5336c1a28` planet 0: heights 146→193→180→244→304→204 over x=12600→8000):
+   - **No gravity in the disc**: the ground clamp only pushes UP, so a ship clamped onto a ridge keeps its height over the next dip, leaves ground contact, loses friction, and skims the whole disc at full approach speed.
+   - **Friction too weak under thrust**: the e2e holds W the entire approach; with `SURFACE_FRICTION=1.0` and scout acceleration 40, velocity asymptotes to a/f = 40 u/s — never reaching the ≤5 u/s `SURFACE_SPEED_LIMIT_M_S` threshold, so the ship grinds out of the disc without resolving `surface`.
 
-5. **`app/src/client/net/prediction.ts`** — `optionsAt` now also sets `surfaceDisc: surfaceDiscAt(pos, ctx.regimePlanets)` at the CURRENT predicted position (same as the server tick's `cruiseAllowed`), so the client predictor clamps+friction-grounds airless space ships identically. Imports `surfaceDiscAt`. `regime-wiring.ts` `planetAtmo` stays undefined for airless (no drag) — correct, no change needed.
+2. **Fix in `app/src/shared/physics/flight.ts` `integrateStep`:**
+   - `inDisc` computed once from `s.pos` (before motion; the ≤2 u substep can't change a 2 km verdict); `vel.y -= GRAVITY * h` applied in the `space` branch when inDisc (a ship in the disc is physically on that planet); ground handling reuses the same `inDisc`.
+   - `SURFACE_FRICTION` 1.0 → **10.0** — must exceed acceleration/SURFACE_SPEED_LIMIT (40/5 = 8) so a W-holding ship asymptotes below 5 u/s and lands. Documented v1 hard grind-stop (120 u/s stops in ~15 m, ~100 g); atmospheric bodies keep drag as their stop (friction only applies `planet === undefined`).
+   - Doc comments updated on the constant + ground block (header stays accurate).
 
-**Tests:**
-- `app/src/shared/regime.test.ts` — rewrote the "airless never yield surface" test (now: airless never yields ATMOSPHERE) + added a new "TASK-87: LANDABLE airless yields surface on its solid disc" test (surface from space, hysteresis, fast-flyby stays space, outside-disc stays space, non-landable stays space).
-- `app/src/shared/planet-approach.test.ts` — added an `AIRLESS planet` describe block (3 tests): 120 u/s approach → `space → surface` + no tunnel + ends slow; 480 u/s approach → same; friction stops it fully. These **FAIL pre-fix** (verified by `git stash`ing the 5 source files → 3 airless tests fail, 5 atmospheric pass) and PASS post-fix.
-- **Full unit suite GREEN**: `npm run test` = 191 files, 1757 passed / 1 skipped. **`npx tsc --noEmit` GREEN.** (One run of `tests/abuse/abuse.spec.ts` timed out under full parallel load, passed in isolation and on full-suite re-run — pre-existing flake, not caused by this change.)
+3. **New unit test** in `app/src/shared/planet-approach.test.ts`: "a drop-off-terrain approach still lands (gravity re-settles the ship)" — ridge at the disc edge (x=12000, h=300) dropping to ~100 by x=11700, then gentle bumps. **Verified red** (a) against pre-fix `flight.ts` (`git stash push -- src/shared/physics/flight.ts`) and (b) with the gravity line removed at f=10 (gravity is the load-bearing piece; f=10 alone is not enough). Also fixed altitude measurement to count only INSIDE the disc ("inside the body" = inside the disc; outside it the y=0 start legitimately sits below decorative terrain). `planet-approach.test.ts` now 9/9; + `regime.test.ts` = 30/30.
 
-**E2E:**
-- Deleted `app/tests/e2e/t87-repro.spec.ts` (the diagnostic).
-- New `app/tests/e2e/planet-approach.spec.ts`: claims a fresh player, deterministically picks the home system's nearest landable planet (AIRLESS when present = the bug case, else atmospheric), teleports to ground level outside it, `faceAnchor` closed-loop aim, holds W+Shift, taps wire `flightRegime`. Asserts: sequence reaches 'surface' (`space→surface` for airless, `space→atmosphere→surface` for atmospheric, never 'atmosphere' for airless); wire `minY ≥ -5` (never below surface); ship ends inside the 2 km disc (no tunnel); streamed terrain mounts ≥ 9 chunks for the target planet; canvas lower-half variance > 1; screenshot `.ralph/screenshots/TASK-87-1.png`.
-- **Result: passed once** (atmospheric, `space→atmosphere→surface`, terrain 35 chunks, variance 4.4, screenshot saved). **Flaky on 2 subsequent runs**: failed at the canvas lower-half variance check (`Received: 0.0175, Expected: > 1`) even though the terrain-mount probe passed (scene graph had ≥9 chunks, correct planetId). The ship lands at altitude ~200-246 u (the terrain UNDER it is hilly/elevated, so altitude ≈ 2 u → 'surface' is correct) ~800-1000 u from the anchor, so the chase camera's ground framing / SwiftShader render timing makes the lower-half variance flaky.
+4. **E2E hardened** (`app/tests/e2e/planet-approach.spec.ts`):
+   - Claim loop: up to 4 cheap REST-only player claims, keeps the first whose home system has a landable **airless** planet (~55% of the 200 seeded systems do — scanned: airless-only=13, both=97, atmo-only=84; home system derives from the player UUID). Tap filter / callsign / localStorage now use the chosen session (`s`).
+   - Lower-band canvas check: replaced the 32×32 **variance > 1** (copied from terrain-live) with `canvasRegionStats` mean luminance ≥ 60 over DOM band y∈[0.6,1], polled up to 5 s — the ship can land on a FLAT biome (uniform grey ground reads variance 0, which is exactly what flaked runs 2/3); grey terrain ≈ 120–160 vs starfield ≈ 20–40.
+
+5. **E2E runs this iteration** (`npx playwright test --config playwright.e2e.config.ts tests/e2e/planet-approach.spec.ts`):
+   - Run 2 (physics fixed, **airless** home `ba7323191035bf20`, planet 2 @ x=30000): `flightRegime=space -> surface`, minDist=1958.9 (inside the 2000 disc), minY=0, terrain mounted — **all physics assertions passed**; only the then-old variance check read 0 (flat grey biome) → motivated the mean check. Screenshot (viewed): green biome + grey ground + horizon curve, SURFACE tag, SPD 0.0.
+   - Run 3: identical, failed only on a stale `lower` log variable → fixed.
+   - **Run 4: PASSED 43.6 s** (atmospheric home `3066e1f69b71b215`): `space -> atmosphere -> surface`, minDist=826.7, chunks=34, groundMean=66.3, screenshot saved to `.ralph/screenshots/TASK-87-1.png` (viewed: ship on terrain, biomes below, starfield above the horizon, SURFACE tag).
+
+6. **At handoff:** `npx tsc --noEmit` green; eslint --fix clean; prettier applied (it reflowed `regime.ts` / `regime.test.ts` — formatting only, tests green); no background processes.
 
 ## Working tree
-**Not committed (this handoff commits them):**
-- `app/src/shared/galaxy/planets.ts` (M — `surfaceDiscAt` + `SurfaceDisc`)
-- `app/src/shared/regime.ts` (M — airless→surface rule)
-- `app/src/shared/physics/flight.ts` (M — `surfaceDisc` option + `SURFACE_FRICTION` + space ground-clamp)
-- `app/src/server/shard/shard.ts` (M — `resolveRegimeCtx` airless terrain wiring)
-- `app/src/client/net/prediction.ts` (M — `optionsAt` `surfaceDisc`)
-- `app/src/shared/regime.test.ts` (M), `app/src/shared/planet-approach.test.ts` (M)
-- `app/tests/e2e/planet-approach.spec.ts` (new), `app/tests/e2e/t87-repro.spec.ts` (DELETED)
-- `.ralph/handoff/TASK-87.md` (this file, overwritten)
 
-Builds: tsc GREEN, unit suite GREEN. `app/test-results/` deleted (not gitignored). Pre-existing dirty files NOT mine — do NOT commit: `.gitignore`, `.ralph/decisions.jsonl`, `ralph.config.json`, `.gitattributes`, `.ralph/ESCALATION.md`, `.ralph/logs/t761/`, `.ralph/logs/t83/`, `.ralph/tasks/TASK-87.json`, `.ralph/tasks/TASK-88.json`, `app/.ralph/`, and all pre-existing `.ralph/screenshots/*.png` mods.
+- **Committed (mine, from earlier iterations):** `b345c9d` (root cause + contract test + e2e repro), `0d667a3` (disc fix + friction + server/client wiring + e2e + old handoff).
+- **Uncommitted (mine, this iteration):** `app/src/shared/physics/flight.ts` (disc gravity + friction 10), `app/src/shared/planet-approach.test.ts` (drop-off test), `app/tests/e2e/planet-approach.spec.ts` (claim loop + mean check), `app/src/shared/regime.ts` + `app/src/shared/regime.test.ts` (prettier-only reflows), `.ralph/screenshots/TASK-87-1.png` (untracked, from the passing run), this handoff.
+- **Pre-existing dirty (NOT mine — do NOT commit):** `.gitignore`, `.ralph/decisions.jsonl`, `ralph.config.json`, all `.ralph/screenshots/*.png` mods, untracked `.gitattributes`, `.ralph/ESCALATION.md`, `.ralph/logs/t761/`, `.ralph/logs/t83/`, `.ralph/tasks/TASK-87.json`, `.ralph/tasks/TASK-88.json`, `app/.ralph/`.
+- **Builds:** tsc green; unit suites green (full suite was 1757 passed / 1 skipped earlier this session, BEFORE the friction change — re-run needed, see next steps).
 
 ## Next steps
-1. **Make the e2e robust.** The terrain-mount probe (scene graph) is reliable; the canvas lower-half variance check is the flake. Fix by one of: (a) poll the lower-half variance over a few seconds (it was 4.4 when it passed, 0.017 when it failed) with `expect.poll` and a few-frame settle; (b) after landing, do a short VTOL hover / small forward nudge so the chase camera has ground in the lower half before sampling; (c) sample the full canvas or a region more likely to contain terrain. Keep the ≥9-chunk terrain-mount assert (it is the authoritative "terrain mounted" signal) — the variance check only needs to prove pixels are on screen.
-2. **Exercise the AIRLESS browser path.** 3/3 live runs so far picked an atmospheric planet at the nearest-landable index (home systems `05b6ba27...`, `57935f8d...`, `30d9583e...`). The airless branch is unit-verified but not e2e-verified. To force it: either keep re-running until a home system's nearest landable planet is airless (~26% of systems per the prior sim), or add a deterministic airless target (e.g. warp to a known system with an airless planet at a low anchor index, the landing.spec.ts raw-WS warp pattern), or temporarily prefer airless in the idx pick. Confirm the wire sequence is `space → surface` (no 'atmosphere') and it lands inside the disc.
-3. **Step 4 of the spec:** `cd app && npx tsc --noEmit` (already green); full `npm run test` (already green); e2e set: `npx playwright test --config playwright.e2e.config.ts tests/e2e/planet-approach.spec.ts tests/e2e/atmosphere.spec.ts tests/e2e/atmosphere-view.spec.ts tests/e2e/terrain-live.spec.ts tests/e2e/deep-space.spec.ts tests/e2e/cruise.spec.ts tests/e2e/flight.spec.ts`; then `npx eslint --fix` + `npx prettier --write` on the touched files.
-4. **Close out:** commit `fix(TASK-87): land on airless planets — solid surface disc (regime space→surface) + space ground-collision + friction, shared by server+client`; set the 4 step `pass` flags true in `.ralph/tasks/TASK-87.json`; set `"passes": true` for TASK-87 in `.ralph/tasks.json`; add the LOG.md entry at the top (date, summary, screenshot `.ralph/screenshots/TASK-87-1.png`); delete this handoff.
+
+In order:
+1. `cd app && npm run test` (~2.5 min) — confirm full suite green after the friction change (expect 1758 passed / 1 skipped; `transitionCycle` p99 delta is the documented wall-clock load flake — green in isolation).
+2. Re-run `npx playwright test --config playwright.e2e.config.ts tests/e2e/planet-approach.spec.ts` until a run hits an **airless** home system (~55% per run) and passes end-to-end including the new mean check (airless physics + terrain mount already proven in run 2; only the canvas check changed since). Check the log line `airless=true` and `groundMean=...`.
+3. Run the spec's required e2e set (single worker, config `playwright.e2e.config.ts`): planet-approach, atmosphere, atmosphere-view, terrain-live, deep-space, cruise, flight.
+4. Final commit `fix(TASK-87): ...` (stage only the mine files above + handoff deletion + close-out files; wip commits from earlier iterations may stay in history — the board's other tasks landed across wip+fix commits too).
+5. Close out: `.ralph/tasks/TASK-87.json` all 4 steps `pass: true`; `.ralph/tasks.json` TASK-87 `passes: true`; `.ralph/logs/LOG.md` entry at top (date, summary, screenshot path `.ralph/screenshots/TASK-87-1.png`) + bump "Tasks Completed" 102 → 103; delete `.ralph/handoff/TASK-87.md`; output `<promise>TASK-87:DONE</promise>`.
+
+No question for a human — everything is decided.
 
 ## Dead ends
-- The atmospheric-planet approach is NOT the bug (3/3 landed) — the owner's tunnel is the AIRLESS case (confirmed by prior-iteration sim + this iteration's pre-fix failing unit tests).
-- e2e lower-half variance flake is a RENDERING/CAMERA-timing artifact, not a regime/physics bug: the ship genuinely lands in 'surface' (wire-confirmed, correct planet, terrain mounted in scene graph). Do NOT chase it by changing physics — fix the e2e sampling/aiming.
-- Do NOT gate on the raw `minY ≥ 0` — the terrain is hilly (a 'surface' ship can sit at world-y ~200+ because the ground under it is elevated ~200), so assert `minY ≥ -5` (never BELOW the flat y=0 reference / island slab top at -2), which is the no-tunnel guarantee.
+
+- **Variance > 1 canvas check is unusable for "terrain on screen"** when the ship lands on a flat biome (uniform grey ground → variance exactly 0). Mean luminance over the lower band is the robust ground-vs-starfield discriminator.
+- **Flat-terrain unit tests (`heightAt: () => 0`) cannot catch terrain-contact bugs** — the one-way-up clamp bug only shows on undulating terrain. The drop-off shape (high ridge at disc entry, low ground inside) is the minimal repro.
+- **Gravity alone is not the fix** at the original f=1: thrust asymptote a/f = 40 u/s > the 5 u/s surface threshold, so a W-holding ship never qualifies. Both disc-gravity AND f=10 are load-bearing (each verified red when removed).
+- **A single random player claim lands in a non-airless home ~45% of the time** (home system derives from the player UUID) — the claim loop is the cheap fix; no dev route exists to pick a system.
 
 ## How to verify
-- Unit (fast, definitive for the fix): `cd app && npx vitest run src/shared/planet-approach.test.ts src/shared/regime.test.ts` (planet-approach = 8 tests incl. 3 airless; regime = 20). Full: `npm run test`.
-- Pre-fix proof the test encodes the bug: `git stash push src/shared/galaxy/planets.ts src/shared/regime.ts src/shared/physics/flight.ts src/server/shard/shard.ts src/client/net/prediction.ts` then `npx vitest run src/shared/planet-approach.test.ts` → 3 airless tests FAIL; `git stash pop` → all pass.
-- E2E: `cd app && npx playwright test --config playwright.e2e.config.ts tests/e2e/planet-approach.spec.ts` (boots its own server; logs `[TASK-87] ... flightRegime=... minDist=... minY=... last=...`; ~40 s). Screenshot lands at `.ralph/screenshots/TASK-87-1.png`.
+
+Follow the task spec (`.ralph/tasks/TASK-87.json`): unit contract in `src/shared/planet-approach.test.ts` (must fail pre-fix, pass post-fix), `npx tsc --noEmit`, full `npm run test`, e2e list in step 4 above, screenshot `.ralph/screenshots/TASK-87-1.png` must show terrain under the ship (not a starfield hole), client/server regime agreement via the shared `surfaceDiscAt` wiring in `shard.ts`/`prediction.ts` (AC 4).

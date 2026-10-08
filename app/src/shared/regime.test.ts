@@ -118,9 +118,9 @@ describe('regimeFor: atmosphere boundary', () => {
       regime: 'surface',
       planetId: 'airless',
     });
-    expect(regimeFor({ x: 1000, y: 1.9, z: 0 }, [airless], 'space', SURFACE_SPEED_LIMIT_M_S).regime).toBe(
-      'surface',
-    );
+    expect(
+      regimeFor({ x: 1000, y: 1.9, z: 0 }, [airless], 'space', SURFACE_SPEED_LIMIT_M_S).regime,
+    ).toBe('surface');
     // Surface hysteresis: holds in the band, drops to space above it.
     const bandTop = SURFACE_ENTER_ALT_M + SURFACE_HYSTERESIS_M; // 6 u
     expect(regimeFor({ x: 1000, y: 5, z: 0 }, [airless], 'surface', 0).regime).toBe('surface');
@@ -133,14 +133,7 @@ describe('regimeFor: atmosphere boundary', () => {
       regimeFor({ x: 1000, y: 0, z: 0 }, [airless], 'space', SURFACE_SPEED_LIMIT_M_S + 1).regime,
     ).toBe('space');
     // Outside the surface disc: space even when low and slow.
-    expect(
-      regimeFor(
-        { x: 1000 + 2001, y: 0, z: 0 },
-        [airless],
-        'space',
-        0,
-      ).regime,
-    ).toBe('space');
+    expect(regimeFor({ x: 1000 + 2001, y: 0, z: 0 }, [airless], 'space', 0).regime).toBe('space');
     // Non-landable airless bodies never yield surface.
     const moon: RegimePlanet = {
       id: 'moon',

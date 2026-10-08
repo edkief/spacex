@@ -1,7 +1,7 @@
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { test, expect } from './fixtures';
-import { canvasLuminanceVariance, collectErrors, uniqueCallsign } from './helpers';
+import { canvasRegionStats, collectErrors, uniqueCallsign } from './helpers';
 import { systemForId } from '../../src/shared/galaxy/system';
 import { planetAnchor, planetAtmosphereRadius } from '../../src/shared/galaxy/planets';
 
@@ -15,11 +15,14 @@ import { planetAnchor, planetAtmosphereRadius } from '../../src/shared/galaxy/pl
  * happens for AIRLESS planets (atmosphereRadius 0 → the regime machine never
  * left 'space' and the flight model applied no ground collision in space).
  *
- * Target is picked deterministically from the home system: a landable AIRLESS
+ * Target is picked from the player's home system: a landable AIRLESS
  * planet when the system has one (the bug case — proves the fix), else a
- * landable atmospheric planet (the contract case). The ship teleports to
- * ground level OUTSIDE the planet, aims at its anchor, and holds W (+ Shift
- * cruise on the leg). Assertions:
+ * landable atmospheric planet (the contract case). The home system derives
+ * from the player UUID, so the spec claims a few (cheap REST-only) players
+ * and keeps the first whose home system has a landable AIRLESS planet —
+ * ~55% of the seeded systems do, so the bug case runs most times. The ship
+ * teleports to ground level OUTSIDE the planet, aims at its anchor, and
+ * holds W (+ Shift cruise on the leg). Assertions:
  *  - the wire flightRegime sequence reaches 'surface' (space→atmosphere→surface
  *    for atmospheric; space→surface for airless — never 'atmosphere' there);
  *  - the ship's wire position is never below the surface (never inside the
@@ -65,11 +68,19 @@ function tapShipUpdates(callsign: string): void {
           const m = JSON.parse(String(ev.data)) as {
             type?: string;
             payload?: {
-              entities?: Array<{ id: string; kind: string; pos: Vec3; flightRegime?: string; callsign?: string }>;
+              entities?: Array<{
+                id: string;
+                kind: string;
+                pos: Vec3;
+                flightRegime?: string;
+                callsign?: string;
+              }>;
             };
           };
           if (m.type !== 'entity_update') return;
-          const e = (m.payload?.entities ?? []).find((t) => t.kind === 'ship' && t.callsign === callsign);
+          const e = (m.payload?.entities ?? []).find(
+            (t) => t.kind === 'ship' && t.callsign === callsign,
+          );
           if (e) w.__t87?.push({ pos: e.pos, flightRegime: e.flightRegime ?? 'space' });
         } catch {
           /* never break the page */
@@ -147,18 +158,33 @@ test('space → planet approach lands on the surface (no tunnel-through)', async
   const { baseURL } = e2eServer;
   const callsign = uniqueCallsign('t87');
 
-  // (a) Claim a fresh player (raw REST, same shape stored in localStorage).
-  const claimRes = await fetch(`${baseURL}/api/callsigns`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ callsign }),
-  });
-  expect(claimRes.status).toBe(201);
-  const session = (await claimRes.json()) as ClaimResponse;
+  // (a) Claim a fresh player whose home system has a landable AIRLESS planet
+  // (the owner's bug). The home system derives from the player UUID (~55% of
+  // systems have an airless planet), so claim a few cheap REST-only players
+  // and keep the first airless-home one; fall back to the first claim.
+  let session: ClaimResponse | undefined;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const cs = attempt === 0 ? callsign : uniqueCallsign('t87b');
+    const claimRes = await fetch(`${baseURL}/api/callsigns`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ callsign: cs }),
+    });
+    expect(claimRes.status).toBe(201);
+    const cand = (await claimRes.json()) as ClaimResponse;
+    const hasAirless =
+      systemForId(SEED, cand.homeSystemId)?.planets.some((p) => p.landable && !p.hasAtmosphere) ??
+      false;
+    if (attempt === 0 || hasAirless) {
+      session = cand;
+      break;
+    }
+  }
+  expect(session, 'claimed a player').toBeTruthy();
 
-  // (b) Deterministic target from the home system: prefer a landable AIRLESS
-  // planet (the owner's bug), else a landable atmospheric planet.
-  const system = systemForId(SEED, session.homeSystemId);
+  // (b) Deterministic target from the home system: a landable AIRLESS planet
+  // (the owner's bug) when present, else a landable atmospheric planet.
+  const system = systemForId(SEED, session!.homeSystemId);
   expect(system, 'home system exists').toBeTruthy();
   const planets = system!.planets;
   const airlessIdx = planets.findIndex((p) => p.landable && !p.hasAtmosphere);
@@ -171,19 +197,20 @@ test('space → planet approach lands on the surface (no tunnel-through)', async
   // Airless: start 600 u outside the 2 km disc (at the cruise boundary).
   // Atmospheric: start 600 u outside the 1 km atmosphere.
   const startX = airless ? anchor.x + SURFACE_DISC_RADIUS + 600 : anchor.x + atmoR + 600;
+  const s = session!;
   console.log(
-    `[TASK-87] player=${session.playerId} sys=${session.homeSystemId} planet idx=${idx} ` +
+    `[TASK-87] player=${s.playerId} sys=${s.homeSystemId} planet idx=${idx} ` +
       `airless=${airless} anchor=${JSON.stringify(anchor)} startX=${startX}`,
   );
 
   // (c) Browser: join the home system, arm the chase camera.
   const context = await browser.newContext();
-  await context.addInitScript(tapShipUpdates, callsign);
+  await context.addInitScript(tapShipUpdates, s.callsign);
   const page = await context.newPage();
   const { assertClean } = collectErrors(page);
   await page.goto(baseURL);
-  await page.evaluate((s) => localStorage.setItem('drift.session.v1', JSON.stringify(s)), session);
-  await page.goto(`${baseURL}/?sys=${session.homeSystemId}`);
+  await page.evaluate((ss) => localStorage.setItem('drift.session.v1', JSON.stringify(ss)), s);
+  await page.goto(`${baseURL}/?sys=${s.homeSystemId}`);
   await expect(page.locator('#sys-id')).toBeVisible({ timeout: 20_000 });
   await expect
     .poll(() => page.evaluate(() => !!window.__SELF_SHIP__?.probe()?.screen), {
@@ -198,7 +225,7 @@ test('space → planet approach lands on the surface (no tunnel-through)', async
 
   // (d) Teleport to ground level OUTSIDE the planet, on the +X side of the
   // anchor (the ship approaches along −X).
-  await teleport(page, baseURL, session.token, { x: startX, y: 0, z: anchor.z });
+  await teleport(page, baseURL, s.token, { x: startX, y: 0, z: anchor.z });
 
   // (e) Aim at the anchor.
   await faceAnchor(page, anchor);
@@ -225,7 +252,9 @@ test('space → planet approach lands on the surface (no tunnel-through)', async
         landed = true;
         // A beat for the regime to settle before sampling the final position.
         await page.waitForTimeout(1_500);
-        const taps2 = await page.evaluate(() => (window as unknown as { __t87?: Tap[] }).__t87 ?? []);
+        const taps2 = await page.evaluate(
+          () => (window as unknown as { __t87?: Tap[] }).__t87 ?? [],
+        );
         lastSample = taps2[taps2.length - 1] ?? lastSample;
         break;
       }
@@ -279,23 +308,34 @@ test('space → planet approach lands on the surface (no tunnel-through)', async
   const targetPlanetId = planets[idx].id;
   expect(terrain.planetId, 'mounted terrain belongs to the approached planet').toBe(targetPlanetId);
 
-  // (5) The LOWER half of the canvas is non-uniform — terrain is on screen
-  // (the ground under the ship), not a starfield with a hole where the planet
-  // was. Four spread 32x32 regions (terrain-live.spec.ts pattern).
-  const LOWER_HALF: Array<[number, number]> = [
-    [100, 80],
-    [420, 200],
-    [740, 100],
-    [1040, 260],
-  ];
-  const lower = await canvasLuminanceVariance(page, LOWER_HALF);
-  expect(lower, 'lower-half canvas luminance variance (terrain rendered)').toBeGreaterThan(1);
+  // (5) The LOWER band of the canvas is a solid, bright GROUND fill (the
+  // streamed terrain under the ship), NOT a dark starfield with a hole where
+  // the planet was. The ship can land on a FLAT biome (uniform grey ground —
+  // a 32x32 variance check reads ~0 there and flakes), so the robust
+  // ground-vs-space discriminator is MEAN luminance: grey terrain ≈ 120–160,
+  // a starfield is dark (≈ 20–40). canvasRegionStats over the DOM lower band
+  // (y > 0.6). Polled: right after landing the terrain can still be filling
+  // the draw buffer under SwiftShader, so a single unrendered frame would
+  // flake the check (best-of over ~5 s).
+  const tGround = Date.now();
+  let groundMean = -1;
+  while (groundMean < 60 && Date.now() - tGround < 5_000) {
+    groundMean = Math.max(
+      groundMean,
+      (await canvasRegionStats(page, { x0: 0, y0: 0.6, x1: 1, y1: 1 })).mean,
+    );
+    if (groundMean < 60) await page.waitForTimeout(500);
+  }
+  expect(
+    groundMean,
+    'lower-band mean luminance (ground on screen, not a starfield)',
+  ).toBeGreaterThanOrEqual(60);
   await page.screenshot({
     path: path.join(__dirname, '../../../.ralph/screenshots/TASK-87-1.png'),
   });
   console.log(
     `[TASK-87] ON SURFACE planet=${terrain.planetId} chunks=${terrain.mountedChunks} ` +
-      `lowerVariance=${lower.toFixed(1)} airless=${airless}`,
+      `groundMean=${groundMean.toFixed(1)} airless=${airless}`,
   );
 
   assertClean();
