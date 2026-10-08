@@ -33,13 +33,12 @@ import { TerrainContext } from './terrain';
  * - VTOL (up = 1): when the ship is within 25 m of the pad AND below 2 m
  *   altitude, the VTOL key is held for the final phase. The committed
  *   server-side assist (×0.5/tick on horizontal drift, applyVtolAssist)
- *   then kills the residual drift while the ship settles onto the flat pad
- *   disc (padSurfaceHeight — anywhere inside the 20 m disc is EXACTLY at
- *   the pad height). The key switches on only in this final phase: at 100 m
- *   the ×0.5/tick assist would freeze the ship short, and VTOL lift exactly
- *   cancels gravity (VTOL_LIFT = GRAVITY) so it can never bring a ship down
- *   from altitude (the TASK-29.1 pinned finding — the approach descends,
- *   it never climbs in);
+ *   kills the residual drift while the VTOL lift (TASK-86: 1.35·g) brakes
+ *   the descent and settles the ship onto the flat pad disc
+ *   (padSurfaceHeight — anywhere inside the 20 m disc is EXACTLY at the
+ *   pad height). The key switches on only in this final phase: at 100 m the
+ *   ×0.5/tick assist would freeze the ship short, and with lift now EXCEEDING
+ *   gravity an early switch-on would climb the ship away from the pad;
  * - SETTLE: resting on the disc (ground clamp, |vel.y| < 2, ≤ 20 m, altitude
  *   within 1 m of the pad) with the 'surface' regime → the pad state machine
  *   fires 'pad-dock' and the wire state reads 'docked' {padId}.
@@ -258,9 +257,12 @@ describe('TASK-29.2: VTOL-assisted approach, 100 m → docked in < 15 s of sim t
     expect(entityToState(entity).padId).toBe(PAD.padId);
     expect(entityToState(entity).flightRegime).toBe('surface');
 
-    // And it STAYS docked: a few VTOL-held ticks of rest, no undock.
+    // And it STAYS docked: idle rest (TASK-78: the client sends nothing
+    // while docked, so the server integrates zero input). Note: with the
+    // TASK-86 climb margin a VTOL-HELD rest would take the ship off the pad
+    // in ~12 ticks — an undock there would be correct, not a failure.
     for (let i = 0; i < 10; i++) {
-      shard.enqueueInput('p1', frames({ action: 'vtol' }));
+      shard.enqueueInput('p1', frames());
       step();
     }
     expect(entity.padId).toBe(PAD.padId);

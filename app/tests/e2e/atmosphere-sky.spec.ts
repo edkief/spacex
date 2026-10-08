@@ -323,12 +323,13 @@ test('inside atmosphere, low and off-centre: the top band shows haze, never blac
   // (a) NO thrust held — the server applies `input.yaw * turnRate * h` and
   //     `input.pitch * turnRate * h` unconditionally (integrateStep in
   //     @shared/physics/flight), so `w` only couples thrust/drag into the
-  //     attitude. But the ship must NOT fall: VTOL_LIFT === GRAVITY and
-  //     the lift is VERTICAL (heading-independent), so full VTOL demand
-  //     (`space`) is an exact hover even while pitched — the ship stays at
-  //     ~60 u and the atmosphere control scheme (which has live yaw AND
-  //     pitch, unlike the surface scheme's `yaw: null`) stays usable for
-  //     the whole aim. The re-pin teleport below restores the exact spot.
+  //     attitude. The ship must NOT fall: full VTOL demand (`space`)
+  //     outruns gravity (TASK-86: VTOL_LIFT = 1.35×GRAVITY), so it can't
+  //     sink — it CLIMBS a few u/s during the aim (the closed loop tracks
+  //     the dome centre as the boresight changes), and the atmosphere
+  //     control scheme (which has live yaw AND pitch, unlike the surface
+  //     scheme's `yaw: null`) stays usable for the whole aim. The re-pin
+  //     teleport below restores the exact spot.
   // (b) A wall-clock deadline (not a fixed iteration count): each
   //     iteration probes the yaw + pitch errors and presses the yaw and/or
   //     pitch keys for a duration proportional to |err|.
@@ -389,9 +390,9 @@ test('inside atmosphere, low and off-centre: the top band shows haze, never blac
     await page.waitForTimeout(ms);
     for (const k of keys) await page.keyboard.up(k);
   };
-  // Hover for the whole aim (see (a)): vertical VTOL lift holds the ship at
-  // its current altitude even while pitched, so it never lands and both
-  // rotation axes stay live.
+  // VTOL for the whole aim (see (a)): the lift (1.35×g, TASK-86) outruns
+  // gravity, so the ship never lands and both rotation axes stay live (it
+  // climbs during the aim; the re-pin below restores the exact spot).
   await page.keyboard.down(' ');
   // Each 120 ms calibration press doubles as a RATE calibration: the server
   // holds the last input frame and picks key events up at the 20 Hz tick
@@ -501,10 +502,11 @@ test('inside atmosphere, low and off-centre: the top band shows haze, never blac
   await page.keyboard.up(' ');
 
   // --- Pin the measurement spot -----------------------------------------
-  // The aim takes a couple of seconds; VTOL hover keeps the altitude, but
-  // re-teleport to the SAME spot (orientation is untouched by the teleport
-  // — shard.teleportForTesting only sets pos/vel) so the band is measured
-  // at exactly 60 u.
+  // The aim takes a couple of seconds; the VTOL demand (TASK-86: 1.35×g)
+  // CLIMBS the ship away from 60 u during the aim, so re-teleport to the
+  // SAME spot (orientation is untouched by the teleport —
+  // shard.teleportForTesting only sets pos/vel) so the band is measured at
+  // exactly 60 u.
   const pin = await page.request.post(`${baseURL}/api/dev/teleport`, {
     headers: { ...auth, 'content-type': 'application/json' },
     data: spot,

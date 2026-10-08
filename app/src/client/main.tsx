@@ -1644,12 +1644,18 @@ function App() {
   // dock (regime 'docked', NO padId) — there the pad predicate is false and
   // idle frames leaked, undocking the server ship and exposing it to rogue
   // AI. wireDockedIndicator() is true for ANY regime 'docked' entity.
-  // TASK-86: while wire-docked the demand is read through a FLIGHT scheme
-  // (dockedFlightScheme), not the remapper's active scheme — a pad-docked
-  // ship's flightRegime is 'surface', which remaps the keys to the
-  // CHARACTER scheme (W = walk), so the active scheme read W as a zero
-  // flight demand and the gate above suppressed the very first input the
-  // server's take-off contract needs (the ship stayed docked forever).
+  // TASK-86: while wire-docked — AND whenever the client regime is
+  // 'surface' (a landed ship: the flight keys must mean flight, a ship
+  // cannot walk) — the demand is read through a FLIGHT scheme
+  // (dockedFlightScheme), not the remapper's active scheme, which remaps
+  // 'surface' to the CHARACTER scheme (W = walk, Space = zero flight
+  // demand). Without the docked case the gate above suppressed the very
+  // first input the server's take-off contract needs (the ship stayed
+  // docked forever); without the surface case the take-off died mid-climb:
+  // once the server's pad machine cleared padId (|vel.y| ≥ 2) the wire
+  // flipped to 'sublight', the active (character) scheme dropped the VTOL
+  // demand, zero frames landed, the ship fell back onto the pad and
+  // re-docked — the undock oscillated forever.
   React.useEffect(() => {
     const body = (nowMs: number, dtSec: number): void => {
       const p = shipPredictorRef.current;
@@ -1667,8 +1673,9 @@ function App() {
       // through a FLIGHT scheme (TASK-86): the active scheme is the
       // character (walking) scheme for a pad-docked ship, which maps W to
       // zero flight demand and the gate below would swallow the take-off.
+      const flightScheme = docked || regimeWiring.regime === 'surface';
       const input = scaleLookDemand(
-        docked
+        flightScheme
           ? readSchemeInput(dockedFlightScheme(regimeWiring.regime), pressed)
           : regimeWiring.remapper.readInput(pressed),
         settingsState().sensitivity,

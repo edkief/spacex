@@ -23,10 +23,14 @@ import { RawWsClient } from './raw-ws';
  * leaves the row on home, whose shard is not active → 409) → dev-teleport
  * onto the seeded station pad → DOCKED indicator → the ship is FROZEN while
  * idle (TASK-78 wire invariant: the client sends nothing while docked, so
- * the server integrates zero input on the settled ship) → hold W → within
- * the budget the wire regime leaves 'docked' and the server position moves
- * → the indicator clears. A second test repeats the W-undock from the HOME
- * dock starter spawn (regime 'docked', NO padId).
+ * the server integrates zero input on the settled ship) → hold SPACE (the
+ * VTOL key — in the atmosphere/surface regime the main thrust channel does
+ * nothing, VTOL lift is the pad takeoff channel; TASK-86: full VTOL climbs
+ * on the 1.35×g margin, so it lifts the ship off the pad) → within the
+ * budget the wire regime leaves 'docked' and the server position moves →
+ * the indicator clears. A second test repeats the undock from the HOME dock
+ * starter spawn (regime 'docked', NO padId, flightRegime 'space' — W
+ * thrust takes that one off).
  *
  * Observation: the browser's own inbound entity_updates (a WebSocket tap,
  * the flight.spec.ts pattern) — the server-authoritative pos + regime
@@ -65,8 +69,10 @@ interface EntityState {
 function tapShipUpdates(callsign: string): void {
   const w = window as unknown as {
     __shipUpdates?: Array<{ pos: Vec3; regime: string; padId?: string }>;
+    __sentInputs?: Array<unknown>;
   };
   w.__shipUpdates = [];
+  w.__sentInputs = [];
   const Orig = window.WebSocket;
   window.WebSocket = class extends Orig {
     constructor(...args: ConstructorParameters<typeof Orig>) {
@@ -81,11 +87,32 @@ function tapShipUpdates(callsign: string): void {
           const e = (m.payload?.entities ?? []).find(
             (t) => t.kind === 'ship' && t.callsign === callsign,
           );
-          if (e) w.__shipUpdates?.push({ pos: e.pos, regime: e.regime, padId: e.padId });
+          if (
+            e
+          )
+            w.__shipUpdates?.push({
+              pos: e.pos,
+              regime: e.regime,
+              padId: e.padId,
+              flightRegime: (e as { flightRegime?: string }).flightRegime,
+            });
         } catch {
           // never break the page's networking from a tap
         }
       });
+      const origSend = this.send.bind(this);
+      this.send = (data: string) => {
+        try {
+          const m = JSON.parse(data) as { type?: string; payload?: unknown };
+          if (m.type === 'input') {
+            w.__sentInputs?.push(m.payload);
+            if (w.__sentInputs.length > 50) w.__sentInputs.shift();
+          }
+        } catch {
+          // tap only
+        }
+        return origSend(data);
+      };
     }
   };
 }
@@ -107,14 +134,24 @@ function dist(a: Vec3, b: Vec3): number {
 }
 
 /** Poll until the wire regime leaves 'docked' AND the ship moved > 5 u. */
-async function pollUndock(page: Page, from: Vec3): Promise<{ pos: Vec3; regime: string }> {
+async function pollUndock(
+  page: Page,
+  from: Vec3,
+  key: string,
+): Promise<{ pos: Vec3; regime: string }> {
   let last: { pos: Vec3; regime: string } = { pos: from, regime: 'docked' };
   await expect
-    .poll(async () => {
-      const now = (await latestShip(page))!;
-      last = now;
-      return now.regime !== 'docked' && dist(now.pos, from) > 5;
-    }, { timeout: 5_000, message: 'wire regime never left docked (and moved) within 5 s of W' })
+    .poll(
+      async () => {
+        const now = (await latestShip(page))!;
+        last = now;
+        return now.regime !== 'docked' && dist(now.pos, from) > 5;
+      },
+      {
+        timeout: 5_000,
+        message: `wire regime never left docked (and moved) within 5 s of ${key}`,
+      },
+    )
     .toBe(true);
   return last;
 }
@@ -195,7 +232,7 @@ async function bootInSystem(
   await expect(claimPage.playerList).toContainText(`${session.callsign} (you)`);
 }
 
-test('pad dock: idle-frozen while docked, W takes the ship off the pad', async ({
+test('pad dock: idle-frozen while docked, VTOL (Space) takes the ship off the pad', async ({
   browser,
   e2eServer,
 }) => {
@@ -241,21 +278,40 @@ test('pad dock: idle-frozen while docked, W takes the ship off the pad', async (
     await page.waitForTimeout(100);
   }
 
-  // (c) FIRST real input (W held): within the budget the wire regime leaves
-  // 'docked' AND the server position moves off the pad (the ship slides
-  // clear of the pad's 25 m release radius on thrust).
+  // (c) FIRST real input (SPACE held — the VTOL key): within the budget the
+  // wire regime leaves 'docked' AND the server position moves off the pad
+  // (the 1.35×g VTOL margin lifts the ship clear: the pad machine releases
+  // it once |vel.y| crosses 2 u/s and the climb continues).
   const padPos = (await latestShip(page))!;
-  await page.keyboard.down('w');
-  const wDownAt = Date.now();
-  const afterW = await pollUndock(page, padPos.pos);
-  const takeoffMs = Date.now() - wDownAt;
-  expect(afterW.regime, 'wire regime left docked').not.toBe('docked');
-  expect(dist(afterW.pos, padPos.pos), 'server position moved off the pad').toBeGreaterThan(5);
+  await page.keyboard.down(' ');
+  const keyDownAt = Date.now();
+  let afterKey: { pos: Vec3; regime: string };
+  try {
+    afterKey = await pollUndock(page, padPos.pos, 'Space (VTOL)');
+  } catch (err) {
+    const sent = await page.evaluate(() =>
+      (window as unknown as { __sentInputs?: unknown[] }).__sentInputs,
+    );
+    const regime = await page.evaluate(() => {
+      const w = window as unknown as {
+        __shipUpdates?: Array<{ pos: Vec3; regime: string }>;
+      };
+      const ups = w.__shipUpdates ?? [];
+      const last = ups[ups.length - 1];
+      return last ? { regime: last.regime, y: last.pos.y } : null;
+    });
+    console.log(`[DIAG] sent inputs: ${JSON.stringify(sent)}`);
+    console.log(`[DIAG] last wire: ${JSON.stringify(regime)}`);
+    throw err;
+  }
+  const takeoffMs = Date.now() - keyDownAt;
+  expect(afterKey.regime, 'wire regime left docked').not.toBe('docked');
+  expect(dist(afterKey.pos, padPos.pos), 'server position moved off the pad').toBeGreaterThan(5);
 
   // (d) The DOCKED indicator cleared (wire 'docked' ⇒ isDocked false).
   await expect(page.locator('#docked-indicator')).toBeHidden();
 
-  // The visual artifact: mid-flight, off the pad, still holding W — the
+  // The visual artifact: mid-flight, off the pad, still holding VTOL — the
   // chase camera has the ship in view (the screenshot shows the ship IN THE
   // AIR, not on the pad).
   const probe = await page.evaluate(() => {
@@ -268,11 +324,11 @@ test('pad dock: idle-frozen while docked, W takes the ship off the pad', async (
   await page.screenshot({
     path: path.join(__dirname, '../../../.ralph/screenshots/TASK-86-1.png'),
   });
-  await page.keyboard.up('w');
+  await page.keyboard.up(' ');
 
   console.log(
     `[TASK-86 pad] callsign=${callsign} pad=(${padPos.pos.x.toFixed(1)}, ${padPos.pos.y.toFixed(1)}, ${padPos.pos.z.toFixed(1)}) ` +
-      `moved=${dist(afterW.pos, padPos.pos).toFixed(1)} u takeoff=${takeoffMs} ms regime=${afterW.regime}`,
+      `moved=${dist(afterKey.pos, padPos.pos).toFixed(1)} u takeoff=${takeoffMs} ms regime=${afterKey.regime}`,
   );
   assertClean();
   await context.close();
@@ -315,10 +371,11 @@ test('home dock: the starter scout takes off on W (regime docked, no padId)', as
   const spawn = (await latestShip(page))!;
   expect(spawn.regime, 'starter ship is wire-docked at spawn').toBe('docked');
 
-  // W: the first real flight input takes the (space-docked) ship off.
+  // W: the first real flight input takes the (space-docked) ship off
+  // (home dock, flightRegime 'space' — the main thrust channel applies).
   await page.keyboard.down('w');
   const wDownAt = Date.now();
-  const afterW = await pollUndock(page, spawn.pos);
+  const afterW = await pollUndock(page, spawn.pos, 'W');
   const takeoffMs = Date.now() - wDownAt;
   expect(afterW.regime, 'wire regime left docked').not.toBe('docked');
   expect(dist(afterW.pos, spawn.pos), 'server position moved').toBeGreaterThan(5);

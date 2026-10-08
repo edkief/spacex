@@ -156,11 +156,17 @@ export const CRUISE_ACCEL_FACTOR = 2;
 /** Gravity in the atmosphere regime (u/s²). */
 export const GRAVITY = 9.8;
 /**
- * VTOL lift at input.up = 1 (u/s²). Equals GRAVITY: full VTOL demand makes
- * the ship neutrally buoyant, so hover converges to vel.y = 0 (drag damps
- * any residual vertical velocity).
+ * VTOL lift at input.up = 1 (u/s²). 1.35 × GRAVITY (TASK-86): full VTOL
+ * demand gives a net +0.35·g climb, so a pad-docked ship can take off on
+ * the VTOL key ALONE — the pre-TASK-86 value was exactly GRAVITY (neutral
+ * buoyancy), which made a pad dock inescapable: lift cancelled gravity, so
+ * no input could raise |vel.y| past the pad release threshold and the pad
+ * machine re-docked the ship every tick. The climb is drag-limited
+ * (terminal v = √(0.35·g / (k·f))), and hover is no longer the rest point
+ * (a partial demand up = 1/1.35 ≈ 0.74 would hover; the key is 0/1, so
+ * full VTOL climbs).
  */
-export const VTOL_LIFT = GRAVITY;
+export const VTOL_LIFT = 1.35 * GRAVITY;
 /** Max horizontal speed (u/s) at which VTOL lift still applies. */
 export const VTOL_HORIZONAL_LIMIT = 5;
 /**

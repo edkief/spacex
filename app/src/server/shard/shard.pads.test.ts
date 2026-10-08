@@ -25,20 +25,19 @@ import { TerrainContext } from './terrain';
  * outside the atmosphere and the surface regime unreachable).
  *
  * Approaches are VTOL-OFF drops: the v1 atmosphere model has no main
- * thruster and VTOL LIFT EXACTLY CANCELS GRAVITY (VTOL_LIFT = GRAVITY), so
- * `up = 1` hovers in place wherever the ship is — VTOL can decelerate a
- * fall to a hover, but it can never bring a ship DOWN (it has no net
- * downward force). The only path to the surface regime is the ground clamp
- * zeroing the vertical velocity on touchdown (the 'coast' precedent in
- * shard.regime.test.ts). The VTOL assist math itself (gate + ×0.5 damping)
- * is unit-tested in src/shared/world/pads.test.ts.
+ * thruster, and `up = 1` (TASK-86: lift is now 1.35·g) can only decelerate
+ * a fall and then CLIMB the ship away from the pad — a plain drop is the
+ * clean path to touchdown: the ground clamp zeroing the vertical velocity
+ * (the 'coast' precedent in shard.regime.test.ts) settles the ship into the
+ * surface regime. The VTOL assist math itself (gate + ×0.5 damping) is
+ * unit-tested in src/shared/world/pads.test.ts.
  *
  * Scenarios: (a) DOCK — drop from low inside the atmosphere onto the flat
  * pad; the ground clamp settles it into the surface regime → 'pad-dock'
- * event + entityToState 'docked' {padId}; (b) TAKEOFF — from docked, inject
- * vertical speed > 2 u/s as scripted state (the v1 atmosphere model cannot
- * climb on VTOL alone — VTOL exactly cancels gravity; precedent: the
- * 'ascent' phase in shard.regime.test.ts) → 'pad-undock' within one tick;
+ * event + entityToState 'docked' {padId}; (b) TAKEOFF — from docked, hold
+ * the VTOL key (the real player path, TASK-86: full VTOL climbs on the
+ * 0.35·g margin, so |vel.y| crosses the 2 u/s release threshold in ~12
+ * ticks) → 'pad-undock' on the crossing tick;
  * (c) HYSTERESIS — a docked/tracked ship moved to 21–25 m keeps its pad
  * (no undock), beyond 25 m releases; (d) INVARIANT — across all phases,
  * entity.padId is ever at most one id and 'pad-dock' never re-fires while
@@ -222,7 +221,7 @@ describe('TASK-29.1 (a): dock transition through the real SimLoop', () => {
 });
 
 describe('TASK-29.1 (b): takeoff transition through the real SimLoop', () => {
-  it('vertical speed > 2 u/s clears docked within one tick (wire back to non-docked)', () => {
+  it('holding the VTOL key takes the ship off the pad (wire back to non-docked)', () => {
     const shard = makeShard();
     const entity = makeEntity({ x: PAD.pos.x, y: PAD.pos.y + 60, z: PAD.pos.z });
     shard.addEntity(entity);
@@ -234,21 +233,21 @@ describe('TASK-29.1 (b): takeoff transition through the real SimLoop', () => {
     approachAndDock(shard, entity, frames, step, 60);
     expect(entity.padId).toBe(PAD.padId);
 
-    // TAKEOFF: the v1 atmosphere model cannot climb on VTOL alone (VTOL
-    // exactly cancels gravity), so the climb is a scripted state — vel.y = 5
-    // u/s (> DOCK_VERTICAL_SPEED_MAX_M_S = 2) injected every tick, the
-    // precedent of the 'ascent' phase in shard.regime.test.ts.
+    // TAKEOFF: the real player path (TASK-86) — hold the VTOL key. Lift is
+    // 1.35·g (net +0.35·g from rest), so |vel.y| reaches
+    // DOCK_VERTICAL_SPEED_MAX_M_S (2 u/s) in ~12 ticks and the pad machine
+    // releases on the crossing tick (the state machine's contract: a docked
+    // ship keeps its pad while surface + slow; any |vel.y| ≥ 2 undocks).
     const takeoffTick = shard.sim.tickNumber;
-    for (let i = 0; i < 3 && entity.padId !== undefined; i++) {
-      entity.ship.vel = { x: 0, y: 5, z: 0 };
-      shard.enqueueInput('p1', frames());
+    for (let i = 0; i < 30 && entity.padId !== undefined; i++) {
+      shard.enqueueInput('p1', frames({ action: 'vtol' }));
       step();
     }
     const undocks = events.filter((e) => e.kind === 'pad-undock');
     expect(undocks).toHaveLength(1);
-    // Cleared within ONE tick of the first > 2 u/s vertical speed.
-    expect(undocks[0].tick).toBeGreaterThanOrEqual(takeoffTick);
-    expect(undocks[0].tick).toBeLessThanOrEqual(takeoffTick + 1);
+    // Cleared just after the climb crosses the 2 u/s release threshold.
+    expect(undocks[0].tick).toBeGreaterThanOrEqual(takeoffTick + 1);
+    expect(undocks[0].tick).toBeLessThanOrEqual(takeoffTick + 15);
     expect(entity.padId).toBeUndefined();
 
     // Wire state back to non-docked.
@@ -334,7 +333,7 @@ describe('TASK-29.1 (d): one-pad-per-ship invariant across all phases', () => {
       }
     };
 
-    // Phase 1: dock (VTOL-off drop — the v1 model cannot descend under VTOL).
+    // Phase 1: dock (VTOL-off drop — see the header note: VTOL now climbs).
     for (let i = 0; i < 4000 && entity.padId !== PAD.padId; i++) stepOnce();
     expect(entity.padId).toBe(PAD.padId);
 
@@ -356,8 +355,8 @@ describe('TASK-29.1 (d): one-pad-per-ship invariant across all phases', () => {
     expect(entity.padId).toBeUndefined();
 
     // Phase 4: re-approach from 40 m — a second, legitimate dock. (VTOL-off
-    // drop: the ship arrives in the 'surface' regime from phase 3, and VTOL
-    // would hover it at 40 m forever — lift exactly cancels gravity.)
+    // drop: VTOL held would climb the ship straight off the pad — lift is
+    // 1.35·g since TASK-86 — so the approach is a plain drop.)
     expect(shard.teleportForTesting('p1', { x: PAD.pos.x, y: PAD.pos.y + 40, z: PAD.pos.z })).toBe(
       true,
     );

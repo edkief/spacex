@@ -455,11 +455,13 @@ describe('SystemShard regime context (TASK-13 step 2, atmosphere)', () => {
     const chosen = pad as LandingPadRef;
     const ground = terrain.heightAt(chosen.x, chosen.z);
 
-    // Descending toward the pad (VTOL lift is neutral at up=1, so the ship
-    // must arrive with downward velocity and settle via ground clamp + drag).
+    // Descending toward the pad (TASK-86: VTOL lift now EXCEEDS gravity —
+    // 1.35·g — so an early switch-on would climb the ship away from the pad;
+    // the approach falls first and switches VTOL on low to brake the final
+    // metres).
     const entity = makeEntity(
       'p1',
-      { x: chosen.x, y: ground + 10, z: chosen.z },
+      { x: chosen.x, y: ground + 60, z: chosen.z },
       { regime: 'atmosphere', planetId: planet.id },
     );
     entity.ship.vel = { x: 0, y: -5, z: 0 };
@@ -467,14 +469,23 @@ describe('SystemShard regime context (TASK-13 step 2, atmosphere)', () => {
     addFakeConn(shard, 'p1', 'Hover');
 
     shard.start();
-    // Phase 1: throttle down (no lift) to reach the surface.
-    for (let i = 1; i <= 40; i++) {
+    // Phase 1: throttle down (no lift) to low altitude over the pad.
+    let i = 1;
+    for (; i <= 400 && entity.ship.pos.y > ground + 5; i++) {
       shard.enqueueInput('p1', input(i));
       vi.advanceTimersByTime(TICK_DT_MS);
     }
-    // Phase 2: full VTOL lift — hover converges to vel.y = 0 on the pad.
-    for (let i = 41; i <= 140; i++) {
+    // Phase 2: full VTOL lift — the 1.35·g net lift brakes the descent into
+    // the ground clamp (vel.y → 0) and the ship settles onto the pad disc.
+    for (; i <= 600 && entity.ship.onPad === undefined; i++) {
       shard.enqueueInput('p1', input(i, { action: 'vtol' }));
+      vi.advanceTimersByTime(TICK_DT_MS);
+    }
+    // Phase 3: release (idle frames) — a VTOL-HELD rest would climb the
+    // ship back off the pad (the 0.35·g margin, TASK-86), so the docked
+    // rest point is the zero-demand frame.
+    for (i += 1; i <= 700; i++) {
+      shard.enqueueInput('p1', input(i));
       vi.advanceTimersByTime(TICK_DT_MS);
     }
     // Settled on the pad within tolerance.

@@ -572,9 +572,11 @@ describe('atmosphere regime', () => {
     expect(s2.pos.y).toBe(20);
   });
 
-  it('VTOL hover converges: lift cancels gravity, drag damps vel.y to 0', () => {
+  it('VTOL full lift climbs (TASK-86): net 0.35·g up, drag caps the climb speed', () => {
     const planet = atmo(1);
-    // falling into the hover deep in the band (alt 200 → f = 0.8: thick air)
+    // falling at -8 u/s deep in the band (alt 200 → f = 0.8: thick air);
+    // full VTOL reverses the fall: lift is now 1.35·g (net +0.35·g) and
+    // drag opposes the descent
     const s = runSteps(
       {
         pos: vec(0, 200, 0),
@@ -588,12 +590,15 @@ describe('atmosphere regime', () => {
       'atmosphere',
       planet,
     );
-    expect(Math.abs(s.vel.y)).toBeLessThan(0.1); // nearly hovering
-    expect(200 - s.pos.y).toBeLessThan(12); // bounded drop, no sustained fall
-    // and it holds: near-zero drift over another 30 s
+    expect(s.vel.y, 'climbing, not hovering').toBeGreaterThan(1);
+    expect(s.pos.y, 'gained altitude').toBeGreaterThan(200);
+    // the climb is drag-limited (terminal v = √(0.35·g / (k·f)) ≈ 3.1 u/s
+    // at density 1, alt 200 — it only rises as the air thins), never free
+    // acceleration
+    expect(s.vel.y).toBeLessThan(6);
+    // and it sustains: the ship keeps climbing over another 30 s
     const held = runSteps(s, { ...NO_INPUT, up: 1 }, DT, 600, 'atmosphere', planet);
-    expect(Math.abs(held.vel.y)).toBeLessThan(0.1);
-    expect(Math.abs(held.pos.y - s.pos.y)).toBeLessThan(3);
+    expect(held.pos.y).toBeGreaterThan(s.pos.y);
   });
 
   it('VTOL lift is heading-independent and gated by horizontal speed', () => {
