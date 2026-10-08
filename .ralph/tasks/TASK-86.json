@@ -1,0 +1,50 @@
+{
+  "id": "TASK-86",
+  "title": "Undock fix: a docked ship has no way to take off",
+  "category": "functional",
+  "description": "BUG (owner-reported): when the ship is DOCKED (at a landing pad or the home dock), there is no way to undock \u2014 no flight input ever takes the ship off. Expected behaviour (per design, see the server comment at shard.ts ~line 1888 'first input = take-off'): the server freezes a docked ship and its FIRST control demand launches it. Repro: dock the ship (the e2e flow in tests/e2e/docked-indicator.spec.ts lands a ship at the station pad; the starter scout spawns docked at the home dock with no padId), then press and hold W (thrust) or any flight control. Actual: the ship stays docked forever; the DOCKED indicator (tests/e2e/docked-indicator.spec.ts) never clears and the ship never moves. Suspected areas (starting points, not conclusions \u2014 trace where the first input frame is lost before fixing): (a) the client flight-loop dock gate in src/client/main.tsx ~line 1640-1674 (the `docked`/`nonzero` gate around `inputSender.shouldSend`, built for TASK-78 so idle frames never undock the server ship \u2014 it must keep suppressing idle frames but clearly drops the first REAL input too); (b) the seq counter in src/client/input/flight-loop.ts (a frame is due only on key change or the 20 Hz held cadence \u2014 check what the last-sent key is after docking); (c) src/client/state/docked.ts (wire-docked state source, driven from the entity_update handler in main.tsx ~line 463 \u2014 check the state is what you think it is at the moment of the first key press); (d) the server undock condition in src/server/shard/shard.ts ~line 1877-1908 (verify a real demand frame actually clears `entity.docked`). Fix the actual root cause; keep the TASK-78 invariant that NO idle (zero-demand) frames are sent while docked, or idle frames will launch the ship and expose it to rogue AI.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Reproduce and root-cause",
+      "details": "Reproduce in the e2e browser (claim a callsign, dock at the station pad as in docked-indicator.spec.ts, hold W, observe the wire regime via window.__SELF_SHIP__ probes or entity_update). Instrument or read the code path client input \u2192 `inputSender.shouldSend` (src/client/input/flight-loop.ts) \u2192 `send('input', ...)` \u2192 server tick (src/server/shard/shard.ts ~1877-1908) and pin down exactly where the first real demand frame is dropped or where the server fails to clear `docked`. Write a failing unit test that encodes the contract: with the flight loop docked (wire-docked true), a zero-demand frame is suppressed, but the first non-zero demand frame IS sent with a fresh seq. The test must FAIL before the fix.",
+      "pass": true
+    },
+    {
+      "step": 2,
+      "description": "Fix the undock path",
+      "details": "Implement the minimal fix at the identified root cause so that: (1) while wire-docked, idle/zero-demand frames remain suppressed (TASK-78 invariant \u2014 add a unit test asserting a zero-demand frame while docked sends NOTHING); (2) the first non-zero demand frame is sent and the server clears `entity.docked` within one tick; (3) after undock the normal flight input flow resumes with no seq gap/duplicate problems. Do not redesign the docked state plumbing (src/client/state/docked.ts) \u2014 it is used by the HUD, guidance and the flight gate.",
+      "pass": true
+    },
+    {
+      "step": 3,
+      "description": "E2E regression: dock then fly off",
+      "details": "New spec tests/e2e/undock.spec.ts (reuse the fixtures and claim flow from docked-indicator.spec.ts): (a) land/dock at the station pad (or use the home-dock starter spawn) and assert the DOCKED indicator is visible; (b) assert the ship is frozen while idle (position unchanged for ~2 s of no input \u2014 the TASK-78 invariant on the wire); (c) press and hold W and assert within ~2 s the wire regime is no longer 'docked' AND the ship's position is changing (probe via window.__SELF_SHIP__); (d) assert the DOCKED indicator cleared. Save .ralph/screenshots/TASK-86-1.png mid-flight, off the pad. Look at it: the ship must be in the air, not on the pad.",
+      "pass": true
+    },
+    {
+      "step": 4,
+      "description": "Verify + commit",
+      "details": "cd app && npx tsc --noEmit; full npm run test; e2e: the new undock.spec.ts plus docked-indicator.spec.ts, disembark.spec.ts, enter-ship.spec.ts, flight.spec.ts, core-flow.spec.ts via npx playwright test --config playwright.e2e.config.ts <files>; eslint --fix + prettier --write on touched files. Commit fix(TASK-86): ...",
+      "pass": true
+    }
+  ],
+  "acceptanceCriteria": [
+    "A docked ship takes off on its first real flight input: e2e undock.spec.ts shows wire regime leaves 'docked' and the ship moves within ~2 s of pressing W",
+    "While docked and idle, no input frames reach the server (unit test: zero-demand frame while wire-docked sends nothing) \u2014 the TASK-78 invariant is preserved",
+    "The new spec's pre-fix assertions fail on the unfixed build and pass after the fix",
+    "DOCKED indicator appears on dock and clears on take-off in the e2e",
+    "npx tsc --noEmit green; full npm run test green; listed e2e specs green; one commit"
+  ],
+  "dependencies": [
+    "TASK-29.1",
+    "TASK-78"
+  ],
+  "estimatedComplexity": "medium",
+  "notes": [
+    "Design intent (do not break): docked server ship is frozen; FIRST input takes it off (shard.ts ~1888). The client dock gate exists so idle frames never launch the ship (TASK-78 close-out, main.tsx ~1630-1639).",
+    "The home-dock starter scout has regime 'docked' with NO padId \u2014 test BOTH the pad dock and the home dock.",
+    "The file/line hints above were gathered at planning time; the code has moved since TASK-82..85 \u2014 re-verify locations before editing.",
+    "Do NOT commit pre-existing dirty .ralph/screenshots/*.png mods."
+  ]
+}

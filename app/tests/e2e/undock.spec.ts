@@ -68,11 +68,14 @@ interface EntityState {
  */
 function tapShipUpdates(callsign: string): void {
   const w = window as unknown as {
-    __shipUpdates?: Array<{ pos: Vec3; regime: string; padId?: string }>;
-    __sentInputs?: Array<unknown>;
+    __shipUpdates?: Array<{
+      pos: Vec3;
+      regime: string;
+      padId?: string;
+      flightRegime?: string;
+    }>;
   };
   w.__shipUpdates = [];
-  w.__sentInputs = [];
   const Orig = window.WebSocket;
   window.WebSocket = class extends Orig {
     constructor(...args: ConstructorParameters<typeof Orig>) {
@@ -87,9 +90,7 @@ function tapShipUpdates(callsign: string): void {
           const e = (m.payload?.entities ?? []).find(
             (t) => t.kind === 'ship' && t.callsign === callsign,
           );
-          if (
-            e
-          )
+          if (e)
             w.__shipUpdates?.push({
               pos: e.pos,
               regime: e.regime,
@@ -100,19 +101,6 @@ function tapShipUpdates(callsign: string): void {
           // never break the page's networking from a tap
         }
       });
-      const origSend = this.send.bind(this);
-      this.send = (data: string) => {
-        try {
-          const m = JSON.parse(data) as { type?: string; payload?: unknown };
-          if (m.type === 'input') {
-            w.__sentInputs?.push(m.payload);
-            if (w.__sentInputs.length > 50) w.__sentInputs.shift();
-          }
-        } catch {
-          // tap only
-        }
-        return origSend(data);
-      };
     }
   };
 }
@@ -285,25 +273,7 @@ test('pad dock: idle-frozen while docked, VTOL (Space) takes the ship off the pa
   const padPos = (await latestShip(page))!;
   await page.keyboard.down(' ');
   const keyDownAt = Date.now();
-  let afterKey: { pos: Vec3; regime: string };
-  try {
-    afterKey = await pollUndock(page, padPos.pos, 'Space (VTOL)');
-  } catch (err) {
-    const sent = await page.evaluate(() =>
-      (window as unknown as { __sentInputs?: unknown[] }).__sentInputs,
-    );
-    const regime = await page.evaluate(() => {
-      const w = window as unknown as {
-        __shipUpdates?: Array<{ pos: Vec3; regime: string }>;
-      };
-      const ups = w.__shipUpdates ?? [];
-      const last = ups[ups.length - 1];
-      return last ? { regime: last.regime, y: last.pos.y } : null;
-    });
-    console.log(`[DIAG] sent inputs: ${JSON.stringify(sent)}`);
-    console.log(`[DIAG] last wire: ${JSON.stringify(regime)}`);
-    throw err;
-  }
+  const afterKey = await pollUndock(page, padPos.pos, 'Space (VTOL)');
   const takeoffMs = Date.now() - keyDownAt;
   expect(afterKey.regime, 'wire regime left docked').not.toBe('docked');
   expect(dist(afterKey.pos, padPos.pos), 'server position moved off the pad').toBeGreaterThan(5);

@@ -759,5 +759,26 @@
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-85.json",
     "passes": true
+  },
+  {
+    "id": "TASK-86",
+    "title": "Undock fix: a docked ship has no way to take off",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-86.json",
+    "passes": true
+  },
+  {
+    "id": "TASK-87",
+    "title": "Planet approach: space→surface transition missing, ship flies through the planet",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-87.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-88",
+    "title": "On-foot blackout: screen goes all black within ~2-10 s of walking on a planet",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-88.json",
+    "passes": false
   }
 ]
