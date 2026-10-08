@@ -16,6 +16,7 @@
  */
 
 import { ATMOSPHERE_BOUNDARY_M } from '../physics/atmosphere';
+import type { Vec3 } from '../physics/vec';
 import { hash2, seedFromString } from '../random';
 import type { RegimePlanet } from '../regime';
 import type { Planet, PlanetClass, SystemGen } from './types';
@@ -31,6 +32,41 @@ export const PLANET_ANCHOR_SPACING_M = 10_000;
  * streams terrain within it.
  */
 export const PLANET_SURFACE_RADIUS_M = 2_000;
+
+/**
+ * The solid surface disc of a planet (TASK-87): the 2 km radius around the
+ * anchor where a landable airless body's surface is SOLID for a space ship
+ * (ground collision + friction — no tunnel-through). `planetId` names the
+ * owner so the caller can wire its terrain.
+ */
+export interface SurfaceDisc {
+  x: number;
+  z: number;
+  radius: number;
+  planetId: string;
+}
+
+/**
+ * The surface disc of the landable AIRLESS planet whose surface contains
+ * `pos` (2D distance to the anchor ≤ PLANET_SURFACE_RADIUS_M), or undefined
+ * when no such planet is under the ship. TASK-87: the shared source of the
+ * solid-surface rule — the regime machine, the flight model, the server tick
+ * and the client predictor all call this so they AGREE that an airless
+ * landable planet's surface is solid. Airless = atmosphereRadius 0; a ship
+ * is near at most ONE planet (anchors are 10 km apart, discs 2 km), so the
+ * first match is unambiguous.
+ */
+export function surfaceDiscAt(pos: Vec3, planets: RegimePlanet[]): SurfaceDisc | undefined {
+  for (const p of planets) {
+    if (!p.landable || p.atmosphereRadius > 0) continue;
+    const dx = pos.x - p.x;
+    const dz = pos.z - p.z;
+    if (dx * dx + dz * dz <= PLANET_SURFACE_RADIUS_M * PLANET_SURFACE_RADIUS_M) {
+      return { x: p.x, z: p.z, radius: PLANET_SURFACE_RADIUS_M, planetId: p.id };
+    }
+  }
+  return undefined;
+}
 
 /** Base drag density by planet class (gas giants are thickest, rocky thin). */
 const ATMOSPHERE_DENSITY_BASE: Record<PlanetClass, number> = {

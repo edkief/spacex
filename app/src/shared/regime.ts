@@ -17,9 +17,13 @@
  * its 3D distance to the anchor is below the enter radius; it stays inside
  * until it climbs past the EXIT radius (enter × HYSTERESIS), so a ship
  * idling on the boundary never flaps (the 50 m band at the 1 km TASK-22
- * drag boundary). Surface is a sub-state of atmosphere: only reachable from
- * 'atmosphere' (never directly from 'space' — no space→surface transition),
- * with its own altitude hysteresis band.
+ * drag boundary). Surface is a sub-state of atmosphere: on an atmospheric
+ * planet it is only reachable from 'atmosphere' (no direct space→surface
+ * step), with its own altitude hysteresis band. An airless LANDABLE planet
+ * has no atmosphere band, but its solid 2 km surface disc yields 'surface'
+ * directly from 'space' when the ship is in the disc, low and slow (TASK-87:
+ * the airless landing — the flight model's ground collision + friction is
+ * what slows a fast approach to that state).
  *
  * Pure and deterministic: same (pos, planets, current, speed) → identical
  * result. `planets[i].heightAt` is a caller-injected callback (the server
@@ -29,6 +33,7 @@
 
 import { ATMOSPHERE_BOUNDARY_M } from './physics/atmosphere';
 import type { Vec3 } from './physics/vec';
+import { PLANET_SURFACE_RADIUS_M } from './galaxy/planets';
 
 /** The three flight regimes (space ↔ atmosphere ↔ surface). */
 export type Regime = 'space' | 'atmosphere' | 'surface';
@@ -109,9 +114,15 @@ function anchorDistanceSquared(pos: Vec3, p: RegimePlanet): number {
  *   altitude below terrain + SURFACE_ENTER_ALT_M while slow (≤ speed limit);
  * - surface → atmosphere: altitude above terrain + enter + SURFACE_HYSTERESIS_M,
  *   or speed above the limit.
- * No other transitions exist: 'space' can never resolve to 'surface' in one
- * step, airless planets (atmosphereRadius 0) stay space, and non-landable
- * planets never yield 'surface'.
+ * - space → surface (TASK-87, airless ONLY): over a LANDABLE airless planet
+ *   (atmosphereRadius 0), inside its 2 km surface disc, low and slow — an
+ *   airless body has no atmosphere band, so the surface is reached directly
+ *   from space. surface → space (airless): leaving the disc, climbing out of
+ *   the band, or speeding up (an airless body has no atmosphere to fall back
+ *   into).
+ * No other transitions exist: an ATMOSPHERIC 'space' can never resolve to
+ * 'surface' in one step, non-landable planets never yield 'surface', and
+ * non-landable airless bodies stay space.
  *
  * @param pos     world position (u)
  * @param planets the system's planets in regime form (nearest wins)
@@ -136,7 +147,36 @@ export function regimeFor(
       nearestD2 = d2;
     }
   }
-  if (nearest.atmosphereRadius <= 0) return { regime: 'space' };
+  if (nearest.atmosphereRadius <= 0) {
+    // TASK-87: an airless planet has no atmosphere band (it never yields
+    // 'atmosphere'), but a LANDABLE one has a solid surface: inside its 2 km
+    // surface disc, low and slow, the ship is ON the surface (the streamed
+    // terrain + surface view engage). Fast or high it stays space — the
+    // flight model's ground collision + friction then slows it to a landing.
+    // Non-landable airless bodies stay space.
+    if (nearest.landable) {
+      const dx = pos.x - nearest.x;
+      const dz = pos.z - nearest.z;
+      const inDisc =
+        dx * dx + dz * dz <= PLANET_SURFACE_RADIUS_M * PLANET_SURFACE_RADIUS_M;
+      const alt = pos.y - (nearest.heightAt ? nearest.heightAt(pos.x, pos.z) : 0);
+      const slow = speed <= SURFACE_SPEED_LIMIT_M_S;
+      if (current === 'surface') {
+        // Surface holds while in the disc, low and slow; leaving the disc,
+        // climbing out of the band, or speeding up returns it to space (an
+        // airless body has no atmosphere to fall back into).
+        const stillSurface =
+          inDisc && alt <= SURFACE_ENTER_ALT_M + SURFACE_HYSTERESIS_M && slow;
+        return stillSurface
+          ? { regime: 'surface', planetId: nearest.id }
+          : { regime: 'space' };
+      }
+      if (inDisc && alt < SURFACE_ENTER_ALT_M && slow) {
+        return { regime: 'surface', planetId: nearest.id };
+      }
+    }
+    return { regime: 'space' };
+  }
 
   const d = Math.sqrt(nearestD2);
   const enterR = nearest.atmosphereRadius;

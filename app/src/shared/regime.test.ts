@@ -91,7 +91,7 @@ describe('regimeFor: atmosphere boundary', () => {
     }
   });
 
-  it('airless planets (atmosphereRadius 0) never yield atmosphere or surface', () => {
+  it('airless planets (atmosphereRadius 0) never yield atmosphere', () => {
     const airless: RegimePlanet = {
       id: 'airless',
       x: 1000,
@@ -99,9 +99,57 @@ describe('regimeFor: atmosphere boundary', () => {
       atmosphereRadius: 0,
       landable: true,
     };
-    // Directly on the anchor, at rest, on the surface: still space.
-    expect(regimeFor({ x: 1000, y: 0, z: 0 }, [airless], 'space').regime).toBe('space');
-    expect(regimeFor({ x: 1000, y: 0, z: 0 }, [airless], 'atmosphere').regime).toBe('space');
+    // No atmosphere band: even from 'atmosphere' it resolves space.
+    expect(regimeFor({ x: 1000, y: 500, z: 0 }, [airless], 'atmosphere').regime).toBe('space');
+  });
+
+  it('TASK-87: a LANDABLE airless planet yields surface on its solid disc', () => {
+    const airless: RegimePlanet = {
+      id: 'airless',
+      x: 1000,
+      z: 0,
+      atmosphereRadius: 0,
+      landable: true,
+      heightAt: () => 0,
+    };
+    // Low + slow + on the ground inside the 2 km disc: surface (directly
+    // from space — an airless body has no atmosphere to step through).
+    expect(regimeFor({ x: 1000, y: 0, z: 0 }, [airless], 'space', 0)).toEqual({
+      regime: 'surface',
+      planetId: 'airless',
+    });
+    expect(regimeFor({ x: 1000, y: 1.9, z: 0 }, [airless], 'space', SURFACE_SPEED_LIMIT_M_S).regime).toBe(
+      'surface',
+    );
+    // Surface hysteresis: holds in the band, drops to space above it.
+    const bandTop = SURFACE_ENTER_ALT_M + SURFACE_HYSTERESIS_M; // 6 u
+    expect(regimeFor({ x: 1000, y: 5, z: 0 }, [airless], 'surface', 0).regime).toBe('surface');
+    expect(regimeFor({ x: 1000, y: bandTop + 0.5, z: 0 }, [airless], 'surface', 0).regime).toBe(
+      'space',
+    );
+    // Fast low flyby: space (not surface) — the flight model's friction slows
+    // it down before the machine counts it as landed.
+    expect(
+      regimeFor({ x: 1000, y: 0, z: 0 }, [airless], 'space', SURFACE_SPEED_LIMIT_M_S + 1).regime,
+    ).toBe('space');
+    // Outside the surface disc: space even when low and slow.
+    expect(
+      regimeFor(
+        { x: 1000 + 2001, y: 0, z: 0 },
+        [airless],
+        'space',
+        0,
+      ).regime,
+    ).toBe('space');
+    // Non-landable airless bodies never yield surface.
+    const moon: RegimePlanet = {
+      id: 'moon',
+      x: 1000,
+      z: 0,
+      atmosphereRadius: 0,
+      landable: false,
+    };
+    expect(regimeFor({ x: 1000, y: 0, z: 0 }, [moon], 'space', 0).regime).toBe('space');
   });
 
   it('nearest planet wins; ties break deterministically on id', () => {

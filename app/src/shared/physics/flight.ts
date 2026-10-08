@@ -16,6 +16,9 @@
  *   turnRate. Speed cap (TASK-81): thrust never exceeds maxVelocity (it can
  *   only redirect velocity at top speed); any excess from elsewhere (a dive,
  *   a collision, a server correction) decays 5 %/tick (SOFT_CAP_DECAY).
+ *   TASK-87: inside a landable airless planet's surface disc the surface is
+ *   SOLID — the ship clamps to terrain (no tunnel-through) and friction
+ *   (SURFACE_FRICTION, standing in for the missing drag) stops it there.
  * - 'atmosphere': quadratic drag (k·|v|·v, opposing velocity), gravity,
  *   VTOL vertical lift, ground collision at terrain height (substepped so
  *   fast ships never tunnel: substep whenever |vel|·dt > 2 u). Drag ramps
@@ -35,6 +38,7 @@
 
 import type { ShipClass, ShipClassId } from '../ships';
 import { shipStats } from '../ships';
+import type { SurfaceDisc } from '../galaxy/planets';
 import { boundaryFactor } from './atmosphere';
 import {
   quatFromEuler,
@@ -146,6 +150,15 @@ export interface FlightOptions {
    * and the client predictor both pass it; AI ships never do).
    */
   cruiseAllowed?: boolean;
+  /**
+   * The solid surface disc of a landable AIRLESS planet (TASK-87, via
+   * shared/galaxy `surfaceDiscAt`): a 'space' ship INSIDE this disc collides
+   * with the planet's surface (no tunnel-through) and, having no atmosphere
+   * to provide drag, is slowed by {@link SURFACE_FRICTION} until it stops —
+   * where the regime machine resolves 'surface'. Defaults to none (a caller
+   * that does not know the planet geometry never clamps a space ship).
+   */
+  surfaceDisc?: SurfaceDisc;
 }
 
 /** Cruise (TASK-85) top-speed multiplier (class maxVelocity × this). */
@@ -179,6 +192,17 @@ export const VTOL_HORIZONAL_LIMIT = 5;
 export const SOFT_CAP_DECAY = 0.95;
 /** Substep when |vel|·dt exceeds this travel (u) to avoid ground tunneling. */
 export const SUBSTEP_MAX_TRAVEL_M = 2;
+/**
+ * Ground friction (1/s) for a ship grounded on an AIRLESS surface (TASK-87):
+ * an airless body has no atmosphere, so no drag — the only thing that slows
+ * a fast approach to a landing is the surface itself. While the ship rests on
+ * the terrain (any regime) its horizontal velocity decays exponentially
+ * (v *= (1 − FRICTION·h) per substep ≈ e^(−FRICTION·t)): 1.0/s stops a
+ * 120 u/s approach in ~3 s / ~115 m — well inside the 2 km surface disc.
+ * Atmospheric bodies keep drag as their stop (the density does the work), so
+ * this only applies when there is NO planet atmosphere.
+ */
+export const SURFACE_FRICTION = 1.0;
 /** Radius (u) of a landing pad for docking. */
 export const PAD_RADIUS = 4;
 /** Max |vel.y| (u/s) for a ship to count as settled on a pad. */
@@ -247,6 +271,7 @@ export function integrateShip(
   }
   const cls = resolveClass(shipClass);
   const heightAt = options?.heightAt ?? defaultHeightAt();
+  const surfaceDisc = options?.surfaceDisc;
   const k = dragCoefficient(planet, cls);
 
   // boost is a 0..1 demand (SHIFT on or off) — clamp, never negate.
@@ -284,7 +309,7 @@ export function integrateShip(
     regime,
   };
   for (let i = 0; i < steps; i++) {
-    s = integrateStep(s, clamped, h, regime, k, planet, cls, heightAt, maxVelocity, acceleration);
+    s = integrateStep(s, clamped, h, regime, k, planet, cls, heightAt, maxVelocity, acceleration, surfaceDisc);
   }
 
   // Soft speed cap (once per tick, independent of substepping): the excess
@@ -315,6 +340,7 @@ function integrateStep(
   heightAt: (x: number, z: number) => number,
   maxVelocity: number,
   acceleration: number,
+  surfaceDisc: SurfaceDisc | undefined,
 ): ShipState {
   // Rotation: angular velocity = demand × turnRate, applied about the
   // ship's local axes (yaw Y, pitch X, roll Z).
@@ -365,16 +391,33 @@ function integrateStep(
 
   const pos = vecAdd(s.pos, vecScale(vel, h));
 
-  // Ground collision (atmosphere regime only): clamp to terrain, kill
-  // downward velocity. Substepping above keeps travel ≤ 2 u per step, so
-  // the clamp can never skip over the surface (no tunneling).
-  if (regime !== 'space') {
-    // 'atmosphere' and 'surface' both clamp to terrain (a landed ship rests
-    // on it; VTOL lift in the 'surface' regime is what gets it back up).
+  // Ground handling:
+  // - 'atmosphere' / 'surface' always clamp to terrain (a landed ship rests
+  //   on it; VTOL lift in the 'surface' regime is what gets it back up).
+  // - a 'space' ship collides only INSIDE a landable airless planet's surface
+  //   disc (TASK-87: that surface is solid — no tunneling through the planet
+  //   body).
+  // Substepping above keeps travel ≤ 2 u per step, so the clamp can never
+  // skip over the surface (no tunneling). On the ground, a ship over an
+  // AIRLESS body (no atmosphere → no drag) is slowed by SURFACE_FRICTION —
+  // what brings a fast airless approach to rest, where the regime machine
+  // resolves 'surface'.
+  const inDisc =
+    surfaceDisc !== undefined &&
+    (pos.x - surfaceDisc.x) * (pos.x - surfaceDisc.x) +
+      (pos.z - surfaceDisc.z) * (pos.z - surfaceDisc.z) <=
+      surfaceDisc.radius * surfaceDisc.radius;
+  const grounded = regime !== 'space' || inDisc;
+  if (grounded) {
     const groundY = heightAt(pos.x, pos.z);
     if (pos.y <= groundY) {
       pos.y = groundY;
       if (vel.y < 0) vel.y = 0;
+      if (planet === undefined) {
+        const fr = Math.max(0, 1 - SURFACE_FRICTION * h);
+        vel.x *= fr;
+        vel.z *= fr;
+      }
     }
   }
 

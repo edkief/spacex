@@ -126,6 +126,7 @@ import { homeDockPosition } from '@shared/galaxy/dock';
 import {
   planetAtmosphereDensity,
   planetAtmosphereRadius,
+  surfaceDiscAt,
   systemRegimePlanets,
 } from '@shared/galaxy/planets';
 import { cruiseAllowedAt, regimeFor, type RegimePlanet } from '@shared/regime';
@@ -3903,7 +3904,9 @@ export class SystemShard implements Shard {
   /**
    * Resolve the flight-model context for an entity: its regime decides the
    * planet context (atmosphere density, O(1) chunk-cached terrain, pads).
-   * Space entities get no planet context at all.
+   * Space entities get no planet context — EXCEPT a space ship inside a
+   * landable airless planet's surface disc, which gets that planet's terrain
+   * (TASK-87: the airless surface is solid — ground collision + friction).
    */
   private resolveRegimeCtx(entity: SimEntity): { planet?: PlanetAtmo; options: FlightOptions } {
     // TASK-85: the cruise rule is the SHARED integrator's — the server tick
@@ -3916,7 +3919,25 @@ export class SystemShard implements Shard {
       planet: undefined as PlanetAtmo | undefined,
       options: { heightAt: () => 0, pads: [], cruiseAllowed },
     };
-    if (entity.ship.regime === 'space' || !entity.planetId) return empty;
+    if (entity.ship.regime === 'space') {
+      const disc = surfaceDiscAt(entity.ship.pos, this.regimePlanets);
+      if (!disc) return empty;
+      const planet = this.system.planets.find((p) => p.id === disc.planetId);
+      if (!planet) return empty;
+      const ctx = this.getTerrain(planet.id);
+      ctx.update(entity.ship.pos.x, entity.ship.pos.z);
+      return {
+        planet: undefined, // airless: no density / drag
+        options: {
+          heightAt: (x, z) =>
+            padSurfaceHeight(x, z, ctx.heightAt(x, z), this.planetPads.get(planet.id)),
+          pads: ctx.pads(),
+          surfaceDisc: disc,
+          cruiseAllowed,
+        },
+      };
+    }
+    if (!entity.planetId) return empty;
     const planet = this.system.planets.find((p) => p.id === entity.planetId);
     if (!planet) return empty;
     const ctx = this.getTerrain(planet.id);

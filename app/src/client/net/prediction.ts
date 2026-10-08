@@ -61,6 +61,7 @@ import {
   type Vec3,
 } from '@shared/physics/vec';
 import { cruiseAllowedAt, type RegimePlanet } from '@shared/regime';
+import { surfaceDiscAt } from '@shared/galaxy/planets';
 import type { ShipClass, ShipClassId } from '@shared/ships';
 
 /** Distance (u) below which a reconcile correction blends instead of rewinds. */
@@ -158,7 +159,15 @@ export interface ReconcileResult {
  */
 function optionsAt(ctx: PredictionContext, pos: Vec3): FlightOptions | undefined {
   if (!ctx.regimePlanets) return ctx.options;
-  return { ...ctx.options, cruiseAllowed: cruiseAllowedAt(pos, ctx.regimePlanets) };
+  // TASK-85 + TASK-87: resolve at the CURRENT predicted position, exactly
+  // like the server tick — cruise clearance and the airless surface disc
+  // (solid surface: ground collision + friction) engage/drop at the same
+  // place on client and server.
+  return {
+    ...ctx.options,
+    cruiseAllowed: cruiseAllowedAt(pos, ctx.regimePlanets),
+    surfaceDisc: surfaceDiscAt(pos, ctx.regimePlanets),
+  };
 }
 
 function cloneState(s: ShipState): ShipState {

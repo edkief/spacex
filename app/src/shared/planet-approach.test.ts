@@ -21,11 +21,12 @@ import { regimeFor, type Regime, type RegimePlanet } from './regime';
  * This drives the SAME two shared pieces the server tick uses (regimeFor then
  * integrateShip, in that order) over a FLAT-terrain landable planet, so it is
  * the deterministic contract both the server and the client predictor must
- * meet. NOTE (handoff 2026-10-08): with the current shared model these
- * approaches ALL land (see .ralph/handoff/TASK-87.md) — the owner-reported
- * tunnel-through was NOT reproduced through an atmospheric planet; the prime
- * remaining suspect is AIRLESS planets (atmosphereRadius 0 → the regime stays
- * 'space' forever and integrateShip applies no ground collision in space).
+ * meet. The ATMOSPHERIC approaches already land (drag slows the ship); the
+ * AIRLESS approaches are the owner-reported bug — pre-fix the regime stayed
+ * 'space' forever and the flight model applied no ground collision in space,
+ * so the ship tunneled through the planet body. The airless tests FAIL
+ * without the TASK-87 fix (regime surface disc + space ground collision +
+ * friction) and pass with it.
  */
 
 const DT = 0.05; // the server's fixed 20 Hz tick
@@ -134,5 +135,80 @@ describe('TASK-87 planet approach: space → surface, no tunnel-through', () => 
     const r = runApproach(ANCHOR_X + 1100, 0, 4, 2000);
     expect(r.sequence).toEqual(['space', 'atmosphere', 'surface']);
     expect(r.minAltitude).toBeGreaterThanOrEqual(-0.5);
+  });
+
+  describe('AIRLESS planet (atmosphereRadius 0) — the owner-reported tunnel', () => {
+    /** A flat-terrain landable AIRLESS planet at the canonical first anchor. */
+    const AIRLESS: RegimePlanet = {
+      id: 'planet-airless',
+      x: ANCHOR_X,
+      z: ANCHOR_Z,
+      atmosphereRadius: 0,
+      landable: true,
+      heightAt: () => 0,
+    };
+    const DISC = { x: ANCHOR_X, z: ANCHOR_Z, radius: 2_000, planetId: 'planet-airless' };
+
+    /**
+     * Drive the shared tick over the airless planet, wiring the solid-surface
+     * context exactly as the server's resolveRegimeCtx does: no atmosphere
+     * (density 0) and the surfaceDisc so the flight model's ground collision
+     * + friction engage.
+     */
+    function runAirlessApproach(startX: number, approachSpeed: number, ticks = 6000): ApproachResult {
+      const sequence: Regime[] = ['space'];
+      let regime: Regime = 'space';
+      let pos = { x: startX, y: 0, z: ANCHOR_Z };
+      let vel = { x: -approachSpeed, y: 0, z: 0 };
+      let quat = { x: 0, y: 0, z: 0, w: 1 };
+      let minAltitude = Infinity;
+      let speed = approachSpeed;
+
+      for (let i = 0; i < ticks; i++) {
+        const resolved = regimeFor(pos, [AIRLESS], regime, speed);
+        if (resolved.regime !== regime) {
+          regime = resolved.regime;
+          sequence.push(regime);
+        }
+        const next = integrateShip(
+          { pos, vel, quat, regime },
+          NO_INPUT,
+          DT,
+          regime,
+          undefined, // airless: no atmosphere / drag
+          'scout',
+          { heightAt: () => 0, surfaceDisc: DISC },
+        );
+        pos = next.pos;
+        vel = next.vel;
+        quat = next.quat;
+        speed = vecLength(vel);
+        const altitude = pos.y - AIRLESS.heightAt!(pos.x, pos.z);
+        if (altitude < minAltitude) minAltitude = altitude;
+        if (regime === 'surface' && speed <= 1e-6) break;
+      }
+      return { sequence, minAltitude, endRegime: regime, endSpeed: speed };
+    }
+
+    it('a straight 120 u/s approach lands (space → surface), never tunneling', () => {
+      // Starts 2 500 u out: 500 u of open space, then the solid 2 km disc.
+      const r = runAirlessApproach(ANCHOR_X + 2_500, 120);
+      expect(r.sequence).toEqual(['space', 'surface']);
+      expect(r.endRegime).toBe('surface');
+      expect(r.minAltitude).toBeGreaterThanOrEqual(-0.5);
+      expect(r.endSpeed).toBeLessThanOrEqual(VTOL_HORIZONAL_LIMIT + 1e-6);
+    });
+
+    it('a cruise-speed (480 u/s) approach lands, never tunneling', () => {
+      const r = runAirlessApproach(ANCHOR_X + 3_000, 480);
+      expect(r.sequence).toEqual(['space', 'surface']);
+      expect(r.minAltitude).toBeGreaterThanOrEqual(-0.5);
+      expect(r.endSpeed).toBeLessThanOrEqual(VTOL_HORIZONAL_LIMIT + 1e-6);
+    });
+
+    it('the ship stays on the ground once landed (friction stops it fully)', () => {
+      const r = runAirlessApproach(ANCHOR_X + 2_500, 120);
+      expect(r.endSpeed).toBeLessThanOrEqual(1e-6);
+    });
   });
 });
