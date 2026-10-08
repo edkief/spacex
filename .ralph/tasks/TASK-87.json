@@ -1,0 +1,52 @@
+{
+  "id": "TASK-87",
+  "title": "Planet approach: space→surface transition missing, ship flies through the planet",
+  "category": "functional",
+  "description": "BUG (owner-reported): in space, heading toward a planet, there is NO transition to the planet surface — the ship just goes THROUGH the planet. Expected behaviour: the shared regime machine (TASK-25, space → atmosphere → surface → atmosphere → space, exercised by src/server/shard/shard.regime.test.ts) resolves 'atmosphere' when the ship enters the planet's atmosphere band and 'surface' when it is on the ground, so an approach ends with the ship ON the surface (streamed terrain, per TASK-84). Repro: in the e2e browser, spawn in space, aim at the nearest planet (true-scale anchors, ~10 km apart, TASK-83/85) and hold W (and Shift cruise if needed) straight at it. Actual: the wire regime stays 'space' the whole way and the ship's position passes inside/through the planet body — no atmosphere entry, no landing, no surface view. Suspected areas (starting points, not conclusions — trace where the approach fails to trigger the regime machine before fixing): (a) the server regime transition logic in src/server/shard/shard.ts (the pad/dock + regime section ~line 2424-2560 and the regime sampling around ~line 334) vs the planet geometry it measures against (are the true-scale planet anchors / atmosphere radii the machine samples?); (b) the shared flight model (TASK-22) atmosphere entry/exit radii and the client predictor's copy — a mismatch means client and server disagree about when the ship is in atmosphere; (c) the client regime wiring in src/client/state/regime-wiring.ts and regime-planets data (is the client even told which planets have atmosphere bands?); (d) the true-scale planet bodies from TASK-83 (scaled-proxy islands + domes) — the visual planet may not be at the same anchor/radius the regime machine uses, so 'flying at the planet' on screen misses the sensor volume. Fix the actual root cause so an approach at a real planet ends ON its surface.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Reproduce and root-cause",
+      "details": "Reproduce with a scripted e2e approach (teleport via POST /api/dev/teleport near a planet anchor as in deep-space.spec.ts, hold W/Shift toward the planet, record the wire regime over time from entity_update and the ship position from window.__SELF_SHIP__). Pin down where the approach fails: does the server regime machine ever see the ship inside an atmosphere band? Are the planet anchors the machine samples the same anchors the renderer draws (TASK-83)? Do client and server use the same radii (TASK-22 shared model)? Write a failing unit test that encodes the contract: a ship flying a straight line from outside to a planet's surface at reasonable approach speed transitions space→atmosphere→surface and NEVER has a position inside the planet body (below the surface). Model it on the scripted-flight patterns in src/server/shard/shard.regime.test.ts. The test must FAIL before the fix.",
+      "pass": true
+    },
+    {
+      "step": 2,
+      "description": "Fix the transition path",
+      "details": "Implement the minimal fix at the identified root cause so that: (1) the wire regime reports 'atmosphere' while the ship is inside the planet's atmosphere band and 'surface' once it is on the ground, during a real approach; (2) the ship can never be in a state where its position is inside the planet body (no tunnel-through — if the fix requires clamping/stopping the approach at the surface band, that is acceptable and must be documented in the commit); (3) the client regime view (regime-wiring) matches the server so the atmosphere dome/crossfade (TASK-28.1) and the surface terrain mount (TASK-84) actually engage on approach. Keep the shared flight model (TASK-22) the single source of the regime rules — no client-only or server-only divergence.",
+      "pass": true
+    },
+    {
+      "step": 3,
+      "description": "E2E regression: approach a planet and land on it",
+      "details": "New spec tests/e2e/planet-approach.spec.ts (reuse fixtures + the teleport dev route from deep-space.spec.ts + the canvas helpers from helpers.ts): (a) spawn in space, teleport to a point outside the nearest planet's atmosphere, aimed at its centre; (b) hold W (Shift cruise where the HUD allows) and poll the wire regime: assert 'atmosphere' is observed, then 'surface', within the approach time budget; (c) assert the ship's wire position is never below the planet's surface (never inside the body) at any poll; (d) once 'surface' is reached, assert the streamed terrain is visible (bottom band of the canvas is ground-like, following the lower-half variance checks in terrain-live.spec.ts) and save .ralph/screenshots/TASK-87-1.png on the surface. Look at it: terrain under the ship, planet dome/sky above — NOT a starfield with a hole where the planet was.",
+      "pass": true
+    },
+    {
+      "step": 4,
+      "description": "Verify + commit",
+      "details": "cd app && npx tsc --noEmit; full npm run test (the regime and flight-model suites must stay green — TASK-25.1/25.2, TASK-22 fixtures); e2e: the new planet-approach.spec.ts plus atmosphere.spec.ts, atmosphere-view.spec.ts, terrain-live.spec.ts, deep-space.spec.ts, cruise.spec.ts, flight.spec.ts via npx playwright test --config playwright.e2e.config.ts <files>; eslint --fix + prettier --write on touched files. Commit fix(TASK-87): ...",
+      "pass": true
+    }
+  ],
+  "acceptanceCriteria": [
+    "A scripted space→planet approach observes the wire regime sequence space→atmosphere→surface; the unit test encodes this and fails before the fix, passes after",
+    "The ship's position is never inside a planet body during the approach (unit + e2e both assert no tunnel-through)",
+    "On reaching 'surface' in the browser, the streamed planet terrain is rendered (canvas ground check + screenshot TASK-87-1.png)",
+    "Client and server agree on the regime for the same trajectory (no divergence introduced; TASK-22 shared model stays the single source of truth)",
+    "npx tsc --noEmit green; full npm run test green; listed e2e specs green; one commit"
+  ],
+  "dependencies": [
+    "TASK-25.1",
+    "TASK-25.2",
+    "TASK-83",
+    "TASK-84"
+  ],
+  "estimatedComplexity": "medium",
+  "notes": [
+    "The regime machine exists and is unit-tested in ISOLATION (shard.regime.test.ts cycles space→atmosphere→surface→atmosphere→space with scripted velocities) — the bug is that a real approach never drives the machine into atmosphere/surface. Suspect the geometry/radii the machine samples vs the true-scale planet anchors (TASK-83), not the state machine itself.",
+    "TASK-85 added Shift cruise for the 10 km legs — an approach at cruise speed is a valid repro; if the fix involves the approach being too fast, the acceptance is 'no tunnel-through', and a server-side stop/clamp at the surface band is acceptable.",
+    "The file/line hints above were gathered at planning time; re-verify locations before editing.",
+    "Do NOT commit pre-existing dirty .ralph/screenshots/*.png mods."
+  ]
+}

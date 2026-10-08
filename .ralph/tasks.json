@@ -772,7 +772,7 @@
     "title": "Planet approach: space→surface transition missing, ship flies through the planet",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-87.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-88",
