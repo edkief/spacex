@@ -1,0 +1,266 @@
+import path from 'node:path';
+import type { Page } from '@playwright/test';
+import { expect, test } from './fixtures';
+import { collectErrors, uniqueCallsign } from './helpers';
+import { ClaimPage } from './pages/claim';
+
+/**
+ * TASK-86 — E2E: a docked ship takes off on its FIRST real flight input.
+ *
+ * The bug: a ship docked at a landing pad (wire regime 'docked',
+ * flightRegime 'surface') had its keys remapped to the CHARACTER scheme by
+ * the regime manager, so holding W produced a zero flight demand and the
+ * TASK-78 dock gate suppressed it as an idle frame — the server's
+ * "first input = take-off" (shard.ts) never fired and the ship stayed
+ * docked forever. The home-dock starter (flightRegime 'space') was
+ * unaffected (flight.spec.ts undocks from spawn).
+ *
+ * Flow (pad dock, the repro): claim → dev-teleport onto the seeded station
+ * pad (the docked-indicator.spec.ts flow) → DOCKED indicator → the ship is
+ * FROZEN while idle (TASK-78 wire invariant: the client sends nothing while
+ * docked, so the server integrates zero input on the settled ship) → hold W
+ * → within the budget the wire regime leaves 'docked' and the server
+ * position moves → the indicator clears. A second test repeats the W-undock
+ * from the HOME dock starter spawn (regime 'docked', NO padId).
+ *
+ * Observation: the browser's own inbound entity_updates (a WebSocket tap,
+ * the flight.spec.ts pattern) — the server-authoritative pos + regime
+ * every in-system peer receives.
+ */
+
+interface Vec3 {
+  x: number;
+  y: number;
+  z: number;
+}
+
+interface EntityState {
+  id: string;
+  kind: string;
+  pos: Vec3;
+  vel: Vec3;
+  regime: string;
+  padId?: string;
+  callsign?: string;
+}
+
+/** Tap the page WebSocket: every entity_update carrying OUR ship lands in
+ * `window.__shipUpdates` (wire pos + regime + padId). The client dials
+ * through the global constructor, so subclassing in an init script sees
+ * every frame without touching app code.
+ */
+function tapShipUpdates(callsign: string): void {
+  const w = window as unknown as {
+    __shipUpdates?: Array<{ pos: Vec3; regime: string; padId?: string }>;
+  };
+  w.__shipUpdates = [];
+  const Orig = window.WebSocket;
+  window.WebSocket = class extends Orig {
+    constructor(...args: ConstructorParameters<typeof Orig>) {
+      super(...args);
+      this.addEventListener('message', (ev: MessageEvent) => {
+        try {
+          const m = JSON.parse(String(ev.data)) as {
+            type?: string;
+            payload?: { entities?: EntityState[] };
+          };
+          if (m.type !== 'entity_update') return;
+          const e = (m.payload?.entities ?? []).find(
+            (t) => t.kind === 'ship' && t.callsign === callsign,
+          );
+          if (e) w.__shipUpdates?.push({ pos: e.pos, regime: e.regime, padId: e.padId });
+        } catch {
+          // never break the page's networking from a tap
+        }
+      });
+    }
+  };
+}
+
+/** The latest wire pos + regime for our ship (null before the first update). */
+async function latestShip(page: Page) {
+  return page.evaluate(() => {
+    const ups =
+      (window as unknown as { __shipUpdates?: Array<{ pos: Vec3; regime: string }> })
+        .__shipUpdates ?? [];
+    const last = ups[ups.length - 1];
+    return last ? { pos: last.pos, regime: last.regime } : null;
+  });
+}
+
+/** Distance (u) between two wire positions. */
+function dist(a: Vec3, b: Vec3): number {
+  return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+}
+
+/** Poll until the wire regime leaves 'docked' AND the ship moved > 5 u. */
+async function pollUndock(page: Page, from: Vec3): Promise<{ pos: Vec3; regime: string }> {
+  let last: { pos: Vec3; regime: string } = { pos: from, regime: 'docked' };
+  await expect
+    .poll(async () => {
+      const now = (await latestShip(page))!;
+      last = now;
+      return now.regime !== 'docked' && dist(now.pos, from) > 5;
+    }, { timeout: 5_000, message: 'wire regime never left docked (and moved) within 5 s of W' })
+    .toBe(true);
+  return last;
+}
+
+/** Claim + boot the app straight into `systemId` with the seeded session. */
+async function bootInSystem(
+  page: Page,
+  baseURL: string,
+  session: { token: string; playerId: string; callsign: string; homeSystemId: string },
+  systemId: string,
+): Promise<void> {
+  await page.goto(`${baseURL}/?sys=${systemId}`);
+  await page.evaluate((s) => localStorage.setItem('drift.session.v1', JSON.stringify(s)), session);
+  await page.reload();
+  const claimPage = new ClaimPage(page, baseURL);
+  await expect(claimPage.playerList).toContainText(`${session.callsign} (you)`);
+}
+
+test('pad dock: idle-frozen while docked, W takes the ship off the pad', async ({
+  browser,
+  e2eServer,
+}) => {
+  const { baseURL } = e2eServer;
+  test.setTimeout(90_000);
+  const callsign = uniqueCallsign('undk');
+  const context = await browser.newContext();
+  await context.addInitScript(tapShipUpdates, callsign);
+  const page = await context.newPage();
+  const { assertClean } = collectErrors(page);
+
+  const claim = await page.request.post(`${baseURL}/api/callsigns`, {
+    data: { callsign },
+  });
+  expect(claim.status()).toBe(201);
+  const session = (await claim.json()) as {
+    token: string;
+    playerId: string;
+    callsign: string;
+    homeSystemId: string;
+  };
+  const auth = { authorization: `Bearer ${session.token}` };
+  const target = (await (
+    await page.request.get(`${baseURL}/api/dev/pad-target`, { headers: auth })
+  ).json()) as { systemId: string; pad: Vec3 };
+
+  await bootInSystem(page, baseURL, session, target.systemId);
+  await expect(page.locator('#docked-indicator')).toBeHidden();
+
+  // Land the ship on the station pad: ground contact settles it → docked.
+  const tele = await page.request.post(`${baseURL}/api/dev/teleport`, {
+    headers: auth,
+    data: target.pad,
+  });
+  expect(tele.status()).toBe(200);
+  await expect(page.locator('#docked-indicator')).toBeVisible({ timeout: 15_000 });
+
+  // (b) Idle-frozen: no input → the settled ship stays put (TASK-78: the
+  // client sends NOTHING while docked, so the server integrates zero input
+  // on a ship at rest) — wire regime 'docked' and pos unchanged across the
+  // 2 s window, sampled every 100 ms.
+  const idleStart = (await latestShip(page))!;
+  expect(idleStart.regime).toBe('docked');
+  const idleT0 = Date.now();
+  while (Date.now() - idleT0 < 2_000) {
+    const now = (await latestShip(page))!;
+    expect(now.regime, 'regime stayed docked during the idle window').toBe('docked');
+    expect(dist(now.pos, idleStart.pos), 'ship frozen during the idle window').toBeLessThanOrEqual(
+      0.01,
+    );
+    await page.waitForTimeout(100);
+  }
+
+  // (c) FIRST real input (W held): within the budget the wire regime leaves
+  // 'docked' AND the server position moves off the pad (the ship slides
+  // clear of the pad's 25 m release radius on thrust).
+  const padPos = (await latestShip(page))!;
+  await page.keyboard.down('w');
+  const wDownAt = Date.now();
+  const afterW = await pollUndock(page, padPos.pos);
+  const takeoffMs = Date.now() - wDownAt;
+  expect(afterW.regime, 'wire regime left docked').not.toBe('docked');
+  expect(dist(afterW.pos, padPos.pos), 'server position moved off the pad').toBeGreaterThan(5);
+
+  // (d) The DOCKED indicator cleared (wire 'docked' ⇒ isDocked false).
+  await expect(page.locator('#docked-indicator')).toBeHidden();
+
+  // The visual artifact: mid-flight, off the pad, still holding W — the
+  // chase camera has the ship in view (the screenshot shows the ship IN THE
+  // AIR, not on the pad).
+  const probe = await page.evaluate(() => {
+    const p = window.__SELF_SHIP__?.probe() ?? null;
+    return p ? { pos: p.pos, x: p.screen?.x ?? null, y: p.screen?.y ?? null } : null;
+  });
+  expect(probe, 'self ship probe during flight').not.toBeNull();
+  expect(probe!.x, 'ship in view during flight (x)').not.toBeNull();
+  expect(probe!.y, 'ship in view during flight (y)').not.toBeNull();
+  await page.screenshot({
+    path: path.join(__dirname, '../../../.ralph/screenshots/TASK-86-1.png'),
+  });
+  await page.keyboard.up('w');
+
+  console.log(
+    `[TASK-86 pad] callsign=${callsign} pad=(${padPos.pos.x.toFixed(1)}, ${padPos.pos.y.toFixed(1)}, ${padPos.pos.z.toFixed(1)}) ` +
+      `moved=${dist(afterW.pos, padPos.pos).toFixed(1)} u takeoff=${takeoffMs} ms regime=${afterW.regime}`,
+  );
+  assertClean();
+  await context.close();
+});
+
+test('home dock: the starter scout takes off on W (regime docked, no padId)', async ({
+  browser,
+  e2eServer,
+}) => {
+  const { baseURL } = e2eServer;
+  test.setTimeout(90_000);
+  const callsign = uniqueCallsign('undkh');
+  const context = await browser.newContext();
+  await context.addInitScript(tapShipUpdates, callsign);
+  const page = await context.newPage();
+  const { assertClean } = collectErrors(page);
+
+  const claim = await page.request.post(`${baseURL}/api/callsigns`, {
+    data: { callsign },
+  });
+  expect(claim.status()).toBe(201);
+  const session = (await claim.json()) as {
+    token: string;
+    playerId: string;
+    callsign: string;
+    homeSystemId: string;
+  };
+
+  // Fresh claim: the starter scout spawns docked at the HOME dock (no pad).
+  await page.goto(baseURL);
+  await page.evaluate((s) => localStorage.setItem('drift.session.v1', JSON.stringify(s)), session);
+  await page.goto(baseURL);
+  await expect
+    .poll(() => page.evaluate(() => !!window.__SELF_SHIP__?.probe()?.screen), {
+      timeout: 20_000,
+      message: 'chase camera never acquired the self ship',
+    })
+    .toBe(true);
+
+  const spawn = (await latestShip(page))!;
+  expect(spawn.regime, 'starter ship is wire-docked at spawn').toBe('docked');
+
+  // W: the first real flight input takes the (space-docked) ship off.
+  await page.keyboard.down('w');
+  const wDownAt = Date.now();
+  const afterW = await pollUndock(page, spawn.pos);
+  const takeoffMs = Date.now() - wDownAt;
+  expect(afterW.regime, 'wire regime left docked').not.toBe('docked');
+  expect(dist(afterW.pos, spawn.pos), 'server position moved').toBeGreaterThan(5);
+  await page.keyboard.up('w');
+
+  console.log(
+    `[TASK-86 home] callsign=${callsign} spawn=(${spawn.pos.x.toFixed(1)}, ${spawn.pos.y.toFixed(1)}, ${spawn.pos.z.toFixed(1)}) ` +
+      `moved=${dist(afterW.pos, spawn.pos).toFixed(1)} u takeoff=${takeoffMs} ms regime=${afterW.regime}`,
+  );
+  assertClean();
+  await context.close();
+});

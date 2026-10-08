@@ -96,6 +96,38 @@ export const CONTROL_SCHEMES: Record<Regime, ControlScheme> = {
   },
 };
 
+/**
+ * Map the pressed keys to a flight input using an EXPLICIT scheme (pure —
+ * `ControlsRemapper.readInput` delegates here with the active scheme; the
+ * flight loop calls it directly with a docked ship's flight scheme,
+ * TASK-86). Surface schemes read as the canonical zero flight frame.
+ *
+ * Sign translation (TASK-80, the ONE place the on-screen key pairs meet
+ * the physics convention): the flight model is right-handed with +Y up
+ * and +Z forward, where positive yaw turns the nose toward local +X —
+ * screen LEFT for the chase camera, and positive roll is clockwise seen
+ * from behind — roll RIGHT. The scheme pairs are documented ON SCREEN
+ * ([right, left] / [left, right]), so yaw and roll demands are negated
+ * here; pitch (R down / F up) already matches and is left alone.
+ * `integrateShip`, the server AI and the wire mapping all keep the raw
+ * physics convention untouched.
+ */
+export function readSchemeInput(scheme: ControlScheme, pressed: ReadonlySet<Key>): ShipInput {
+  const axis = (pair: [Key, Key] | null): number =>
+    pair ? (pressed.has(pair[0]) ? 1 : 0) - (pressed.has(pair[1]) ? 1 : 0) : 0;
+  // Negate without producing −0 (Object.is/toEqual distinguish −0 from +0
+  // — the idle frame must stay the canonical zero frame).
+  const flip = (v: number): number => (v === 0 ? 0 : -v);
+  return {
+    thrust: axis(scheme.thrust),
+    yaw: flip(axis(scheme.yaw)),
+    pitch: axis(scheme.pitch),
+    roll: flip(axis(scheme.roll)),
+    up: scheme.vtol && pressed.has(scheme.vtol) ? 1 : 0,
+    boost: scheme.boost && pressed.has(scheme.boost) ? 1 : 0,
+  };
+}
+
 /** Character-mode readout (the TASK-31 stub — behavior lands there). */
 export interface CharacterInput {
   forward: boolean;
@@ -155,32 +187,9 @@ export class ControlsRemapper {
    * Map the currently pressed keys to this tick's flight input (the active
    * scheme's key map; surface returns a zero frame — walking is
    * CharacterInput, TASK-31).
-   *
-   * Sign translation (TASK-80, the ONE place the on-screen key pairs meet
-   * the physics convention): the flight model is right-handed with +Y up
-   * and +Z forward, where positive yaw turns the nose toward local +X —
-   * screen LEFT for the chase camera, and positive roll is clockwise seen
-   * from behind — roll RIGHT. The scheme pairs are documented ON SCREEN
-   * ([right, left] / [left, right]), so yaw and roll demands are negated
-   * here; pitch (R down / F up) already matches and is left alone.
-   * `integrateShip`, the server AI and the wire mapping all keep the raw
-   * physics convention untouched.
    */
   readInput(pressed: ReadonlySet<Key>): ShipInput {
-    const s = this.active;
-    const axis = (pair: [Key, Key] | null): number =>
-      pair ? (pressed.has(pair[0]) ? 1 : 0) - (pressed.has(pair[1]) ? 1 : 0) : 0;
-    // Negate without producing −0 (Object.is/toEqual distinguish −0 from +0
-    // — the idle frame must stay the canonical zero frame).
-    const flip = (v: number): number => (v === 0 ? 0 : -v);
-    return {
-      thrust: axis(s.thrust),
-      yaw: flip(axis(s.yaw)),
-      pitch: axis(s.pitch),
-      roll: flip(axis(s.roll)),
-      up: s.vtol && pressed.has(s.vtol) ? 1 : 0,
-      boost: s.boost && pressed.has(s.boost) ? 1 : 0,
-    };
+    return readSchemeInput(this.active, pressed);
   }
 
   /** Character-mode readout (surface scheme only; stub until TASK-31). */

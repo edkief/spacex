@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
+import type { ShipInput } from '@shared/physics/flight';
+import type { Regime } from '@shared/regime';
+
+import { CONTROL_SCHEMES, readSchemeInput } from './controls';
 import {
   INPUT_SEND_PERIOD_MS,
   InputFrameSender,
+  anyFlightDemand,
+  dockedFlightScheme,
   effectiveFlightPressed,
   shipInputKey,
 } from './flight-loop';
@@ -95,6 +101,114 @@ describe('shipInputKey (TASK-73)', () => {
     expect(shipInputKey({ thrust: 0, yaw: 0, pitch: 0, roll: 0, up: 1 })).not.toBe(zero);
     expect(shipInputKey({ thrust: 1, yaw: 0, pitch: 0, roll: 0, up: 1 })).not.toBe(
       shipInputKey({ thrust: 1, yaw: 0, pitch: 0, roll: 0, up: 0 }),
+    );
+  });
+});
+
+/**
+ * TASK-86: the flight loop's per-frame decision for the SELF ship, as the
+ * loop composes it (main.tsx flight body): read the pressed keys through
+ * the scheme the loop uses for this frame (a FLIGHT scheme while
+ * wire-docked — TASK-86 — else the remapper's active scheme), apply the
+ * TASK-78 dock gate (while wire-docked only a NON-ZERO demand may send —
+ * an idle frame would be the server's "first input" and launch the frozen
+ * ship), and stamp the shared monotonic seq on whatever goes out.
+ */
+function loopFrame(
+  sender: InputFrameSender,
+  nowMs: number,
+  pressed: string[],
+  opts: { docked: boolean; activeRegime: Regime },
+): { seq: number | null; input: ShipInput } {
+  const scheme = opts.docked
+    ? dockedFlightScheme(opts.activeRegime)
+    : CONTROL_SCHEMES[opts.activeRegime];
+  const input = readSchemeInput(scheme, new Set(pressed));
+  const nonzero = anyFlightDemand(input);
+  const seq = !opts.docked || nonzero ? sender.shouldSend(nowMs, shipInputKey(input)) : null;
+  return { seq, input };
+}
+
+describe('docked undock contract (TASK-86)', () => {
+  it('a pad-docked ship (wire-docked, regime surface) takes off on its first W', () => {
+    const s = new InputFrameSender();
+    // Idle while docked: zero demand → the frame is suppressed (TASK-78).
+    const idle = loopFrame(s, 0, [], { docked: true, activeRegime: 'surface' });
+    expect(idle.seq).toBeNull();
+    // The FIRST real flight input (W held): the loop must send a frame with
+    // a fresh seq — the server clears entity.docked on its first input.
+    // RED pre-fix: the surface (character) scheme read W as a walk, every
+    // flight channel stayed 0, and the dock gate suppressed the frame —
+    // the ship could never take off.
+    const first = loopFrame(s, INPUT_SEND_PERIOD_MS, ['w'], {
+      docked: true,
+      activeRegime: 'surface',
+    });
+    expect(first.input.thrust).toBe(1);
+    expect(first.seq).toBe(1);
+  });
+
+  it('a home-dock ship (wire-docked, regime space) still undocks on W', () => {
+    const s = new InputFrameSender();
+    const first = loopFrame(s, INPUT_SEND_PERIOD_MS, ['w'], {
+      docked: true,
+      activeRegime: 'space',
+    });
+    expect(first.input.thrust).toBe(1);
+    expect(first.seq).toBe(1);
+  });
+
+  it('TASK-78 invariant: a zero-demand frame while wire-docked sends NOTHING', () => {
+    const s = new InputFrameSender();
+    for (let i = 0; i < 10; i++) {
+      // 10 consecutive idle frames at 20 Hz (past the cadence boundary the
+      // sender would re-send a held frame): while docked, none may go out.
+      const f = loopFrame(s, i * INPUT_SEND_PERIOD_MS, [], {
+        docked: true,
+        activeRegime: 'surface',
+      });
+      expect(f.seq).toBeNull();
+    }
+    expect(s.seq).toBe(0); // the counter never moved
+    // The same idle frames with the wire UN-docked DO send (normal coast
+    // frames keep the server's held-frame fresh).
+    const coast = loopFrame(s, 10 * INPUT_SEND_PERIOD_MS, [], {
+      docked: false,
+      activeRegime: 'space',
+    });
+    expect(coast.seq).toBe(1);
+  });
+
+  it('after the undock frame the seq continues with no gap and no repeat', () => {
+    const s = new InputFrameSender();
+    const w = loopFrame(s, 0, ['w'], { docked: true, activeRegime: 'surface' });
+    expect(w.seq).toBe(1);
+    // The wire flips: the next frame (still holding W, now undocked) must
+    // be a fresh, higher seq — the shared counter carries over.
+    const next = loopFrame(s, INPUT_SEND_PERIOD_MS, ['w'], {
+      docked: false,
+      activeRegime: 'atmosphere',
+    });
+    expect(next.seq).toBe(2);
+    // Releasing W while undocked sends the coast frame (key change).
+    const release = loopFrame(s, INPUT_SEND_PERIOD_MS * 2, [], {
+      docked: false,
+      activeRegime: 'atmosphere',
+    });
+    expect(release.seq).toBe(3);
+    expect(s.seq).toBe(3);
+  });
+
+  it('dockedFlightScheme maps surface→atmosphere, others to themselves', () => {
+    expect(dockedFlightScheme('surface')).toBe(CONTROL_SCHEMES.atmosphere);
+    expect(dockedFlightScheme('space')).toBe(CONTROL_SCHEMES.space);
+    expect(dockedFlightScheme('atmosphere')).toBe(CONTROL_SCHEMES.atmosphere);
+    // The atmosphere scheme carries the VTOL lift key — the pad take-off
+    // the server answers with its first-input rule.
+    expect(dockedFlightScheme('surface').vtol).toBe(' ');
+    // And W reads as a real thrust demand through it (the pre-fix zero).
+    expect(anyFlightDemand(readSchemeInput(dockedFlightScheme('surface'), new Set(['w'])))).toBe(
+      true,
     );
   });
 });

@@ -16,6 +16,9 @@
  */
 
 import type { ShipInput } from '@shared/physics/flight';
+import type { Regime } from '@shared/regime';
+
+import { CONTROL_SCHEMES, type ControlScheme } from './controls';
 
 /** Send cadence (ms): 20 Hz while a held frame stays unchanged. */
 export const INPUT_SEND_PERIOD_MS = 50;
@@ -53,6 +56,31 @@ export function shipInputKey(input: ShipInput): string {
   return `${input.thrust}|${input.yaw}|${input.pitch}|${input.roll}|${input.up}|${
     input.boost ?? 0
   }`;
+}
+
+/** True when the frame carries any real control demand (not the idle frame). */
+export function anyFlightDemand(input: ShipInput): boolean {
+  return (
+    input.thrust !== 0 ||
+    input.yaw !== 0 ||
+    input.pitch !== 0 ||
+    input.roll !== 0 ||
+    input.up !== 0 ||
+    (input.boost ?? 0) !== 0
+  );
+}
+
+/**
+ * TASK-86: the FLIGHT scheme a wire-docked ship's demand must be read
+ * through. A pad-docked ship carries the server flightRegime 'surface',
+ * which remaps the keys to the CHARACTER scheme (W = walk) — zero flight
+ * demand — so the dock gate (TASK-78) suppressed the very frame the
+ * server's "first input = take-off" contract needs. 'surface' maps to the
+ * atmosphere scheme (full flight + VTOL lift off the pad); space/atmosphere
+ * map to themselves.
+ */
+export function dockedFlightScheme(regime: Regime): ControlScheme {
+  return CONTROL_SCHEMES[regime === 'surface' ? 'atmosphere' : regime];
 }
 
 const EMPTY_PRESSED: ReadonlySet<string> = new Set();

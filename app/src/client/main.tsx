@@ -153,7 +153,14 @@ import type {
   WireEntityState,
 } from '@shared/protocol/schemas';
 import { inputToCharacterInput, shipInputToPayload } from '@shared/protocol/inputs';
-import { InputFrameSender, effectiveFlightPressed, shipInputKey } from '@client/input/flight-loop';
+import { readSchemeInput } from '@client/input/controls';
+import {
+  InputFrameSender,
+  anyFlightDemand,
+  dockedFlightScheme,
+  effectiveFlightPressed,
+  shipInputKey,
+} from '@client/input/flight-loop';
 import { ClientShipPredictor, shipStateFromWire } from '@client/net/prediction';
 import { CorrectionSmoother } from '@client/net/correction-smoother';
 import type { ShipClassId } from '@shared/ships';
@@ -1637,6 +1644,12 @@ function App() {
   // dock (regime 'docked', NO padId) — there the pad predicate is false and
   // idle frames leaked, undocking the server ship and exposing it to rogue
   // AI. wireDockedIndicator() is true for ANY regime 'docked' entity.
+  // TASK-86: while wire-docked the demand is read through a FLIGHT scheme
+  // (dockedFlightScheme), not the remapper's active scheme — a pad-docked
+  // ship's flightRegime is 'surface', which remaps the keys to the
+  // CHARACTER scheme (W = walk), so the active scheme read W as a zero
+  // flight demand and the gate above suppressed the very first input the
+  // server's take-off contract needs (the ship stayed docked forever).
   React.useEffect(() => {
     const body = (nowMs: number, dtSec: number): void => {
       const p = shipPredictorRef.current;
@@ -1650,18 +1663,17 @@ function App() {
       });
       // TASK-55: sensitivity scales the flight LOOK channels (yaw/pitch/
       // roll) — read LIVE off the store each frame (next input frame),
-      // thrust / VTOL untouched.
+      // thrust / VTOL untouched. While wire-docked the keys are read
+      // through a FLIGHT scheme (TASK-86): the active scheme is the
+      // character (walking) scheme for a pad-docked ship, which maps W to
+      // zero flight demand and the gate below would swallow the take-off.
       const input = scaleLookDemand(
-        regimeWiring.remapper.readInput(pressed),
+        docked
+          ? readSchemeInput(dockedFlightScheme(regimeWiring.regime), pressed)
+          : regimeWiring.remapper.readInput(pressed),
         settingsState().sensitivity,
       );
-      const nonzero =
-        input.thrust !== 0 ||
-        input.yaw !== 0 ||
-        input.pitch !== 0 ||
-        input.roll !== 0 ||
-        input.up !== 0 ||
-        (input.boost ?? 0) !== 0;
+      const nonzero = anyFlightDemand(input);
       // TASK-85: the HUD cruise tag — demand held (Shift in the space
       // scheme) + clearance at the PREDICTED position (shared rule).
       setCruiseState({
