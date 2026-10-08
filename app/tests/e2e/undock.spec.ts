@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import { collectErrors, uniqueCallsign } from './helpers';
 import { ClaimPage } from './pages/claim';
+import { RawWsClient } from './raw-ws';
 
 /**
  * TASK-86 — E2E: a docked ship takes off on its FIRST real flight input.
@@ -15,18 +16,30 @@ import { ClaimPage } from './pages/claim';
  * docked forever. The home-dock starter (flightRegime 'space') was
  * unaffected (flight.spec.ts undocks from spawn).
  *
- * Flow (pad dock, the repro): claim → dev-teleport onto the seeded station
- * pad (the docked-indicator.spec.ts flow) → DOCKED indicator → the ship is
- * FROZEN while idle (TASK-78 wire invariant: the client sends nothing while
- * docked, so the server integrates zero input on the settled ship) → hold W
- * → within the budget the wire regime leaves 'docked' and the server
- * position moves → the indicator clears. A second test repeats the W-undock
- * from the HOME dock starter spawn (regime 'docked', NO padId).
+ * Flow (pad dock, the repro): claim → join home over raw WS + warp to the
+ * pad's system (the disembark.spec.ts setup: warp is the ONLY path that
+ * persists position.systemId onto the ship row, and /api/dev/teleport
+ * resolves the shard by that row — a browser boot straight into ?sys=
+ * leaves the row on home, whose shard is not active → 409) → dev-teleport
+ * onto the seeded station pad → DOCKED indicator → the ship is FROZEN while
+ * idle (TASK-78 wire invariant: the client sends nothing while docked, so
+ * the server integrates zero input on the settled ship) → hold W → within
+ * the budget the wire regime leaves 'docked' and the server position moves
+ * → the indicator clears. A second test repeats the W-undock from the HOME
+ * dock starter spawn (regime 'docked', NO padId).
  *
  * Observation: the browser's own inbound entity_updates (a WebSocket tap,
  * the flight.spec.ts pattern) — the server-authoritative pos + regime
  * every in-system peer receives.
  */
+
+const PROTOCOL_VERSION = 1; // mirrors @shared/protocol (Playwright does not resolve tsconfig aliases)
+
+interface PadTarget {
+  systemId: string;
+  padId: string;
+  pad: Vec3;
+}
 
 interface Vec3 {
   x: number;
@@ -106,6 +119,68 @@ async function pollUndock(page: Page, from: Vec3): Promise<{ pos: Vec3; regime: 
   return last;
 }
 
+/**
+ * Claim-side pad docking (disembark.spec.ts setup): join the home system
+ * over raw WS, warp to the pad's system if needed (warp writes the row's
+ * position.systemId, so the dev teleport can resolve an active shard),
+ * teleport onto the pad, and wait for the SERVER-authoritative docked
+ * regime + padId before closing the raw client (the ship idles at the pad,
+ * state kept, while the browser takes over).
+ */
+async function dockAtPad(
+  page: Page,
+  baseURL: string,
+  apiPort: number,
+  session: { token: string; callsign: string; homeSystemId: string },
+): Promise<PadTarget> {
+  const auth = { authorization: `Bearer ${session.token}` };
+  const target = (await (
+    await page.request.get(`${baseURL}/api/dev/pad-target`, { headers: auth })
+  ).json()) as PadTarget;
+
+  const client = new RawWsClient(`ws://127.0.0.1:${apiPort}/ws`);
+  await client.open();
+  const send = (type: string, payload: unknown): void =>
+    client.send({ v: PROTOCOL_VERSION, type, payload });
+  send('hello', { v: PROTOCOL_VERSION });
+  send('auth', { token: session.token });
+  send('join_system', { systemId: session.homeSystemId });
+  await client.next((m) => m.type === 'enter_system', 'enter_system (home)');
+  if (target.systemId !== session.homeSystemId) {
+    send('warp', { destinationSystemId: target.systemId });
+    const arrived = await client.next(
+      (m) => m.type === 'warp_arrived',
+      'warp_arrived (pad system)',
+      10_000,
+    );
+    expect((arrived.payload as { systemId: string }).systemId).toBe(target.systemId);
+  }
+
+  // Teleport 5 m ABOVE the pad center: ground contact settles the ship
+  // (vel.y → 0, altitude 0, surface regime) → the pad machine docks it.
+  const tele = await page.request.post(`${baseURL}/api/dev/teleport`, {
+    headers: auth,
+    data: { x: target.pad.x, y: target.pad.y + 5, z: target.pad.z },
+  });
+  expect(tele.status()).toBe(200);
+
+  await client.next(
+    (m) =>
+      m.type === 'entity_update' &&
+      ((m.payload as { entities?: EntityState[] }).entities ?? []).some(
+        (e) =>
+          e.kind === 'ship' &&
+          e.callsign === session.callsign &&
+          e.regime === 'docked' &&
+          e.padId === target.padId,
+      ),
+    `docked entity_update for ${session.callsign}`,
+    15_000,
+  );
+  client.close();
+  return target;
+}
+
 /** Claim + boot the app straight into `systemId` with the seeded session. */
 async function bootInSystem(
   page: Page,
@@ -124,7 +199,7 @@ test('pad dock: idle-frozen while docked, W takes the ship off the pad', async (
   browser,
   e2eServer,
 }) => {
-  const { baseURL } = e2eServer;
+  const { baseURL, apiPort } = e2eServer;
   test.setTimeout(90_000);
   const callsign = uniqueCallsign('undk');
   const context = await browser.newContext();
@@ -142,20 +217,12 @@ test('pad dock: idle-frozen while docked, W takes the ship off the pad', async (
     callsign: string;
     homeSystemId: string;
   };
-  const auth = { authorization: `Bearer ${session.token}` };
-  const target = (await (
-    await page.request.get(`${baseURL}/api/dev/pad-target`, { headers: auth })
-  ).json()) as { systemId: string; pad: Vec3 };
+
+  // Dock the ship on the station pad BEFORE the browser boots (the raw-WS
+  // setup that keeps the dev teleport's row→shard resolution valid).
+  const target = await dockAtPad(page, baseURL, apiPort, session);
 
   await bootInSystem(page, baseURL, session, target.systemId);
-  await expect(page.locator('#docked-indicator')).toBeHidden();
-
-  // Land the ship on the station pad: ground contact settles it → docked.
-  const tele = await page.request.post(`${baseURL}/api/dev/teleport`, {
-    headers: auth,
-    data: target.pad,
-  });
-  expect(tele.status()).toBe(200);
   await expect(page.locator('#docked-indicator')).toBeVisible({ timeout: 15_000 });
 
   // (b) Idle-frozen: no input → the settled ship stays put (TASK-78: the

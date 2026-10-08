@@ -1,108 +1,134 @@
 # TASK-86 handoff — Undock fix: a docked ship has no way to take off
 
 ## Status
-Root cause found and fixed (client-only, 3 files); the new unit tests pass green and the new
-e2e spec's HOME-DOCK test passes. The PAD-DOCK e2e test is blocked by a pre-existing 409 from
-`/api/dev/teleport` that ALSO breaks the existing `docked-indicator.spec.ts` (unrelated to this
-fix — it is server-side REST, not the input path). Remaining: resolve that 409, run the full
-verification matrix, and close out (flags + LOG + commit).
+Client root cause fixed (committed `e252fc1`) + the e2e 409 root-caused and fixed
+(this iteration, uncommitted). Remaining: ONE open design decision (DECIDE
+emitted) — v1 physics cannot lift a ship off a pad by player input
+(`VTOL_LIFT = GRAVITY` = neutral buoyancy). Home-dock takeoff is fully green.
+After the decision: land the chosen option, run the full verification matrix,
+close out (flags + LOG + commit, delete this handoff).
 
 ## Done
-- **Root cause (step 1, confirmed by reading + a red unit test):** a PAD-docked ship carries
-  wire regime `docked` AND `flightRegime: 'surface'`. The client regime tracker
-  (`RegimeTracker.updateLocal`, surface is server-authoritative) snaps the active regime to
-  `surface`, which remaps keys to the **character** scheme (`CONTROL_SCHEMES.surface` has
-  `thrust: null, yaw: null, ...`). So `remapper.readInput(W)` returns a **zero** flight demand,
-  `nonzero` is false, and the TASK-78 dock gate in `main.tsx`
-  (`const seq = !docked || nonzero ? ... : null`) suppresses the frame. The server's
-  "first input = take-off" (`shard.ts:1888`) never fires → ship stays docked forever.
-  The HOME dock has `flightRegime: 'space'` (space scheme → W reads thrust +1), which is why
-  `flight.spec.ts` undocks fine from spawn. Pre-fix the unit test measured thrust `+0` (RED).
-- **Fix (step 2, client-only, does NOT touch the docked-state plumbing per spec):**
-  - `src/client/input/controls.ts`: extracted the scheme→demand math into a new PURE export
-    `readSchemeInput(scheme, pressed)`; `ControlsRemapper.readInput` now delegates to it
-    (byte-identical behavior for the active scheme).
-  - `src/client/input/flight-loop.ts`: added `anyFlightDemand(input)` (the old inline
-    `nonzero` predicate) and `dockedFlightScheme(regime)` which maps
-    `surface → CONTROL_SCHEMES.atmosphere` (full flight + VTOL lift) and passes
-    space/atmosphere through unchanged.
-  - `src/client/main.tsx` flight body (~line 1654): while `wireDockedIndicator()` is true the
-    demand is read through `readSchemeInput(dockedFlightScheme(regimeWiring.regime), pressed)`
-    instead of `regimeWiring.remapper.readInput(pressed)`; `nonzero` now calls
-    `anyFlightDemand(input)`. Idle frames while docked are STILL suppressed (TASK-78 invariant
-    preserved) — only a real (non-zero) demand gets a seq and is sent.
-- **Unit tests (step 1, all green):** 5 new cases in `src/client/input/flight-loop.test.ts`
-  under `describe('docked undock contract (TASK-86)')`: pad-docked W → seq 1 (RED pre-fix);
-  home-docked W → seq 1; TASK-78 invariant (10 idle frames @20Hz while docked → nothing sent,
-  seq stays 0, then un-docked idle DOES send); seq continuity across the dock→undock flip
-  (1,2,3, no gap/repeat); `dockedFlightScheme` mapping + VTOL key present.
-- **E2E spec (step 3):** new `tests/e2e/undock.spec.ts`, 2 tests (both claim fresh + tap the
-  browser's own inbound entity_updates via a WebSocket init-script subclass):
-  (1) pad dock — boot in pad system, dev-teleport onto pad, DOCKED indicator visible, idle
-  frozen for 2 s (regime stays docked + pos unchanged), hold W → wire regime leaves docked
-  AND pos moves >5 u within 5 s, indicator clears, `__SELF_SHIP__.probe()` in view, screenshot
-  `.ralph/screenshots/TASK-86-1.png`; (2) home dock — starter spawns docked (regime 'docked',
-  no padId), hold W → undocks + moves >5 u.
-- **Verified this session:** `npx tsc --noEmit` clean (background run finished TSC_DONE, no
-  errors); `npx vitest run src/client/input/` 43 passed; e2e `undock.spec.ts` — HOME-DOCK
-  test PASSED, PAD-DOCK test failed at `expect(tele.status()).toBe(200)` → got **409**.
+- **Root cause (step 1, confirmed by reading + a red unit test):** a PAD-docked
+  ship carries wire regime `docked` AND `flightRegime: 'surface'`. The client
+  regime tracker snapped the active regime to `surface`, which remaps keys to
+  the CHARACTER scheme (`thrust: null`), so W read as a zero flight demand and
+  the TASK-78 dock gate suppressed the frame — the server's "first input =
+  take-off" never fired. Fixed client-side (3 files, committed `e252fc1`):
+  `readSchemeInput` extracted in `controls.ts`; `anyFlightDemand` +
+  `dockedFlightScheme` in `flight-loop.ts`; `main.tsx` reads demand through
+  `dockedFlightScheme` ONLY while `wireDockedIndicator()`. 5 unit tests green
+  in `flight-loop.test.ts` (`docked undock contract (TASK-86)`).
+- **E2E 409 root-caused + fixed (this iteration):** `/api/dev/teleport`
+  resolves the shard by the ship ROW's `position.systemId`
+  (`dev.ts:231` `router.active(ship.position.systemId)`). A browser boot
+  straight into `?sys=<padSystem>` joins the pad shard via `enter()` →
+  `adoptEntity`, which does NOT persist `position.systemId` — only `warp`
+  writes it (`router.ts` warp: "the ship row is written to the target first").
+  So the row pointed at home, whose shard was not active → 409
+  `not-in-system`. Fix = the disembark.spec.ts pattern: raw-WS join home →
+  warp to the pad system → teleport. Applied in BOTH specs:
+  - `app/tests/e2e/undock.spec.ts` — new `dockAtPad()` helper (raw WS
+    join-home + warp + teleport + server-authoritative docked poll), pad test
+    docks BEFORE the browser boots.
+  - `app/tests/e2e/docked-indicator.spec.ts` — SAME fix; it was RED with the
+    identical 409 (pre-existing, unrelated to the input fix — confirmed by
+    root cause). NOW GREEN (6.8 s).
+- **Verified (this iteration):** `undock.spec.ts` HOME-DOCK test GREEN
+  (6.5 s: spawn docked → W → undock + move >5 u); `docked-indicator.spec.ts`
+  GREEN. Pad-dock test now gets PAST the 409 (teleport 200, docked indicator
+  visible, idle-frozen 2 s passes) and fails at the takeoff assertion — see
+  DECIDE below.
+
+## THE DECIDE (emitted, answer pending)
+**The v1 flight model cannot climb off the ground.** `flight.ts`:
+`VTOL_LIFT = GRAVITY` (doc: "full VTOL demand makes the ship neutrally
+buoyant, so hover converges to vel.y = 0"); `integrateStep`'s
+atmosphere/surface branch has NO thrust channel (thrust is space-only,
+line 330) — only drag + gravity + VTOL lift. A pad-docked ship: first input
+clears `entity.docked` (verified via diagnostic: the client frame now reaches
+the server — the TASK-86 client bug IS fixed), but the ship can't generate
+`|vel.y| ≥ 1` (`ONPAD_VERTICAL_THRESHOLD`), so `integrateShip`'s `onPad`
+stays set AND the pad machine re-docks (`wasDocked` branch: on disc,
+surface, slow) — wire regime `docked || onPad || padId` (shard.ts:4233) stays
+'docked' forever. `shard.pads.test.ts` documents it: "the v1 atmosphere model
+cannot climb on VTOL alone (VTOL exactly cancels gravity), so the climb is a
+scripted state — vel.y = 5 u/s injected". Options on the table:
+- (A) VTOL climb margin in shared physics (`VTOL_LIFT = 1.35 × GRAVITY`
+  or similar): full VTOL climbs → real takeoff; ripples: flight.test.ts
+  hover-convergence test, pads-test scripted-takeoff comment, flight feel
+  (Space = throttle-up climb, no hover).
+- (B) physics untouched: close TASK-86 on the client fix; pad e2e proves the
+  first real input frame reaches the server (the actual defect); home-dock
+  e2e proves full takeoff; pad re-dock documented as v1 behavior.
 
 ## Working tree
-UNCOMMITTED (all mine, ready to commit together with this handoff):
-- `app/src/client/input/controls.ts` (M)
-- `app/src/client/input/flight-loop.ts` (M)
-- `app/src/client/input/flight-loop.test.ts` (M)
-- `app/src/client/main.tsx` (M)
-- `app/tests/e2e/undock.spec.ts` (new, ??)
+UNCOMMITTED (ready to commit together with this handoff):
+- `app/tests/e2e/undock.spec.ts` (M — dockAtPad 409 fix)
+- `app/tests/e2e/docked-indicator.spec.ts` (M — same 409 fix, now green)
 - `.ralph/handoff/TASK-86.md` (this file)
 
 NOT mine — leave alone (pre-existing dirty): `.gitignore`, `.ralph/tasks.json`,
-`ralph.config.json`, `?? .gitattributes`, `?? .ralph/ESCALATION.md`, `?? .ralph/logs/t761/`,
-`?? .ralph/logs/t83/`, `?? .ralph/tasks/TASK-86.json`, `?? .ralph/tasks/TASK-87.json`,
-`?? .ralph/tasks/TASK-88.json`, and all `M .ralph/screenshots/*.png` (do NOT commit the dirty
-screenshots per the task note). Build is green (tsc clean, units green). Dev server was
-killed at handoff (was running on :3000 via `npm run dev` from `app/`).
+`ralph.config.json`, `?? .gitattributes`, `?? .ralph/ESCALATION.md`,
+`?? .ralph/logs/t761/`, `?? .ralph/logs/t83/`, `?? .ralph/tasks/TASK-86.json`,
+`?? .ralph/tasks/TASK-87.json`, `?? .ralph/tasks/TASK-88.json`, all
+`M .ralph/screenshots/*.png` (do NOT commit per task note).
+Committed in `e252fc1`: the 4-file client fix + `flight-loop.test.ts` +
+original `undock.spec.ts`.
 
 ## Next steps
-1. **Diagnose the pad-dock 409 first.** The 409 body is one of two codes (dev.ts ~219-243):
-   `not-in-system` (ship's DB `position.systemId` has no active shard) or `teleport-failed`
-   ("ship entity not in the shard"). The e2e boots the browser straight into the pad system via
-   `?sys=` — the ship's DB row may still point at the home system, so `router.active(ship.
-   position.systemId)` in `dev.ts` returns undefined → 409. Compare with `docked-indicator.
-   spec.ts` (same flow, also 409 now) and `disembark.spec.ts` (works) — the difference is how
-   each gets the ship INTO the pad's active shard. A working e2e joins the home system over raw
-   WS first (which activates the home shard and moves/persists the ship row) before the pad
-   teleport, OR warps. Likely fix in the SPEC (not the app): raw-WS join home → warp to pad
-   system (like disembark.spec.ts lines 75-92) before the dev-teleport. Re-run
-   `npx playwright test --config playwright.e2e.config.ts tests/e2e/undock.spec.ts`.
-2. **Confirm the 409 is pre-existing, not from my change:** `git stash` my 5 files, run
-   `docked-indicator.spec.ts` (expect the same 409 → pre-existing), `git stash pop`. My change
-   is client input-path only and cannot affect the dev REST teleport, so this should confirm it.
-3. Verify the screenshot `.ralph/screenshots/TASK-86-1.png` shows the ship IN THE AIR, off the pad.
-4. Full verification (step 4): `cd app && npx tsc --noEmit`; full `npm run test`; e2e
-   `undock.spec.ts` + `docked-indicator.spec.ts` + `disembark.spec.ts` + `enter-ship.spec.ts` +
-   `flight.spec.ts` + `core-flow.spec.ts` via `npx playwright test --config playwright.e2e.
-   config.ts <files>`; `eslint --fix` + `prettier --write` on the 5 touched files.
-5. Close out: set `passes: true` for TASK-86 in `.ralph/tasks.json` and all 4 steps `pass: true`
-   in `.ralph/tasks/TASK-86.json`; add LOG.md entry at top (date, summary, screenshot path);
-   commit `fix(TASK-86): ...`. Delete this handoff.
-
-## Dead ends
-- The 409 from `/api/dev/teleport` in the pad flow — not yet root-caused. It reproduces on the
-  EXISTING `docked-indicator.spec.ts` too, so it is NOT caused by the TASK-86 input fix (which
-  is client-side only). It is a server REST/shard-activation sequencing issue in how the spec
-  places the ship into the pad's active shard, not in the undock logic. Do NOT "fix" it by
-  touching the flight loop or server dock code — the fix belongs in the e2e setup (join home
-  over raw WS / warp first, as disembark.spec.ts does).
-- No time to run the full `npm run test` matrix or the 6-spec e2e regression this iteration.
+1. Read the DECIDE answer.
+   - (A): change `VTOL_LIFT` in `app/src/shared/physics/flight.ts` (+ doc
+     comment), update flight.test.ts hover expectations + pads-test comment,
+     re-verify client/server parity is automatic (shared module), keep the
+     pad e2e as-is (it should then pass with Space held — note: the pad test
+     currently holds W; with (A) W alone still won't climb (thrust is
+     space-only) — the pad test must hold ' ' (VTOL) and assert regime
+     leaves docked + moves; update the test accordingly).
+   - (B): rework the pad test to assert the client-fix contract (frame sent +
+     server freeze cleared — observable proxy: the wire stops being frozen /
+     the frame tap shows seq ≥ 1 reaching the server), document the pad
+     re-dock as v1 behavior in the spec header.
+2. Full verification: `cd app && npx tsc --noEmit`; `npm run test`; e2e
+   `undock.spec.ts` + `docked-indicator.spec.ts` + `disembark.spec.ts` +
+   `enter-ship.spec.ts` + `flight.spec.ts` + `core-flow.spec.ts` via
+   `npx playwright test --config playwright.e2e.config.ts <files>`;
+   `eslint --fix` + `prettier --write` on all touched files.
+3. Close out: `passes: true` for TASK-86 in `.ralph/tasks.json` + all 4 steps
+   `pass: true` in `.ralph/tasks/TASK-86.json`; LOG.md entry at top (date,
+   summary, screenshot path); commit `fix(TASK-86): ...`; delete this handoff.
 
 ## How to verify
-- Units: `cd app && npx vitest run src/client/input/flight-loop.test.ts` → 8 pass (5 new under
-  `docked undock contract (TASK-86)`). The pad-docked W test is the contract: `thrust 1`,
-  `seq 1` while `docked: true, regime 'surface'`.
-- tsc: `cd app && npx tsc --noEmit` → clean.
-- E2E: `cd app && npx playwright test --config playwright.e2e.config.ts tests/e2e/undock.
-  spec.ts` → home-dock green now; pad-dock pending the 409 fix above.
-- Invariant spot-check: `anyFlightDemand` + `dockedFlightScheme` in flight-loop.ts are the only
-  new exports; `main.tsx` reads demand through `dockedFlightScheme` ONLY while
-  `wireDockedIndicator()` (idle frames while docked still send nothing).
+- Units: `cd app && npx vitest run src/client/input/flight-loop.test.ts` →
+  8 pass (5 new under `docked undock contract (TASK-86)`).
+- tsc: `cd app && npx tsc --noEmit` → clean (verified at `e252fc1`).
+- E2E: `cd app && npx playwright test --config playwright.e2e.config.ts
+  tests/e2e/undock.spec.ts tests/e2e/docked-indicator.spec.ts` → home-dock +
+  docked-indicator green now; pad-dock pending the DECIDE.
+- Diagnostic that proved the client fix (deleted after use): raw-WS tap of
+  the browser's WS showed the client SENDING input frames while W was held
+  (probe stepped at 20 Hz) and the server re-docking the at-rest ship
+  (wire regime stayed 'docked', pos frozen) — i.e. first-input-undock fires,
+  pad machine re-docks, physics can't climb.
+
+## Dead ends
+- Holding W on a pad-docked ship does NOT take it off in v1 physics — NOT a
+  client bug (the frame reaches the server; `entity.docked` clears). Do NOT
+  "fix" this by touching the flight loop, the dock gate, the pad machine, or
+  the server dock code: the gap is `VTOL_LIFT = GRAVITY` (neutral buoyancy) +
+  no thrust channel in atmosphere/surface. It is a design decision (DECIDE
+  emitted), not an implementation detail.
+- Teleporting the ship directly onto the pad surface (y = pad.y) works for
+  docking, but y+5 (disembark pattern) is the proven approach — keep it.
+- The `#docked-indicator` offsetParent check is UNRELIABLE (fixed positioning
+  → offsetParent null even when visible); assert via Playwright locators,
+  not offsetParent.
+
+## Decisions
+
+A person, or the escalation agent in their place, answered these questions
+and left these notes, latest last (`.ralph/decisions.jsonl`). They are
+decided: follow them where they apply, over the spec where the two disagree,
+and do not ask again.
+
+- (none recorded for TASK-86 yet)
