@@ -8,25 +8,25 @@
       "step": 1,
       "description": "Regression unit test (red first)",
       "details": "In the existing quatSlerp describe block of app/src/shared/physics/vec.test.ts add a test: near-identical unit quats whose computed dot rounds ABOVE 1 must slerp to a fully finite quat. Construction: q = quatNormalize(quat(0.1, 0.2, 0.3, 1)); q2 = each component of q scaled by 1.0000000001 (dot(q, q2) ≈ 1 + 1e-10 in double precision — verified: dot = 1.0000000001); expect every component of quatSlerp(q, q2, 0.5) to satisfy Number.isFinite AND quatLength ≈ 1 (toBeCloseTo(1, 12)). Run `cd app && npx vitest run src/shared/physics/vec.test.ts` → the new test MUST FAIL (all-NaN components) against the current quatSlerp, proving it captures the bug. Do not modify any existing test.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "One-line product fix in quatSlerp",
       "details": "app/src/shared/physics/vec.ts:178: `const theta0 = Math.acos(dot);` → `const theta0 = Math.acos(Math.min(1, Math.max(-1, dot)));` — the same clamp style quatAngleBetween already uses at vec.ts:162. Nothing else in the function changes: the short-arc flip, the sin(θ) ≈ 0 identical-rotation exit, and the quatNormalize result all stand. Re-run `cd app && npx vitest run src/shared/physics/vec.test.ts` → the new test green, all existing slerp tests (endpoints, short arc, constant angular velocity, near-parallel, idempotent repeated steps) still green.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Finiteness guard in CharacterPredictor.reconcile (belt-and-braces)",
       "details": "app/src/client/prediction/character-prediction.ts: in the BLEND path of reconcile (where the blended state is written via lerpState), guard the write: if ANY component of the blended pos, vel, or quat is non-finite (Number.isFinite check over the three fields), skip the lerpState write and keep the current predicted state, so no future quat/vel NaN can poison the on-foot terrain feed (WorldManager.groundHeightAt ← CharacterGround.heightAt ← generateSurfaceChunk/BigInt). Keep it a small guard — no logging beyond a DEV-gated console.warn at most. Add a unit test to the existing predictor test file: a BLEND reconcile whose blended state is NaN (feed it a NaN quat) leaves the predicted state unchanged. If the predictor's structure makes the guard invasive, keep the guard minimal and note the structure in the commit message — do not refactor the reconcile flow.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Verify + commit",
       "details": "1) `cd app && npx tsc --noEmit` green. 2) Full unit suite `cd app && npm run test` green with NO unrelated test edits (the clamp is math-identical for all |dot| ≤ 1 inputs, so no golden fixtures should move). 3) E2E smoke on the flake's canonical victim: `cd app && npx playwright test enter-ship.spec.ts --config playwright.e2e.config.ts --reporter=line` (single spec, ~2-4 min, boots its own dev server — never alongside `npm run dev`): zero NaN-BigInt pageerrors. 4) Commit ONLY the task files: vec.ts, vec.test.ts, character-prediction.ts + its test (if touched) — Conventional Commit `fix(TASK-96): clamp dot in quatSlerp — NaN quat from unclamped acos poisoned the on-foot predictor (NaN-BigInt terrain page error)`. Exclude every pre-existing dirty file (see TASK-93.1 notes).",
-      "pass": false
+      "pass": true
     }
   ],
   "acceptanceCriteria": [
