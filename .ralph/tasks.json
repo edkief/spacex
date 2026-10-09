@@ -810,11 +810,22 @@
     "passes": true
   },
   {
-    "id": "TASK-93",
-    "title": "Touch on-foot: move stick + run/jump/drop/interact",
+    "id": "TASK-93.1",
+    "title": "Touch on-foot: fix the NaN-BigInt terrain error, get touch-onfoot.spec.ts fully green",
     "category": "ui",
-    "specFilePath": ".ralph/tasks/TASK-93.json",
-    "passes": false
+    "specFilePath": ".ralph/tasks/TASK-93.1.json",
+    "passes": false,
+    "splitFrom": "TASK-93",
+    "splitDepth": 1
+  },
+  {
+    "id": "TASK-93.2",
+    "title": "Touch on-foot: regression gate, bookkeeping, final commit (closes TASK-93)",
+    "category": "ui",
+    "specFilePath": ".ralph/tasks/TASK-93.2.json",
+    "passes": false,
+    "splitFrom": "TASK-93",
+    "splitDepth": 1
   },
   {
     "id": "TASK-94",

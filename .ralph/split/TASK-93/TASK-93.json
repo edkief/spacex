@@ -1,0 +1,35 @@
+{
+  "id": "TASK-93",
+  "title": "Touch on-foot: move stick + run/jump/drop/interact",
+  "category": "ui",
+  "description": "On-foot play by touch (PRD §4.13, SC-6). Renders the on-foot touch layout in the surface regime: a single MOVE stick (up/down = forward/back, left/right = turn/strafe), plus RUN, JUMP, DROP and INTERACT buttons. The held actions (move, run, jump) feed the same virtual keys the on-foot prediction loop already reads (TASK-89), so the character moves through the unchanged path. The DISCRETE actions mirror how the keyboard handles them as one-shot events: DROP calls the same one-shot the Q keydown uses (drop one unit of the held resource), and INTERACT is a press/RELEASE pair that calls the SAME extract-dispatch functions the E keydown/keyup use — so hold-to-mine (E down starts the channel, E up sends mine-stop), enter-ship, pickup and dock-terminal all work from one button through the existing InteractableRegistry (interaction.ts). No new server code, no new messages. Serves SC-6 (walk, mine, re-enter by touch) and PRD goals 1/3.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Extract the E/Q one-shot handlers + wire the on-foot layout",
+      "details": "In `app/src/client/main.tsx`, extract the two discrete handlers into shared functions (stored in refs to avoid stale closures, matching the existing captured-handler pattern): (a) `interactPress()` = the current E keydown body (~line 1334: resolve the raycast target from resolvedTargetRef and call interactRegistry.dispatch, which for deposits starts the 'mine-start' channel, for the ship sends enter_ship/open-cargo, for the terminal opens the dock UI); (b) `interactRelease()` = the current E keyup body (~line 1361: call interactRegistry.release, which ends mining with 'mine-stop'); (c) `dropHeld()` = the current Q keydown body (~line 1397, ON FOOT only: send the drop-one-unit message). The keyboard E/Q keydown/keyup handlers become thin calls to these. Extend the TouchControls on-foot layout (visible when regime==='surface' AND disembarked): a MOVE TouchJoystick whose `onChange({x,y})` sets `source.setChannel({ thrust: y, yaw: x })` (up = forward = 'w', right = 'd' — the SAME virtual keys the on-foot loop reads at ~line 1538); a RUN TouchButton (onPress/onRelease → `source.setChannel({ run: true/false })`, mapping to 'Shift'); a JUMP TouchButton (→ `source.setChannel({ jump: true/false })`, mapping to ' '); a DROP TouchButton (one-shot → `dropHeld()`); and an INTERACT TouchButton (controlled `pressed`, onPress → `interactPress()`, onRelease → `interactRelease()` — a long-hold keeps the mining channel open until release, exactly like a held E). Add touchDebug passthroughs: `move`, `run`, `jump`, `interactPress()`, `interactRelease()`, `drop()`. Do NOT change the on-foot prediction loop, the character physics, the InteractableRegistry, or the server.",
+      "pass": true
+    },
+    {
+      "step": 2,
+      "description": "E2E: on-foot touch move, mine, re-enter",
+      "details": "New `app/tests/e2e/touch-onfoot.spec.ts` (mirror the on-foot setup in tests/e2e/walk.spec.ts, interact.spec.ts and enter-ship.spec.ts: a player who has landed and exited the ship). Emulate touch (`hasTouch: true`). Drive via the touchDebug hook: (1) MOVE — setChannel({thrust: 1}) for ~3 s → the character's server-reported position changes (walks forward; assert via the same position tap walk.spec.ts uses); setChannel({yaw: 1}) → heading changes. (2) MINE — face a deposit (use the same aim/teleport the interact/mine specs use), `interactPress()` hold for > 1.5 s (one full mining channel unit) then `interactRelease()` → the server awards the unit to inventory (assert the inventory gain the way interact.spec.ts / the mining tests do), and an interrupted hold (release before 1.5 s) awards nothing (mine-stop cancels). (3) RE-ENTER — walk to the ship (thrust toward it) then `interactPress()` → the player re-enters the ship (server state switches to in-ship; assert the same way enter-ship.spec.ts does). (4) The on-foot TouchControls overlay is present in the surface regime and the flight sticks are not. Screenshot `.ralph/screenshots/TASK-93-1.png` showing the on-foot touch layout with the interact prompt up. Then `cd app && npx tsc --noEmit`, full `npm run test` green (the extracted E/Q handlers are behaviour-identical, so the existing on-foot/mine/enter-ship keyboard specs stay green), and the new spec green.",
+      "pass": true
+    }
+  ],
+  "acceptanceCriteria": [
+    "The E/Q one-shot handlers are extracted into interactPress()/interactRelease()/dropHeld() shared by the keyboard keydown/keyup and the touch INTERACT/DROP buttons; the keyboard paths are behaviour-identical (existing on-foot/mine/enter-ship specs stay green)",
+    "The on-foot TouchControls layout renders a MOVE stick (thrust+yaw → the virtual keys the on-foot loop reads), RUN ('Shift'), JUMP (' '), a one-shot DROP, and a press/release INTERACT (hold-to-mine, enter-ship, pickup, dock terminal) through the existing InteractableRegistry",
+    "touch-onfoot.spec.ts (touch-emulated) asserts: MOVE walks the character (server position), a full INTERACT hold mines a unit and a cancelled hold awards nothing, and INTERACT re-enters the ship; the on-foot layout is present in the surface regime",
+    "No changes to the on-foot loop, character physics, InteractableRegistry, or server; npx tsc --noEmit green; full npm run test green; touch-onfoot.spec.ts green; one commit"
+  ],
+  "dependencies": ["TASK-89", "TASK-90", "TASK-91", "TASK-32", "TASK-33", "TASK-35", "TASK-38"],
+  "estimatedComplexity": "high",
+  "notes": [
+    "MOVE stick maps to the SAME virtual keys the on-foot loop already reads (main.tsx ~line 1538: w/s thrust, a/d yaw, Shift run, ' ' jump) — the loop is unchanged from TASK-89. Up = forward, right = 'd'.",
+    "INTERACT is a press/RELEASE event, NOT a virtual key: onPress = E-down (dispatch → mine-start / enter_ship / open-cargo), onRelease = E-up (release → mine-stop). This is the only way hold-to-mine cancels correctly. Do not model it as a held 'e' key in the pressed set — the movement loop does not read 'e'.",
+    "DROP is a one-shot (Q keydown), ON FOOT only. In-ship Q is roll (a held key) — the regime gate keeps them apart, same as today.",
+    "The INTERACT button works for EVERY interactable kind because it calls the same dispatch the E key uses (deposits, ground items, ship, terminal) — one button, the registry routes it. Do not add per-kind touch buttons.",
+    "Respect the mobile safe-area + theme tokens; keep the buttons clear of the on-foot HUD (TASK-52) and the interact prompt (bottom-center). Do not commit pre-existing dirty screenshots. Conventional commit: feat(TASK-93): ..."
+  ]
+}

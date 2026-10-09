@@ -1,0 +1,21 @@
+{
+  "task": "TASK-93",
+  "splittable": true,
+  "reason": "The three attempts did not fail on environment — each 45-min iteration consumed by one newly-discovered unknown: (6) full implementation + spec, (7) leg-4 not converging (docked-ship prompt zones + main-thread release delay), (8) nudge-sign ping-pong (fixed; convergence verified 11.39→2.98 m) which then exposed the NaN-BigInt page-error blocker. The implementation is committed (7cf56bf) and the remaining work decomposes into two bounded chunks. TASK-93.1 is the one remaining unknown: diagnose the NaN chunk coordinate (the terrain streamer is fed the client-predicted character position, WorldManager ~799-825 ← prediction loop main.tsx ~1650) and fix it spec-side (steering-geometry hardening per the handoff's ranked plan; no product code — that is outside TASK-93's 'no changes to the on-foot loop / physics' AC) so touch-onfoot.spec.ts is fully green with its screenshot — ~3 spec runs, fits one iteration. TASK-93.2 is deterministic close-out with no unknowns: tsc, full unit suite, the 6 keyboard regression specs (shared E/Q paths must stay behaviour-identical), lint/format, task flags, LOG.md, handoff deletion, final feat commit — ~15-20 min. Together they cover every unmet acceptance criterion of TASK-93.",
+  "tasks": [
+    {
+      "id": "TASK-93.1",
+      "title": "Touch on-foot: fix the NaN-BigInt terrain error, get touch-onfoot.spec.ts fully green"
+    },
+    {
+      "id": "TASK-93.2",
+      "title": "Touch on-foot: regression gate, bookkeeping, final commit (closes TASK-93)"
+    }
+  ],
+  "parent": {
+    "title": "Touch on-foot: move stick + run/jump/drop/interact",
+    "specFilePath": ".ralph/split/TASK-93/TASK-93.json",
+    "handoffPath": ".ralph/split/TASK-93/handoff.md"
+  },
+  "appliedAt": "2026-10-09T16:16:02.977Z"
+}

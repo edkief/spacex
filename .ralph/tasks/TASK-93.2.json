@@ -1,0 +1,39 @@
+{
+  "id": "TASK-93.2",
+  "title": "Touch on-foot: regression gate, bookkeeping, final commit (closes TASK-93)",
+  "category": "ui",
+  "description": "Closes TASK-93 (PRD §4.13, SC-6 — on-foot play by touch: a single MOVE stick + RUN/JUMP/DROP/INTERACT buttons driving the same virtual keys and the same E/Q one-shot paths the keyboard uses; no new server code, no new messages). TASK-93.1 made `app/tests/e2e/touch-onfoot.spec.ts` fully green (all 4 legs, zero page errors, screenshot) and committed it. This task runs the remaining verification gate of the original TASK-93 step 2 + acceptance criteria and lands the close-out: tsc, full unit suite, the keyboard e2e regression set (the extracted interactPress()/interactRelease()/dropHeld() handlers are SHARED by the keyboard E/Q keydown/keyup, so the existing keyboard specs must stay green — behaviour-identical), lint/format of the changed files, task flags, LOG.md, handoff deletion, and the final `feat(TASK-93)` commit. No code changes are expected; if a regression is found, fix it minimally in the client E/Q extraction paths (app/src/client/main.tsx) and re-run the affected spec.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Regression gate: tsc + full unit suite + keyboard e2e set",
+      "details": "In order: (1) `cd app && npx tsc --noEmit` — green. (2) `cd app && npm run test` (vitest, ~196 files) — green. Known flake (documented in the TASK-92 close-out LOG entry): `enter-ship.ws.test.ts` has gone red once under full-suite load (WS timing); it is green in isolation and on re-run — if it flakes, re-run the file in isolation (`npx vitest run enter-ship.ws.test.ts`) and the full suite once more; do NOT 'fix' it. (3) Keyboard e2e regression set — `cd app && npx playwright test walk.spec.ts interact.spec.ts mining.spec.ts enter-ship.spec.ts disembark.spec.ts inventory.spec.ts --config playwright.e2e.config.ts` — ALL GREEN (1 worker, each spec file boots its own dev server; ~5-8 min for the six). These cover the extracted E/Q paths: walk (on-foot loop), interact + mining (E keydown/keyup dispatch/release — hold-to-mine, mine-stop), enter-ship + disembark (E enter/exit ship), inventory (Q drop-one-unit). If any is red, the E/Q extraction regressed: bisect with `git diff 7cf56bf~1 7cf56bf -- app/src/client/main.tsx`, fix minimally in the shared handler paths, re-run the failing spec + the full set.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Lint + format the changed files",
+      "details": "`cd app && npx eslint --fix tests/e2e/touch-onfoot.spec.ts && npx prettier --write tests/e2e/touch-onfoot.spec.ts` (plus any other file TASK-93.1 changed, e.g. a main.tsx fix from step 1). If eslint/prettier changed CODE (not whitespace), re-run `touch-onfoot.spec.ts` once to confirm it is still green; a whitespace-only reformat needs no re-run. Finish with `cd app && npx tsc --noEmit` green if any code changed.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Bookkeeping + final commit",
+      "details": "Bookkeeping, in order: (1) `.ralph/tasks/TASK-93.json` — both steps `pass: true` (already true in the committed file — verify, do not restructure). (2) `.ralph/tasks.json` — TASK-93 `passes: true`. (3) `.ralph/logs/LOG.md` — new entry at the top (newest-first, matching the existing `### 2026-10-09 — TASK-92: ... (complete)` format: on-foot touch layout + shared E/Q one-shot paths + touch-onfoot.spec.ts 4 legs server-confirmed incl. the leg-4 NaN-BigInt steering fix + verification summary) and bump `**Tasks Completed:**` by one (108 → 109). (4) Delete `.ralph/handoff/TASK-93.md`. Final commit: `feat(TASK-93): touch on-foot: move stick + run/jump/drop/interact (shared E/Q paths)` — ONE commit containing only the task's files: `.ralph/tasks.json`, `.ralph/logs/LOG.md`, `.ralph/tasks/TASK-93.json` (with pass flags), the handoff deletion, and any spec/screenshot file not already committed by TASK-93.1. EXCLUDE the pre-existing dirty files (see notes). The wip checkpoints 7cf56bf / 8eb9320 / the 93.1 commit stay in history — this feat commit is the closing one (the original 'one commit' AC refers to it).",
+      "pass": false
+    }
+  ],
+  "acceptanceCriteria": [
+    "`npx tsc --noEmit` green; full `npm run test` (vitest) green; keyboard e2e regression set green — walk, interact, mining, enter-ship, disembark, inventory (the extracted E/Q paths are behaviour-identical)",
+    "eslint + prettier clean on the changed files; touch-onfoot.spec.ts still green (re-run only if code changed)",
+    "`.ralph/tasks/TASK-93.json` both steps pass:true; `.ralph/tasks.json` TASK-93 passes:true; LOG.md entry added (newest first) + Tasks Completed bumped 108 → 109; `.ralph/handoff/TASK-93.md` deleted",
+    "One final `feat(TASK-93)` commit containing only the task's files — no pre-existing dirty files (incl. the ~50 dirty screenshots, the untracked TASK-89..95.json specs other than TASK-93.json, .gitattributes, ESCALATION.md, log dirs, app/.ralph/)"
+  ],
+  "notes": [
+    "Done already (do NOT redo): 7cf56bf = step 1 implementation (on-foot layout + shared E/Q paths + touchDebug, unit-verified — ACs 1+2 of TASK-93 are met by it); 8eb9320 = leg-4 steering fix (nudge-sign flip, converges 11.39 → 6.54 → 2.98 m); TASK-93.1 = the leg-4 NaN-BigInt blocker fixed spec-side, touch-onfoot.spec.ts FULLY GREEN (all 4 legs, zero page errors) + `.ralph/screenshots/TASK-93-1.png` regenerated + committed. Working tree at start of this task: clean for all task files except the pre-existing dirty files below.",
+    "Pre-existing dirty files — NOT mine, do NOT commit: `.gitignore`, `.ralph/prd/PRD.md`, `ralph.config.json`, ~50 modified `.ralph/screenshots/*.png`, `?? .gitattributes`, `?? .ralph/ESCALATION.md`, `?? .ralph/logs/t761/`, `?? .ralph/logs/t83/`, `?? .ralph/tasks/TASK-89..95.json` (the untracked task spec files — EXCEPT `.ralph/tasks/TASK-93.json`, whose pass flags this task sets and commits), `?? app/.ralph/`.",
+    "Scope of the e2e gate: the 6 keyboard specs named above (handoff next-steps 4), NOT the whole 54-file e2e suite — TASK-93's step 2 only requires the existing on-foot/mine/enter-ship keyboard specs to stay green, and the full suite (1 worker, per-spec dev-server boots) takes 10-17 min and is not in this task's budget.",
+    "Timing budget (45 min): tsc ~1 min; full unit suite ~2-4 min; 6 e2e specs ~5-8 min; lint/format ~1 min; bookkeeping + commit ~3 min. Comfortable margin — do NOT start re-running touch-onfoot.spec.ts unless step 2 changed code.",
+    "The unit-suite flake note (enter-ship.ws.test.ts WS timing, green in isolation) comes from the TASK-92 close-out LOG entry — handle with an isolated re-run, never a code change. Conventional commit: `feat(TASK-93): ...`"
+  ]
+}
