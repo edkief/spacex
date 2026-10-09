@@ -1,0 +1,47 @@
+{
+  "id": "TASK-96",
+  "title": "Fix NaN in quatSlerp (unclamped acos) — root cause of the on-foot NaN-BigInt terrain page error",
+  "category": "functional",
+  "description": "Root-caused during TASK-93.1 (handoff .ralph/handoff/TASK-93.1.md, commit 9a2d7dc): on foot, the client CharacterPredictor's BLEND reconcile lerps the predicted quat toward the server quat via quatSlerp (app/src/shared/physics/vec.ts:173-192). quatSlerp computes Math.acos(dot) at vec.ts:178 WITHOUT clamping dot to [-1, 1]; for near-identical unit quats (the steady-state walking blend, where predicted/server quats are CLOSE and dot ≈ 1.0), float rounding pushes dot > 1.0 by 1 ulp → acos = NaN → NaN quat. CharacterPredictor.reconcile stores it via lerpState; the next walking substep: quatRotateVector(NaN quat) → zero-ish fwd → vecNormalize → NaN vel → NaN pos → WorldManager.groundHeightAt → CharacterGround.heightAt → TerrainContext.update (terrain.ts:43) → generateSurfaceChunk(NaN, NaN) → RangeError 'The number NaN cannot be converted to a BigInt' (noise.ts:52). The poisoned state persists (every step() throws before reassignment) until the next 10 Hz REWIND reconcile (correctionAngle NaN → not below threshold) replaces the state with clean server data — hence bursts of 13-18 pageerrors ≈ 200-450 ms ≈ one snapshot interval, correlated with walking, ~80% of touch-onfoot.spec.ts runs on this HEAD; enter-ship.spec.ts (same on-foot walk → same blend path) fails identically with an EMPTY product diff → pre-existing bug, canonical victim. Reproduced numerically in isolation (node, current formula): two unit quats whose dot rounds to 1.0000000001 → quatSlerp returns all-NaN components; the existing vec.test.ts 'near-parallel quaternions' test uses a dot strictly < 1, so it passes despite the bug. NOTE: quatAngleBetween (vec.ts:160-163) ALREADY clamps dot the same way — the clamp was simply missed in quatSlerp. THIS IS A PRODUCT TASK (TASK-93.1 was spec-side only per its AC 3): TASK-93.1's step 3 (fully green + assertClean) is GATED on this task landing; the next 93.1 iteration re-runs touch-onfoot.spec.ts after the fix.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Regression unit test (red first)",
+      "details": "In the existing quatSlerp describe block of app/src/shared/physics/vec.test.ts add a test: near-identical unit quats whose computed dot rounds ABOVE 1 must slerp to a fully finite quat. Construction: q = quatNormalize(quat(0.1, 0.2, 0.3, 1)); q2 = each component of q scaled by 1.0000000001 (dot(q, q2) ≈ 1 + 1e-10 in double precision — verified: dot = 1.0000000001); expect every component of quatSlerp(q, q2, 0.5) to satisfy Number.isFinite AND quatLength ≈ 1 (toBeCloseTo(1, 12)). Run `cd app && npx vitest run src/shared/physics/vec.test.ts` → the new test MUST FAIL (all-NaN components) against the current quatSlerp, proving it captures the bug. Do not modify any existing test.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "One-line product fix in quatSlerp",
+      "details": "app/src/shared/physics/vec.ts:178: `const theta0 = Math.acos(dot);` → `const theta0 = Math.acos(Math.min(1, Math.max(-1, dot)));` — the same clamp style quatAngleBetween already uses at vec.ts:162. Nothing else in the function changes: the short-arc flip, the sin(θ) ≈ 0 identical-rotation exit, and the quatNormalize result all stand. Re-run `cd app && npx vitest run src/shared/physics/vec.test.ts` → the new test green, all existing slerp tests (endpoints, short arc, constant angular velocity, near-parallel, idempotent repeated steps) still green.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Finiteness guard in CharacterPredictor.reconcile (belt-and-braces)",
+      "details": "app/src/client/prediction/character-prediction.ts: in the BLEND path of reconcile (where the blended state is written via lerpState), guard the write: if ANY component of the blended pos, vel, or quat is non-finite (Number.isFinite check over the three fields), skip the lerpState write and keep the current predicted state, so no future quat/vel NaN can poison the on-foot terrain feed (WorldManager.groundHeightAt ← CharacterGround.heightAt ← generateSurfaceChunk/BigInt). Keep it a small guard — no logging beyond a DEV-gated console.warn at most. Add a unit test to the existing predictor test file: a BLEND reconcile whose blended state is NaN (feed it a NaN quat) leaves the predicted state unchanged. If the predictor's structure makes the guard invasive, keep the guard minimal and note the structure in the commit message — do not refactor the reconcile flow.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Verify + commit",
+      "details": "1) `cd app && npx tsc --noEmit` green. 2) Full unit suite `cd app && npm run test` green with NO unrelated test edits (the clamp is math-identical for all |dot| ≤ 1 inputs, so no golden fixtures should move). 3) E2E smoke on the flake's canonical victim: `cd app && npx playwright test enter-ship.spec.ts --config playwright.e2e.config.ts --reporter=line` (single spec, ~2-4 min, boots its own dev server — never alongside `npm run dev`): zero NaN-BigInt pageerrors. 4) Commit ONLY the task files: vec.ts, vec.test.ts, character-prediction.ts + its test (if touched) — Conventional Commit `fix(TASK-96): clamp dot in quatSlerp — NaN quat from unclamped acos poisoned the on-foot predictor (NaN-BigInt terrain page error)`. Exclude every pre-existing dirty file (see TASK-93.1 notes).",
+      "pass": false
+    }
+  ],
+  "acceptanceCriteria": [
+    "Regression test in vec.test.ts is RED pre-fix and GREEN post-fix: quatSlerp of near-identical unit quats (dot rounding > 1) returns a fully finite, unit-length quat",
+    "Fix is the dot clamp at vec.ts:178 (matching quatAngleBetween's clamp style) — no other quat math changes; full unit suite green with no unrelated test edits",
+    "A non-finite blended state can no longer be written by CharacterPredictor.reconcile BLEND (unit-tested): the on-foot terrain feed can no longer receive a NaN chunk coordinate from the predictor",
+    "enter-ship.spec.ts smoke run has zero NaN-BigInt pageerrors; `npx tsc --noEmit` green; one commit containing only the task files"
+  ],
+  "notes": [
+    "Full caller chain (proven with a temporary first-line probe in generateSurfaceChunk capturing the caller stack, probe reverted): loop (main.tsx ~1653) → CharacterPredictor.step (character-prediction.ts) → integrateCharacter (character.ts) → characterSubstep → heightAt(pos.x, pos.z) → WorldManager.groundHeightAt → CharacterGround.heightAt → TerrainContext.update (terrain.ts:43) → generateSurfaceChunk(NaN, NaN) → RangeError at BigInt (noise.ts:52). Client predictor path, NOT the streamer's ChunkBuild path (streamer exonerated).",
+    "Exhaustive negative evidence (do NOT re-probe): predictor pos/vel at step start and after reconcile, wire pos/vel/rot, __CHAR__.pos (10 Hz server hook), terrain feed, CharacterGround.heightAt inputs, and active-chunk scheduling were ALL finite in failing runs. The non-finite field is the predicted QUAT only — the NaN quat lives in the state stored by lerpState; throwing frames never reach the post-step probe, so pos/vel/rot probes all read finite.",
+    "Reproduction (verified this session with node against the current formula): q = normalize(0.1, 0.2, 0.3, 1); q2 = q * 1.0000000001 per component → dot = 1.0000000001 > 1 → quatSlerp(q, q2, 0.5) = {x,y,z,w all NaN}.",
+    "Evidence base for the task's existence: TASK-93.1 handoff (root-cause section), commit 9a2d7dc; green run 17:26 UTC regenerated .ralph/screenshots/TASK-93-1.png; flake rate ~80% on this HEAD (1 green / 4 red across 5 runs, all reds 13-18 identical pageerrors); bursts ≈ 200-450 ms ≈ one 10 Hz snapshot interval; bursts correlate with walking (BLEND mode is exactly when predicted/server quats are close → dot ≈ 1 → maximum rounding risk); enter-ship.spec.ts fails identically with `git diff app/src` empty (pre-existence proven).",
+    "Relationship: TASK-93.1 step 3 (touch-onfoot.spec.ts fully green + assertClean) is gated on this task. After this lands, the next TASK-93.1 iteration re-runs the spec (2-4 min/run) to full green, marks step 3 + passes true, logs, deletes the handoff. TASK-93.2 then owns the TASK-93 final close-out + regression gate.",
+    "Scope guard: ONLY vec.ts + vec.test.ts + character-prediction.ts + its test. Do NOT touch terrain/noise/surface generation, the streamer (chunks.ts), InteractableRegistry, the server, or any e2e spec (enter-ship is smoke-only, unmodified).",
+    "Commands: single-file unit = `cd app && npx vitest run src/shared/physics/vec.test.ts`; full suite = `cd app && npm run test`; typecheck = `cd app && npx tsc --noEmit`; e2e smoke = `cd app && npx playwright test enter-ship.spec.ts --config playwright.e2e.config.ts --reporter=line`."
+  ]
+}

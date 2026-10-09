@@ -810,6 +810,12 @@
     "passes": true
   },
   {
+    "id": "TASK-96",
+    "title": "Fix NaN in quatSlerp (unclamped acos) — root cause of the on-foot NaN-BigInt terrain page error",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-96.json"
+  },
+  {
     "id": "TASK-93.1",
     "title": "Touch on-foot: fix the NaN-BigInt terrain error, get touch-onfoot.spec.ts fully green",
     "category": "ui",
