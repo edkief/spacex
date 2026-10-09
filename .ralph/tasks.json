@@ -839,7 +839,7 @@
     "title": "Touch menu/nav access + Controls Auto/On/Off toggle",
     "category": "ui",
     "specFilePath": ".ralph/tasks/TASK-94.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-95",

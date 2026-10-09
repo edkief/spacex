@@ -31,6 +31,7 @@ import { announce } from '@client/a11y/announcement-queue';
 import {
   applySettings,
   settingsState,
+  settingsSubscribe,
   setDetectedProfile,
   deviceProfileChangeSubscribe,
   effectiveProfileKey,
@@ -39,7 +40,12 @@ import { detectProfile, PERF_PROFILES } from '@shared/perf';
 import { setLodRadii } from '@client/world/chunks';
 import { applyPerfProfile } from '@client/perf/profile-bridge';
 import { setWarpPhase, WARP_IN_MS, WARP_OUT_MS } from '@client/state/warp';
-import { normalizeSettings, scaleLookDemand, type Settings } from '@shared/settings';
+import {
+  normalizeSettings,
+  scaleLookDemand,
+  touchEnabledFor,
+  type Settings,
+} from '@shared/settings';
 import { LiveRegion } from '@client/a11y/live-region';
 import { showShipLost } from '@client/state/ship-lost';
 import { ChatLog } from '@client/hud/chat-log';
@@ -127,6 +133,7 @@ import { installAtmosphereDebug } from '@client/atmosphere-debug';
 import {
   bindTouchCombat,
   bindTouchDebug,
+  bindTouchMenu,
   bindTouchOnFoot,
   installTouchDebug,
 } from '@client/touch-debug';
@@ -735,11 +742,29 @@ function App() {
   // pressed set below. Nothing populates it yet (the joysticks/buttons land
   // in TASK-90/91); with no channels active the merge is a no-op.
   const touchRef = React.useRef<TouchInputSource>(new TouchInputSource());
-  // TASK-91: the touch feature-enable state — v1: a touch-capable device
-  // (maxTouchPoints > 0). TASK-94 replaces this with the real feature flag.
-  // false → TouchControls renders nothing and the merge stays a no-op.
-  const [touchEnabled] = React.useState(
-    () => typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0,
+  // TASK-91/94: the touch feature-enable state — resolved from the
+  // PER-PLAYER touchControls setting via the PURE touchEnabledFor
+  // ('auto' = maxTouchPoints > 0, the TASK-59 detection surface; 'on'/'off'
+  // = the manual choice from the settings panel). Re-resolved on every
+  // settings change (panel toggle OR the boot restore), so the overlay
+  // renders/unmounts LIVE without a reload. false → TouchControls renders
+  // nothing and the merge stays a no-op: a desktop with the toggle off is
+  // byte-for-byte the keyboard path.
+  const touchNavHints = React.useMemo(() => {
+    const nav = navigator as Navigator & { deviceMemory?: number };
+    return {
+      maxTouchPoints: typeof nav !== 'undefined' ? nav.maxTouchPoints : 0,
+      deviceMemory: nav.deviceMemory,
+      hardwareConcurrency: nav.hardwareConcurrency,
+    };
+  }, []);
+  const [touchEnabled, setTouchEnabled] = React.useState(() =>
+    touchEnabledFor(settingsState().touchControls, touchNavHints),
+  );
+  React.useEffect(
+    () =>
+      settingsSubscribe((s) => setTouchEnabled(touchEnabledFor(s.touchControls, touchNavHints))),
+    [touchNavHints],
   );
   React.useEffect(() => {
     bindTouchDebug(touchDebug, () => touchRef.current);
@@ -1312,16 +1337,33 @@ function App() {
   const closeTopSurface = (): void => {
     closePoppedPanel(popSurface());
   };
+  /**
+   * TASK-94: the SHARED menu open/pop action — the ONE function BOTH the
+   * Esc key and the touch MENU button call (no duplicated stack logic):
+   * empty stack → open the ESC menu (a session is required); non-empty →
+   * pop the top surface (the panel store closes alongside a store-driven
+   * pop). Assigned to a ref every render so the touch / touchDebug paths
+   * always invoke the fresh closure (the interactPressRef pattern).
+   */
+  const menuKeyActionRef = React.useRef<() => void>(() => {});
+  menuKeyActionRef.current = () => {
+    if (anySurfaceOpen()) {
+      closePoppedPanel(popSurface());
+      return;
+    }
+    if (clientRef.current) openMenu(); // no session → nothing to menu
+  };
+  // TASK-94: the touchDebug e2e bridge for the MENU button (the SAME action
+  // the Esc key calls — the spec's `openMenu()` passthrough).
+  React.useEffect(() => {
+    bindTouchMenu(touchDebug, () => menuKeyActionRef.current());
+  }, []);
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
       if (e.key === 'Escape') {
-        if (anySurfaceOpen()) {
-          closePoppedPanel(popSurface());
-          return;
-        }
-        if (clientRef.current) openMenu(); // no session → nothing to menu
+        menuKeyActionRef.current();
         return;
       }
       if (e.key === 'm' || e.key === 'M') {
@@ -2344,6 +2386,7 @@ function App() {
         onInteractPress={interactPress}
         onInteractRelease={interactRelease}
         onDrop={dropHeld}
+        onMenu={() => menuKeyActionRef.current()}
       />
       {/* TASK-50: the combat HUD (target box, weapon readout, threat ping,
           kill feed) — in-ship regions unmount on foot (selfShip null). */}

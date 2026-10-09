@@ -5,8 +5,10 @@ import {
   DEVICE_PROFILE_CHOICES,
   QUALITY_PRESETS,
   SETTING_KEYS,
+  TOUCH_CONTROLS_CHOICES,
   type QualityPreset,
   type Settings,
+  type TouchControlsChoice,
 } from '@shared/settings';
 import type { DeviceProfileChoice } from '@shared/perf';
 import {
@@ -16,6 +18,7 @@ import {
   setSensitivity,
   setSetting,
   setDeviceProfile,
+  setTouchControls,
 } from '@client/a11y/reduced-motion';
 import { putSettings } from '@client/net/settings-api';
 
@@ -108,6 +111,17 @@ export function SettingsPanel(props: SettingsPanelProps): React.ReactElement {
     put({ deviceProfile: p });
   };
 
+  /**
+   * TASK-94: the touch-controls enablement (Auto / On / Off). LIVE: the
+   * main app re-resolves touchEnabledFor on the change, so the overlay
+   * renders/unmounts immediately — 'auto' resolves to the device's
+   * maxTouchPoints > 0. Persists per-player via the same PUT path.
+   */
+  const onTouchControls = (c: TouchControlsChoice): void => {
+    setTouchControls(c);
+    put({ touchControls: c });
+  };
+
   const onSensitivityInput = (value: number): void => {
     setSensitivity(value); // applied on the NEXT input frame (live)
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -167,6 +181,27 @@ export function SettingsPanel(props: SettingsPanelProps): React.ReactElement {
             onClick={() => onDeviceProfile(p)}
           >
             {p.toUpperCase()}
+          </button>
+        ))}
+      </div>
+
+      <div id="settings-controls-heading" style={SECTION_STYLE}>
+        TOUCH CONTROLS
+      </div>
+      <div style={{ display: 'flex', gap: '0.35rem' }}>
+        {TOUCH_CONTROLS_CHOICES.map((c) => (
+          <button
+            key={c}
+            id={`settings-controls-${c}`}
+            type="button"
+            aria-pressed={s.touchControls === c}
+            style={{
+              ...PRESET_STYLE,
+              borderColor: s.touchControls === c ? '#4a6fa5' : '#2c3a4d',
+            }}
+            onClick={() => onTouchControls(c)}
+          >
+            {c.toUpperCase()}
           </button>
         ))}
       </div>

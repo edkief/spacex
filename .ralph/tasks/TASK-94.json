@@ -1,0 +1,35 @@
+{
+  "id": "TASK-94",
+  "title": "Touch menu/nav access + Controls Auto/On/Off toggle",
+  "category": "ui",
+  "description": "Make the whole game reachable by touch and add the enablement control (PRD §4.13, SC-6). Two parts. (1) MENU/NAV: a touch MENU button that opens the SAME ESC menu stack the Esc key opens (star chart/warp, ship panel, chat, settings) — extracted so the key and the button call one function — plus touch reach to the chart/warp from that menu (the menu is already DOM/React, so it is touch-friendly once it can be opened). (2) ENABLEMENT: a Controls Auto/On/Off toggle in the Settings panel, persisted per-player (the existing GET/PUT /api/players/settings round trip, TASK-55), defaulting to Auto = `navigator.maxTouchPoints > 0` (reusing the TASK-59 detection surface). This gates the whole touch overlay: the overlay renders only when touch is enabled, and on a desktop with the toggle off the merged pressed set is exactly the keyboard set (no behaviour change). Serves SC-6 (navigate/warp by touch) and PRD goal 2 (every player can play).",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Enablement model + resolution (pure, tested) + settings UI",
+      "details": "Extend the per-player Settings model in `app/src/shared/settings.ts`: add `touchControls: 'auto' | 'on' | 'off'` to the Settings interface, DEFAULT_SETTINGS (default 'auto'), and normalizeSettings (accept only 'auto'/'on'/'off', fall back to 'auto' for anything else) — and update the settings zod schema the PUT route validates (see app/src/server/routes/players.settings.api.test.ts + the schema it enforces) to accept the new field with the same enum, so the persistence round trip (the TASK-55 AC) still works and an invalid value is rejected. Add a PURE resolver in shared (e.g. `touchEnabledFor(choice: 'auto'|'on'|'off', nav: NavProfileHints): boolean` in @shared/perf or settings): 'on' → true, 'off' → false, 'auto' → `(nav.maxTouchPoints ?? 0) > 0`. Unit-test it (fake nav values): on→true, off→false, auto with touch>0→true, auto with touch 0→false. In `app/src/client/ui/settings-panel.tsx`, add a Controls toggle (Auto/On/Off) wired to the same change-then-PUT path the other settings use, so it persists. In `app/src/client/main.tsx`, compute `touchEnabled = touchEnabledFor(settingsState().touchControls, { maxTouchPoints: navigator.maxTouchPoints, deviceMemory, hardwareConcurrency })` and pass it as the `enabled` prop to `<TouchControls>` (from TASK-91); when false, TouchControls renders nothing (its existing gate). Verify `cd app && npx tsc --noEmit` and `npm run test` green (the settings unit tests + the players.settings API test cover the new field).",
+      "pass": true
+    },
+    {
+      "step": 2,
+      "description": "Menu button + e2e (nav by touch + persistence)",
+      "details": "In `app/src/client/main.tsx`, extract the Esc-key open/pop logic (~line 1270-1300: empty stack → open the ESC menu; non-empty → pop the top) into a shared `menuKeyAction()` (or two small functions openMenu()/popMenu()) stored in a ref, and make the Esc handler call it. Add a MENU TouchButton to the TouchControls layout (visible in every in-game regime, positioned clear of the flight/on-foot sticks) whose onPress calls the SAME open/pop function as Esc. The menu surfaces it opens (EscMenu, star chart, ship panel, chat, settings) are already React/DOM and pointer-tappable, so no further change is needed to reach chart/warp/ships/chat/settings by touch once the menu opens. Add a touchDebug passthrough `openMenu()`. New `app/tests/e2e/touch-menu.spec.ts` (touch-emulated, hasTouch): (1) on a touch device the touch overlay (incl. the MENU button) is visible; on a desktop with the default 'auto' it is NOT visible (touchEnabled false) — assert the overlay's presence/absence; (2) pressing the MENU button opens the ESC menu (assert the menu is in the DOM), then the star chart can be opened from it and a warp started (assert the warp overlay, the way warp.spec.ts / star-chart.spec.ts do); (3) set Controls to 'on' in the settings panel on a desktop → the touch overlay appears (touchEnabled true) and persists (the settings PUT round trip — reload and the toggle is still 'on', the way settings.spec.ts asserts persistence); (4) set 'off' → the overlay hides. Screenshot `.ralph/screenshots/TASK-94-1.png` showing the ESC menu opened by touch on the touch layout. Then `cd app && npx tsc --noEmit`, full `npm run test` green, and the new spec green.",
+      "pass": true
+    }
+  ],
+  "acceptanceCriteria": [
+    "Settings gains a persisted `touchControls: 'auto'|'on'|'off'` (default 'auto'); the PUT schema accepts the enum and rejects invalid values; the persistence round trip (TASK-55 AC) still passes",
+    "A pure touchEnabledFor(choice, nav) resolves on/off/auto (auto = maxTouchPoints > 0) and is unit-tested; the touch overlay renders only when enabled, and on a desktop default ('auto', no touch) it is absent with the merged set equal to the keyboard set",
+    "A touch MENU button opens the SAME ESC menu stack the Esc key opens (extracted shared function); the chart/warp, ships, chat and settings are reachable by touch from it",
+    "touch-menu.spec.ts (touch-emulated) asserts overlay presence/absence by enablement, MENU→chart→warp, and the 'on'/'off' toggle persistence across reload; npx tsc --noEmit green; full npm run test green; one commit"
+  ],
+  "dependencies": ["TASK-91", "TASK-55", "TASK-53", "TASK-59", "TASK-8"],
+  "estimatedComplexity": "high",
+  "notes": [
+    "The enablement default is 'auto' = maxTouchPoints > 0 — reuse the existing NavProfileHints/detectProfile surface in @shared/perf, do not invent a new detection. The overlay must render NOTHING when disabled (TASK-91's `enabled` gate) so a desktop with the toggle off is byte-for-byte the keyboard path.",
+    "EXTRACT the Esc open/pop into one function so the key and the MENU button call the same code — do not duplicate the menu-stack logic.",
+    "Settings are persisted PER-PLAYER via GET/PUT /api/players/settings (TASK-55), not localStorage — extend that model + its zod schema, and keep the persistence round-trip test green.",
+    "The menu surfaces (chart, ships, chat, settings) are already DOM/React and pointer-tappable; the only touch work needed here is the button that OPENS the stack. Do not restyle the existing menus beyond what touch needs (hit targets).",
+    "Respect the mobile safe-area + theme tokens. Do not commit pre-existing dirty screenshots. Conventional commit: feat(TASK-94): ..."
+  ]
+}

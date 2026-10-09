@@ -16,7 +16,7 @@
  */
 import { z } from 'zod';
 import type { ShipInput } from './physics/flight';
-import type { DeviceProfileChoice } from './perf';
+import type { DeviceProfileChoice, NavProfileHints } from './perf';
 
 // --- Setting identity (TASK-54 contract — never string literals) -----------
 
@@ -115,6 +115,15 @@ export function lodRadiiFor(preset: QualityPreset): {
 
 export const DEVICE_PROFILE_CHOICES = ['auto', 'desktop', 'mobile'] as const;
 
+/**
+ * The touch-controls enablement choice (TASK-94): 'auto' = the device
+ * detection (maxTouchPoints > 0, the TASK-59 surface), 'on'/'off' = a
+ * manual override from the settings panel. Persisted per-player.
+ */
+export type TouchControlsChoice = 'auto' | 'on' | 'off';
+
+export const TOUCH_CONTROLS_CHOICES: readonly TouchControlsChoice[] = ['auto', 'on', 'off'];
+
 export interface Settings {
   /** Quality preset (drives the pipeline params above). Default 'high'. */
   quality: QualityPreset;
@@ -128,6 +137,8 @@ export interface Settings {
   sensitivity: number;
   /** Reduced motion (TASK-54). Default off. */
   [SETTING_KEYS.reducedMotion]: boolean;
+  /** Touch-controls enablement (TASK-94). Default 'auto' (= touch-capable). */
+  touchControls: TouchControlsChoice;
 }
 
 /** Factory defaults (v1: high quality, 1.0 sensitivity, reduced motion OFF). */
@@ -136,7 +147,21 @@ export const DEFAULT_SETTINGS: Settings = {
   deviceProfile: 'auto',
   sensitivity: 1.0,
   [SETTING_KEYS.reducedMotion]: false,
+  touchControls: 'auto',
 };
+
+/**
+ * Resolve the touch-controls enablement (TASK-94, pure — unit-tested with
+ * fake navigator values): 'on' → true, 'off' → false, 'auto' → the device
+ * is touch-capable (maxTouchPoints > 0 — the TASK-59 detection surface,
+ * not a new one). When this is false the whole touch overlay renders
+ * nothing and the merged pressed set is exactly the keyboard set.
+ */
+export function touchEnabledFor(choice: TouchControlsChoice, nav: NavProfileHints): boolean {
+  if (choice === 'on') return true;
+  if (choice === 'off') return false;
+  return (nav.maxTouchPoints ?? 0) > 0;
+}
 
 /** Sensitivity bounds (the slider range; the PUT endpoint clamps to it). */
 export const SENSITIVITY_MIN = 0.5;
@@ -183,6 +208,9 @@ export function normalizeSettings(raw: unknown): Settings {
       typeof o[SETTING_KEYS.reducedMotion] === 'boolean'
         ? (o[SETTING_KEYS.reducedMotion] as boolean)
         : DEFAULT_SETTINGS[SETTING_KEYS.reducedMotion],
+    touchControls: TOUCH_CONTROLS_CHOICES.includes(o.touchControls as TouchControlsChoice)
+      ? (o.touchControls as TouchControlsChoice)
+      : DEFAULT_SETTINGS.touchControls,
   };
 }
 
@@ -223,6 +251,7 @@ export const SettingsUpdateSchema = z
     deviceProfile: z.enum(['auto', 'desktop', 'mobile']).optional(),
     sensitivity: z.number().finite().optional(),
     [SETTING_KEYS.reducedMotion]: z.boolean().optional(),
+    touchControls: z.enum(['auto', 'on', 'off']).optional(),
   })
   .strict();
 
@@ -237,5 +266,6 @@ export function applySettingsUpdate(stored: Settings, update: SettingsUpdate): S
       update.sensitivity !== undefined ? clampSensitivity(update.sensitivity) : stored.sensitivity,
     [SETTING_KEYS.reducedMotion]:
       update[SETTING_KEYS.reducedMotion] ?? stored[SETTING_KEYS.reducedMotion],
+    touchControls: update.touchControls ?? stored.touchControls,
   };
 }

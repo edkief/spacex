@@ -83,6 +83,7 @@ describe('GET /api/players/settings (TASK-55)', () => {
       sensitivity: 1,
       'reduced-motion': false,
       deviceProfile: 'auto',
+      touchControls: 'auto',
     });
   });
 
@@ -103,6 +104,7 @@ describe('PUT /api/players/settings (TASK-55)', () => {
       sensitivity: 1,
       'reduced-motion': false,
       deviceProfile: 'auto',
+      touchControls: 'auto',
     });
     // The merge is cumulative: a later partial keeps the earlier field.
     const res2 = await put(token, { 'reduced-motion': true });
@@ -111,6 +113,7 @@ describe('PUT /api/players/settings (TASK-55)', () => {
       sensitivity: 1,
       'reduced-motion': true,
       deviceProfile: 'auto',
+      touchControls: 'auto',
     });
   });
 
@@ -134,6 +137,17 @@ describe('PUT /api/players/settings (TASK-55)', () => {
     expect((await put(token, { sensitivity: 5 })).json().sensitivity).toBe(2);
     expect((await put(token, { sensitivity: -1 })).json().sensitivity).toBe(0.5);
   });
+
+  it('touchControls: the enum round-trips; an invalid value is a 400 (TASK-94)', async () => {
+    const token = await claim('Juliet-8');
+    expect((await put(token, { touchControls: 'on' })).statusCode).toBe(200);
+    expect((await get(token)).json().touchControls).toBe('on');
+    expect((await put(token, { touchControls: 'off' })).statusCode).toBe(200);
+    expect((await get(token)).json().touchControls).toBe('off');
+    expect((await put(token, { touchControls: 'always' })).statusCode).toBe(400);
+    // The bad write never landed (still 'off').
+    expect((await get(token)).json().touchControls).toBe('off');
+  });
 });
 
 describe('persistence round trip (TASK-55)', () => {
@@ -154,6 +168,7 @@ describe('persistence round trip (TASK-55)', () => {
       sensitivity: 0.7,
       'reduced-motion': false,
       deviceProfile: 'auto',
+      touchControls: 'auto',
     });
     // And the direct GET agrees.
     expect((await get(token)).json()).toEqual({
@@ -161,6 +176,7 @@ describe('persistence round trip (TASK-55)', () => {
       sensitivity: 0.7,
       'reduced-motion': false,
       deviceProfile: 'auto',
+      touchControls: 'auto',
     });
   });
 
@@ -176,6 +192,7 @@ describe('persistence round trip (TASK-55)', () => {
       sensitivity: 1,
       'reduced-motion': false,
       deviceProfile: 'auto',
+      touchControls: 'auto',
     });
   });
 });

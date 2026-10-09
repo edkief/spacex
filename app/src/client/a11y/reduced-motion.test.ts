@@ -14,6 +14,7 @@ import {
   setDeviceProfile,
   setDetectedProfile,
   setSetting,
+  setTouchControls,
   settingsState,
   settingsSubscribe,
 } from './reduced-motion';
@@ -198,10 +199,24 @@ describe('device profile (TASK-59): detection, override, user-change bus', () =>
       deviceProfile: 'mobile',
       sensitivity: 1,
       'reduced-motion': false,
+      touchControls: 'auto',
     });
     off();
     expect(changes).toEqual([]); // no re-entry warp from the boot restore
     expect(settingsState().deviceProfile).toBe('mobile');
     expect(effectiveProfileKey()).toBe('mobile');
+  });
+
+  it('setTouchControls updates the store (TASK-94) and re-resolves on change', () => {
+    expect(settingsState().touchControls).toBe('auto');
+    setTouchControls('on');
+    expect(settingsState().touchControls).toBe('on');
+    const seen: string[] = [];
+    const off = settingsSubscribe((s) => seen.push(s.touchControls));
+    setTouchControls('off');
+    setTouchControls('off'); // unchanged → no second notify
+    off();
+    expect(seen).toEqual(['off']);
+    expect(settingsState().touchControls).toBe('off');
   });
 });

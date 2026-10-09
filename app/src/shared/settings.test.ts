@@ -17,6 +17,7 @@ import {
   SENSITIVITY_MAX,
   SENSITIVITY_MIN,
   SettingsUpdateSchema,
+  touchEnabledFor,
 } from '@shared/settings';
 
 describe('PRESETS (the spec table)', () => {
@@ -109,6 +110,7 @@ describe('normalizeSettings (the untrusted players.settings JSON)', () => {
       deviceProfile: 'auto',
       sensitivity: 0.5,
       'reduced-motion': true,
+      touchControls: 'auto',
     };
     expect(normalizeSettings(row)).toEqual(row);
   });
@@ -140,12 +142,14 @@ describe('PUT boundary (SettingsUpdateSchema)', () => {
       deviceProfile: 'auto' as const,
       sensitivity: 1,
       'reduced-motion': false,
+      touchControls: 'auto' as const,
     } as const;
     expect(applySettingsUpdate(stored, { quality: 'low' })).toEqual({
       quality: 'low',
       deviceProfile: 'auto',
       sensitivity: 1,
       'reduced-motion': false,
+      touchControls: 'auto',
     });
     expect(applySettingsUpdate(stored, { sensitivity: 4 }).sensitivity).toBe(2);
     expect(applySettingsUpdate(stored, { 'reduced-motion': true })['reduced-motion']).toBe(true);
@@ -164,5 +168,49 @@ describe('PUT boundary (SettingsUpdateSchema)', () => {
     expect(
       applySettingsUpdate({ ...DEFAULT_SETTINGS, deviceProfile: 'mobile' }, {}).deviceProfile,
     ).toBe('mobile');
+  });
+
+  it('touchControls: schema + normalize + update (TASK-94)', () => {
+    // The schema accepts the enum and rejects anything else (the 400).
+    for (const c of ['auto', 'on', 'off']) {
+      expect(SettingsUpdateSchema.safeParse({ touchControls: c }).success).toBe(true);
+    }
+    expect(SettingsUpdateSchema.safeParse({ touchControls: 'always' }).success).toBe(false);
+    expect(SettingsUpdateSchema.safeParse({ touchControls: 1 }).success).toBe(false);
+    // Normalize: missing/invalid → 'auto' (an old row without the field boots fine).
+    expect(normalizeSettings(undefined).touchControls).toBe('auto');
+    expect(normalizeSettings({ touchControls: 'on' }).touchControls).toBe('on');
+    expect(normalizeSettings({ touchControls: 'bogus' }).touchControls).toBe('auto');
+    expect(normalizeSettings('{"touchControls":"off"}').touchControls).toBe('off');
+    // applySettingsUpdate: partials merge, absent keys keep the stored value.
+    expect(
+      applySettingsUpdate({ ...DEFAULT_SETTINGS }, { touchControls: 'on' }).touchControls,
+    ).toBe('on');
+    expect(
+      applySettingsUpdate({ ...DEFAULT_SETTINGS, touchControls: 'off' }, {}).touchControls,
+    ).toBe('off');
+  });
+});
+
+describe('touchEnabledFor (the TASK-94 resolver, fake navigator values)', () => {
+  it("'on' is always enabled (even on a desktop)", () => {
+    expect(touchEnabledFor('on', { maxTouchPoints: 0 })).toBe(true);
+    expect(touchEnabledFor('on', {})).toBe(true);
+  });
+
+  it("'off' is always disabled (even on a touch device)", () => {
+    expect(touchEnabledFor('off', { maxTouchPoints: 5 })).toBe(false);
+  });
+
+  it("'auto' follows the device: maxTouchPoints > 0 → on", () => {
+    expect(touchEnabledFor('auto', { maxTouchPoints: 1 })).toBe(true);
+    expect(touchEnabledFor('auto', { maxTouchPoints: 5, deviceMemory: 8 })).toBe(true);
+    expect(touchEnabledFor('auto', { maxTouchPoints: 0 })).toBe(false);
+    expect(touchEnabledFor('auto', {})).toBe(false);
+  });
+
+  it('other hints (deviceMemory / hardwareConcurrency) never override the choice', () => {
+    expect(touchEnabledFor('on', { maxTouchPoints: 0, deviceMemory: 64 })).toBe(true);
+    expect(touchEnabledFor('off', { maxTouchPoints: 10, deviceMemory: 2 })).toBe(false);
   });
 });

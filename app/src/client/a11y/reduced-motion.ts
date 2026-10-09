@@ -15,6 +15,7 @@ import {
   type QualityPreset,
   type Settings,
   type SettingKey,
+  type TouchControlsChoice,
 } from '@shared/settings';
 import {
   perfProfileFor,
@@ -79,6 +80,16 @@ export function setSensitivity(value: number): void {
   const v = clampSensitivity(value);
   if (current.sensitivity === v) return;
   commit({ ...current, sensitivity: v });
+}
+
+/**
+ * TASK-94: set the touch-controls enablement (Auto/On/Off, live — the main
+ * app re-resolves touchEnabledFor on every settings change and the
+ * TouchControls overlay renders/unmounts immediately).
+ */
+export function setTouchControls(choice: TouchControlsChoice): void {
+  if (current.touchControls === choice) return;
+  commit({ ...current, touchControls: choice });
 }
 
 /** TASK-59: record the boot detection result (called once at app start). */
@@ -148,6 +159,11 @@ export function applySettings(s: Settings): void {
   if (current.sensitivity !== next.sensitivity) commit(next);
   const rm = s['reduced-motion'];
   if (current['reduced-motion'] !== rm) commit({ ...current, 'reduced-motion': rm });
+  // TASK-94: a restored touchControls row re-resolves the overlay gate
+  // (the main app subscribes to the store, so this is the only write needed).
+  if (current.touchControls !== s.touchControls) {
+    commit({ ...current, touchControls: s.touchControls });
+  }
 }
 
 /** Subscribe to settings changes; returns unsubscribe. */

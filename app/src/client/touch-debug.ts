@@ -52,6 +52,8 @@ export interface TouchDebugState {
   interactRelease: () => void;
   /** TASK-93: drop one unit of the held resource (the Q path; no-op before binding). */
   drop: () => void;
+  /** TASK-94: the MENU button's action (the shared Esc open/pop; no-op before binding). */
+  openMenu: () => void;
 }
 
 /** The combat bridge main.tsx binds (the shared fire/select/lock paths). */
@@ -69,6 +71,12 @@ export interface TouchOnFootBridge {
   drop: () => void;
 }
 
+/**
+ * The live menu action main.tsx binds (TASK-94: the SAME open/pop the Esc
+ * key calls — main.tsx's menuKeyActionRef).
+ */
+type TouchMenuAction = () => void;
+
 declare global {
   interface Window {
     __TOUCH__?: TouchDebugState;
@@ -81,6 +89,8 @@ let boundSource: (() => TouchInputSource | null) | null = null;
 let boundCombat: (() => TouchCombatBridge) | null = null;
 /** The live on-foot bridge (bound by main.tsx once the refs exist). */
 let boundOnFoot: (() => TouchOnFootBridge) | null = null;
+/** The live menu action (bound by main.tsx once the ref exists). */
+let boundMenu: TouchMenuAction | null = null;
 
 /** Install the hook (DEV builds only); returns the live record to use. */
 export function installTouchDebug(): TouchDebugState | null {
@@ -103,6 +113,7 @@ export function installTouchDebug(): TouchDebugState | null {
     interactPress: () => boundOnFoot?.().interactPress(),
     interactRelease: () => boundOnFoot?.().interactRelease(),
     drop: () => boundOnFoot?.().drop(),
+    openMenu: () => boundMenu?.(),
   };
   window.__TOUCH__ = state;
   return state;
@@ -133,4 +144,10 @@ export function bindTouchOnFoot(
 ): void {
   if (!state) return; // production build — nothing to bind
   boundOnFoot = getOnFoot;
+}
+
+/** Bind the live menu action (main.tsx passes its menuKeyActionRef getter). */
+export function bindTouchMenu(state: TouchDebugState | null, getMenu: TouchMenuAction): void {
+  if (!state) return; // production build — nothing to bind
+  boundMenu = getMenu;
 }

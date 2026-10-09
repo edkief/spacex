@@ -39,9 +39,16 @@
  * the outgoing layout mid-press (the removed element's onRelease never
  * fires), so the flip clears the channels it would otherwise leave held.
  *
- * When `enabled` is false (the feature is off — TASK-94's flag; v1 gates on
- * a touch-capable device) the container renders nothing and the channels
- * stay empty: the merge in TASK-89 is a no-op.
+ * When `enabled` is false (the feature is off — TASK-94's flag, resolved
+ * from the persisted touchControls setting: 'auto' = a touch-capable
+ * device, 'on'/'off' = the manual choice) the container renders nothing
+ * and the channels stay empty: the merge in TASK-89 is a no-op.
+ *
+ * TASK-94 adds the MENU button in BOTH layouts (top-right, clear of every
+ * stick + HUD): its onPress calls the SAME open/pop function the Esc key
+ * uses (the shared menuKeyAction, main.tsx), so the ESC menu stack — and
+ * from it the star chart / warp, ship panel, chat and settings — is
+ * reachable by touch. No onMenu → the button renders nothing.
  */
 import React from 'react';
 
@@ -81,6 +88,10 @@ export interface TouchControlsProps {
   onInteractRelease?: () => void;
   /** Drop one unit of the held resource (the shared Q-down path, on foot only). */
   onDrop?: () => void;
+  // TASK-94: the MENU button (visible in every in-game regime) — the SAME
+  // open/pop function the Esc key calls (main.tsx's menuKeyAction).
+  /** Open the ESC menu / pop the top surface (the shared Esc path). */
+  onMenu?: () => void;
 }
 
 /** Corner inset from the screen edge (on top of the safe-area inset). */
@@ -103,6 +114,7 @@ export function TouchControls({
   onInteractPress,
   onInteractRelease,
   onDrop,
+  onMenu,
 }: TouchControlsProps): React.ReactElement | null {
   // TASK-92: the FIRE button's controlled held state (visual only — the
   // press is one-shot, matching the one-shot-per-click canvas LMB).
@@ -154,6 +166,23 @@ export function TouchControls({
   }, [onFootActive, onInteractRelease]);
 
   if (!enabled) return null;
+  /**
+   * TASK-94: the MENU button — top-right, clear of the sticks (bottom
+   * corners), the ship HUD / player list (left edge) and the on-foot HUD
+   * (bottom-right). The SAME open/pop the Esc key calls.
+   */
+  const menuButton = onMenu ? (
+    <div
+      id="touch-btn-menu"
+      style={{
+        ...side,
+        right: `calc(${CORNER}px + env(safe-area-inset-right, 0px))`,
+        top: `calc(${CORNER}px + env(safe-area-inset-top, 0px))`,
+      }}
+    >
+      <TouchButton label="MENU" onPress={() => onMenu()} onRelease={() => {}} />
+    </div>
+  ) : null;
   if (regime === 'surface') {
     if (!onFoot) return null; // a docked/landed ship owns no on-foot layout
     const onMove = (v: TouchVector): void => source.setChannel({ thrust: v.y, yaw: v.x });
@@ -163,6 +192,7 @@ export function TouchControls({
         aria-label="Touch controls"
         style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 80 }}
       >
+        {menuButton}
         {/* MOVE stick — forward/back (thrust) + turn (yaw), bottom-left,
             the SAME virtual keys the on-foot loop reads. */}
         <div
@@ -255,6 +285,7 @@ export function TouchControls({
       aria-label="Touch controls"
       style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 80 }}
     >
+      {menuButton}
       {/* LEFT stick — thrust + yaw (the throttle). */}
       <div
         id="touch-stick-left"
