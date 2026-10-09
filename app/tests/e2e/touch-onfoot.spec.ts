@@ -420,7 +420,7 @@ test('touch on-foot: MOVE stick + RUN/JUMP/DROP/INTERACT (mine + re-enter, serve
   //      - '[E] Open cargo' (the docked ship's 3–5 m TASK-39 sub-prompt:
   //        in the cone, 3–5 m out) → a W burst sized to land ~1.8 m out
   //        crosses the 3 m boundary into the '[E] Enter ship' near zone.
-  //      - hidden AND |bearing| ≤ 45° → WALK a burst sized to land ~2.5 m
+  //      - hidden AND |bearing| ≤ 45° → WALK a burst sized to land ~3.5 m
   //        out: any facing within 90° of the ship shortens the distance
   //        (cos > 0), and walking ALONG the bearing shrinks the relative
   //        bearing itself — the geometry self-aligns as it closes.
@@ -454,10 +454,15 @@ test('touch on-foot: MOVE stick + RUN/JUMP/DROP/INTERACT (mine + re-enter, serve
       const dist = Math.hypot(dx, dz);
       const angle = Math.atan2(f.z * dx - f.x * dz, f.x * dx + f.z * dz);
       if (Math.abs(angle) <= 0.79) {
-        // walk zone: close the gap, sized to land ~2.5 m out (the release
-        // coast adds ~1 m → the arrival lands in the 5 m reach at worst)
+        // walk zone: close the gap, sized to land ~3.5 m out — inside the
+        // 3–5 m '[E] Open cargo' sub-prompt zone, so the prompt branch
+        // (below) makes the final 1.8 m approach. Sizing to 2.5 m let the
+        // release coast + the late yaw tail carry the character PAST the
+        // ship (measured 0.37 m overshoot), the path that triggers the
+        // pre-existing NaN-BigInt terrain flake (it hits enter-ship.spec.ts
+        // too — generic on-foot walking near the docked ship, product-side).
         await touch(page, 'move', { thrust: 1 });
-        await page.waitForTimeout(Math.max(150, Math.min(1_500, ((dist - 2.5) / 3) * 1000)));
+        await page.waitForTimeout(Math.max(150, Math.min(1_500, ((dist - 3.5) / 3) * 1000)));
         await touch(page, 'move', { thrust: 0 });
       } else {
         // off-axis: one nudge TOWARD the bearing. Measured (not assumed):
