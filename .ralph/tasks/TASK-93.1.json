@@ -20,7 +20,7 @@
       "step": 3,
       "description": "Spec green + screenshot + commit",
       "details": "`cd app && npx playwright test touch-onfoot.spec.ts --config playwright.e2e.config.ts --reporter=line` FULLY GREEN: all 4 legs (1 layout: on-foot TouchControls visible + flight sticks/combat cluster absent; 2a MOVE thrust ≥ 4 m server-side + on the pad plane; 2b yaw burst turns the nose; 3 MINE: interrupted hold awards nothing + full hold awards 1/40u; 4 RE-ENTER: '[E] Enter ship' prompt holds, interactPress() re-enters, docked HUD stubs return, on-foot layout gone) AND zero console/page errors (assertClean). The spec itself writes `.ralph/screenshots/TASK-93-1.png` (it exists untracked from iteration 8's partial run — the green run rewrites it); verify it shows the on-foot touch layout with the interact prompt up. Remove ALL temporary probes: `git diff app/src app/tests/e2e/fixtures.ts` must be EMPTY and the spec diff must be clean code (no listeners/probes/logs). `cd app && npx tsc --noEmit` green. Commit ONLY the task files: spec + the rewritten screenshot — `wip(TASK-93): touch-onfoot e2e green — leg-4 NaN-BigInt fixed (steering geometry, spec-side)`. Exclude every pre-existing dirty file (see notes).",
-      "pass": false
+      "pass": true
     }
   ],
   "acceptanceCriteria": [

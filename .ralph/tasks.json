@@ -821,7 +821,7 @@
     "title": "Touch on-foot: fix the NaN-BigInt terrain error, get touch-onfoot.spec.ts fully green",
     "category": "ui",
     "specFilePath": ".ralph/tasks/TASK-93.1.json",
-    "passes": false,
+    "passes": true,
     "splitFrom": "TASK-93",
     "splitDepth": 1
   },
