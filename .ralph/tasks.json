@@ -801,7 +801,7 @@
     "title": "Wire touch into flight (space + atmosphere): sticks + VTOL/boost",
     "category": "ui",
     "specFilePath": ".ralph/tasks/TASK-91.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-92",
