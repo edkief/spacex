@@ -405,42 +405,72 @@ test('touch on-foot: MOVE stick + RUN/JUMP/DROP/INTERACT (mine + re-enter, serve
   await expect(prompt).toBeHidden({ timeout: 10_000 });
 
   // (4) RE-ENTER: steer BACK to the ship (docked at the pad — its position
-  //     is known server-side), then the enter-ship.spec prompt-as-sensor
+  //     is known server-side), then the enter-ship.spec PROMPT-AS-SENSOR
   //     approach until '[E] Enter ship' holds. A blind S walk can't work:
   //     the mining leg left the facing yawed ~69° off the walked line, so
   //     backward drift parks the character metres off the return line.
-  //     The loop computes the signed bearing to the ship: aligned (|angle|
-  //     < 0.4 rad) → a W burst sized to land in the near zone; otherwise a
-  //     yaw nudge toward the bearing. The prompt is the arrival sensor.
+  //     Steering granularity on this page: a 100 ms yaw burst RELEASES
+  //     late (the software-GL main thread queues the rAF read — the
+  //     enter-ship.spec TURN-step comment), so each nudge turns ~70°
+  //     regardless of the burst length. A sign-chase ("nudge toward the
+  //     signed bearing") therefore PING-PONGS (residue oscillates ±40°
+  //     and never lands in the 20° alignment cone). The loop instead
+  //     treats the FACING as a tool, not a target — every pass (read at
+  //     REST; the 400 ms rest + charSettled() absorb the release tails):
+  //      - '[E] Open cargo' (the docked ship's 3–5 m TASK-39 sub-prompt:
+  //        in the cone, 3–5 m out) → a W burst sized to land ~1.8 m out
+  //        crosses the 3 m boundary into the '[E] Enter ship' near zone.
+  //      - hidden AND |bearing| ≤ 45° → WALK a burst sized to land ~2.5 m
+  //        out: any facing within 90° of the ship shortens the distance
+  //        (cos > 0), and walking ALONG the bearing shrinks the relative
+  //        bearing itself — the geometry self-aligns as it closes.
+  //      - hidden AND |bearing| > 45° → one yaw nudge toward the SIGNED
+  //        bearing (recomputed from __CHAR__.rot each pass): the residue
+  //        after ANY nudge is ≤ ~70°, so at most two nudges bring the
+  //        facing into the walk zone from the worst case (180°).
   const promptText = async (): Promise<string | null> =>
     prompt
       .isVisible()
       .then((v) => (v ? prompt.textContent() : null))
       .catch(() => null);
   const shipPos = { x: target.pad.x, z: target.pad.z };
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 60; i++) {
     const text = await promptText();
     if (text === '[E] Enter ship') break;
-    const p = await charPos(page);
-    const f = await charForward(page);
-    const dx = shipPos.x - p.x;
-    const dz = shipPos.z - p.z;
-    const dist = Math.hypot(dx, dz);
-    // Signed angle from the facing toward the ship: atan2(cross, dot) with
-    // cross_y > 0 = the ship is to the character's RIGHT (yaw +1 turns right).
-    const angle = Math.atan2(f.z * dx - f.x * dz, f.x * dx + f.z * dz);
-    if (Math.abs(angle) < 0.4 && dist > 3.2) {
-      // aligned: walk forward, sized to land in the 3 m near zone
+    if (text === '[E] Open cargo') {
+      const p2 = await charPos(page);
+      const d2 = Math.hypot(shipPos.x - p2.x, shipPos.z - p2.z);
       await touch(page, 'move', { thrust: 1 });
-      await page.waitForTimeout(Math.min(2_000, Math.max(200, ((dist - 3.2) / 3) * 1000)));
+      await page.waitForTimeout(Math.max(150, Math.min(1_500, ((d2 - 1.8) / 3) * 1000)));
       await touch(page, 'move', { thrust: 0 });
     } else {
-      // not aligned: nudge toward the ship's bearing (~8° per 150 ms)
-      const dir = angle > 0 ? 1 : -1;
-      await touch(page, 'move', { yaw: dir });
-      await page.waitForTimeout(150);
-      await touch(page, 'move', { yaw: 0 });
+      // Hidden: the signed bearing from the facing toward the ship
+      // (atan2(cross, dot); cross_y > 0 = the ship is to the character's
+      // RIGHT — yaw +1 → 'd').
+      const p = await charPos(page);
+      const f = await charForward(page);
+      const dx = shipPos.x - p.x;
+      const dz = shipPos.z - p.z;
+      const dist = Math.hypot(dx, dz);
+      const angle = Math.atan2(f.z * dx - f.x * dz, f.x * dx + f.z * dz);
+      if (Math.abs(angle) <= 0.79) {
+        // walk zone: close the gap, sized to land ~2.5 m out (the release
+        // coast adds ~1 m → the arrival lands in the 5 m reach at worst)
+        await touch(page, 'move', { thrust: 1 });
+        await page.waitForTimeout(Math.max(150, Math.min(1_500, ((dist - 2.5) / 3) * 1000)));
+        await touch(page, 'move', { thrust: 0 });
+      } else {
+        // off-axis: one nudge TOWARD the bearing. Measured (not assumed):
+        // on this page a yaw +1 burst moves the bearing angle toward +
+        // (the atan2 cross term grows), so the correction is the OPPOSITE
+        // sign — chasing the sign makes the loop spin in place forever.
+        const dir = angle > 0 ? -1 : 1;
+        await touch(page, 'move', { yaw: dir });
+        await page.waitForTimeout(100);
+        await touch(page, 'move', { yaw: 0 });
+      }
     }
+    await page.waitForTimeout(400); // rest: absorb the release-event tail
     await charSettled(page);
   }
   await expect(prompt).toHaveText('[E] Enter ship', { timeout: 15_000 });
