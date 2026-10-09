@@ -134,6 +134,39 @@ describe('CharacterPredictor: reconciliation', () => {
     expect(p.getQueue()).toEqual([]);
   });
 
+  it('a non-finite reconcile result (NaN quat) is never written — predicted state holds (TASK-96)', () => {
+    const p = makePredictor();
+    for (let i = 0; i < 30; i++)
+      p.step(FRAME_DT, i * FRAME_MS, i === 0 ? { seq: 1, input: WALK } : undefined);
+    const before = p.getState();
+    // A NaN server quat makes correctionAngle NaN (not < threshold) → rewind,
+    // and the reconciled state carries the NaN quat into the write.
+    const server = restCharacterState({ x: 0, y: 0, z: 0 });
+    server.quat = { x: NaN, y: NaN, z: NaN, w: NaN };
+    const result = p.reconcile(server, 1, 30 * FRAME_MS);
+    expect(result.mode).toBe('rewind');
+    // The guard skipped the write: getState() is the same pre-reconcile state.
+    expect(p.getState()).toBe(before);
+  });
+
+  it('a BLEND reconcile with a non-finite blended state is never written (TASK-96)', () => {
+    const p = makePredictor();
+    for (let i = 0; i < 30; i++)
+      p.step(FRAME_DT, i * FRAME_MS, i === 0 ? { seq: 1, input: WALK } : undefined);
+    const before = p.getState();
+    // Server pos/quat finite and close → mode is blend; a NaN vel in the
+    // snapshot makes the blended vel NaN (vel does not feed the mode check).
+    const server: CharacterState = {
+      pos: { ...before.pos },
+      vel: { x: NaN, y: NaN, z: NaN },
+      onGround: true,
+      quat: { ...before.quat },
+    };
+    const result = p.reconcile(server, 1, 30 * FRAME_MS);
+    expect(result.mode).toBe('blend');
+    expect(p.getState()).toBe(before);
+  });
+
   it('queue cap: inputs older than 10 s are dropped → forced snap', () => {
     const p = makePredictor();
     p.step(FRAME_DT, 0, { seq: 1, input: WALK });

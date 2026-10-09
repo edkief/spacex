@@ -194,6 +194,25 @@ describe('quatSlerp / quatAngleBetween (TASK-14 interpolation + reconciliation)'
     expect(quatAngleBetween(mid, yaw(0.100005))).toBeLessThan(1e-6);
   });
 
+  it('slerp stays finite when the dot rounds above 1 (unclamped-acos regression, TASK-96)', () => {
+    // The on-foot BLEND reconcile slerps near-identical quats; float rounding
+    // pushed their dot to 1.0000000001 → acos(NaN) → NaN quat → the NaN-BigInt
+    // terrain page error. q2 scales q so dot(q, q2) = 1.0000000001 > 1.
+    const q = quatNormalize(quat(0.1, 0.2, 0.3, 1));
+    const q2 = {
+      x: q.x * 1.0000000001,
+      y: q.y * 1.0000000001,
+      z: q.z * 1.0000000001,
+      w: q.w * 1.0000000001,
+    };
+    expect(q.x * q2.x + q.y * q2.y + q.z * q2.z + q.w * q2.w).toBeGreaterThan(1);
+    const mid = quatSlerp(q, q2, 0.5);
+    for (const c of [mid.x, mid.y, mid.z, mid.w]) {
+      expect(Number.isFinite(c)).toBe(true);
+    }
+    expect(quatLength(mid)).toBeCloseTo(1, 12);
+  });
+
   it('quatAngleBetween: identity 0, opposite π, antipodal 0', () => {
     expect(quatAngleBetween(quatIdentity(), quatIdentity())).toBeCloseTo(0, 12);
     expect(quatAngleBetween(quatIdentity(), yaw(Math.PI))).toBeCloseTo(Math.PI, 12);

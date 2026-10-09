@@ -130,6 +130,21 @@ function replayOnServerTimeline(
   return s;
 }
 
+/**
+ * TASK-96: a state the predictor may adopt (mirrors ClientShipPredictor's
+ * TASK-76.1 rule, extended to vel because the character blend lerps it). A
+ * single non-finite channel (e.g. a NaN quat from a slerp that hit an
+ * unclamped dot) must never be written: the next step re-derives a NaN
+ * forward vector from it, which poisons the on-foot terrain feed
+ * (heightAt → generateSurfaceChunk → BigInt RangeError).
+ */
+function stateFinite(s: CharacterState): boolean {
+  const p = s.pos;
+  const v = s.vel;
+  const q = s.quat;
+  return Number.isFinite(p.x + p.y + p.z + v.x + v.y + v.z + q.x + q.y + q.z + q.w);
+}
+
 /** Blend one state toward another (position/velocity lerped, yaw slerped). */
 function lerpState(a: CharacterState, b: CharacterState, t: number): CharacterState {
   return {
@@ -226,8 +241,14 @@ export class CharacterPredictor {
     }
     this.queueCapped = false;
 
-    this.predicted =
+    const next =
       mode === 'blend' ? lerpState(this.predicted, reconciled, BLEND_FACTOR) : reconciled;
+    // TASK-96: no-poison rule (same as the ship predictor's TASK-76.1) — a
+    // non-finite reconciled/blended result must never be written; the last
+    // finite predicted state holds until the next snapshot re-corrects it.
+    if (stateFinite(next)) {
+      this.predicted = next;
+    }
     return { mode, correctionDistance, correctionAngle, replayedInputs: unacked.length };
   }
 

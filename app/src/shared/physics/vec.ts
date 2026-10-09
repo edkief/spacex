@@ -175,7 +175,9 @@ export function quatSlerp(a: Quat, b: Quat, t: number): Quat {
   let dot = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
   const bb: Quat = dot < 0 ? { x: -b.x, y: -b.y, z: -b.z, w: -b.w } : b;
   if (dot < 0) dot = -dot;
-  const theta0 = Math.acos(dot);
+  // Clamp to [-1, 1]: near-identical unit quats can round their dot just
+  // above 1, and acos of that is NaN (same clamp quatAngleBetween applies).
+  const theta0 = Math.acos(Math.min(1, Math.max(-1, dot)));
   const s = Math.sin(theta0);
   if (s < 1e-12) {
     // Same rotation (the antipodal case was flipped above): no arc to walk.
