@@ -781,4 +781,54 @@
     "specFilePath": ".ralph/tasks/TASK-88.json",
     "passes": true
   }
+,
+  {
+    "id": "TASK-89",
+    "title": "Touch input core: virtual-key state merged into the shared pressed set",
+    "category": "ui",
+    "specFilePath": ".ralph/tasks/TASK-89.json",
+    "passes": true
+  },
+  {
+    "id": "TASK-90",
+    "title": "Touch UI components: joystick + button (pointer, deadzone, a11y)",
+    "category": "ui",
+    "specFilePath": ".ralph/tasks/TASK-90.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-91",
+    "title": "Wire touch into flight (space + atmosphere): sticks + VTOL/boost",
+    "category": "ui",
+    "specFilePath": ".ralph/tasks/TASK-91.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-92",
+    "title": "Touch combat: fire, weapon select, target lock",
+    "category": "ui",
+    "specFilePath": ".ralph/tasks/TASK-92.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-93",
+    "title": "Touch on-foot: move stick + run/jump/drop/interact",
+    "category": "ui",
+    "specFilePath": ".ralph/tasks/TASK-93.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-94",
+    "title": "Touch menu/nav access + Controls Auto/On/Off toggle",
+    "category": "ui",
+    "specFilePath": ".ralph/tasks/TASK-94.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-95",
+    "title": "Full touch loop e2e (SC-1 by touch) + controls docs",
+    "category": "docs",
+    "specFilePath": ".ralph/tasks/TASK-95.json",
+    "passes": false
+  }
 ]

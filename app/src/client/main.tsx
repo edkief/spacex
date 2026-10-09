@@ -154,6 +154,7 @@ import type {
 } from '@shared/protocol/schemas';
 import { inputToCharacterInput, shipInputToPayload } from '@shared/protocol/inputs';
 import { readSchemeInput } from '@client/input/controls';
+import { TouchInputSource, mergePressed } from '@client/input/touch';
 import {
   InputFrameSender,
   anyFlightDemand,
@@ -722,6 +723,17 @@ function App() {
   // loop (remapper.readInput) and the on-foot loop. Same rules: typing in
   // an input never captures, blur clears everything.
   const pressedRef = React.useRef<Set<string>>(new Set());
+  // TASK-89: touch channels synthesized as VIRTUAL KEYS — merged into the
+  // pressed set below. Nothing populates it yet (the joysticks/buttons land
+  // in TASK-90/91); with no channels active the merge is a no-op.
+  const touchRef = React.useRef<TouchInputSource>(new TouchInputSource());
+  /**
+   * TASK-89: the pressed set both prediction loops read — the keyboard keys
+   * merged with the touch virtual keys (a per-call union; the loops already
+   * run every frame). With touch disabled this is exactly the keyboard set.
+   */
+  const effectivePressed = (): Set<string> =>
+    mergePressed(pressedRef.current, touchRef.current.virtualKeys());
   // TASK-73: ONE monotonic input seq + 20 Hz cadence per connection, shared
   // by the ship and on-foot loops (the server drops stale seqs per
   // connection; a disembark/re-entry must never reset the counter).
@@ -1534,7 +1546,7 @@ function App() {
       const p = charPredictorRef.current;
       const world = worldRef.current;
       if (!p || !world) return;
-      const pressed = pressedRef.current;
+      const pressed = effectivePressed();
       const thrust = (pressed.has('w') ? 1 : 0) - (pressed.has('s') ? 1 : 0);
       // TASK-55: the sensitivity scales the LOOK demand (read LIVE off the
       // store each frame — the next input frame picks up a slider change).
@@ -1668,7 +1680,7 @@ function App() {
       const now = nowMs;
       const dt = Math.min(0.1, dtSec);
       const docked = wireDockedIndicator();
-      const pressed = effectiveFlightPressed(pressedRef.current, {
+      const pressed = effectiveFlightPressed(effectivePressed(), {
         chartOpen: chartOpenRef.current,
       });
       // TASK-55: sensitivity scales the flight LOOK channels (yaw/pitch/
