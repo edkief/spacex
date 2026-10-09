@@ -121,6 +121,9 @@ Excludes dotfiles, tests, and config.
 │       │   │       ├── nav-math.ts   # pure bearing math — bearingTo (3D relative vector rotated by ship yaw, nose = quat-rotated +Z flight-forward), thrustYawDeg, elevLiftPx (above/below component), speed/altitude/regime/distance formatting (m < 1 km, km ≥ 1 km, 1 decimal)
 │       │   │       ├── vitals-bar.tsx # VitalsBar (top-left under chat, 200 px slot) — shield (blue) over hull (amber), numeric % always shown, red flash = data-hit toggle for HIT_FLASH_MS (300 ms) after a self-targeted hit/destroyed combat_event
 │       │   │       └── layout.ts     # ship-HUD slot geometry (bottom-left block + top-left vitals slot), shared with the combat-HUD protectedRects layout test
+│       │   ├── touch/        # TASK-90: the reusable touch widgets (PRD §4.13, SC-6) — game-agnostic (no virtual-key logic; TASK-91-94 wire them): pure DOM + Pointer Events, theme tokens only
+│       │   │   ├── TouchJoystick.tsx # TouchJoystick — pointer gesture → normalized {x,y} in [-1,1] (x right-positive, y UP-positive), radius clamp + configurable deadzone (default 0.15) → {0,0}, setPointerCapture keeps off-element drags tracking, {0,0} + knob reset on release/cancel; role="slider" + aria-label + aria-valuetext, knob 60 ms transition gated by useReducedMotion; pure joystickVector() exported
+│       │   │   └── TouchButton.tsx   # TouchButton — pointerdown → onPress, pointerup/pointercancel → onRelease (long holds stay pressed); hit wrapper enforces the ≥ 44 px min touch target even for small visuals, aria-label + aria-pressed (when controlled), disabled is inert
 │       │   ├── hud/
 │       │   │   ├── player-list.tsx # TASK-15: bottom-left monospace callsign list + status dots, presence-event re-renders only
 │       │   │   ├── toast-stack.tsx # TASK-15: top-right join/leave toasts, 3 s fade, 3 visible + queue

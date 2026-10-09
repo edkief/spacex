@@ -794,7 +794,7 @@
     "title": "Touch UI components: joystick + button (pointer, deadzone, a11y)",
     "category": "ui",
     "specFilePath": ".ralph/tasks/TASK-90.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-91",
