@@ -124,12 +124,13 @@ import { installDriftDebug, reportServerSeed, reportWorldSwap } from '@client/dr
 import { installStreamDebug } from '@client/stream-debug';
 import { installCameraDebug } from '@client/camera/camera-debug';
 import { installAtmosphereDebug } from '@client/atmosphere-debug';
-import { bindTouchDebug, installTouchDebug } from '@client/touch-debug';
+import { bindTouchCombat, bindTouchDebug, installTouchDebug } from '@client/touch-debug';
 
 import {
   ingestCombatEvent,
   ingestTargetingEntities,
   onTargetingError,
+  targetingView,
   toggleTargetLock,
 } from '@client/state/targeting';
 import { playCombatFx, type CombatEvent } from '@client/fx';
@@ -1430,29 +1431,101 @@ function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // TASK-92: the SHARED combat paths — one function per intent, each called
+  // by BOTH its keyboard handler and the touch buttons (plus the touchDebug
+  // e2e bridge). The bodies read refs only, so the once-captured handlers
+  // never go stale; assigning `.current` every render keeps the closure
+  // fresh. The server stays authoritative: these send INTENTS only (the
+  // fire's aim-assist targetId, the weapon id, the lock/release) and the
+  // server re-derives range / cooldown / aim.
+  const fireWeaponRef = React.useRef<() => void>(() => {});
+  fireWeaponRef.current = () => {
+    if (anySurfaceOpen()) return; // TASK-53: any open surface is modal (ESC only)
+    if (!selfShipRef.current) return; // on foot / before the first self ship
+    // Aim assist: the nearest other ship within the active weapon's max
+    // engagement (800 u covers both weapons; the server re-checks range).
+    const self = selfPosRef.current;
+    let targetId: string | undefined;
+    if (self) {
+      let bestD = Infinity;
+      for (const t of remoteShipsRef.current) {
+        const d = Math.hypot(t.pos.x - self.x, t.pos.y - self.y, t.pos.z - self.z);
+        if (d < bestD) {
+          bestD = d;
+          targetId = t.id;
+        }
+      }
+      if (bestD > 800) targetId = undefined;
+    }
+    clientRef.current?.send('fire', {
+      weapon: weaponRef.current,
+      ...(targetId ? { targetId } : {}),
+    });
+  };
+  const selectWeaponRef = React.useRef<(w: WeaponId) => void>(() => {});
+  selectWeaponRef.current = (w: WeaponId) => {
+    if (anySurfaceOpen()) return; // TASK-53: any open surface is modal (ESC only)
+    setWeapon(w);
+    weaponRef.current = w;
+  };
+  const toggleTargetRef = React.useRef<() => void>(() => {});
+  toggleTargetRef.current = () => {
+    if (anySurfaceOpen()) return; // TASK-53: any open surface is modal (ESC only)
+    if (!selfShipRef.current) return;
+    const cmd = toggleTargetLock(Date.now());
+    if (!cmd) return;
+    if (cmd.type === 'lock') {
+      clientRef.current?.send('target_lock', { targetId: cmd.targetId });
+    } else {
+      clientRef.current?.send('target_release', {});
+    }
+  };
+  // Stable wrappers (created once) — the touch callbacks + the debug bridge
+  // capture THESE, and they delegate to the always-fresh refs above.
+  const fireWeapon = React.useCallback(() => fireWeaponRef.current(), []);
+  const selectWeapon = React.useCallback((w: WeaponId) => selectWeaponRef.current(w), []);
+  const toggleTarget = React.useCallback(() => toggleTargetRef.current(), []);
+  // TASK-92: the touchDebug combat bridge (window.__TOUCH__.fire / setWeapon
+  // / toggleTarget / state) — the deterministic e2e driver for the combat
+  // half, bound lazily over the refs so it is always live.
+  const touchCombatRef = React.useRef<{
+    fire: () => void;
+    setWeapon: (w: WeaponId) => void;
+    toggleTarget: () => void;
+    snapshot: () => { weapon: WeaponId; locked: boolean };
+  }>({
+    fire: () => {},
+    setWeapon: () => {},
+    toggleTarget: () => {},
+    snapshot: () => ({ weapon: 'laser', locked: false }),
+  });
+  touchCombatRef.current = {
+    fire: fireWeapon,
+    setWeapon: selectWeapon,
+    toggleTarget: toggleTarget,
+    snapshot: () => ({ weapon: weaponRef.current, locked: targetingView().box !== null }),
+  };
+  React.useEffect(() => {
+    bindTouchCombat(touchDebug, () => touchCombatRef.current);
+  }, [touchCombatRef]);
+
   // TASK-44: T — TARGET LOCK toggle (in-ship only). The store picks the
   // nearest valid ship in the 500 m / 30° cone and lights the optimistic
   // box + banner; the server re-validates ('invalid-target' clears it).
-  // Pressing T again while locked releases (sends 'target_release').
+  // Pressing T again while locked releases (sends 'target_release'). The
+  // key checks stay here (key-specific); the intent runs the SHARED
+  // toggleTarget path (TASK-92) that the touch TARGET button uses too.
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 't' && e.key !== 'T') return;
       if (e.repeat) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
-      if (anySurfaceOpen()) return; // TASK-53: any open surface is modal (ESC only)
-      if (!selfShipRef.current) return;
-      const cmd = toggleTargetLock(Date.now());
-      if (!cmd) return;
-      if (cmd.type === 'lock') {
-        clientRef.current?.send('target_lock', { targetId: cmd.targetId });
-      } else {
-        clientRef.current?.send('target_release', {});
-      }
+      toggleTarget();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [toggleTarget]);
 
   // TASK-43: weapon selection (1 = laser, 2 = missile) + LMB fire (the fire
   // INTENT carries the client's aim assist — nearest visible ship; the
@@ -1465,48 +1538,26 @@ function App() {
     };
     const onKey = (e: KeyboardEvent): void => {
       if (isTyping(e)) return;
-      if (anySurfaceOpen()) return; // TASK-53: any open surface is modal (ESC only)
-      if (e.key === '1') {
-        setWeapon('laser');
-        weaponRef.current = 'laser';
-      } else if (e.key === '2') {
-        setWeapon('missile');
-        weaponRef.current = 'missile';
-      }
+      // TASK-92: the intent runs the SHARED selectWeapon path the touch
+      // LASER / MISSILE buttons use too (which carries the surface guard).
+      if (e.key === '1') selectWeapon('laser');
+      else if (e.key === '2') selectWeapon('missile');
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [selectWeapon]);
   React.useEffect(() => {
     const canvas = document.getElementById('game-canvas') as HTMLCanvasElement | null;
     if (!canvas) return;
+    // TASK-92: LMB is now a thin wrapper over the SHARED fireWeapon path —
+    // the touch FIRE button calls the SAME function (guards included).
     const onDown = (e: MouseEvent): void => {
       if (e.button !== 0) return;
-      if (anySurfaceOpen()) return; // TASK-53: any open surface is modal (ESC only)
-      if (!selfShipRef.current) return; // on foot / before the first self ship
-      // Aim assist: the nearest other ship within the active weapon's max
-      // engagement (800 u covers both weapons; the server re-checks range).
-      const self = selfPosRef.current;
-      let targetId: string | undefined;
-      if (self) {
-        let bestD = Infinity;
-        for (const t of remoteShipsRef.current) {
-          const d = Math.hypot(t.pos.x - self.x, t.pos.y - self.y, t.pos.z - self.z);
-          if (d < bestD) {
-            bestD = d;
-            targetId = t.id;
-          }
-        }
-        if (bestD > 800) targetId = undefined;
-      }
-      clientRef.current?.send('fire', {
-        weapon: weaponRef.current,
-        ...(targetId ? { targetId } : {}),
-      });
+      fireWeapon();
     };
     canvas.addEventListener('mousedown', onDown);
     return () => canvas.removeEventListener('mousedown', onDown);
-  }, []);
+  }, [fireWeapon]);
 
   // TASK-32/73: key capture — the SHARED pressed set both prediction loops
   // read (the ship loop maps it through the active control scheme; the
@@ -2224,7 +2275,18 @@ function App() {
           sticks + the per-regime VTOL/BOOST button, feeding the shared
           TouchInputSource (TASK-89's merge picks the channels up). Renders
           nothing when disabled or on the surface (TASK-93's layout). */}
-      <TouchControls enabled={touchEnabled} regime={regimeWiring.regime} source={touchRef.current} />
+      {/* TASK-92: the COMBAT cluster rides the same container — FIRE /
+          LASER / MISSILE / TARGET call the SAME shared paths as LMB and
+          the '1'/'2'/'T' keys (the server re-derives everything). */}
+      <TouchControls
+        enabled={touchEnabled}
+        regime={regimeWiring.regime}
+        source={touchRef.current}
+        weapon={weapon}
+        onFire={fireWeapon}
+        onWeapon={selectWeapon}
+        onTarget={toggleTarget}
+      />
       {/* TASK-50: the combat HUD (target box, weapon readout, threat ping,
           kill feed) — in-ship regions unmount on foot (selfShip null). */}
       <CombatHud
@@ -2233,10 +2295,7 @@ function App() {
         classId={selfShip?.classId ?? null}
         energy={selfShip?.energy ?? null}
         weapon={weapon}
-        onWeapon={(w) => {
-          setWeapon(w);
-          weaponRef.current = w;
-        }}
+        onWeapon={selectWeapon}
         lowEnergy={lowEnergy}
         locked={locked}
       />

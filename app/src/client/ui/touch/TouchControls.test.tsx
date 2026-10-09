@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TouchInputSource } from '@client/input/touch';
 import { bindTouchDebug, installTouchDebug } from '@client/touch-debug';
+import type { WeaponId } from '@shared/weapons';
 
 import { TouchControls } from './TouchControls';
 
@@ -33,6 +34,10 @@ function renderControls(props: Partial<Parameters<typeof TouchControls>[0]> = {}
         enabled={props.enabled ?? true}
         regime={props.regime ?? 'space'}
         source={props.source ?? source}
+        onFire={props.onFire}
+        onWeapon={props.onWeapon}
+        onTarget={props.onTarget}
+        weapon={props.weapon}
       />,
     );
   });
@@ -56,11 +61,25 @@ function pointer(type: string, x: number, y: number, target: Element): void {
   });
 }
 
+let combat: {
+  onFire: ReturnType<typeof vi.fn<() => void>>;
+  onWeapon: ReturnType<typeof vi.fn<(w: WeaponId) => void>>;
+  onTarget: ReturnType<typeof vi.fn<() => void>>;
+  weapon: WeaponId;
+};
+
 beforeEach(() => {
   source = new TouchInputSource();
   document.body.innerHTML = '';
   roots.forEach((r) => r.unmount());
   roots = [];
+  vi.clearAllMocks();
+  combat = {
+    onFire: vi.fn<() => void>(),
+    onWeapon: vi.fn<(w: WeaponId) => void>(),
+    onTarget: vi.fn<() => void>(),
+    weapon: 'laser',
+  };
 });
 
 afterEach(() => {
@@ -182,6 +201,87 @@ describe('TouchControls — channel hygiene across regime / enable flips', () =>
   });
 });
 
+describe('TouchControls — the COMBAT cluster (TASK-92)', () => {
+  const withCombat = (extra: Partial<Parameters<typeof TouchControls>[0]> = {}): HTMLDivElement =>
+    renderControls({
+      regime: 'space',
+      onFire: combat.onFire,
+      onWeapon: combat.onWeapon,
+      onTarget: combat.onTarget,
+      weapon: combat.weapon,
+      ...extra,
+    });
+
+  it('renders FIRE / LASER / MISSILE / TARGET when the combat callbacks are wired', () => {
+    withCombat();
+    expect(document.getElementById('touch-btn-fire')?.textContent).toContain('FIRE');
+    expect(document.getElementById('touch-btn-weapon-laser')?.textContent).toContain('LASER');
+    expect(document.getElementById('touch-btn-weapon-missile')?.textContent).toContain('MISSILE');
+    expect(document.getElementById('touch-btn-target')?.textContent).toContain('TARGET');
+  });
+
+  it('renders the flight-only layout when no combat callbacks are given', () => {
+    renderControls({ regime: 'space' });
+    for (const id of [
+      'touch-btn-fire',
+      'touch-btn-weapon-laser',
+      'touch-btn-weapon-missile',
+      'touch-btn-target',
+    ]) {
+      expect(document.getElementById(id), `${id} absent`).toBeNull();
+    }
+  });
+
+  it('FIRE: one press = exactly one onFire; the held accent is visual only', () => {
+    const c = withCombat();
+    const fire = c.querySelector('[aria-label="FIRE"]')!;
+    pointer('pointerdown', 0, 0, fire);
+    expect(combat.onFire).toHaveBeenCalledTimes(1);
+    expect(fire.getAttribute('aria-pressed')).toBe('true');
+    // Release never re-fires (the LMB path is one-shot per click).
+    pointer('pointerup', 0, 0, fire);
+    expect(combat.onFire).toHaveBeenCalledTimes(1);
+    expect(fire.getAttribute('aria-pressed')).toBe('false');
+    // A second full press fires exactly once more.
+    pointer('pointerdown', 0, 0, fire);
+    pointer('pointerup', 0, 0, fire);
+    expect(combat.onFire).toHaveBeenCalledTimes(2);
+  });
+
+  it('LASER / MISSILE call onWeapon with the right id (the shared select path)', () => {
+    const c = withCombat();
+    pointer('pointerdown', 0, 0, c.querySelector('[aria-label="LASER"]')!);
+    expect(combat.onWeapon).toHaveBeenCalledTimes(1);
+    expect(combat.onWeapon).toHaveBeenLastCalledWith('laser');
+    pointer('pointerdown', 0, 0, c.querySelector('[aria-label="MISSILE"]')!);
+    expect(combat.onWeapon).toHaveBeenCalledTimes(2);
+    expect(combat.onWeapon).toHaveBeenLastCalledWith('missile');
+  });
+
+  it('the active weapon button shows the pressed accent', () => {
+    const c = withCombat();
+    expect(c.querySelector('[aria-label="LASER"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(c.querySelector('[aria-label="MISSILE"]')!.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('TARGET: one press = exactly one onTarget (the shared toggle)', () => {
+    const c = withCombat();
+    const target = c.querySelector('[aria-label="TARGET"]')!;
+    pointer('pointerdown', 0, 0, target);
+    expect(combat.onTarget).toHaveBeenCalledTimes(1);
+    pointer('pointerup', 0, 0, target);
+    pointer('pointerdown', 0, 0, target);
+    pointer('pointerup', 0, 0, target);
+    expect(combat.onTarget).toHaveBeenCalledTimes(2);
+  });
+
+  it('the combat cluster is absent on the surface (the on-foot layout owns it)', () => {
+    withCombat({ regime: 'surface' });
+    expect(document.getElementById('touch-btn-fire')).toBeNull();
+    expect(document.getElementById('touch-controls')).toBeNull();
+  });
+});
+
 describe('touchDebug — the deterministic e2e driver', () => {
   it('setChannel delegates to the bound source; channels stays live', () => {
     const state = installTouchDebug();
@@ -208,5 +308,46 @@ describe('touchDebug — the deterministic e2e driver', () => {
     expect(state).not.toBeNull();
     state!.setChannel({ thrust: 1 });
     expect(state!.channels).toEqual({});
+  });
+});
+
+describe('touchDebug — the combat bridge (TASK-92)', () => {
+  it('fire / setWeapon / toggleTarget delegate; state is a live snapshot', async () => {
+    // A fresh module instance (the combat binding is module state).
+    vi.resetModules();
+    const { installTouchDebug, bindTouchCombat } = await import('@client/touch-debug');
+    const state = installTouchDebug()!;
+    const calls: string[] = [];
+    let snap: { weapon: WeaponId; locked: boolean } = { weapon: 'laser', locked: false };
+    bindTouchCombat(state, () => ({
+      fire: () => calls.push('fire'),
+      setWeapon: (w) => {
+        snap = { weapon: w, locked: snap.locked };
+        calls.push(`set:${w}`);
+      },
+      toggleTarget: () => {
+        snap = { ...snap, locked: !snap.locked };
+        calls.push('target');
+      },
+      snapshot: () => snap,
+    }));
+    state.fire();
+    state.setWeapon('missile');
+    state.toggleTarget();
+    expect(calls).toEqual(['fire', 'set:missile', 'target']);
+    // The snapshot is live: it tracks the bridge's state, not a copy.
+    expect(state.state).toEqual({ weapon: 'missile', locked: true });
+  });
+
+  it('combat is a no-op before the combat bridge is bound (no crash)', async () => {
+    vi.resetModules();
+    const { installTouchDebug } = await import('@client/touch-debug');
+    const state = installTouchDebug()!;
+    expect(() => {
+      state!.fire();
+      state!.setWeapon('laser');
+      state!.toggleTarget();
+    }).not.toThrow();
+    expect(state!.state).toBeNull();
   });
 });

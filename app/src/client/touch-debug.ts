@@ -8,9 +8,16 @@
  * `channels` is a live getter: it always reads the source's current state
  * (a joystick move made by a real finger shows up here too), and
  * `setChannel` / `clear` delegate to the bound source.
+ *
+ * TASK-92 adds the COMBAT half on the same hook: `fire()` / `setWeapon()` /
+ * `toggleTarget()` delegate to the SAME shared paths the keyboard uses
+ * (fireWeapon / the '1'+'2' select / the 'T' toggle — main.tsx binds a
+ * bridge over its refs), and the `state` getter snapshots the live
+ * { weapon, locked } so the e2e can assert deterministically.
  */
 
 import type { TouchChannels, TouchInputSource } from '@client/input/touch';
+import type { WeaponId } from '@shared/weapons';
 
 export interface TouchDebugState {
   /** Snapshot of the source's ACTIVE channels (live). */
@@ -19,6 +26,22 @@ export interface TouchDebugState {
   setChannel: (channels: Partial<TouchChannels>) => void;
   /** Reset every channel off (delegates to the source). */
   clear: () => void;
+  /** TASK-92: fire once via the shared fireWeapon (no-op before binding). */
+  fire: () => void;
+  /** TASK-92: select a weapon (the '1'/'2' path; no-op before binding). */
+  setWeapon: (w: WeaponId) => void;
+  /** TASK-92: toggle the target lock (the 'T' path; no-op before binding). */
+  toggleTarget: () => void;
+  /** TASK-92: live { weapon, locked } snapshot (null before binding). */
+  readonly state: { weapon: WeaponId; locked: boolean } | null;
+}
+
+/** The combat bridge main.tsx binds (the shared fire/select/lock paths). */
+interface TouchCombatBridge {
+  fire: () => void;
+  setWeapon: (w: WeaponId) => void;
+  toggleTarget: () => void;
+  snapshot: () => { weapon: WeaponId; locked: boolean };
 }
 
 declare global {
@@ -29,6 +52,8 @@ declare global {
 
 /** The live source (bound by main.tsx once the ref exists). */
 let boundSource: (() => TouchInputSource | null) | null = null;
+/** The live combat bridge (bound by main.tsx once the refs exist). */
+let boundCombat: (() => TouchCombatBridge) | null = null;
 
 /** Install the hook (DEV builds only); returns the live record to use. */
 export function installTouchDebug(): TouchDebugState | null {
@@ -39,6 +64,12 @@ export function installTouchDebug(): TouchDebugState | null {
     },
     setChannel: (channels) => boundSource?.()?.setChannel(channels),
     clear: () => boundSource?.()?.clear(),
+    fire: () => boundCombat?.().fire(),
+    setWeapon: (w) => boundCombat?.().setWeapon(w),
+    toggleTarget: () => boundCombat?.().toggleTarget(),
+    get state() {
+      return boundCombat ? boundCombat().snapshot() : null;
+    },
   };
   window.__TOUCH__ = state;
   return state;
@@ -51,4 +82,13 @@ export function bindTouchDebug(
 ): void {
   if (!state) return; // production build — nothing to bind
   boundSource = getSource;
+}
+
+/** Bind the live combat bridge (main.tsx passes a lazy getter over its refs). */
+export function bindTouchCombat(
+  state: TouchDebugState | null,
+  getCombat: () => TouchCombatBridge,
+): void {
+  if (!state) return; // production build — nothing to bind
+  boundCombat = getCombat;
 }

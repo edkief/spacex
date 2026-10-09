@@ -780,8 +780,7 @@
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-88.json",
     "passes": true
-  }
-,
+  },
   {
     "id": "TASK-89",
     "title": "Touch input core: virtual-key state merged into the shared pressed set",
@@ -808,7 +807,7 @@
     "title": "Touch combat: fire, weapon select, target lock",
     "category": "ui",
     "specFilePath": ".ralph/tasks/TASK-92.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-93",

@@ -13,6 +13,16 @@
  * - VTOL button: atmosphere ONLY (the ' ' channel — same key as jump).
  * - BOOST button: space ONLY (the 'Shift' channel — same key as run).
  *
+ * TASK-92 adds the COMBAT cluster in the right-mid clear zone (above the
+ * VTOL/BOOST slot, clear of the left-edge ship HUD and the centre reticle):
+ * FIRE (one shot per press — the SAME fireWeapon path as the canvas LMB;
+ * the held state is visual only, matching the one-shot-per-click LMB),
+ * LASER / MISSILE select (the SAME path as the '1'/'2' keys — the active
+ * weapon shows its pressed accent), and TARGET (the SAME toggle path as
+ * the 'T' key). The callbacks are props: main.tsx owns the shared paths,
+ * and the server stays authoritative (intent only). When a callback is not
+ * provided the cluster renders nothing (the layout stays flight-only).
+ *
  * Regime gating mirrors the ControlScheme exactly: on the SURFACE the
  * on-foot layout (TASK-93) owns the corners, so this container renders
  * nothing there — and clears the flight channels it would otherwise leave
@@ -26,6 +36,7 @@ import React from 'react';
 
 import type { TouchInputSource } from '@client/input/touch';
 import type { Regime } from '@shared/regime';
+import type { WeaponId } from '@shared/weapons';
 
 import { TouchButton } from './TouchButton';
 import { TouchJoystick, type TouchVector } from './TouchJoystick';
@@ -37,6 +48,17 @@ export interface TouchControlsProps {
   regime: Regime;
   /** The shared touch source (main.tsx owns the ref). */
   source: TouchInputSource;
+  // TASK-92: the COMBAT cluster (the right-mid clear zone). Each callback is
+  // the SAME shared path the keyboard uses (fireWeapon / '1'+'2' / 'T'),
+  // owned by main.tsx. Omit all three to render the flight-only layout.
+  /** Fire once (the shared fireWeapon — the canvas LMB's path). */
+  onFire?: () => void;
+  /** Select a weapon (the shared '1'/'2' path). */
+  onWeapon?: (w: WeaponId) => void;
+  /** Toggle the target lock (the shared 'T' path). */
+  onTarget?: () => void;
+  /** The active weapon (drives the select buttons' pressed accent). */
+  weapon?: WeaponId;
 }
 
 /** Corner inset from the screen edge (on top of the safe-area inset). */
@@ -51,7 +73,15 @@ export function TouchControls({
   enabled,
   regime,
   source,
+  onFire,
+  onWeapon,
+  onTarget,
+  weapon,
 }: TouchControlsProps): React.ReactElement | null {
+  // TASK-92: the FIRE button's controlled held state (visual only — the
+  // press is one-shot, matching the one-shot-per-click canvas LMB). Rules
+  // of hooks: declared before the early return below.
+  const [fireHeld, setFireHeld] = React.useState(false);
   // Rules of hooks: these run before the early return below, so the
   // unmount / disabled cleanups always fire.
   // Disabled (or an unmount while enabled) clears every channel — a stale
@@ -126,6 +156,78 @@ export function TouchControls({
           />
         )}
       </div>
+      {/* TASK-92: the COMBAT cluster — the right-mid clear zone above the
+          VTOL/BOOST slot (clear of the left-edge ship HUD + the centre
+          reticle). Only when the combat callbacks are wired (main.tsx).
+          FIRE is one-shot per press (the shared fireWeapon); the accent
+          border is the visual held state. LASER / MISSILE share the '1'/'2'
+          path and show the active weapon's accent; TARGET shares the 'T'
+          toggle path. All intents only — the server re-derives. */}
+      {onFire && onWeapon && onTarget && (
+        <>
+          <div
+            id="touch-btn-fire"
+            style={{
+              ...side,
+              right: `calc(${CORNER + 32}px + env(safe-area-inset-right, 0px))`,
+              bottom: `calc(${CORNER + 248}px + env(safe-area-inset-bottom, 0px))`,
+            }}
+          >
+            <TouchButton
+              label="FIRE"
+              size={72}
+              pressed={fireHeld}
+              onPress={() => {
+                setFireHeld(true);
+                onFire();
+              }}
+              onRelease={() => setFireHeld(false)}
+            />
+          </div>
+          <div
+            id="touch-btn-weapon-laser"
+            style={{
+              ...side,
+              right: `calc(${CORNER + 32 + 72 + 12}px + env(safe-area-inset-right, 0px))`,
+              bottom: `calc(${CORNER + 248}px + env(safe-area-inset-bottom, 0px))`,
+            }}
+          >
+            <TouchButton
+              label="LASER"
+              size={48}
+              pressed={weapon === 'laser'}
+              onPress={() => onWeapon('laser')}
+              onRelease={() => {}}
+            />
+          </div>
+          <div
+            id="touch-btn-weapon-missile"
+            style={{
+              ...side,
+              right: `calc(${CORNER + 32 + 72 + 12 + 48 + 12}px + env(safe-area-inset-right, 0px))`,
+              bottom: `calc(${CORNER + 248}px + env(safe-area-inset-bottom, 0px))`,
+            }}
+          >
+            <TouchButton
+              label="MISSILE"
+              size={48}
+              pressed={weapon === 'missile'}
+              onPress={() => onWeapon('missile')}
+              onRelease={() => {}}
+            />
+          </div>
+          <div
+            id="touch-btn-target"
+            style={{
+              ...side,
+              right: `calc(${CORNER + 32}px + env(safe-area-inset-right, 0px))`,
+              bottom: `calc(${CORNER + 248 + 72 + 12}px + env(safe-area-inset-bottom, 0px))`,
+            }}
+          >
+            <TouchButton label="TARGET" size={56} onPress={() => onTarget()} onRelease={() => {}} />
+          </div>
+        </>
+      )}
       {/* RIGHT stick — pitch + roll (the attitude). */}
       <div
         id="touch-stick-right"

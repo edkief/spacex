@@ -238,6 +238,14 @@ export function ingestCombatEvent(
   emit();
 }
 
+/**
+ * Live read of the current view (no listener bookkeeping) — the debug hook
+ * (TASK-92's touch combat snapshot) reads the lock state through this.
+ */
+export function targetingView(): TargetingView {
+  return view();
+}
+
 /** Subscribe to targeting-view changes; fn gets the current view at once. */
 export function targetingSubscribe(fn: Listener): () => void {
   listeners.add(fn);
