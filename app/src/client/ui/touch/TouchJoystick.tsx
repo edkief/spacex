@@ -47,6 +47,9 @@ const KNOB_FRACTION = 0.42;
  * Pure math: raw offset from centre → normalized vector. Clamped to the
  * radius (a drag past the edge rides the rim) and deadzoned — a magnitude
  * within deadzone × radius emits {0, 0}. y is passed already up-positive.
+ * Zero components are canonicalized (+0): a horizontal drag passes -0
+ * through the y flip, and Object.is(-0, 0) is false (the channels and the
+ * wire must see the canonical zero — same rule as controls.ts `flip`).
  */
 export function joystickVector(
   dx: number,
@@ -54,10 +57,11 @@ export function joystickVector(
   radius: number,
   deadzone: number,
 ): TouchVector {
+  const canonical = (v: number): number => (v === 0 ? 0 : v);
   const mag = Math.hypot(dx, dy);
   if (mag <= radius * deadzone) return { x: 0, y: 0 };
   const scale = Math.min(1, radius / mag) / radius;
-  return { x: dx * scale, y: dy * scale };
+  return { x: canonical(dx * scale), y: canonical(dy * scale) };
 }
 
 /** Raw offset from centre clamped to a radius (px — the knob position). */

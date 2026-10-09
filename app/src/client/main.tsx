@@ -124,6 +124,7 @@ import { installDriftDebug, reportServerSeed, reportWorldSwap } from '@client/dr
 import { installStreamDebug } from '@client/stream-debug';
 import { installCameraDebug } from '@client/camera/camera-debug';
 import { installAtmosphereDebug } from '@client/atmosphere-debug';
+import { bindTouchDebug, installTouchDebug } from '@client/touch-debug';
 
 import {
   ingestCombatEvent,
@@ -155,6 +156,7 @@ import type {
 import { inputToCharacterInput, shipInputToPayload } from '@shared/protocol/inputs';
 import { readSchemeInput } from '@client/input/controls';
 import { TouchInputSource, mergePressed } from '@client/input/touch';
+import { TouchControls } from '@client/ui/touch/TouchControls';
 import {
   InputFrameSender,
   anyFlightDemand,
@@ -727,6 +729,15 @@ function App() {
   // pressed set below. Nothing populates it yet (the joysticks/buttons land
   // in TASK-90/91); with no channels active the merge is a no-op.
   const touchRef = React.useRef<TouchInputSource>(new TouchInputSource());
+  // TASK-91: the touch feature-enable state — v1: a touch-capable device
+  // (maxTouchPoints > 0). TASK-94 replaces this with the real feature flag.
+  // false → TouchControls renders nothing and the merge stays a no-op.
+  const [touchEnabled] = React.useState(
+    () => typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0,
+  );
+  React.useEffect(() => {
+    bindTouchDebug(touchDebug, () => touchRef.current);
+  }, [touchRef]);
   /**
    * TASK-89: the pressed set both prediction loops read — the keyboard keys
    * merged with the touch virtual keys (a per-call union; the loops already
@@ -2209,6 +2220,11 @@ function App() {
         stationName={stationNameFor}
         onCargoOpen={() => clientRef.current?.send('cargo_open', {})}
       />
+      {/* TASK-91: the FLIGHT touch layout (space + atmosphere) — dual
+          sticks + the per-regime VTOL/BOOST button, feeding the shared
+          TouchInputSource (TASK-89's merge picks the channels up). Renders
+          nothing when disabled or on the surface (TASK-93's layout). */}
+      <TouchControls enabled={touchEnabled} regime={regimeWiring.regime} source={touchRef.current} />
       {/* TASK-50: the combat HUD (target box, weapon readout, threat ping,
           kill feed) — in-ship regions unmount on foot (selfShip null). */}
       <CombatHud
@@ -2391,6 +2407,8 @@ installCameraDebug();
 installAtmosphereDebug();
 // TASK-30: dev-only transition-cycle benchmark hook (no-op in production builds).
 installTransitionDebug();
+// TASK-91: dev-only touch probe + deterministic channel driver (no-op in prod).
+const touchDebug = installTouchDebug();
 
 const root = document.getElementById('root');
 if (!root) throw new Error('missing #root element');

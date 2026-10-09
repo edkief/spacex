@@ -84,6 +84,11 @@ export class TouchInputSource {
     this.channels = {};
   }
 
+  /** Snapshot of the ACTIVE channels (the debug hook + tests read this). */
+  snapshot(): TouchChannels {
+    return { ...this.channels };
+  }
+
   /**
    * Project the ACTIVE HELD channels to virtual key names (the union of all
    * active projections; the deliberate collisions collapse inside the Set).

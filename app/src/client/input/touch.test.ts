@@ -53,6 +53,15 @@ describe('TouchInputSource — single held channel → one virtual key', () => {
     expect(t.virtualKeys().size).toBe(0);
   });
 
+  it('snapshot() is a copy of the active channels (mutating it is safe)', () => {
+    const t = new TouchInputSource();
+    t.setChannel({ thrust: 0.5, vtol: true });
+    const snap = t.snapshot();
+    expect(snap).toEqual({ thrust: 0.5, vtol: true });
+    (snap as { thrust?: number }).thrust = 99;
+    expect(t.snapshot().thrust).toBe(0.5);
+  });
+
   it('setChannel merges PARTIALLY — absent channels are left as-is', () => {
     const t = new TouchInputSource();
     t.setChannel({ vtol: true, run: true });
