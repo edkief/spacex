@@ -830,7 +830,7 @@
     "title": "Touch on-foot: regression gate, bookkeeping, final commit (closes TASK-93)",
     "category": "ui",
     "specFilePath": ".ralph/tasks/TASK-93.2.json",
-    "passes": false,
+    "passes": true,
     "splitFrom": "TASK-93",
     "splitDepth": 1
   },

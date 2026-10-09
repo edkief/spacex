@@ -8,19 +8,19 @@
       "step": 1,
       "description": "Regression gate: tsc + full unit suite + keyboard e2e set",
       "details": "In order: (1) `cd app && npx tsc --noEmit` — green. (2) `cd app && npm run test` (vitest, ~196 files) — green. Known flake (documented in the TASK-92 close-out LOG entry): `enter-ship.ws.test.ts` has gone red once under full-suite load (WS timing); it is green in isolation and on re-run — if it flakes, re-run the file in isolation (`npx vitest run enter-ship.ws.test.ts`) and the full suite once more; do NOT 'fix' it. (3) Keyboard e2e regression set — `cd app && npx playwright test walk.spec.ts interact.spec.ts mining.spec.ts enter-ship.spec.ts disembark.spec.ts inventory.spec.ts --config playwright.e2e.config.ts` — ALL GREEN (1 worker, each spec file boots its own dev server; ~5-8 min for the six). These cover the extracted E/Q paths: walk (on-foot loop), interact + mining (E keydown/keyup dispatch/release — hold-to-mine, mine-stop), enter-ship + disembark (E enter/exit ship), inventory (Q drop-one-unit). If any is red, the E/Q extraction regressed: bisect with `git diff 7cf56bf~1 7cf56bf -- app/src/client/main.tsx`, fix minimally in the shared handler paths, re-run the failing spec + the full set.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Lint + format the changed files",
       "details": "`cd app && npx eslint --fix tests/e2e/touch-onfoot.spec.ts && npx prettier --write tests/e2e/touch-onfoot.spec.ts` (plus any other file TASK-93.1 changed, e.g. a main.tsx fix from step 1). If eslint/prettier changed CODE (not whitespace), re-run `touch-onfoot.spec.ts` once to confirm it is still green; a whitespace-only reformat needs no re-run. Finish with `cd app && npx tsc --noEmit` green if any code changed.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Bookkeeping + final commit",
       "details": "Bookkeeping, in order: (1) `.ralph/tasks/TASK-93.json` — both steps `pass: true` (already true in the committed file — verify, do not restructure). (2) `.ralph/tasks.json` — TASK-93 `passes: true`. (3) `.ralph/logs/LOG.md` — new entry at the top (newest-first, matching the existing `### 2026-10-09 — TASK-92: ... (complete)` format: on-foot touch layout + shared E/Q one-shot paths + touch-onfoot.spec.ts 4 legs server-confirmed incl. the leg-4 NaN-BigInt steering fix + verification summary) and bump `**Tasks Completed:**` by one (108 → 109). (4) Delete `.ralph/handoff/TASK-93.md`. Final commit: `feat(TASK-93): touch on-foot: move stick + run/jump/drop/interact (shared E/Q paths)` — ONE commit containing only the task's files: `.ralph/tasks.json`, `.ralph/logs/LOG.md`, `.ralph/tasks/TASK-93.json` (with pass flags), the handoff deletion, and any spec/screenshot file not already committed by TASK-93.1. EXCLUDE the pre-existing dirty files (see notes). The wip checkpoints 7cf56bf / 8eb9320 / the 93.1 commit stay in history — this feat commit is the closing one (the original 'one commit' AC refers to it).",
-      "pass": false
+      "pass": true
     }
   ],
   "acceptanceCriteria": [
