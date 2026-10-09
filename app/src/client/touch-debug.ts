@@ -14,6 +14,12 @@
  * (fireWeapon / the '1'+'2' select / the 'T' toggle — main.tsx binds a
  * bridge over its refs), and the `state` getter snapshots the live
  * { weapon, locked } so the e2e can assert deterministically.
+ *
+ * TASK-93 adds the ON-FOOT half: `move({ thrust, yaw })` / `run(on)` /
+ * `jump(on)` delegate straight to the bound source (the same channels the
+ * MOVE stick + RUN/JUMP buttons write), and `interactPress()` /
+ * `interactRelease()` / `drop()` delegate to the SAME shared discrete paths
+ * the E/Q keys use (main.tsx binds a second bridge over its refs).
  */
 
 import type { TouchChannels, TouchInputSource } from '@client/input/touch';
@@ -34,6 +40,18 @@ export interface TouchDebugState {
   toggleTarget: () => void;
   /** TASK-92: live { weapon, locked } snapshot (null before binding). */
   readonly state: { weapon: WeaponId; locked: boolean } | null;
+  /** TASK-93: set the MOVE stick's channels (the same path as the stick). */
+  move: (c: { thrust?: number; yaw?: number }) => void;
+  /** TASK-93: set the RUN channel on/off (the same path as the RUN button). */
+  run: (on: boolean) => void;
+  /** TASK-93: set the JUMP channel on/off (the same path as the JUMP button). */
+  jump: (on: boolean) => void;
+  /** TASK-93: interact press (the E-down path; no-op before binding). */
+  interactPress: () => void;
+  /** TASK-93: interact release (the E-up path; no-op before binding). */
+  interactRelease: () => void;
+  /** TASK-93: drop one unit of the held resource (the Q path; no-op before binding). */
+  drop: () => void;
 }
 
 /** The combat bridge main.tsx binds (the shared fire/select/lock paths). */
@@ -42,6 +60,13 @@ interface TouchCombatBridge {
   setWeapon: (w: WeaponId) => void;
   toggleTarget: () => void;
   snapshot: () => { weapon: WeaponId; locked: boolean };
+}
+
+/** The on-foot bridge main.tsx binds (the shared E/Q discrete paths). */
+export interface TouchOnFootBridge {
+  interactPress: () => void;
+  interactRelease: () => void;
+  drop: () => void;
 }
 
 declare global {
@@ -54,6 +79,8 @@ declare global {
 let boundSource: (() => TouchInputSource | null) | null = null;
 /** The live combat bridge (bound by main.tsx once the refs exist). */
 let boundCombat: (() => TouchCombatBridge) | null = null;
+/** The live on-foot bridge (bound by main.tsx once the refs exist). */
+let boundOnFoot: (() => TouchOnFootBridge) | null = null;
 
 /** Install the hook (DEV builds only); returns the live record to use. */
 export function installTouchDebug(): TouchDebugState | null {
@@ -70,6 +97,12 @@ export function installTouchDebug(): TouchDebugState | null {
     get state() {
       return boundCombat ? boundCombat().snapshot() : null;
     },
+    move: (c) => boundSource?.()?.setChannel(c),
+    run: (on) => boundSource?.()?.setChannel({ run: on }),
+    jump: (on) => boundSource?.()?.setChannel({ jump: on }),
+    interactPress: () => boundOnFoot?.().interactPress(),
+    interactRelease: () => boundOnFoot?.().interactRelease(),
+    drop: () => boundOnFoot?.().drop(),
   };
   window.__TOUCH__ = state;
   return state;
@@ -91,4 +124,13 @@ export function bindTouchCombat(
 ): void {
   if (!state) return; // production build — nothing to bind
   boundCombat = getCombat;
+}
+
+/** Bind the live on-foot bridge (main.tsx passes a lazy getter over its refs). */
+export function bindTouchOnFoot(
+  state: TouchDebugState | null,
+  getOnFoot: () => TouchOnFootBridge,
+): void {
+  if (!state) return; // production build — nothing to bind
+  boundOnFoot = getOnFoot;
 }

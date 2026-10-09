@@ -1,13 +1,14 @@
 /**
- * TouchControls (TASK-91, PRD §4.13 / SC-6) — the FLIGHT touch layout.
+ * TouchControls (TASK-91, PRD §4.13 / SC-6) — the FLIGHT + ON-FOOT touch
+ * layouts.
  *
- * Owns the on-screen arrangement of the two TouchJoysticks + the per-regime
- * TouchButton and feeds every gesture into the SHARED TouchInputSource
- * (main.tsx keeps ownership of the ref; the source is a prop). The virtual
- * keys the source projects are merged into the pressed set the ship loop
- * already reads (TASK-89) — nothing downstream changes.
+ * Owns the on-screen arrangement of the TouchJoysticks + TouchButtons and
+ * feeds every gesture into the SHARED TouchInputSource (main.tsx keeps
+ * ownership of the ref; the source is a prop). The virtual keys the source
+ * projects are merged into the pressed set the prediction loops already
+ * read (TASK-89) — nothing downstream changes.
  *
- * Mapping (up-positive y from TASK-90):
+ * FLIGHT mapping (up-positive y from TASK-90):
  * - LEFT stick: thrust (up/down) + yaw (left/right) — `thrust: y, yaw: x`.
  * - RIGHT stick: pitch (up/down) + roll (left/right) — `pitch: y, roll: x`.
  * - VTOL button: atmosphere ONLY (the ' ' channel — same key as jump).
@@ -23,10 +24,20 @@
  * and the server stays authoritative (intent only). When a callback is not
  * provided the cluster renders nothing (the layout stays flight-only).
  *
- * Regime gating mirrors the ControlScheme exactly: on the SURFACE the
- * on-foot layout (TASK-93) owns the corners, so this container renders
- * nothing there — and clears the flight channels it would otherwise leave
- * held (a button unmounted mid-press never fires onRelease).
+ * ON-FOOT layout (TASK-93): visible on the SURFACE only while the player is
+ * DISSEMBARDED (the `onFoot` prop). A single MOVE stick feeds the SAME
+ * virtual keys the on-foot loop reads (up = 'w' forward, right = 'd' turn —
+ * `thrust: y, yaw: x`), plus RUN ('Shift') and JUMP (' ') held buttons, a
+ * one-shot DROP (the Q keydown path), and a press/RELEASE INTERACT (the E
+ * keydown/keyup pair — a long hold keeps the mining channel open until
+ * release, exactly like a held E). The discrete callbacks are props:
+ * main.tsx owns the shared paths (the server stays authoritative). The
+ * layout sits clear of the on-foot HUD (weight bar / exposure meter in the
+ * bottom-right corner, the interaction line bottom-center).
+ *
+ * Regime gating mirrors the ControlScheme exactly: a regime flip unmounts
+ * the outgoing layout mid-press (the removed element's onRelease never
+ * fires), so the flip clears the channels it would otherwise leave held.
  *
  * When `enabled` is false (the feature is off — TASK-94's flag; v1 gates on
  * a touch-capable device) the container renders nothing and the channels
@@ -59,6 +70,17 @@ export interface TouchControlsProps {
   onTarget?: () => void;
   /** The active weapon (drives the select buttons' pressed accent). */
   weapon?: WeaponId;
+  // TASK-93: the ON-FOOT layout (surface + disembarded). The discrete
+  // callbacks are the SAME shared paths the E/Q keys use (main.tsx owns
+  // them); the held MOVE/RUN/JUMP channels feed the source like flight.
+  /** The player is on foot (disembarded) — with regime 'surface' this renders the on-foot layout. */
+  onFoot?: boolean;
+  /** Interact press (the shared E-down path — dispatch, mine-start, enter-ship…). */
+  onInteractPress?: () => void;
+  /** Interact release (the shared E-up path — mine-stop; a no-op otherwise). */
+  onInteractRelease?: () => void;
+  /** Drop one unit of the held resource (the shared Q-down path, on foot only). */
+  onDrop?: () => void;
 }
 
 /** Corner inset from the screen edge (on top of the safe-area inset). */
@@ -77,11 +99,20 @@ export function TouchControls({
   onWeapon,
   onTarget,
   weapon,
+  onFoot,
+  onInteractPress,
+  onInteractRelease,
+  onDrop,
 }: TouchControlsProps): React.ReactElement | null {
   // TASK-92: the FIRE button's controlled held state (visual only — the
-  // press is one-shot, matching the one-shot-per-click canvas LMB). Rules
-  // of hooks: declared before the early return below.
+  // press is one-shot, matching the one-shot-per-click canvas LMB).
+  // TASK-93: the INTERACT button's held state (like a held E: press starts
+  // the channel, release ends it). Rules of hooks: both declared before
+  // the early return below.
   const [fireHeld, setFireHeld] = React.useState(false);
+  const [interactHeld, setInteractHeld] = React.useState(false);
+  const interactHeldRef = React.useRef(false);
+  interactHeldRef.current = interactHeld;
   // Rules of hooks: these run before the early return below, so the
   // unmount / disabled cleanups always fire.
   // Disabled (or an unmount while enabled) clears every channel — a stale
@@ -93,21 +124,126 @@ export function TouchControls({
     }
     return () => source.clear();
   }, [enabled, source]);
-  // A regime flip unmounts the outgoing regime's button mid-press (the
-  // removed element's onRelease never fires) — clear its channel so the
-  // deliberate key collision can't leak across regimes. The initial mount
-  // writes nothing (no channel is held yet).
+  // A regime flip unmounts the outgoing layout's buttons mid-press (the
+  // removed element's onRelease never fires) — clear the channels they
+  // would leave held so the deliberate key collision can't leak across
+  // regimes (surface → atmosphere/space: the on-foot layout's
+  // thrust/yaw/run/jump; the cross-flips: the per-regime flight button).
+  // The initial mount writes nothing (no channel is held yet).
   const prevRegimeRef = React.useRef<Regime | null>(null);
   React.useEffect(() => {
     const prev = prevRegimeRef.current;
     prevRegimeRef.current = regime;
     if (prev === null) return;
-    if (regime === 'atmosphere') source.setChannel({ boost: false });
+    if (prev === 'surface')
+      source.clear(); // the on-foot layout unmounted
+    else if (regime === 'atmosphere') source.setChannel({ boost: false });
     else if (regime === 'space') source.setChannel({ vtol: false });
-    else source.clear(); // surface: the on-foot layout (TASK-93) owns the input
+    else source.clear(); // entering the surface: the on-foot layout owns the input
   }, [regime, source]);
+  // TASK-93: an INTERACT held when the on-foot layout unmounts (regime flip,
+  // re-entry, disable) must end its channel — the removed button's
+  // onRelease never fires, and the server must not award into a key nobody
+  // holds (the same rule as the keyboard's window-blur release).
+  const onFootActive = regime === 'surface' && !!onFoot;
+  React.useEffect(() => {
+    if (!onFootActive) return;
+    return () => {
+      if (interactHeldRef.current) onInteractRelease?.();
+    };
+  }, [onFootActive, onInteractRelease]);
 
-  if (!enabled || regime === 'surface') return null;
+  if (!enabled) return null;
+  if (regime === 'surface') {
+    if (!onFoot) return null; // a docked/landed ship owns no on-foot layout
+    const onMove = (v: TouchVector): void => source.setChannel({ thrust: v.y, yaw: v.x });
+    return (
+      <div
+        id="touch-controls"
+        aria-label="Touch controls"
+        style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 80 }}
+      >
+        {/* MOVE stick — forward/back (thrust) + turn (yaw), bottom-left,
+            the SAME virtual keys the on-foot loop reads. */}
+        <div
+          id="touch-stick-move"
+          style={{
+            ...side,
+            left: `calc(${CORNER}px + env(safe-area-inset-left, 0px))`,
+            bottom: `calc(${CORNER}px + env(safe-area-inset-bottom, 0px))`,
+          }}
+        >
+          <TouchJoystick label="move stick" onChange={onMove} />
+        </div>
+        {/* The action cluster — right-mid clear zone ABOVE the on-foot HUD
+            (the weight bar + exposure meter sit in the bottom-right corner,
+            the interaction line is bottom-center):
+              [DROP 48]  [JUMP 64]
+              [RUN 48]   [INTERACT 64] */}
+        <div
+          id="touch-btn-interact"
+          style={{
+            ...side,
+            right: `calc(${CORNER + 32}px + env(safe-area-inset-right, 0px))`,
+            bottom: `calc(${CORNER + 152}px + env(safe-area-inset-bottom, 0px))`,
+          }}
+        >
+          <TouchButton
+            label="INTERACT"
+            pressed={interactHeld}
+            onPress={() => {
+              setInteractHeld(true);
+              onInteractPress?.();
+            }}
+            onRelease={() => {
+              setInteractHeld(false);
+              onInteractRelease?.();
+            }}
+          />
+        </div>
+        <div
+          id="touch-btn-run"
+          style={{
+            ...side,
+            right: `calc(${CORNER + 32 + 64 + 12}px + env(safe-area-inset-right, 0px))`,
+            bottom: `calc(${CORNER + 152}px + env(safe-area-inset-bottom, 0px))`,
+          }}
+        >
+          <TouchButton
+            label="RUN"
+            size={48}
+            onPress={() => source.setChannel({ run: true })}
+            onRelease={() => source.setChannel({ run: false })}
+          />
+        </div>
+        <div
+          id="touch-btn-jump"
+          style={{
+            ...side,
+            right: `calc(${CORNER + 32}px + env(safe-area-inset-right, 0px))`,
+            bottom: `calc(${CORNER + 152 + 64 + 12}px + env(safe-area-inset-bottom, 0px))`,
+          }}
+        >
+          <TouchButton
+            label="JUMP"
+            onPress={() => source.setChannel({ jump: true })}
+            onRelease={() => source.setChannel({ jump: false })}
+          />
+        </div>
+        <div
+          id="touch-btn-drop"
+          style={{
+            ...side,
+            right: `calc(${CORNER + 32 + 64 + 12}px + env(safe-area-inset-right, 0px))`,
+            bottom: `calc(${CORNER + 152 + 64 + 12}px + env(safe-area-inset-bottom, 0px))`,
+          }}
+        >
+          {/* One-shot (the Q keydown): a release never drops a second unit. */}
+          <TouchButton label="DROP" size={48} onPress={() => onDrop?.()} onRelease={() => {}} />
+        </div>
+      </div>
+    );
+  }
   const atmosphere = regime === 'atmosphere';
 
   const onLeft = (v: TouchVector): void => source.setChannel({ thrust: v.y, yaw: v.x });

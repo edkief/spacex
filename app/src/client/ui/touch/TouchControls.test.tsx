@@ -38,6 +38,10 @@ function renderControls(props: Partial<Parameters<typeof TouchControls>[0]> = {}
         onWeapon={props.onWeapon}
         onTarget={props.onTarget}
         weapon={props.weapon}
+        onFoot={props.onFoot}
+        onInteractPress={props.onInteractPress}
+        onInteractRelease={props.onInteractRelease}
+        onDrop={props.onDrop}
       />,
     );
   });
@@ -282,6 +286,149 @@ describe('TouchControls — the COMBAT cluster (TASK-92)', () => {
   });
 });
 
+describe('TouchControls — the ON-FOOT layout (TASK-93)', () => {
+  const onFoot = {
+    onFoot: true,
+    onInteractPress: vi.fn<() => void>(),
+    onInteractRelease: vi.fn<() => void>(),
+    onDrop: vi.fn<() => void>(),
+  };
+  const renderOnFoot = (extra: Partial<Parameters<typeof TouchControls>[0]> = {}): HTMLDivElement =>
+    renderControls({
+      regime: 'surface',
+      onFoot: onFoot.onFoot,
+      onInteractPress: onFoot.onInteractPress,
+      onInteractRelease: onFoot.onInteractRelease,
+      onDrop: onFoot.onDrop,
+      ...extra,
+    });
+
+  it('renders MOVE stick + RUN/JUMP/DROP/INTERACT on the surface while on foot', () => {
+    renderOnFoot();
+    expect(document.getElementById('touch-controls')).not.toBeNull();
+    expect(document.getElementById('touch-stick-move')).not.toBeNull();
+    expect(document.getElementById('touch-btn-run')?.textContent).toContain('RUN');
+    expect(document.getElementById('touch-btn-jump')?.textContent).toContain('JUMP');
+    expect(document.getElementById('touch-btn-drop')?.textContent).toContain('DROP');
+    expect(document.getElementById('touch-btn-interact')?.textContent).toContain('INTERACT');
+    // The flight sticks are NOT the on-foot layout (one MOVE stick only).
+    expect(document.getElementById('touch-stick-left')).toBeNull();
+    expect(document.getElementById('touch-stick-right')).toBeNull();
+    expect(document.getElementById('touch-btn-fire')).toBeNull();
+  });
+
+  it('renders nothing on the surface when NOT on foot (a docked/landed ship)', () => {
+    renderControls({ regime: 'surface' });
+    expect(document.getElementById('touch-controls')).toBeNull();
+    expect(document.getElementById('touch-stick-move')).toBeNull();
+  });
+
+  it('renders the flight layout in space even when onFoot is set (surface-only gate)', () => {
+    renderOnFoot({ regime: 'space' });
+    expect(document.getElementById('touch-stick-move')).toBeNull();
+    expect(document.getElementById('touch-stick-left')).not.toBeNull();
+  });
+
+  it('MOVE stick: drag up = thrust +1, drag right = yaw +1, release = 0 (the on-foot keys)', () => {
+    const c = renderOnFoot();
+    const move = c.querySelector('[aria-label="move stick"]')!;
+    pointer('pointerdown', 0, -64, move);
+    expect(source.snapshot()).toEqual({ thrust: 1, yaw: 0 });
+    pointer('pointermove', 64, 0, move);
+    expect(source.snapshot()).toEqual({ thrust: 0, yaw: 1 });
+    pointer('pointerup', 64, 0, move);
+    expect(source.snapshot()).toEqual({ thrust: 0, yaw: 0 });
+  });
+
+  it('RUN: press = run true, release = run false (the Shift channel)', () => {
+    const c = renderOnFoot();
+    const run = c.querySelector('[aria-label="RUN"]')!;
+    pointer('pointerdown', 0, 0, run);
+    expect(source.snapshot()).toEqual({ run: true });
+    pointer('pointerup', 0, 0, run);
+    expect(source.snapshot()).toEqual({ run: false });
+  });
+
+  it('JUMP: press = jump true, release = jump false (the Space channel)', () => {
+    const c = renderOnFoot();
+    const jump = c.querySelector('[aria-label="JUMP"]')!;
+    pointer('pointerdown', 0, 0, jump);
+    expect(source.snapshot()).toEqual({ jump: true });
+    pointer('pointerup', 0, 0, jump);
+    expect(source.snapshot()).toEqual({ jump: false });
+  });
+
+  it('a held RUN survives a MOVE stick write (setChannel is partial)', () => {
+    const c = renderOnFoot();
+    const run = c.querySelector('[aria-label="RUN"]')!;
+    const move = c.querySelector('[aria-label="move stick"]')!;
+    pointer('pointerdown', 0, 0, run);
+    pointer('pointerdown', 0, -64, move);
+    expect(source.snapshot()).toEqual({ thrust: 1, yaw: 0, run: true });
+  });
+
+  it('DROP: one press = exactly one onDrop; release never drops a second unit', () => {
+    const c = renderOnFoot();
+    const drop = c.querySelector('[aria-label="DROP"]')!;
+    pointer('pointerdown', 0, 0, drop);
+    expect(onFoot.onDrop).toHaveBeenCalledTimes(1);
+    pointer('pointerup', 0, 0, drop);
+    expect(onFoot.onDrop).toHaveBeenCalledTimes(1);
+    pointer('pointerdown', 0, 0, drop);
+    pointer('pointerup', 0, 0, drop);
+    expect(onFoot.onDrop).toHaveBeenCalledTimes(2);
+  });
+
+  it('INTERACT: press = onInteractPress (held accent), release = onInteractRelease', () => {
+    const c = renderOnFoot();
+    const interact = c.querySelector('[aria-label="INTERACT"]')!;
+    pointer('pointerdown', 0, 0, interact);
+    expect(onFoot.onInteractPress).toHaveBeenCalledTimes(1);
+    expect(interact.getAttribute('aria-pressed')).toBe('true');
+    // A long hold stays pressed until the release (the mining channel is open).
+    pointer('pointerup', 0, 0, interact);
+    expect(onFoot.onInteractRelease).toHaveBeenCalledTimes(1);
+    expect(onFoot.onInteractPress).toHaveBeenCalledTimes(1);
+    expect(interact.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('a held INTERACT releases its channel when the on-foot layout unmounts', () => {
+    const c = renderOnFoot();
+    const interact = c.querySelector('[aria-label="INTERACT"]')!;
+    pointer('pointerdown', 0, 0, interact);
+    expect(onFoot.onInteractPress).toHaveBeenCalledTimes(1);
+    // Re-entry: the regime leaves the surface — the unmounted button's
+    // onRelease never fires, so the layout must end the channel itself.
+    act(() => {
+      roots[0].render(
+        <TouchControls
+          enabled
+          regime="atmosphere"
+          source={source}
+          onFoot
+          onInteractRelease={onFoot.onInteractRelease}
+        />,
+      );
+    });
+    expect(onFoot.onInteractRelease).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaving the surface clears the on-foot channels (held thrust/run/jump)', () => {
+    const c = renderOnFoot();
+    const move = c.querySelector('[aria-label="move stick"]')!;
+    const run = c.querySelector('[aria-label="RUN"]')!;
+    const jump = c.querySelector('[aria-label="JUMP"]')!;
+    pointer('pointerdown', 0, -64, move);
+    pointer('pointerdown', 0, 0, run);
+    pointer('pointerdown', 0, 0, jump);
+    expect(source.snapshot()).toEqual({ thrust: 1, yaw: 0, run: true, jump: true });
+    act(() => {
+      roots[0].render(<TouchControls enabled regime="atmosphere" source={source} />);
+    });
+    expect(source.snapshot()).toEqual({});
+  });
+});
+
 describe('touchDebug — the deterministic e2e driver', () => {
   it('setChannel delegates to the bound source; channels stays live', () => {
     const state = installTouchDebug();
@@ -349,5 +496,55 @@ describe('touchDebug — the combat bridge (TASK-92)', () => {
       state!.toggleTarget();
     }).not.toThrow();
     expect(state!.state).toBeNull();
+  });
+});
+
+describe('touchDebug — the on-foot driver (TASK-93)', () => {
+  it('move / run / jump delegate to the bound source (partial channels)', async () => {
+    vi.resetModules();
+    const { installTouchDebug, bindTouchDebug } = await import('@client/touch-debug');
+    const state = installTouchDebug()!;
+    const src = new TouchInputSource();
+    bindTouchDebug(state, () => src);
+    state.move({ thrust: 1 });
+    state.move({ yaw: 0.5 }); // partial: thrust survives
+    state.run(true);
+    state.jump(true);
+    expect(src.snapshot()).toEqual({ thrust: 1, yaw: 0.5, run: true, jump: true });
+    state.move({ thrust: 0, yaw: 0 });
+    state.run(false);
+    state.jump(false);
+    expect(src.snapshot()).toEqual({ thrust: 0, yaw: 0, run: false, jump: false });
+  });
+
+  it('interactPress / interactRelease / drop delegate to the bound bridge', async () => {
+    vi.resetModules();
+    const { installTouchDebug, bindTouchOnFoot } = await import('@client/touch-debug');
+    const state = installTouchDebug()!;
+    const calls: string[] = [];
+    bindTouchOnFoot(state, () => ({
+      interactPress: () => calls.push('press'),
+      interactRelease: () => calls.push('release'),
+      drop: () => calls.push('drop'),
+    }));
+    state.interactPress();
+    state.interactPress();
+    state.interactRelease();
+    state.drop();
+    expect(calls).toEqual(['press', 'press', 'release', 'drop']);
+  });
+
+  it('the on-foot passthroughs are no-ops before their bindings (no crash)', async () => {
+    vi.resetModules();
+    const { installTouchDebug } = await import('@client/touch-debug');
+    const state = installTouchDebug()!;
+    expect(() => {
+      state!.move({ thrust: 1 });
+      state!.run(true);
+      state!.jump(true);
+      state!.interactPress();
+      state!.interactRelease();
+      state!.drop();
+    }).not.toThrow();
   });
 });

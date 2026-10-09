@@ -124,7 +124,12 @@ import { installDriftDebug, reportServerSeed, reportWorldSwap } from '@client/dr
 import { installStreamDebug } from '@client/stream-debug';
 import { installCameraDebug } from '@client/camera/camera-debug';
 import { installAtmosphereDebug } from '@client/atmosphere-debug';
-import { bindTouchCombat, bindTouchDebug, installTouchDebug } from '@client/touch-debug';
+import {
+  bindTouchCombat,
+  bindTouchDebug,
+  bindTouchOnFoot,
+  installTouchDebug,
+} from '@client/touch-debug';
 
 import {
   ingestCombatEvent,
@@ -1354,6 +1359,58 @@ function App() {
   React.useEffect(() => {
     chartOpenRef.current = chartOpen;
   }, [chartOpen]);
+  // TASK-93: the SHARED on-foot DISCRETE paths — one function per intent,
+  // each called by BOTH its keyboard handler and the touch buttons (plus
+  // the touchDebug e2e bridge), mirroring the TASK-92 combat pattern. The
+  // bodies read refs only, so the once-captured handlers never go stale;
+  // assigning `.current` every render keeps the closures fresh. The
+  // keyboard paths stay behaviour-identical (the existing mine /
+  // enter-ship specs keep passing).
+  const interactPressRef = React.useRef<() => void>(() => {});
+  interactPressRef.current = () => {
+    if (anySurfaceOpen()) return; // TASK-53: any open surface is modal (ESC only)
+    // TASK-38: a HELD E (hold, not tap) — the press starts the hold
+    // (dispatch → 'mine-start' for deposits, 'enter_ship' / 'open-cargo'
+    // for the ship, the dock UI for the terminal). The registry is the
+    // ONLY place an 'interact' frame goes out (AC).
+    const target = resolvedTargetRef.current;
+    if (!target) return;
+    const send: InteractSend = (type, payload) => clientRef.current?.send(type, payload);
+    // TASK-39: the raycast's distance rides along (the ship's far zone
+    // sends 'open-cargo', the near zone 'enter_ship').
+    interactRegistry.dispatch(target, resolvedDistanceRef.current, send);
+    heldInteractRef.current = { target, send };
+  };
+  // TASK-38: the release ends the hold — deposits end their mining channel
+  // ('mine-stop' — a cancel); kinds without onRelease are a silent no-op.
+  const interactReleaseRef = React.useRef<() => void>(() => {});
+  interactReleaseRef.current = () => {
+    const held = heldInteractRef.current;
+    if (!held) return;
+    interactRegistry.release(held.target, held.send);
+    heldInteractRef.current = null;
+  };
+  // TASK-34: Q — DROP one unit of the first owned resource (catalog order:
+  // iron, copper, rare-earth, crystal). The server is the authority: it
+  // re-validates ownership + the on-foot regime ('wrong-regime' denial
+  // otherwise) and spawns the ground item at the character's position.
+  const dropHeldRef = React.useRef<() => void>(() => {});
+  dropHeldRef.current = () => {
+    if (anySurfaceOpen()) return; // TASK-53: any open surface is modal (ESC only)
+    // TASK-73: Q drives ROLL in-ship — the drop fires ON FOOT only.
+    // (The server would answer 'wrong-regime' anyway; don't send it.)
+    if (!onFootRef.current) return;
+    const inv = inventory();
+    if (!inv) return;
+    const resourceId = RESOURCE_IDS.find((id) => (inv.stacks[id] ?? 0) > 0);
+    if (!resourceId) return;
+    clientRef.current?.send('drop', { resourceId, amount: 1 });
+  };
+  // Stable wrappers (created once) — the touch callbacks + the debug
+  // bridge capture THESE, and they delegate to the always-fresh refs above.
+  const interactPress = React.useCallback(() => interactPressRef.current(), []);
+  const interactRelease = React.useCallback(() => interactReleaseRef.current(), []);
+  const dropHeld = React.useCallback(() => dropHeldRef.current(), []);
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'e' && e.key !== 'E') return;
@@ -1366,38 +1423,24 @@ function App() {
         clientRef.current?.send('exit_ship', { shipId });
         return;
       }
-      // TASK-38: a HELD E (hold, not tap) — the first keydown starts the
-      // hold (dispatch → 'mine-start' for deposits); auto-repeat re-sends
-      // are ignored (the server is idempotent either way). E up (onKeyUp)
-      // releases it. The registry is the ONLY place an 'interact' frame
-      // goes out (AC).
+      // TASK-93: a thin call to the SHARED interactPress path (the surface
+      // guard is in there too, for the touch caller); auto-repeat re-sends
+      // are ignored (the server is idempotent either way).
       if (e.repeat) return;
-      const target = resolvedTargetRef.current;
-      if (!target) return;
-      const send: InteractSend = (type, payload) => clientRef.current?.send(type, payload);
-      // TASK-39: the raycast's distance rides along (the ship's far zone
-      // sends 'open-cargo', the near zone 'enter_ship').
-      interactRegistry.dispatch(target, resolvedDistanceRef.current, send);
-      heldInteractRef.current = { target, send };
+      interactPress();
     };
-    // TASK-38: E up releases the hold — deposits end their mining channel
-    // ('mine-stop' — a cancel); kinds without onRelease are a silent no-op.
+    // TASK-93: E up is a thin call to the SHARED interactRelease path
+    // (which is also the window-blur release and the touch button's).
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.key !== 'e' && e.key !== 'E') return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
-      const held = heldInteractRef.current;
-      if (!held) return;
-      interactRegistry.release(held.target, held.send);
-      heldInteractRef.current = null;
+      interactRelease();
     };
     const onBlur = (): void => {
       // The window lost focus: the key is physically released — end the
       // channel so the server never awards into a key nobody holds.
-      const held = heldInteractRef.current;
-      if (!held) return;
-      interactRegistry.release(held.target, held.send);
-      heldInteractRef.current = null;
+      interactRelease();
     };
     window.addEventListener('keydown', onKey);
     window.addEventListener('keyup', onKeyUp);
@@ -1407,29 +1450,36 @@ function App() {
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
     };
-  }, [interactRegistry]);
-  // TASK-34: Q — DROP one unit of the first owned resource (catalog order:
-  // iron, copper, rare-earth, crystal). The server is the authority: it
-  // re-validates ownership + the on-foot regime ('wrong-regime' denial
-  // otherwise) and spawns the ground item at the character's position.
+  }, [interactPress, interactRelease]);
+  // TASK-34: Q — a thin keydown wrapper over the SHARED dropHeld path
+  // (guards included); the touch DROP button calls the same function.
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'q' && e.key !== 'Q') return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
-      if (anySurfaceOpen()) return; // TASK-53: any open surface is modal (ESC only)
-      // TASK-73: Q drives ROLL in-ship — the drop fires ON FOOT only.
-      // (The server would answer 'wrong-regime' anyway; don't send it.)
-      if (!onFootRef.current) return;
-      const inv = inventory();
-      if (!inv) return;
-      const resourceId = RESOURCE_IDS.find((id) => (inv.stacks[id] ?? 0) > 0);
-      if (!resourceId) return;
-      clientRef.current?.send('drop', { resourceId, amount: 1 });
+      dropHeld();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [dropHeld]);
+  // TASK-93: the touchDebug ON-FOOT bridge (window.__TOUCH__.move / run /
+  // jump delegate to the source — already bound above; these three ride
+  // the SAME shared discrete paths the E/Q keys use). Bound lazily over
+  // the refs so it is always live.
+  const touchOnFootRef = React.useRef<{
+    interactPress: () => void;
+    interactRelease: () => void;
+    drop: () => void;
+  }>({
+    interactPress: () => {},
+    interactRelease: () => {},
+    drop: () => {},
+  });
+  touchOnFootRef.current = { interactPress, interactRelease, drop: dropHeld };
+  React.useEffect(() => {
+    bindTouchOnFoot(touchDebug, () => touchOnFootRef.current);
+  }, [touchOnFootRef]);
 
   // TASK-92: the SHARED combat paths — one function per intent, each called
   // by BOTH its keyboard handler and the touch buttons (plus the touchDebug
@@ -2278,6 +2328,10 @@ function App() {
       {/* TASK-92: the COMBAT cluster rides the same container — FIRE /
           LASER / MISSILE / TARGET call the SAME shared paths as LMB and
           the '1'/'2'/'T' keys (the server re-derives everything). */}
+      {/* TASK-93: on the SURFACE while DISSEMBARDED the same container
+          renders the ON-FOOT layout (MOVE stick + RUN/JUMP/DROP/INTERACT)
+          feeding the SAME virtual keys + shared discrete paths the
+          on-foot loop and the E/Q keys already use. */}
       <TouchControls
         enabled={touchEnabled}
         regime={regimeWiring.regime}
@@ -2286,6 +2340,10 @@ function App() {
         onFire={fireWeapon}
         onWeapon={selectWeapon}
         onTarget={toggleTarget}
+        onFoot={hudMode === 'onfoot'}
+        onInteractPress={interactPress}
+        onInteractRelease={interactRelease}
+        onDrop={dropHeld}
       />
       {/* TASK-50: the combat HUD (target box, weapon readout, threat ping,
           kill feed) — in-ship regions unmount on foot (selfShip null). */}
