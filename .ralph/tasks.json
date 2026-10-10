@@ -855,7 +855,7 @@
     "title": "Touch controls docs + full gate + close-out commit (closes TASK-95)",
     "category": "docs",
     "specFilePath": ".ralph/tasks/TASK-95.2.json",
-    "passes": false,
+    "passes": true,
     "splitFrom": "TASK-95",
     "splitDepth": 1
   }

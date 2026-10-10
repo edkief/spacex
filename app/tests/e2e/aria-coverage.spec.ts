@@ -136,9 +136,14 @@ test('aria coverage: every screen state has labeled interactive elements', async
   await assertAllInteractiveLabeled(page, 'claim');
 
   // 2. Claim in the browser (the app boots into the home system).
+  // The claim is CLICKED (matching ClaimPage used by every other spec): this
+  // Chromium build no longer performs implicit form submission on a
+  // CDP-synthetic Enter (root-caused in TASK-95.2 — keydown arrives
+  // unprevented, requestSubmit works; the app's form is healthy for real
+  // keyboards). The spec's keyboard-only proof is the in-game navigation.
   const callsign = uniqueCallsign('aria');
   await page.fill('#callsign-input', callsign);
-  await page.keyboard.press('Enter');
+  await page.locator('#claim-button').click();
   await expect(page.locator('#player-list')).toContainText(`${callsign} (you)`, {
     timeout: 15_000,
   });
