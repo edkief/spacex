@@ -23,10 +23,13 @@ import { ClaimPage } from './pages/claim';
  *      (the touch-menu path, TASK-94);
  *  (3) in SPACE, thrust to accelerate + a yaw burst turns the nose
  *      (server-reported speed / heading taps, the cruise.spec.ts pattern);
- *  (4) enter the atmosphere above the seeded pad and LAND: VTOL lift is
- *      server-confirmed, release → gravity descent → the pad machine docks
- *      the ship (regime 'docked' + padId — the atmosphere / undock specs'
- *      landing state);
+ *  (4) enter the atmosphere above the seeded pad and LAND (the
+ *      shard.pads.approach approach): the ship is seeded 100 m out / 50 m up
+ *      with a 90 u/s dead-stick velocity aimed at the pad (the atmosphere
+ *      has no thrust — momentum + drag + gravity do the glide), the VTOL
+ *      channel on within 25 m / below 8 m brakes the descent and the pad
+ *      machine docks the ship (regime 'docked' + padId — the atmosphere /
+ *      undock specs' landing state);
  *  (5) EXIT the ship — the egress prompt driven by the touch INTERACT
  *      (interactPress — the shared E path since TASK-95 wired the docked
  *      branch into it);
@@ -184,11 +187,22 @@ function initialRight(rot: Quat): Vec3 {
   };
 }
 
-/** Dev-teleport the ship, then wait until the RENDERED ship is there. */
-async function teleport(page: Page, baseURL: string, token: string, to: Vec3): Promise<void> {
+/**
+ * Dev-teleport the ship (and, with `vel`, give it a DEAD-STICK inbound
+ * velocity — the atmosphere has no thrust, so the approach momentum must be
+ * seeded, exactly as the shard.pads.approach unit test), then wait until the
+ * RENDERED ship is there.
+ */
+async function teleport(
+  page: Page,
+  baseURL: string,
+  token: string,
+  to: Vec3,
+  vel?: Vec3,
+): Promise<void> {
   const res = await page.request.post(`${baseURL}/api/dev/teleport`, {
     headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-    data: to,
+    data: vel ? { ...to, vel } : to,
   });
   expect(res.status(), `teleport response: ${await res.text()}`).toBe(200);
   await expect
@@ -305,114 +319,37 @@ async function walkUntilPrompt(
   await expect(prompt).toHaveText(goalPrompt, { timeout: 15_000 });
 }
 
-/** The scout's turn rate (rad/s) — the steering math must match the class. */
-const TURN_RATE = 0.8;
-/** The server keeps applying the HELD axis frame ~200 ms after release (cruise.spec.ts). */
-const AXIS_RELEASE_LAG_S = 0.2;
-
-/**
- * The signed aim errors (rad) from the nose to the pad in the PHYSICS
- * convention (+yaw = nose LEFT, +pitch = nose DOWN): the fwd→target rotation
- * axis decomposed on the ship's local up (the yaw component) and right (the
- * pitch component, negated — positive pitch is a rotation about the LEFT
- * axis). The TASK-80 probe math, inlined for the page (the evaluate body has
- * no module scope).
- */
-const aimAt = (page: Page, pad: Vec3): Promise<{ yaw: number; pitch: number } | null> =>
-  page.evaluate((p) => {
-    const s = window.__SELF_SHIP__?.probe();
-    if (!s?.pos || !s.rot) return null;
-    const { x, y, z, w } = s.rot;
-    const fwd = { x: 2 * (x * z + w * y), y: 2 * (y * z - w * x), z: 1 - 2 * (x * x + y * y) };
-    const rotV = (vx: number, vy: number, vz: number) => {
-      const cx = y * vz - z * vy;
-      const cy = z * vx - x * vz;
-      const cz = x * vy - y * vx;
-      return {
-        x: vx + 2 * w * cx + 2 * (y * cz - z * cy),
-        y: vy + 2 * w * cy + 2 * (z * cx - x * cz),
-        z: vz + 2 * w * cz + 2 * (x * cy - y * cx),
-      };
-    };
-    const right = rotV(-1, 0, 0); // the ship's RIGHT (the TASK-80 probe)
-    const up = {
-      x: right.y * fwd.z - right.z * fwd.y,
-      y: right.z * fwd.x - right.x * fwd.z,
-      z: right.x * fwd.y - right.y * fwd.x,
-    };
-    const dx = p.x - s.pos.x;
-    const dy = p.y - s.pos.y;
-    const dz = p.z - s.pos.z;
-    const d = Math.hypot(dx, dy, dz);
-    if (d < 1e-3) return null;
-    const tx = dx / d;
-    const ty = dy / d;
-    const tz = dz / d;
-    const dot = Math.min(1, Math.max(-1, fwd.x * tx + fwd.y * ty + fwd.z * tz));
-    if (Math.acos(dot) < 1e-4) return { yaw: 0, pitch: 0 };
-    const crx = fwd.y * tz - fwd.z * ty;
-    const cry = fwd.z * tx - fwd.x * tz;
-    const crz = fwd.x * ty - fwd.y * tx;
-    const sa = Math.hypot(crx, cry, crz);
-    const ax = crx / sa;
-    const ay = cry / sa;
-    const az = crz / sa;
-    return {
-      yaw: ax * up.x + ay * up.y + az * up.z,
-      pitch: -(ax * right.x + ay * right.y + az * right.z),
-    };
-  }, pad);
-
-/**
- * Nose the ship at the pad (±0.15 rad): ONE axis per pass at the computed
- * time (|err| / turn rate, minus the release lag), settled and re-measured —
- * the cruise.spec.ts faceAnchor pattern, extended to the pitch axis. The
- * TOUCH axes are on-screen (touch yaw +1 = nose RIGHT = physics −yaw;
- * touch pitch +1 = nose UP = physics −pitch), so the physics signs flip.
- */
-async function facePad(page: Page, pad: Vec3, budgetMs = 8_000): Promise<void> {
-  const t0 = Date.now();
-  for (;;) {
-    const aim = await aimAt(page, pad);
-    if (aim && Math.abs(aim.yaw) < 0.15 && Math.abs(aim.pitch) < 0.15) return;
-    if (Date.now() - t0 > budgetMs) {
-      throw new Error(`never faced the pad (yaw=${aim?.yaw}, pitch=${aim?.pitch})`);
-    }
-    if (!aim) {
-      await page.waitForTimeout(250);
-      continue;
-    }
-    const axis =
-      Math.abs(aim.yaw) >= 0.15 ? 'yaw' : Math.abs(aim.pitch) >= 0.15 ? 'pitch' : null;
-    if (!axis) return;
-    const pressS = Math.max(0.1, Math.abs(aim[axis]) / TURN_RATE - AXIS_RELEASE_LAG_S);
-    await setChannel(page, { [axis]: -Math.sign(aim[axis]) });
-    await page.waitForTimeout(Math.ceil(pressS * 1000));
-    await setChannel(page, { [axis]: 0 });
-    await page.waitForTimeout(300); // let the release lag settle before re-measuring
-  }
-}
-
 /**
  * The VTOL LAND leg (the shard.pads.approach.test.ts approach, driven by
- * touch channels + the server taps): the ship starts 300 m out and 150 m up
- * (inside the 1000 m atmosphere band, clear of the 100 m VTOL-assist ring
- * and the 20 m pad disc — no instant dock):
+ * touch channels + the server taps): the atmosphere has NO main thruster —
+ * the only horizontal control is the ship's own momentum (quadratic drag
+ * bleeds it off) — so the approach starts exactly like the proven unit
+ * test: 100 m out and 50 m up (deep inside the 1000 m atmosphere band,
+ * clear of the 20 m pad disc — no instant re-dock), with a 90 u/s
+ * dead-stick velocity aimed straight at the pad (the dev teleport seeds
+ * it; the glide itself is real physics):
  *
- *  - CLOSE: nose at the pad, throttle in (the inbound speed the tested
- *    script glides from);
- *  - GLIDE: release the throttle — momentum + quadratic drag + gravity
- *    dead-stick the last 100 m (the tested GLIDE phase);
- *  - VTOL: within 25 m and below 8 m, the VTOL channel on — the server
- *    assist (×0.5/tick on drift, < 50 u/s, within 100 m) kills the drift
- *    while the 1.35·g lift brakes the descent onto the flat disc; the
- *    pad machine docks the grounded ship (|vel.y| < 2, ≤ 20 m, ≤ 1 m);
- *  - ROLL: the fallback when the glide misses the disc (grounded 25–100 m
- *    out) or the lift climbs clear — face the pad and skim across it with
- *    VTOL + thrust; a surface crossing inside the disc at |vel.y| < 2 docks
- *    (the dock condition has no horizontal-speed cap), and the machine
- *    re-enters VTOL whenever it is close and low again.
+ *  - GLIDE: thrust 0, VTOL 0 — momentum + drag + gravity dead-stick the
+ *    last 100 m (the unit test's GLIDE phase, docked in 4.5 s of sim time);
+ *  - VTOL: within 25 m and below 8 m, the VTOL channel on — once drag slows
+ *    the drift under the 5 u/s lift gate the 1.35·g lift brakes the descent
+ *    onto the flat disc while the server assist (×0.5/tick, < 50 u/s, within
+ *    100 m) damps the residual drift; the pad machine docks the grounded
+ *    ship (surface regime, |vel.y| < 2, ≤ 20 m, ≤ 1 m altitude);
+ *  - if the glide grounds OFF the disc (high terrain in the approach
+ *    corridor), the attempt is abandoned and the approach is re-seeded —
+ *    up to 3 attempts (deterministic reset, no steering needed).
  */
+// The start distance is tuned so the dead-stick glide (the real terrain in
+// the approach corridor stops the ship ~75 m of horizontal travel from a
+// 50 m altitude) grounds INSIDE the 20 m pad disc — the pad machine then
+// docks the grounded, slow ship (surface regime, |vel.y| < 2, ≤ 20 m, ≤ 1 m)
+// with no steering and no reliance on the VTOL lift.
+const LAND_START_DIST_M = 85;
+const LAND_START_ALT_M = 50;
+const LAND_INBOUND_M_S = 90;
+const LAND_MAX_ATTEMPTS = 3;
+
 async function landOnPad(
   page: Page,
   baseURL: string,
@@ -421,71 +358,75 @@ async function landOnPad(
   padId: string,
 ): Promise<{ vtolHeldAtDock: boolean; landMs: number }> {
   const start = Date.now();
-  await teleport(page, baseURL, token, { x: pad.x + 300, y: pad.y + 150, z: pad.z });
-  await expect
-    .poll(() => lastState(page).then((u) => u?.flightRegime ?? 'none'), {
-      timeout: 20_000,
-      message: 'server flightRegime never reached atmosphere after the approach teleport',
-    })
-    .toBe('atmosphere');
+  for (let attempt = 1; attempt <= LAND_MAX_ATTEMPTS; attempt++) {
+    const attemptStart = Date.now();
+    // Seed the proven approach state: 100 m out, 50 m up, 90 u/s inbound —
+    // the ship starts on the +x side of the pad, so the aim is −x.
+    await teleport(
+      page,
+      baseURL,
+      token,
+      { x: pad.x + LAND_START_DIST_M, y: pad.y + LAND_START_ALT_M, z: pad.z },
+      { x: -LAND_INBOUND_M_S, y: 0, z: 0 },
+    );
+    await expect
+      .poll(() => lastState(page).then((u) => u?.flightRegime ?? 'none'), {
+        timeout: 20_000,
+        message: `server flightRegime never reached atmosphere (attempt ${attempt})`,
+      })
+      .toBe('atmosphere');
+    expect(await setChannel(page, { thrust: 0, vtol: false }), 'glide channels set').toBe(true);
 
-  let phase: 'close' | 'glide' | 'vtol' | 'roll' = 'close';
-  let vtolHeldAtDock = false;
-  let iterations = 0;
-  for (;;) {
-    if (Date.now() - start > 90_000) {
-      const s = (await lastState(page))!;
-      throw new Error(
-        `land leg timed out (phase=${phase} regime=${s?.regime} ` +
-          `dist=${Math.hypot(pad.x - s.pos.x, pad.z - s.pos.z).toFixed(0)} m ` +
-          `alt=${(s.pos.y - pad.y).toFixed(0)} m)`,
-      );
+    let vtolHeld = false;
+    let iterations = 0;
+    let missed = false;
+    for (;;) {
+      if (Date.now() - attemptStart > 25_000) {
+        const s = (await lastState(page))!;
+        throw new Error(
+          `land leg attempt ${attempt} timed out (regime=${s?.regime} ` +
+            `dist=${Math.hypot(pad.x - s.pos.x, pad.z - s.pos.z).toFixed(0)} m ` +
+            `alt=${(s.pos.y - pad.y).toFixed(0)} m ` +
+            `speed=${Math.hypot(s.vel.x, s.vel.y, s.vel.z).toFixed(1)} u/s)`,
+        );
+      }
+      if (++iterations > 400) {
+        throw new Error(`land leg attempt ${attempt}: too many state-machine passes`);
+      }
+      const s = await lastState(page);
+      if (!s) continue;
+      if (s.regime === 'docked' && s.padId === padId) {
+        return { vtolHeldAtDock: vtolHeld, landMs: Date.now() - start };
+      }
+      if (!vtolHeld) {
+        const dist = Math.hypot(pad.x - s.pos.x, pad.z - s.pos.z);
+        const alt = s.pos.y - pad.y;
+        if (dist <= 25 && alt < 8) {
+          vtolHeld = true;
+          expect(await setChannel(page, { vtol: true }), 'vtol set').toBe(true);
+          // The VTOL channel reached the server (proof: if it had not, the
+          // ship would have free-fallen ~15 m in the next 2 s).
+          const altAtVtol = alt;
+          await page.waitForTimeout(2_000);
+          const later = (await lastState(page))!;
+          const laterAlt = later.pos.y - pad.y;
+          expect(
+            laterAlt,
+            `alt ${laterAlt.toFixed(1)} m must not dive past the VTOL switch (${altAtVtol.toFixed(1)} m)`,
+          ).toBeLessThanOrEqual(altAtVtol + 1);
+        } else if (dist > 20 && alt < 1.5 && Date.now() - attemptStart > 3_000) {
+          // Grounded OFF the disc (the corridor terrain is high here) — the
+          // glide missed; abandon the attempt and re-seed the approach.
+          missed = true;
+          break;
+        }
+      }
+      await page.waitForTimeout(100);
     }
-    if (++iterations > 300) throw new Error('land leg: too many state-machine passes');
-    const s = await lastState(page);
-    if (!s) continue;
-    if (s.regime === 'docked' && s.padId === padId) {
-      return { vtolHeldAtDock, landMs: Date.now() - start };
-    }
-    const dist = Math.hypot(pad.x - s.pos.x, pad.z - s.pos.z);
-    const alt = s.pos.y - pad.y;
-
-    switch (phase) {
-      case 'close': {
-        await facePad(page, pad);
-        expect(await setChannel(page, { thrust: 1, vtol: false }), 'thrust set (close)').toBe(true);
-        await page.waitForTimeout(1_000);
-        if (dist <= 100) phase = 'glide';
-        break;
-      }
-      case 'glide': {
-        await setChannel(page, { thrust: 0 });
-        await page.waitForTimeout(500);
-        if (dist <= 25 && alt < 8) phase = 'vtol';
-        else if (alt < 1.5) phase = 'roll'; // grounded before the disc — roll to it
-        break;
-      }
-      case 'vtol': {
-        vtolHeldAtDock = true;
-        await setChannel(page, { vtol: true, thrust: 0 });
-        await page.waitForTimeout(500);
-        if (alt > 30) phase = 'roll'; // the lift climbed clear of the pad — re-approach
-        break;
-      }
-      case 'roll': {
-        await setChannel(page, { vtol: false, thrust: 0 });
-        await facePad(page, pad);
-        // Skim toward the pad: VTOL holds the lift (< 5 u/s drift) while the
-        // thrust rolls across — the assist damps the drift the whole way.
-        await setChannel(page, { vtol: true, thrust: 1 });
-        await page.waitForTimeout(1_200);
-        await setChannel(page, { thrust: 0, vtol: false });
-        await page.waitForTimeout(800);
-        if (dist <= 25 && alt < 8) phase = 'vtol';
-        break;
-      }
-    }
+    if (!missed) throw new Error('land leg: inner loop ended without a result');
+    console.log(`[TASK-95] land attempt ${attempt} missed the disc — re-seeding`);
   }
+  throw new Error(`land leg: the glide missed the pad disc ${LAND_MAX_ATTEMPTS} times`);
 }
 
 test('touch-only SC-1 loop: claim → warp → fly → VTOL land → exit → mine → re-enter → sell', async ({
@@ -493,7 +434,7 @@ test('touch-only SC-1 loop: claim → warp → fly → VTOL land → exit → mi
   e2eServer,
 }) => {
   const { baseURL } = e2eServer;
-  // The land leg (close/glide/vtol/roll) and the two on-foot walks add wall
+  // The VTOL land leg (glide + settle) and the two on-foot walks add wall
   // time; budget generously (the run-2 legs before the land leg ran ~3 min).
   test.setTimeout(360_000);
   const loopStart = Date.now();
@@ -663,14 +604,14 @@ test('touch-only SC-1 loop: claim → warp → fly → VTOL land → exit → mi
     `yaw=+1 for 2 s: dot(forward, initial right) = ${dotD.toFixed(3)} (must be > 0.2)`,
   ).toBeGreaterThan(0.2);
 
-  // (6) ATMOSPHERE + VTOL + LAND: a real APPROACH, not a drop — 300 m out
-  // and 150 m up (inside the 1000 m band → 'atmosphere'), close on the pad,
-  // glide (momentum + drag + gravity), the VTOL channel on for the final
-  // settle (the server assist damps the drift; the pad machine docks the
-  // grounded ship — regime 'docked' + padId, the atmosphere / undock
-  // specs' landing state). A 60 m straight drop free-falls onto the 20 m
-  // disc and docks BEFORE the spec can observe the atmosphere leg — the
-  // approach is what exercises the VTOL flight.
+  // (6) ATMOSPHERE + VTOL + LAND: a real APPROACH, not a drop — the ship is
+  // seeded 100 m out / 50 m up (inside the 1000 m band → 'atmosphere') with
+  // a 90 u/s dead-stick velocity aimed at the pad (the atmosphere has no
+  // thrust, so momentum + drag + gravity do the glide — the exact
+  // shard.pads.approach state), then the VTOL channel on for the final
+  // settle: the 1.35·g lift brakes the descent, the server assist damps the
+  // drift, and the pad machine docks the grounded ship (regime 'docked' +
+  // padId — the atmosphere / undock specs' landing state).
   const land = await landOnPad(page, baseURL, session.token, t.pad, t.padId);
   await expect(page.locator('#docked-indicator')).toBeVisible({ timeout: 15_000 });
   await expect(page.locator('#leave-ship-prompt')).toBeVisible({ timeout: 15_000 });

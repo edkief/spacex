@@ -20,7 +20,8 @@ import type { RouteDeps } from './callsigns';
  *   position. Lets the e2e fly to a real seeded pad without hardcoding
  *   seed-derived ids.
  * - POST /api/dev/teleport   — the e2e teleport-assist: hard-sets the
- *   caller's ship position in whatever system its shard is active in
+ *   caller's ship position (and, optionally, its velocity — the TASK-95
+ *   VTOL-approach e2e) in whatever system its shard is active in
  *   (shard.teleportForTesting). No production surface, no persistence.
  * - POST /api/dev/deposit    — TASK-33 e2e assist: places a deposit at an
  *   exact position in the caller's system shard (shard.addDepositForTesting)
@@ -37,7 +38,19 @@ import type { RouteDeps } from './callsigns';
  */
 
 const teleportBody = z
-  .object({ x: z.number().finite(), y: z.number().finite(), z: z.number().finite() })
+  .object({
+    x: z.number().finite(),
+    y: z.number().finite(),
+    z: z.number().finite(),
+    // TASK-95: optional inbound velocity (the VTOL-approach e2e starts the
+    // ship with a dead-stick velocity aimed at the pad — the atmosphere has
+    // NO main thruster, so the horizontal part of the approach must be
+    // carried by momentum, exactly as the shard.pads.approach unit test).
+    vel: z
+      .object({ x: z.number().finite(), y: z.number().finite(), z: z.number().finite() })
+      .strict()
+      .optional(),
+  })
   .strict();
 
 const depositBody = z
@@ -234,7 +247,8 @@ export function registerDevRoutes(app: FastifyInstance, deps: RouteDeps): void {
         .code(409)
         .send({ code: 'not-in-system', message: 'ship system has no active shard' });
     }
-    if (!active.shard.teleportForTesting(auth.player.id, parsed.data)) {
+    const { x, y, z, vel } = parsed.data;
+    if (!active.shard.teleportForTesting(auth.player.id, { x, y, z }, vel)) {
       return reply
         .code(409)
         .send({ code: 'teleport-failed', message: 'ship entity not in the shard' });
