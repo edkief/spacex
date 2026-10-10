@@ -59,7 +59,10 @@ interface Quat {
 interface Tap {
   pos: Vec3;
   vel: Vec3;
+  /** Wire ship state: 'docked' | 'sublight' (entityToState.regime). */
   regime: string;
+  /** The flight regime: 'space' | 'atmosphere' | 'surface' (entityToState.flightRegime). */
+  flightRegime: string;
   padId?: string;
 }
 interface ClaimResponse {
@@ -112,6 +115,7 @@ function tapShipUpdates(callsign: string): void {
                 pos: Vec3;
                 vel?: Vec3;
                 regime?: string;
+                flightRegime?: string;
                 padId?: string;
                 callsign?: string;
               }>;
@@ -125,7 +129,8 @@ function tapShipUpdates(callsign: string): void {
             w.__TL__?.push({
               pos: e.pos,
               vel: e.vel ?? { x: 0, y: 0, z: 0 },
-              regime: e.regime ?? 'space',
+              regime: e.regime ?? 'sublight',
+              flightRegime: e.flightRegime ?? 'space',
               padId: e.padId,
             });
         } catch {
@@ -300,12 +305,197 @@ async function walkUntilPrompt(
   await expect(prompt).toHaveText(goalPrompt, { timeout: 15_000 });
 }
 
+/** The scout's turn rate (rad/s) — the steering math must match the class. */
+const TURN_RATE = 0.8;
+/** The server keeps applying the HELD axis frame ~200 ms after release (cruise.spec.ts). */
+const AXIS_RELEASE_LAG_S = 0.2;
+
+/**
+ * The signed aim errors (rad) from the nose to the pad in the PHYSICS
+ * convention (+yaw = nose LEFT, +pitch = nose DOWN): the fwd→target rotation
+ * axis decomposed on the ship's local up (the yaw component) and right (the
+ * pitch component, negated — positive pitch is a rotation about the LEFT
+ * axis). The TASK-80 probe math, inlined for the page (the evaluate body has
+ * no module scope).
+ */
+const aimAt = (page: Page, pad: Vec3): Promise<{ yaw: number; pitch: number } | null> =>
+  page.evaluate((p) => {
+    const s = window.__SELF_SHIP__?.probe();
+    if (!s?.pos || !s.rot) return null;
+    const { x, y, z, w } = s.rot;
+    const fwd = { x: 2 * (x * z + w * y), y: 2 * (y * z - w * x), z: 1 - 2 * (x * x + y * y) };
+    const rotV = (vx: number, vy: number, vz: number) => {
+      const cx = y * vz - z * vy;
+      const cy = z * vx - x * vz;
+      const cz = x * vy - y * vx;
+      return {
+        x: vx + 2 * w * cx + 2 * (y * cz - z * cy),
+        y: vy + 2 * w * cy + 2 * (z * cx - x * cz),
+        z: vz + 2 * w * cz + 2 * (x * cy - y * cx),
+      };
+    };
+    const right = rotV(-1, 0, 0); // the ship's RIGHT (the TASK-80 probe)
+    const up = {
+      x: right.y * fwd.z - right.z * fwd.y,
+      y: right.z * fwd.x - right.x * fwd.z,
+      z: right.x * fwd.y - right.y * fwd.x,
+    };
+    const dx = p.x - s.pos.x;
+    const dy = p.y - s.pos.y;
+    const dz = p.z - s.pos.z;
+    const d = Math.hypot(dx, dy, dz);
+    if (d < 1e-3) return null;
+    const tx = dx / d;
+    const ty = dy / d;
+    const tz = dz / d;
+    const dot = Math.min(1, Math.max(-1, fwd.x * tx + fwd.y * ty + fwd.z * tz));
+    if (Math.acos(dot) < 1e-4) return { yaw: 0, pitch: 0 };
+    const crx = fwd.y * tz - fwd.z * ty;
+    const cry = fwd.z * tx - fwd.x * tz;
+    const crz = fwd.x * ty - fwd.y * tx;
+    const sa = Math.hypot(crx, cry, crz);
+    const ax = crx / sa;
+    const ay = cry / sa;
+    const az = crz / sa;
+    return {
+      yaw: ax * up.x + ay * up.y + az * up.z,
+      pitch: -(ax * right.x + ay * right.y + az * right.z),
+    };
+  }, pad);
+
+/**
+ * Nose the ship at the pad (±0.15 rad): ONE axis per pass at the computed
+ * time (|err| / turn rate, minus the release lag), settled and re-measured —
+ * the cruise.spec.ts faceAnchor pattern, extended to the pitch axis. The
+ * TOUCH axes are on-screen (touch yaw +1 = nose RIGHT = physics −yaw;
+ * touch pitch +1 = nose UP = physics −pitch), so the physics signs flip.
+ */
+async function facePad(page: Page, pad: Vec3, budgetMs = 8_000): Promise<void> {
+  const t0 = Date.now();
+  for (;;) {
+    const aim = await aimAt(page, pad);
+    if (aim && Math.abs(aim.yaw) < 0.15 && Math.abs(aim.pitch) < 0.15) return;
+    if (Date.now() - t0 > budgetMs) {
+      throw new Error(`never faced the pad (yaw=${aim?.yaw}, pitch=${aim?.pitch})`);
+    }
+    if (!aim) {
+      await page.waitForTimeout(250);
+      continue;
+    }
+    const axis =
+      Math.abs(aim.yaw) >= 0.15 ? 'yaw' : Math.abs(aim.pitch) >= 0.15 ? 'pitch' : null;
+    if (!axis) return;
+    const pressS = Math.max(0.1, Math.abs(aim[axis]) / TURN_RATE - AXIS_RELEASE_LAG_S);
+    await setChannel(page, { [axis]: -Math.sign(aim[axis]) });
+    await page.waitForTimeout(Math.ceil(pressS * 1000));
+    await setChannel(page, { [axis]: 0 });
+    await page.waitForTimeout(300); // let the release lag settle before re-measuring
+  }
+}
+
+/**
+ * The VTOL LAND leg (the shard.pads.approach.test.ts approach, driven by
+ * touch channels + the server taps): the ship starts 300 m out and 150 m up
+ * (inside the 1000 m atmosphere band, clear of the 100 m VTOL-assist ring
+ * and the 20 m pad disc — no instant dock):
+ *
+ *  - CLOSE: nose at the pad, throttle in (the inbound speed the tested
+ *    script glides from);
+ *  - GLIDE: release the throttle — momentum + quadratic drag + gravity
+ *    dead-stick the last 100 m (the tested GLIDE phase);
+ *  - VTOL: within 25 m and below 8 m, the VTOL channel on — the server
+ *    assist (×0.5/tick on drift, < 50 u/s, within 100 m) kills the drift
+ *    while the 1.35·g lift brakes the descent onto the flat disc; the
+ *    pad machine docks the grounded ship (|vel.y| < 2, ≤ 20 m, ≤ 1 m);
+ *  - ROLL: the fallback when the glide misses the disc (grounded 25–100 m
+ *    out) or the lift climbs clear — face the pad and skim across it with
+ *    VTOL + thrust; a surface crossing inside the disc at |vel.y| < 2 docks
+ *    (the dock condition has no horizontal-speed cap), and the machine
+ *    re-enters VTOL whenever it is close and low again.
+ */
+async function landOnPad(
+  page: Page,
+  baseURL: string,
+  token: string,
+  pad: Vec3,
+  padId: string,
+): Promise<{ vtolHeldAtDock: boolean; landMs: number }> {
+  const start = Date.now();
+  await teleport(page, baseURL, token, { x: pad.x + 300, y: pad.y + 150, z: pad.z });
+  await expect
+    .poll(() => lastState(page).then((u) => u?.flightRegime ?? 'none'), {
+      timeout: 20_000,
+      message: 'server flightRegime never reached atmosphere after the approach teleport',
+    })
+    .toBe('atmosphere');
+
+  let phase: 'close' | 'glide' | 'vtol' | 'roll' = 'close';
+  let vtolHeldAtDock = false;
+  let iterations = 0;
+  for (;;) {
+    if (Date.now() - start > 90_000) {
+      const s = (await lastState(page))!;
+      throw new Error(
+        `land leg timed out (phase=${phase} regime=${s?.regime} ` +
+          `dist=${Math.hypot(pad.x - s.pos.x, pad.z - s.pos.z).toFixed(0)} m ` +
+          `alt=${(s.pos.y - pad.y).toFixed(0)} m)`,
+      );
+    }
+    if (++iterations > 300) throw new Error('land leg: too many state-machine passes');
+    const s = await lastState(page);
+    if (!s) continue;
+    if (s.regime === 'docked' && s.padId === padId) {
+      return { vtolHeldAtDock, landMs: Date.now() - start };
+    }
+    const dist = Math.hypot(pad.x - s.pos.x, pad.z - s.pos.z);
+    const alt = s.pos.y - pad.y;
+
+    switch (phase) {
+      case 'close': {
+        await facePad(page, pad);
+        expect(await setChannel(page, { thrust: 1, vtol: false }), 'thrust set (close)').toBe(true);
+        await page.waitForTimeout(1_000);
+        if (dist <= 100) phase = 'glide';
+        break;
+      }
+      case 'glide': {
+        await setChannel(page, { thrust: 0 });
+        await page.waitForTimeout(500);
+        if (dist <= 25 && alt < 8) phase = 'vtol';
+        else if (alt < 1.5) phase = 'roll'; // grounded before the disc — roll to it
+        break;
+      }
+      case 'vtol': {
+        vtolHeldAtDock = true;
+        await setChannel(page, { vtol: true, thrust: 0 });
+        await page.waitForTimeout(500);
+        if (alt > 30) phase = 'roll'; // the lift climbed clear of the pad — re-approach
+        break;
+      }
+      case 'roll': {
+        await setChannel(page, { vtol: false, thrust: 0 });
+        await facePad(page, pad);
+        // Skim toward the pad: VTOL holds the lift (< 5 u/s drift) while the
+        // thrust rolls across — the assist damps the drift the whole way.
+        await setChannel(page, { vtol: true, thrust: 1 });
+        await page.waitForTimeout(1_200);
+        await setChannel(page, { thrust: 0, vtol: false });
+        await page.waitForTimeout(800);
+        if (dist <= 25 && alt < 8) phase = 'vtol';
+        break;
+      }
+    }
+  }
+}
+
 test('touch-only SC-1 loop: claim → warp → fly → VTOL land → exit → mine → re-enter → sell', async ({
   browser,
   e2eServer,
 }) => {
   const { baseURL } = e2eServer;
-  test.setTimeout(300_000);
+  // The land leg (close/glide/vtol/roll) and the two on-foot walks add wall
+  // time; budget generously (the run-2 legs before the land leg ran ~3 min).
+  test.setTimeout(360_000);
   const loopStart = Date.now();
 
   // (1) CLAIM — the form, in the TOUCH-EMULATED browser (hasTouch →
@@ -473,49 +663,15 @@ test('touch-only SC-1 loop: claim → warp → fly → VTOL land → exit → mi
     `yaw=+1 for 2 s: dot(forward, initial right) = ${dotD.toFixed(3)} (must be > 0.2)`,
   ).toBeGreaterThan(0.2);
 
-  // (6) ATMOSPHERE + VTOL + LAND: 60 m straight above the pad (inside the
-  // 1000 m band → 'atmosphere', the planet-approach pattern). VTOL lift is
-  // server-confirmed (the 1.35×g margin, TASK-86), then release → gravity
-  // descent → the pad machine docks the ship on the pad disc (regime
-  // 'docked' + padId — the atmosphere / undock specs' landing state).
-  await teleport(page, baseURL, session.token, { x: t.pad.x, y: t.pad.y + 60, z: t.pad.z });
-  await expect
-    .poll(() => lastState(page).then((u) => u?.regime ?? 'none'), {
-      timeout: 20_000,
-      message: 'server regime never reached atmosphere after the approach teleport',
-    })
-    .toBe('atmosphere');
-  const lift = (await lastState(page))!;
-  expect(await setChannel(page, { vtol: 1 }), 'vtol channel set').toBe(true);
-  await expect
-    .poll(() => lastState(page).then((u) => u?.vel.y ?? 0), {
-      timeout: 15_000,
-      message: 'server vel.y never went positive with touch VTOL in atmosphere',
-    })
-    .toBeGreaterThan(2);
-  await expect
-    .poll(() => lastState(page).then((u) => u?.pos.y ?? 0), {
-      timeout: 15_000,
-      message: 'altitude never gained with touch VTOL in atmosphere',
-    })
-    .toBeGreaterThan(lift.pos.y + 5);
-  // Release: gravity descent (the VTOL-landed ship comes DOWN without lift).
-  const vtolTop = (await lastState(page))!;
-  expect(await setChannel(page, { vtol: 0 }), 'vtol released').toBe(true);
-  await expect
-    .poll(() => lastState(page).then((u) => u?.pos.y ?? 1e9), {
-      timeout: 20_000,
-      message: 'altitude never dropped after releasing touch VTOL',
-    })
-    .toBeLessThan(vtolTop.pos.y - 10);
-  // The pad machine docks the settled ship (findPad: on the pad disc, slow).
-  await expect
-    .poll(
-      () =>
-        lastState(page).then((u) => (u?.regime === 'docked' && u.padId === t.padId ? 'docked' : u?.regime ?? 'none')),
-      { timeout: 30_000, message: 'server never docked the ship on the pad after the VTOL descent' },
-    )
-    .toBe('docked');
+  // (6) ATMOSPHERE + VTOL + LAND: a real APPROACH, not a drop — 300 m out
+  // and 150 m up (inside the 1000 m band → 'atmosphere'), close on the pad,
+  // glide (momentum + drag + gravity), the VTOL channel on for the final
+  // settle (the server assist damps the drift; the pad machine docks the
+  // grounded ship — regime 'docked' + padId, the atmosphere / undock
+  // specs' landing state). A 60 m straight drop free-falls onto the 20 m
+  // disc and docks BEFORE the spec can observe the atmosphere leg — the
+  // approach is what exercises the VTOL flight.
+  const land = await landOnPad(page, baseURL, session.token, t.pad, t.padId);
   await expect(page.locator('#docked-indicator')).toBeVisible({ timeout: 15_000 });
   await expect(page.locator('#leave-ship-prompt')).toBeVisible({ timeout: 15_000 });
 
@@ -609,7 +765,7 @@ test('touch-only SC-1 loop: claim → warp → fly → VTOL land → exit → mi
   const wallMs = Date.now() - loopStart;
   console.log(
     `[TASK-95] loop wall=${(wallMs / 1000).toFixed(1)} s thrust ${s1.toFixed(1)} → ${s2.toFixed(1)} u/s ` +
-      `yaw-dot=${dotD.toFixed(3)} vtol-lift vel.y>2 (alt ${lift.pos.y.toFixed(0)} → ${vtolTop.pos.y.toFixed(0)}) ` +
+      `yaw-dot=${dotD.toFixed(3)} land=${(land.landMs / 1000).toFixed(1)} s (vtol-held-at-dock=${land.vtolHeldAtDock}) ` +
       `landed=docked/pad egress=touch mined=1/40u re-entered=touch sold=+5 cr (505 cr) bar=0/40u`,
   );
   assertClean();
