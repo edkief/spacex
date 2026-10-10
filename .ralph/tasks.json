@@ -846,7 +846,7 @@
     "title": "Touch loop e2e: warp-leg flake + land leg + legs 6–10 — touch-loop.spec.ts fully green",
     "category": "docs",
     "specFilePath": ".ralph/tasks/TASK-95.1.json",
-    "passes": false,
+    "passes": true,
     "splitFrom": "TASK-95",
     "splitDepth": 1
   },
