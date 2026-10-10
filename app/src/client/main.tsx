@@ -1392,11 +1392,10 @@ function App() {
     [],
   );
 
-  // TASK-31: E — LEAVE SHIP. Fires ONLY while the docked prompt is up
-  // (state/docked store true ⇒ the player's own entity is a docked ship)
-  // and the star chart is closed; typing (chat) never triggers it. The
-  // request is a plain 'exit_ship' frame — the server denies with
-  // {code:'not-docked'} in the race where the ship leaves the pad.
+  // TASK-31: E — the shared interact/egress key. The docked branch (the
+  // 'exit_ship' frame) lives in the SHARED interactPress path (TASK-95),
+  // so the touch INTERACT button and the touchDebug e2e bridge disembark
+  // through the SAME code as the keyboard; typing (chat) never triggers it.
   const chartOpenRef = React.useRef(chartOpen);
   React.useEffect(() => {
     chartOpenRef.current = chartOpen;
@@ -1411,6 +1410,17 @@ function App() {
   const interactPressRef = React.useRef<() => void>(() => {});
   interactPressRef.current = () => {
     if (anySurfaceOpen()) return; // TASK-53: any open surface is modal (ESC only)
+    // TASK-31: docked egress — the 'exit_ship' frame (the server denies with
+    // {code:'not-docked'} in the race where the ship leaves the pad). Driven
+    // by BOTH the E key and the touch INTERACT button (TASK-95: the egress
+    // prompt is part of the touch loop — one shared path, no keyboard-only
+    // branch).
+    if (dockedIndicator()) {
+      const shipId = selfShipIdRef.current;
+      if (!shipId) return;
+      clientRef.current?.send('exit_ship', { shipId });
+      return;
+    }
     // TASK-38: a HELD E (hold, not tap) — the press starts the hold
     // (dispatch → 'mine-start' for deposits, 'enter_ship' / 'open-cargo'
     // for the ship, the dock UI for the terminal). The registry is the
@@ -1458,16 +1468,11 @@ function App() {
       if (e.key !== 'e' && e.key !== 'E') return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
-      if (anySurfaceOpen()) return; // TASK-53: any open surface is modal (ESC only)
-      if (dockedIndicator()) {
-        const shipId = selfShipIdRef.current;
-        if (!shipId) return;
-        clientRef.current?.send('exit_ship', { shipId });
-        return;
-      }
-      // TASK-93: a thin call to the SHARED interactPress path (the surface
-      // guard is in there too, for the touch caller); auto-repeat re-sends
-      // are ignored (the server is idempotent either way).
+      // A thin call to the SHARED interactPress path (the surface guard, the
+      // docked-egress branch and the raycast dispatch are all in there —
+      // behaviour-identical to the pre-TASK-95 keyboard-only shape);
+      // auto-repeat re-sends are ignored (the server is idempotent either
+      // way).
       if (e.repeat) return;
       interactPress();
     };
