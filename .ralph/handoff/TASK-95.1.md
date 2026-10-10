@@ -12,7 +12,7 @@ isolated 130 m glide docks at 19.9 m with NO VTOL at ~16 s of sim). The remainin
 gate is one instrumented run that dumps the server state 400 ms after the teleport
 (logs committed in this iteration) to pin where the seed is lost, then legs 6–10.
 
-## Done this iteration
+## Done
 
 - **`app/tests/e2e/touch-loop.spec.ts`** (committed): the land leg is now
   **probe → reseed** (replacing the fixed 75 m / 15 m retune, which was a bad
@@ -35,7 +35,7 @@ gate is one instrumented run that dumps the server state 400 ms after the telepo
 - All prior work stands (warp force-clicks, `__TLIN__` tap, TouchControls in-ship
   VTOL fix, 80/80 touch unit tests, tsc green).
 
-## Diagnosis (the land-leg mystery, updated)
+## Dead ends
 
 - Run 8 (this iteration, the new probe code): the 130 m probe **climbed** right
   after the teleport (alt 50 → 75.8 m in 1 s — impossible with a seeded
