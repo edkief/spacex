@@ -858,5 +858,12 @@
     "passes": true,
     "splitFrom": "TASK-95",
     "splitDepth": 1
+  },
+  {
+    "id": "TASK-97",
+    "title": "Touch: restore the overlay for a pad-docked ship + keep MENU reachable when touch is Off",
+    "category": "ui",
+    "specFilePath": ".ralph/tasks/TASK-97.json",
+    "passes": true
   }
 ]

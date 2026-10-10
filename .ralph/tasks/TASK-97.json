@@ -1,0 +1,60 @@
+{
+  "id": "TASK-97",
+  "title": "Touch: restore the overlay for a pad-docked ship + keep MENU reachable when touch is Off",
+  "category": "ui",
+  "description": "BUG (owner-reported): on a touch device the on-screen controls appear for ~1 s, then disappear, and there is no way to bring them back. Root cause (planning-verified): a pad-docked/landed ship reports flightRegime 'surface' on the wire. The client regime starts as 'space' on load (RegimeWiring constructor, app/src/client/state/regime-wiring.ts:64) so the touch overlay renders the FLIGHT layout; the first server snapshot then flips the regime to 'surface' and TouchControls unmounts the WHOLE overlay \u2014 app/src/client/ui/touch/TouchControls.tsx:197 `if (!onFoot) return null` was meant to hide only the ON-FOOT layout while the player is IN the ship, but it also hides the flight sticks, VTOL and the MENU button. A keyboard player is unaffected: dockedFlightScheme('surface') (app/src/client/input/flight-loop.ts:82) maps to the atmosphere scheme, so a held W/Space still takes the pad-docked ship off (TASK-86). But the touch virtual keys are synthesized BY the overlay \u2014 which is not rendered \u2014 so a touch-only player is stranded on the pad with no MENU button to open the ESC layer / Settings. The e2e suite missed it because the touch specs spawn at the home dock (a space dock position, regime stays 'space') and drive ships through the __TOUCH__ dev hook, never the rendered overlay. Two fixes are in scope. (A) When regime is 'surface' AND the player is in the ship (not on foot), render the FLIGHT touch layout (dual sticks + VTOL, not BOOST \u2014 matching dockedFlightScheme('surface') = the atmosphere scheme) + the combat cluster + MENU, so a pad-docked ship can take off by touch. (B) When touch controls is set to Off on a touch-capable device, the overlay (incl. MENU) is hidden and there is no touch path back into Settings \u2014 keep a lone MENU button rendered on touch-capable devices even when disabled, so the player can reopen the ESC layer and re-enable (channels stay empty; on a non-touch desktop nothing renders, preserving the byte-for-byte keyboard path). Serves SC-6 (touch parity) and the PRD \u00a74.13 acceptance that touch can be forced on/off in Settings (persisted).",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Confirm the root cause and write failing tests",
+      "details": "Read app/src/client/ui/touch/TouchControls.tsx (the `if (regime === 'surface') { if (!onFoot) return null; ... }` at ~line 196-197, the `if (!enabled) return null;` at ~line 178, and the prevRegimeRef flip-cleanup effect at ~line 155), app/src/client/state/regime-wiring.ts (the constructor seeds the regime 'space'), app/src/client/input/flight-loop.ts (dockedFlightScheme:82), and app/src/client/main.tsx (the <TouchControls> usage at ~line 2382 and the touchNavHints memo at ~line 753). Reproduce in a touch-emulated e2e browser: land/dock at the station pad (reuse the dockAtPad flow in app/tests/e2e/touch-onfoot.spec.ts:168) and observe #touch-controls disappear once the server wire regime becomes 'surface' (the ship is pad-docked), with no MENU button. Then add failing unit tests to app/src/client/ui/touch/TouchControls.test.tsx encoding the contract: (a) with `enabled` and `regime=\"surface\"` and NOT onFoot (in-ship, pad-docked), the component renders the FLIGHT layout \u2014 #touch-stick-left, #touch-stick-right, a VTOL button, #touch-btn-menu \u2014 and NO BOOST button; (b) with `enabled={false}`, `touchCapable` true and onMenu provided, a lone MENU button renders while #touch-stick-left is absent. Both must FAIL before the fix. Do not fix anything yet.",
+      "pass": true
+    },
+    {
+      "step": 2,
+      "description": "Fix A \u2014 surface-in-ship renders the FLIGHT touch layout",
+      "details": "In app/src/client/ui/touch/TouchControls.tsx, change the surface handling so the ON-FOOT layout renders ONLY when `onFoot` is true; when regime is 'surface' and the player is IN the ship (onFoot false), fall through to the FLIGHT layout with the per-regime button set to VTOL (i.e. treat that case like the atmosphere scheme, matching dockedFlightScheme('surface')), so the left stick (thrust+yaw), right stick (pitch+roll), VTOL, the combat cluster and the MENU button all render. Do NOT change the on-foot layout or the space/atmosphere flight layout. Then refine the regime-flip cleanup effect (the prevRegimeRef effect): when LEAVING surface-in-ship by LIFTOFF (regime flips to atmosphere/space while onFoot stays false), KEEP the held touch channels (the finger is still on the stick and the server is taking the ship off \u2014 the keyboard's held keys survive the flip, so touch must match); when LEAVING surface by DISSEMBARK (onFoot flips true), CLEAR the channels (the existing behaviour tested at TouchControls.test.tsx:222-237 \u2014 ' ' must not leak into the on-foot JUMP). Add a unit test: hold thrust+VTOL in surface-in-ship, flip to atmosphere (onFoot false) \u2192 channels kept; then flip onFoot true \u2192 channels cleared. Do NOT change the `if (!enabled) source.clear()` cleanup (disabling must still clear every channel). The flight loop already reads surface-in-ship input through dockedFlightScheme (main.tsx ~line 1854), so the rendered layout's virtual keys map exactly to what the loop reads.",
+      "pass": true
+    },
+    {
+      "step": 3,
+      "description": "Fix B \u2014 lone MENU button when touch is Off on a touch-capable device",
+      "details": "Add a `touchCapable: boolean` prop to TouchControls (DEFAULT false, so existing unit tests that render without it keep rendering nothing \u2014 TouchControls.test.tsx:186-197 asserts #touch-controls is null for enabled={false} with no touchCapable). In app/src/client/main.tsx pass `touchCapable={touchNavHints.maxTouchPoints > 0}` (touchNavHints is already computed at ~line 753). In the `!enabled` branch, when `touchCapable && onMenu`, render a minimal overlay containing ONLY the MENU button (reuse the same menuButton element \u2014 hoist its definition ABOVE the `if (!enabled) return null;` early return so both branches can use it); when touchCapable is false, return null. Channels must stay empty (the existing `if (!enabled) source.clear()` effect already guarantees this). The MENU button calls the SAME shared open/pop the Esc key uses (onMenu \u2192 main.tsx's menuKeyActionRef), so the ESC layer \u2192 SETTINGS \u2192 TOUCH CONTROLS is reachable by touch to re-enable. Keep the `#touch-controls` element id stable in both the in-ship-flight and lone-MENU branches (several e2e specs assert it).",
+      "pass": true
+    },
+    {
+      "step": 4,
+      "description": "E2E regression \u2014 pad-docked take-off + Off-lockout",
+      "details": "New spec app/tests/e2e/touch-padded.spec.ts (reuse the fixtures + claim flow + dockAtPad from touch-onfoot.spec.ts and the __t91 tapShipUpdates / lastState / setChannel helpers from touch-flight.spec.ts). Touch-emulated browser (hasTouch \u2192 maxTouchPoints > 0). (a) Land/dock at the station pad via dockAtPad and assert #docked-indicator is visible. (b) Assert the touch overlay is UP while pad-docked: #touch-controls visible, #touch-stick-left + #touch-stick-right visible, a VTOL button visible and NO #touch-btn-boost, #touch-btn-menu visible \u2014 this is the pre-fix failure. (c) Take off by touch: setChannel({thrust:1, vtol:1}) and assert within ~3 s the SERVER wire regime leaves 'docked' AND the ship's position changes (read from the tapped entity_update frames); assert the #docked-indicator clears. (d) MENU reachable: drive the MENU action via the __TOUCH__.openMenu() passthrough (the touch-menu.spec.ts:99 pattern) \u2192 assert #esc-menu opens. (e) Off-lockout: set touchControls to 'off' (PUT /api/players/settings with touchControls 'off', the touch-menu.spec.ts:168-173 round-trip pattern) and assert a lone #touch-btn-menu is STILL rendered while #touch-stick-left is absent, and openMenu() opens #esc-menu. (The non-touch desktop Off\u2192count-0 case is already covered by touch-menu.spec.ts test 2 \u2014 do not duplicate it, but confirm it stays green.) Save .ralph/screenshots/TASK-97-1.png showing the flight touch layout over the pad-docked ship, and TASK-97-2.png the lone MENU button in the Off state. Then confirm the existing touch specs still pass: touch-flight.spec.ts, touch-menu.spec.ts, touch-onfoot.spec.ts, touch-combat.spec.ts and touch-loop.spec.ts (touch-loop lands a ship at the pad while IN the ship; it drives via the __TOUCH__ hook and does not assert on #touch-controls, so it should be unaffected \u2014 run it to confirm).",
+      "pass": true
+    },
+    {
+      "step": 5,
+      "description": "Verify + commit",
+      "details": "cd app && npx tsc --noEmit; full npm run test; e2e: npx playwright test --config playwright.e2e.config.ts tests/e2e/touch-padded.spec.ts tests/e2e/touch-flight.spec.ts tests/e2e/touch-menu.spec.ts tests/e2e/touch-onfoot.spec.ts tests/e2e/touch-combat.spec.ts tests/e2e/touch-loop.spec.ts. eslint --fix + prettier --write on touched files. Commit fix(TASK-97): restore the touch overlay for a pad-docked ship + keep MENU reachable when touch is Off. Do not commit pre-existing dirty .ralph/screenshots/*.png mods.",
+      "pass": true
+    }
+  ],
+  "acceptanceCriteria": [
+    "A pad-docked (flightRegime 'surface', in-ship) touch client shows the FLIGHT touch overlay: unit test renders #touch-stick-left / #touch-stick-right / a VTOL button / #touch-btn-menu for regime 'surface' + not-onFoot, and renders NO BOOST button",
+    "A pad-docked ship takes off by touch: e2e touch-padded.spec.ts shows the server wire regime leaves 'docked' and the ship's position changes within ~3 s of touch thrust(+VTOL), and the DOCKED indicator clears",
+    "The overlay's MENU action opens the ESC menu while pad-docked (e2e)",
+    "On liftoff (surface-in-ship \u2192 atmosphere/space while onFoot stays false) held touch channels are KEPT (new unit test); on disembark (onFoot true) they are CLEARED (existing TouchControls.test.tsx test stays green)",
+    "With touch set to Off on a touch-capable device a lone MENU button is rendered (#touch-stick-left absent) and openMenu() opens #esc-menu (e2e); on a non-touch desktop with Off the #touch-controls count is 0 (existing touch-menu.spec.ts desktop test stays green)",
+    "Disabling still clears every held channel (existing TouchControls.test.tsx test stays green)",
+    "npx tsc --noEmit green; full npm run test green; the listed e2e specs (touch-padded + the 5 existing touch specs) green; one commit"
+  ],
+  "dependencies": [
+    "TASK-91",
+    "TASK-94",
+    "TASK-86"
+  ],
+  "estimatedComplexity": "medium",
+  "notes": [
+    "dockedFlightScheme('surface') = CONTROL_SCHEMES.atmosphere (app/src/client/input/flight-loop.ts:82) \u2014 the pad-docked flight layout must present VTOL (the ' ' lift), NOT BOOST. The flight loop reads surface-in-ship input through this scheme (main.tsx ~line 1854), so the rendered layout's virtual keys already map to what the loop reads \u2014 no flight-loop change is needed for the take-off itself.",
+    "The overlay render is gated by BOTH `enabled` (the touchEnabledFor resolution) and the regime/onFoot. The `#touch-controls` id is asserted by several e2e specs \u2014 keep it stable in the in-ship-flight branch AND the lone-MENU branch.",
+    "Default the new `touchCapable` prop to false: TouchControls.test.tsx:186-197 renders enabled={false} without it and asserts #touch-controls is null.",
+    "The e2eServer fixture boots the real dev server (NODE_ENV=development \u2192 the DEV-only __TOUCH__ hook exists); never run it alongside npm run dev.",
+    "Root cause is in the RENDER path (TouchControls.tsx:197), not the enablement gate \u2014 a pad-docked ship's touchEnabled stays true; it is the regime flip to 'surface' that hides the overlay. Do not 'fix' this by changing touchEnabledFor."
+  ]
+}
