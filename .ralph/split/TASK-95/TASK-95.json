@@ -1,0 +1,35 @@
+{
+  "id": "TASK-95",
+  "title": "Full touch loop e2e (SC-1 by touch) + controls docs",
+  "category": "docs",
+  "description": "The integration + close-out task for the touch feature (PRD SC-6, §4.13). Proves the headline loop is completable BY TOUCH ALONE on the mobile rendering profile — warp → fly → land → exit ship → mine → re-enter → sell — using only the touchDebug/dev-hook channel driving (the same deterministic e2e approach the individual touch specs use), and updates the human-facing docs (README controls table + a dev note) so the feature is discoverable. This is the end-to-end acceptance for SC-6 and the gate that the virtual-key design holds across every regime (space flight, atmosphere VTOL, surface on-foot, menus) with the server, prediction, wire mapping and cheat-resistance all unchanged. Serves PRD goals 1/2/3 and success criterion SC-6.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Full touch-only loop e2e on the mobile profile",
+      "details": "New `app/tests/e2e/touch-loop.spec.ts`, the touch analogue of the SC-1 loop in tests/e2e/core-flow.spec.ts (and the per-leg setups in cruise.spec.ts / atmosphere.spec.ts / disembark.spec.ts / interact.spec.ts / sell.spec.ts). Emulate a touch device (`browser.newContext({ hasTouch: true })`) and force the mobile rendering profile (the existing deviceProfile 'mobile' settings override, TASK-59, so the 30 fps floor path is exercised). Drive EVERY action through the touchDebug dev hook (page.evaluate calls to setChannel/openMenu/interactPress/fire/etc. — the same deterministic approach TASK-91/92/93 use; no synthetic pointer gestures). The loop: (1) CLAIM a callsign via the form (ClaimPage), (2) open the touch MENU → star chart → select a planet system → WARP (touch-menu path, TASK-94), (3) in SPACE push the throttle (thrust) to accelerate and steer (yaw) toward the planet (server-reported speed/heading taps, as in cruise.spec.ts), (4) enter the atmosphere and use the VTOL channel to descend and LAND on a pad (the landed/docked state, as in atmosphere.spec.ts / undock.spec.ts), (5) EXIT the ship (the egress prompt → interactPress), (6) on foot, walk (thrust) to a deposit and HOLD interactPress for a full mining unit then interactRelease (server awards the unit to inventory, as in interact.spec.ts), (7) RE-ENTER the ship (interactPress at the ship, server switches to in-ship, as in enter-ship.spec.ts), (8) fly back to the dock and SELL the cargo (the dock terminal → sell, server credits increase and cargo empties, as in sell.spec.ts). Assert the credits counter rises and the cargo is empty at the end (the SC-1 terminal condition), with NO keyboard/mouse input anywhere (the context is touch-only and all actions go through the touch channels). Collect console errors and assertClean() (no unhandled errors across the whole loop). Screenshot `.ralph/screenshots/TASK-95-1.png` at the sold/dock state. Record the loop wall-time in the LOG entry.",
+      "pass": true
+    },
+    {
+      "step": 2,
+      "description": "Docs + full-suite verify + commit",
+      "details": "Update the human-facing docs to reflect touch: (a) `README.md` — add a 'Touch controls' note under the Controls section describing the dual-stick flight layout (left = thrust+yaw, right = pitch+roll, + FIRE/VTOL/BOOST/TARGET/weapon), the on-foot layout (move stick + RUN/JUMP/DROP/INTERACT), the MENU button for chart/warp/ships/chat/settings, and the Settings → Controls Auto/On/Off toggle; and remove the 'no touch controls' / 'keyboard-only play' line from the v1 scope (the README intro says 'no touch controls' and the Features list says 'Keyboard-only play' — update both to reflect that touch is now supported). (b) Add a short 'Touch / mobile controls' dev note to the app dev-notes doc (app/docs/contributing.md or architecture.md, whichever covers input) explaining the VIRTUAL-KEY design (touch projects to the same key names and is merged with the keyboard pressed set; the server/prediction/wire/cheat-resistance are unchanged) and the enablement model (auto = maxTouchPoints > 0, on/off persisted). Then run the full gate: `cd app && npx tsc --noEmit`, FULL `npm run test` (all unit/integration, including the new touch specs 89-94 and the golden flight fixtures UNCHANGED), `npm run test:e2e` (the full e2e suite, including touch-loop.spec.ts and the existing flight/weapon/on-foot/mine/sell specs all still green — proving no keyboard regression), `eslint --fix` + `prettier --write` on touched files. Commit `feat(TASK-95): full touch loop + docs` (and, per the one-task-per-commit convention, this is the single close-out commit for the feature).",
+      "pass": true
+    }
+  ],
+  "acceptanceCriteria": [
+    "touch-loop.spec.ts completes the SC-1 loop (claim → warp → fly → VTOL land → exit → mine → re-enter → sell) driven ENTIRELY by touch channels on the mobile profile, ending with credits risen and cargo empty, with zero keyboard/mouse input and no unhandled console errors",
+    "README 'Controls' + the v1 scope line and the Features 'keyboard-only' line are updated to reflect touch support, and a dev note documents the virtual-key design + the Auto/On/Off enablement model",
+    "Full gate green: npx tsc --noEmit; full npm run test (touch specs 89-94 + golden flight fixtures unchanged); npm run test:e2e (touch-loop + all existing flight/weapon/on-foot/mine/sell specs green — no keyboard regression); eslint + prettier clean",
+    "One close-out commit for the feature; the touch loop wall-time is recorded in the LOG entry"
+  ],
+  "dependencies": ["TASK-91", "TASK-92", "TASK-93", "TASK-94", "TASK-59", "TASK-70"],
+  "estimatedComplexity": "high",
+  "notes": [
+    "This is an INTEGRATION task: it does not add new control code. It reuses the touchDebug hooks from TASK-91/92/93/94 to drive the whole SC-1 loop. If a leg fails, fix the responsible wiring task's code — do not special-case the loop test.",
+    "Force the mobile rendering profile (deviceProfile 'mobile') so the SC-6 mobile path is actually exercised, not just the desktop one.",
+    "NO keyboard/mouse input in this spec: the context is hasTouch and every action goes through the touch channels. If you find yourself calling page.keyboard, the loop is not touch-only — rework it to the touch channel.",
+    "The docs edit touches README.md and an app/docs file — that is the ONLY non-test source change in this task (the virtual-key code was all added in 89-94). Keep the README/Docs changes factual and short.",
+    "Do NOT regenerate any golden flight fixture — the touch feature must leave the default (keyboard, no-touch) path bit-identical. If a fixture changes, the no-op-when-disabled guarantee (TASK-89) is broken; find and fix the merge, not the fixture. Do not commit pre-existing dirty screenshots. Conventional commit: feat(TASK-95): ..."
+  ]
+}

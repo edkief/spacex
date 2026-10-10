@@ -1,0 +1,21 @@
+{
+  "task": "TASK-95",
+  "splittable": true,
+  "reason": "The three failures were each consumed by the open-ended land-leg debug in 45-min iterations — not by a broken environment or a hanging suite — and the remaining work decomposes into two bounded chunks that together cover every unmet acceptance criterion. TASK-95.1 is the only point where 'tests pass' is meaningful (the loop is one Playwright test): apply the identified 2-line warp-leg force-click fix, get the land leg to dock via the handoff's ordered VTOL diagnosis under a hard 15-minute box (with the bounded fallback — a closer start distance, since docking is position/speed-based), then work the never-executed legs 6–10 to green on verbatim patterns from existing green specs — ~3–5 six-minute spec runs, fits one iteration; it ends with the spec fully green, its screenshot, and a wip commit. TASK-95.2 is deterministic close-out with no unknowns: the README + architecture.md docs, the full gate (tsc, full unit suite with golden fixtures unchanged, the FULL 56-file e2e suite proving no keyboard regression, lint/format), task flags, the LOG entry with the loop wall time, handoff deletion, and the single final feat commit — ~35–45 min, the same shape as the TASK-93.1/93.2 split that closed the sibling touch task.",
+  "tasks": [
+    {
+      "id": "TASK-95.1",
+      "title": "Touch loop e2e: warp-leg flake + land leg + legs 6–10 — touch-loop.spec.ts fully green"
+    },
+    {
+      "id": "TASK-95.2",
+      "title": "Touch controls docs + full gate + close-out commit (closes TASK-95)"
+    }
+  ],
+  "parent": {
+    "title": "Full touch loop e2e (SC-1 by touch) + controls docs",
+    "specFilePath": ".ralph/split/TASK-95/TASK-95.json",
+    "handoffPath": ".ralph/split/TASK-95/handoff.md"
+  },
+  "appliedAt": "2026-10-10T02:26:22.154Z"
+}

@@ -842,10 +842,21 @@
     "passes": true
   },
   {
-    "id": "TASK-95",
-    "title": "Full touch loop e2e (SC-1 by touch) + controls docs",
+    "id": "TASK-95.1",
+    "title": "Touch loop e2e: warp-leg flake + land leg + legs 6–10 — touch-loop.spec.ts fully green",
     "category": "docs",
-    "specFilePath": ".ralph/tasks/TASK-95.json",
-    "passes": false
+    "specFilePath": ".ralph/tasks/TASK-95.1.json",
+    "passes": false,
+    "splitFrom": "TASK-95",
+    "splitDepth": 1
+  },
+  {
+    "id": "TASK-95.2",
+    "title": "Touch controls docs + full gate + close-out commit (closes TASK-95)",
+    "category": "docs",
+    "specFilePath": ".ralph/tasks/TASK-95.2.json",
+    "passes": false,
+    "splitFrom": "TASK-95",
+    "splitDepth": 1
   }
 ]
