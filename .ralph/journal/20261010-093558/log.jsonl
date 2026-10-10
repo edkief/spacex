@@ -1,0 +1,13 @@
+{"time":"2026-10-10T10:10:21.266Z","level":"warn","message":"the agent ended its turn with the task unfinished; resuming it","fields":{"task":"TASK-97","resume":1,"minutesLeft":11}}
+{"time":"2026-10-10T10:17:08.302Z","level":"warn","message":"the agent ended its turn with the task unfinished; resuming it","fields":{"task":"TASK-97","resume":2,"minutesLeft":4}}
+{"time":"2026-10-10T10:20:59.198Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-10T10:23:34.723Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-97.md"}}
+{"time":"2026-10-10T10:23:34.751Z","level":"warn","message":"agent claimed a task without marking it passing","fields":{"claimed":"TASK-97"}}
+{"time":"2026-10-10T10:23:38.618Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":1}}
+{"time":"2026-10-10T10:31:33.553Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-10T10:31:37.957Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-10T10:31:42.147Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-10T10:31:46.518Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-10T10:31:54.353Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-10T10:32:10.024Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-10T10:44:48.338Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":2}}

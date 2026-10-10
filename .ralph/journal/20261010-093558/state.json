@@ -1,0 +1,18 @@
+{
+  "runId": "20261010-093558",
+  "status": "complete",
+  "startedAt": "2026-10-10T09:35:58.212Z",
+  "updatedAt": "2026-10-10T10:44:50.340Z",
+  "maxIterations": 100,
+  "iteration": 2,
+  "taskId": "TASK-97",
+  "iterationStartedAt": "2026-10-10T10:23:40.619Z",
+  "iterationMs": 2700000,
+  "lastStatus": "progressed",
+  "tasksPassed": 115,
+  "tasksTotal": 115,
+  "split": null,
+  "escalation": null,
+  "message": "All 115 tasks pass",
+  "pending": null
+}
