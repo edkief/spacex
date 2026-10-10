@@ -2,51 +2,95 @@
 
 ## Status
 
-The land leg no longer steers at all: it seeds the proven unit-test approach state (100 m out / 50 m up, 90 u/s dead-stick velocity aimed at the pad — the atmosphere has NO thrust, so momentum + drag + gravity do the glide) via a new optional `vel` on the dev teleport endpoint. Run 5 proved the glide works (the ship flew in and came to rest at `dist=25 m alt=1 m speed=0.0`) — but it stops just OUTSIDE the 20 m pad disc and the VTOL lift demonstrably never engaged server-side (a held VTOL at 1.35·g cannot end in speed 0). Legs 5–10 (land→exit→mine→re-enter→sell) remain untested, the docs half is unstarted, and one run died on a separate warp-leg flake (ESC menu intercepting the star-chart node click).
+TASK-95.1 is at the final gate: the warp-leg flake is fixed and the land-leg
+diagnosis is COMPLETE with the fix applied — but the full spec run did not fit
+the iteration's time budget. Next step is a single ~6-min spec run, legs 6–10
+iteration if needed, then close.
 
-## Done
+## VTOL non-engagement — ROOT-CAUSED (diagnosis closed)
 
-- **`app/src/server/routes/dev.ts` (NOT committed):** `POST /api/dev/teleport` now accepts an optional `vel: {x,y,z}` (zod `.strict()` extended, passed through to `shard.teleportForTesting` which already supported `vel` since TASK-32 — only the HTTP route hid it). No production surface change; route is dev-only.
-- **`app/tests/e2e/touch-loop.spec.ts` (NOT committed):** land leg rewritten AGAIN, this time with NO steering:
-  - Deleted `aimAt`, `facePad`, `TURN_RATE`, `AXIS_RELEASE_LAG_S` entirely (the facePad steering dead end is gone).
-  - `teleport()` helper now takes an optional `vel` and posts `{...to, vel}`.
-  - New `landOnPad(page, baseURL, token, pad, padId)`: per attempt (up to 3), teleports to `{pad.x+85, pad.y+50, pad.z}` with `{x:-90,y:0,z:0}` (start dist tunable via `LAND_START_DIST_M=85`; the unit test uses 100), polls `flightRegime === 'atmosphere'`, sets `{thrust:0, vtol:false}`, then a 100 ms-polled state machine on the SERVER tap `lastState`: at `dist ≤ 25 && alt < 8` switch `vtol: true` (records `vtolHeld`), then a 2 s probe asserts the ship did NOT dive (the vtol-reached-server check); `dist > 20 && alt < 1.5` after 3 s = grounded off the disc → `missed` → re-seed. 25 s per-attempt budget, throws with regime/dist/alt/speed.
-  - Header comment + step-(6) comment updated to describe the dead-stick approach.
-  - `npx tsc --noEmit` GREEN.
-- Prior iterations (committed): claim→menu→warp→space legs, egress wiring in main.tsx (`162bdec`), flightRegime tap fix + first land rewrite (`04f3f89`).
+Run 7's wire tap (`__TLIN__` outbound input frames) + the scheme-swap console
+log proved:
 
-## Working tree
+- The client scheme was NOT stale: swaps logged `space → atmosphere` (the
+  teleport) and `atmosphere → surface` (touchdown). main.tsx's regime wiring
+  is correct.
+- The client DID send `action:"vtol"` frames on the wire (seq 201–203) once
+  the VTOL channel went on.
+- The vtol frames STOPPED ~150 ms later — exactly when the ship grounded and
+  the regime flipped `surface`: idle frames to the 25 s timeout, the ship
+  stranded grounded at dist 23 m / speed 0.
 
-- `app/src/server/routes/dev.ts` — MODIFIED (teleport `vel`), NOT committed, tsc green.
-- `app/tests/e2e/touch-loop.spec.ts` — MODIFIED (steering-free land leg), NOT committed, tsc green.
-- Docs (task step 2) NOT started: README.md "no touch controls" / "Keyboard-only play" lines + `app/docs/` virtual-key dev note (see Next steps 4).
-- Pre-existing dirty files (screenshots, `.ralph/decisions.jsonl`, `PRD.md`, `.gitignore`, `ralph.config.json`, `app/.ralph/`, `app/.trace-tmp/`, untracked TASK-89..92 specs) are NOT this task's — exclude from the commit, per convention.
+Root cause: `TouchControls.tsx`'s regime-flip channel hygiene (the
+`prevRegimeRef` effect) ran `source.clear()` on ENTERING THE SURFACE — wiping
+the held VTOL at touchdown, the one moment the lift is needed. A keyboard
+player's held Space key survives the flip (the keyboard `pressed` set is
+independent of the touch source), so touch was asymmetric: the lift was cut at
+touchdown and the ship could never settle. This also explains the old facePad
+dead end (all touch channels died at the flip).
 
-## Next steps
+Fix (committed): `TouchControls.tsx` — entering the surface now clears
+channels only when `onFoot` (disembarded); the in-ship touchdown KEEPS the
+held VTOL (the flight loop reads it through `dockedFlightScheme('surface')`;
+the 1.35·g lift + pad machine settle the ship). Disembark / re-entry (the
+`onFoot` flip) still clears, so the ` ` collision can't leak into the on-foot
+JUMP. 2 new regression tests in `TouchControls.test.tsx` (80/80 touch tests
+green, tsc green).
 
-1. **Fix the warp-leg flake first (it blocked the last full run before the land leg).** Run 6 died at `await padNode.click()` (spec line ~540): the ESC menu is STILL on the surface stack when the chart opens — `openChart()` PUSHES the chart onto the stack (`src/client/state/menu.ts:80`, it does not pop the menu), so `#esc-menu` (zIndex 111, `esc-menu.tsx:66`) renders AFTER `#star-chart` (zIndex 111, `star-chart.tsx:210`) in the DOM and the 280 px centered dialog overlaps chart nodes in the middle of the screen; Playwright's hit test then reports `<p>The world keeps moving while the menu is open.</p> … intercepts pointer events` (screenshot `app/test-results/…/test-failed-1.png` shows the menu over the chart). touch-menu.spec.ts (TASK-94, green) got lucky with node placement. The touch-loop spec's intent is "MENU → chart → warp by touch", so do NOT change the app's surface-stack behavior (that would touch TASK-53 semantics). In-spec fix (was about to be applied when time ran out — `padNode.click()` at line 540 is still plain): `await padNode.click({ force: true })` and the same for `warpButton.click()` (line ~543, the WARP button sits bottom-right, likely clear but force it too); add a one-line comment explaining the co-open menu shares z-index 111 and renders on top in DOM order.
-2. **Diagnose the VTOL non-engagement (the land leg's only remaining red).** Run 5 ended `land leg attempt 1 timed out (regime=sublight dist=25 m alt=1 m speed=0.0 u/s)`: the ship glided in (momentum works — the `vel` teleport is verified working) and stopped just outside the 20 m disc; the vtol switch DID fire per the flag logic (the miss-check is skipped once `vtolHeld` is set, so the timeout proves it), yet a held VTOL (1.35·g lift, `VTOL_LIFT` in `src/shared/physics/flight.ts`) cannot produce a grounded speed-0 rest — the server never applied it. Prime suspect (same mystery as the old facePad failure: touch channels apparently ineffective AFTER an atmosphere teleport, while they work in space): **the client's active control scheme was stale 'space'** — if `regimeWiring.regime` (main.tsx ~line 1851: `flightScheme = docked || regime === 'surface'`, else `remapper.readInput`) is still 'space' post-teleport, the atmosphere `dockedFlightScheme`/remapper path reads ' ' through the SPACE scheme where `vtol: null` → `up: 0` on the wire. Diagnose in order:
-   a. Add an INPUT-FRAME tap in `tapShipUpdates` (the WebSocket constructor monkey-patch already there): also intercept `send`, parse envelopes, and record `type === 'input'` payloads into `window.__TLIN__`. In the vtol probe, log the last few sent frames' `up`/`thrust` values — this shows EXACTLY what the client put on the wire when VTOL was pressed.
-   b. Also log the client's live regime in the page: `page.evaluate(() => document.body)` won't help; check what the client derives — the wire `flightRegime` IS 'atmosphere' (the poll passed), so find where `regimeWiring` gets its value (grep `regimeWiring` in `app/src/client/main.tsx`; it's built from the predicted/server regime) and whether a server teleport updates it without a boundary event (the regime manager may only swap the scheme on a PREDICTED crossing, and a teleport gives no predicted crossing).
-   c. If the scheme is stale, the fix is in the client regime wiring (a legit wiring bug — the task says fix the responsible wiring, not special-case the loop): the remapper must follow the SERVER-reported flightRegime (snapshots carry it) even when the client predictor never crossed the boundary locally.
-   d. FALLBACK if the wiring turns out deep: make docking not depend on the VTOL lift at all — lower `LAND_START_DIST_M` (try 55–60 m, keep alt 50 / inbound 90) so the drag-limited glide stops INSIDE the 20 m disc; a ship grounded inside the disc at `|vel.y| < 2` and ≤ 1 m altitude is docked by the pad machine with NO vtol (docking is position/speed-based, `satisfiesDock` in `src/shared/world/pads.ts`). Keep the vtol switch + probe as-is (it becomes the fast path when the lift works, and the probe keeps proving the channel reaches the server).
-3. **Run:** `cd app && npx playwright test touch-loop.spec.ts --config playwright.e2e.config.ts --reporter=line` (foreground; ~6 min per run — the last two runs each took ~6 min). When the land leg docks, legs 6–10 have NEVER executed — expect first-touch issues (walkUntilPrompt is verbatim from the green touch-onfoot spec; the egress legs use the committed main.tsx interactPress fix).
-4. **Docs (step 2, not started):** README.md "no touch controls" (intro v1 scope line) + "Keyboard-only play" (Features list) → update both; short 'Touch controls' note under Controls (dual-stick: left = thrust+yaw, right = pitch+roll, + FIRE/VTOL/BOOST/TARGET/weapon; on-foot: move stick + RUN/JUMP/DROP/INTERACT; MENU button; Settings → Controls Auto/On/Off). Dev note in `app/docs/contributing.md` (or architecture.md, whichever covers input): VIRTUAL-KEY design (touch → same key names, `mergePressed` union at the two prediction loops — `src/client/input/touch.ts`, main.tsx `effectivePressed()`; server/prediction/wire/cheat-resistance unchanged) + enablement (auto = maxTouchPoints > 0, persisted on `Settings.touchControls`).
-5. **Full gate:** `cd app && npx tsc --noEmit`; FULL `npm run test` (unit — re-run known wall-clock/WS load flakes in isolation); `npm run test:e2e` (full suite — no keyboard regression, golden fixtures unchanged); `eslint --fix` + `prettier --write` on `app/src/server/routes/dev.ts`, `app/tests/e2e/touch-loop.spec.ts`, `README.md`, the touched `app/docs` file (and `app/src/client/main.tsx` IF step 2c requires a wiring fix there).
-6. **Bookkeeping:** both steps `pass: true` in `.ralph/tasks/TASK-95.json` (they are currently both `true` already — the file predates the red state; re-set to be safe); `passes: true` for TASK-95 in `.ralph/tasks.json` (~line 849); LOG.md entry at top with the `[TASK-95] loop wall=…` value (the spec prints it); screenshot `.ralph/screenshots/TASK-95-1.png` is taken by the spec itself at the sold state; delete this handoff in the completing commit; `feat(TASK-95): full touch loop + docs`.
+## Land-leg retuning (spec side)
 
-## Dead ends
+The unit test's 100 m start does not transfer: this seed's planet is DENSER
+than the test's (measured run 7: an 85 m start dead-sticks ~61 m of
+horizontal travel from 90 u/s → grounds ~23 m out, just outside the disc; a
+100 m start would ground ~39 m out). Spec changes (committed):
 
-- **facePad steering (the previous iteration's main find):** after an atmosphere teleport the ship never rotated on touch yaw/pitch (aim error constant, HUD Speed 0), while the same channels work in space. Cause never isolated — the prime suspect (stale client scheme post-teleport) now also explains the VTOL non-engagement (step 2 above). RESOLVED BY DESIGN: the new land leg does no steering at all (dead-stick seeded momentum), so facePad is deleted. Do NOT resurrect it.
-- **60 m straight drop onto the pad:** free-falls into the 20 m disc and the pad machine docks instantly → the atmosphere poll can't observe 'atmosphere'.
-- **300 m out / 150 m up with thrust (run 4 era):** the atmosphere regime has NO main thruster (flight.ts `integrateStep` — only drag/gravity/VTOL-lift in atmosphere), so the 'close' phase could never build the inbound speed; the ship fell short.
-- **100 m / 85 m start distances with 90 u/s inbound (runs 4–5):** the ship glides in and stops at ~25 m — just outside the 20 m disc — speed 0, no dock. Either the VTOL lift never applied (step 2) or the glide bleeds its speed ~25 m early (the unit test's 100 m/50 m/90 u/s state docks at ~13 m on the same SimLoop, so the delta is client/scheme-related, not physics). If step 2d's closer start (55–60 m) is taken, keep the unit-test velocity.
-- **Run 6 warp-leg:** `#esc-menu` (z 111, later in DOM) intercepts the `padNode.click()` hit test while the chart (z 111) is open under it — fixed in-spec with `force: true` clicks (step 1), NOT by changing the surface stack.
+- `LAND_START_DIST_M` 85 → **75** → grounds ~13–14 m out (INSIDE the 20 m
+  disc), where the pad machine docks on position/speed alone.
+- VTOL switch `dist ≤ 25` → **`dist ≤ 15`** (over the disc): the server
+  assist (×0.5/tick on drift, up > 0) damps the drift IN PLACE — switching
+  outside the disc would freeze the ship just short of the pad. Mirrors the
+  unit test's effective switch (its `alt < 2` gate only arms ~13 m out).
+- After the dock: `touch(page, 'clear')` — the pilot releases the lift (also
+  prevents ` ` → JUMP leaking on the egress).
 
-## How to verify
+## Done (committed)
 
-- `cd app && npx tsc --noEmit` — green at handoff.
-- `cd app && npx playwright test touch-loop.spec.ts --config playwright.e2e.config.ts --reporter=line` — expected at handoff: warp leg (post force-click fix) + space legs green; land leg red at the vtol/dock step with the timeout message carrying regime/dist/alt/speed.
-- Server physics references: `app/src/server/shard/shard.pads.approach.test.ts` (the proven 100 m/50 m → 90 u/s → docked-in-4.5 s approach on the REAL SimLoop — the e2e seeds exactly this state), `app/src/shared/world/pads.ts` (`satisfiesDock`: surface regime + |vel.y| < 2 + ≤ 20 m + ≤ 1 m alt; `vtolAssistActive`: up > 0, < 50 u/s, ≤ 100 m), `app/src/shared/physics/flight.ts` (atmosphere forces; `VTOL_LIFT = 1.35·GRAVITY`; `VTOL_HORIZONAL_LIMIT = 5`).
-- Wire fields: `app/src/server/shard/shard.ts` `entityToState` (~line 4239) — `regime` ('docked'/'sublight') vs `flightRegime` ('space'/'atmosphere'/'surface') vs `padId`.
-- Input chain (for step 2): `src/client/input/touch.ts` (channel → virtual key names) → `src/client/input/controls.ts` (`readSchemeInput`, the per-regime key maps; space scheme has `vtol: null`) → `src/client/main.tsx` ~lines 1834–1893 (the flight loop: `wireDockedIndicator`, `effectiveFlightPressed`, `flightScheme`, `readSchemeInput`, `inputSender.shouldSend` → WS 'input') → `shard.enqueueInput` (stale-seq drops).
+- `app/tests/e2e/touch-loop.spec.ts` — warp force-click (step 1, with the
+  z-index/DOM-order comment); `__TLIN__` outbound input-frame tap in
+  `tapShipUpdates` (KEPT — small, commented, permanent diagnostic); vtol-switch
+  + timeout wire-frame logging; scheme-swap console capture (diagnostic);
+  land-leg retuning (above). tsc green.
+- `app/src/client/ui/touch/TouchControls.tsx` — the in-ship touchdown VTOL fix
+  (the ONE product change; client-local touch wiring).
+- `app/src/client/ui/touch/TouchControls.test.tsx` — 2 regression tests.
+- NO server / wire / prediction / golden-fixture changes. NO facePad /
+  steering. NO main.tsx changes (its wiring was proven correct).
+
+## Next steps (in order)
+
+1. `cd app && npx playwright test touch-loop.spec.ts --config
+   playwright.e2e.config.ts --reporter=line` (~6 min; the e2eServer fixture
+   boots its own dev server — NEVER alongside `npm run dev`). Expected: warp +
+   space legs green (the force-click survived run 7), land leg DOCKED
+   (vtol-held-at-dock=true), and legs 6–10 executing for the FIRST time —
+   expect first-touch issues there (walkUntilPrompt is verbatim from the green
+   touch-onfoot spec; egress uses the committed interactPress path).
+2. If legs 6–10 are red: iterate SPEC-SIDE only (timeouts, prompt strings,
+   walk bursts, settles). If a leg reveals a real product bug: stop, record it
+   here, do NOT silently special-case around it.
+3. Green bar: the WHOLE spec in ONE run + `assertClean()` + the screenshot
+   `.ralph/screenshots/TASK-95-1.png` rewritten at the sold/dock state + CAPTURE
+   the `[TASK-95] loop wall=…s` console line (TASK-95.2 records it in the LOG
+   entry; put it in the commit message too).
+4. `cd app && npx tsc --noEmit` green; one wip commit of only the task's files:
+   `wip(TASK-95): touch-loop e2e fully green (warp force-click; land leg =
+   TouchControls in-ship VTOL fix + 75 m/15 m retune; legs 6-10; loop wall=…s)`.
+   Then TASK-95.2 (docs + full gate + close-out).
+
+## Dead ends (from the parent handoff — still true)
+
+- facePad steering after the atmosphere teleport — RESOLVED BY DESIGN (the
+  land leg does no steering); the true cause is now known (the flip-clear
+  above) and fixed. Do NOT resurrect facePad.
+- 60 m straight drop onto the pad — instant re-dock hides the atmosphere
+  regime. 300 m / 150 m with thrust — the atmosphere has no thruster.

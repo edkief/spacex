@@ -142,17 +142,27 @@ export function TouchControls({
   // regimes (surface → atmosphere/space: the on-foot layout's
   // thrust/yaw/run/jump; the cross-flips: the per-regime flight button).
   // The initial mount writes nothing (no channel is held yet).
+  // TASK-95.1: the in-ship EXCEPTION — a touchdown (atmosphere/space →
+  // surface while IN the ship, `onFoot` false) keeps the held VTOL. The
+  // flight loop reads it through dockedFlightScheme('surface') and the
+  // 1.35·g lift + pad machine settle the ship onto the disc; cutting the
+  // lift the instant the regime flips (what the keyboard's held Space key
+  // never does) kills the touchdown exactly when the lift is needed — a
+  // glide strands the ship hovering just short of the pad. Disembarking
+  // (the onFoot flip, below) still clears, so the ' ' collision can't leak
+  // into the on-foot JUMP.
   const prevRegimeRef = React.useRef<Regime | null>(null);
   React.useEffect(() => {
     const prev = prevRegimeRef.current;
     prevRegimeRef.current = regime;
     if (prev === null) return;
     if (prev === 'surface')
-      source.clear(); // the on-foot layout unmounted
+      source.clear(); // the on-foot layout unmounted (re-entry / disembark)
     else if (regime === 'atmosphere') source.setChannel({ boost: false });
     else if (regime === 'space') source.setChannel({ vtol: false });
-    else source.clear(); // entering the surface: the on-foot layout owns the input
-  }, [regime, source]);
+    else if (onFoot) source.clear(); // disembarked: the on-foot layout owns the input
+    // in-ship surface: the held VTOL is the lift that settles the landing
+  }, [regime, source, onFoot]);
   // TASK-93: an INTERACT held when the on-foot layout unmounts (regime flip,
   // re-entry, disable) must end its channel — the removed button's
   // onRelease never fires, and the server must not award into a key nobody

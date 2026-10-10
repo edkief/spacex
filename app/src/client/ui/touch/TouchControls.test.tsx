@@ -203,6 +203,38 @@ describe('TouchControls — channel hygiene across regime / enable flips', () =>
     act(() => roots[0].unmount());
     expect(source.snapshot()).toEqual({});
   });
+
+  it('a held VTOL survives the IN-SHIP touchdown (surface flip, not on foot)', () => {
+    const c = renderControls({ regime: 'atmosphere' });
+    const vtol = c.querySelector('[aria-label="VTOL"]')!;
+    pointer('pointerdown', 0, 0, vtol);
+    expect(source.snapshot().vtol).toBe(true);
+    // The ship LANDS (regime → surface) and the player is still in it: the
+    // flight loop reads the held ' ' through dockedFlightScheme('surface'),
+    // so the 1.35·g lift must keep working to settle the ship onto the pad
+    // (the keyboard's held Space key survives the flip; touch must match).
+    act(() => {
+      roots[0].render(<TouchControls enabled regime="surface" source={source} />);
+    });
+    expect(source.snapshot().vtol).toBe(true);
+  });
+
+  it('disembarking clears the held VTOL (the " " must not leak into the on-foot JUMP)', () => {
+    const c = renderControls({ regime: 'atmosphere' });
+    const vtol = c.querySelector('[aria-label="VTOL"]')!;
+    pointer('pointerdown', 0, 0, vtol);
+    // In-ship landing keeps the lift (the previous test) …
+    act(() => {
+      roots[0].render(<TouchControls enabled regime="surface" source={source} />);
+    });
+    expect(source.snapshot().vtol).toBe(true);
+    // … and the egress (onFoot flips) must end it with the layout
+    // (clear() drops the key entirely — nothing is held).
+    act(() => {
+      roots[0].render(<TouchControls enabled regime="surface" source={source} onFoot />);
+    });
+    expect(source.snapshot().vtol).toBeUndefined();
+  });
 });
 
 describe('TouchControls — the COMBAT cluster (TASK-92)', () => {
