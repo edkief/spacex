@@ -2,109 +2,99 @@
 
 ## Status
 
-Warp leg + space legs GREEN (force-click fix holding across runs). The land leg is
-re-designed (probe → reseed, committed) and ROOT-CAUSED one level deeper than the
-previous handoff: **the e2e ship carries its space-leg velocity into the glide — the
-dev-teleport `vel` seed demonstrably does NOT take effect in the live e2e, even though
-the exact same server-side sequence (docked ship → `teleportForTesting(pos, vel)` →
-zero input) is CLEAN in an isolated SimLoop script** (see Reproduction below — the
-isolated 130 m glide docks at 19.9 m with NO VTOL at ~16 s of sim). The remaining
-gate is one instrumented run that dumps the server state 400 ms after the teleport
-(logs committed in this iteration) to pin where the seed is lost, then legs 6–10.
+Legs 1–8 VERIFIED GREEN in runs 10/12/13: claim → warp (chart node + WARP) →
+space thrust+yaw → **land (the 130 m probe glide DOCKED at 1.0 m on glide 1,
+no VTOL needed)** → exit (egress) → mine (1/40u bar). Two root-cause fixes
+landed this iteration (committed `4fcdc91`): the warp-leg coordinate-click
+flake and the teleport poll (server tap, not rendered ship). Leg 9 (re-enter)
+had ONE red — the character parks ~1.8 m from the ship with it to the SIDE,
+outside the ±30° raycast cone, so `[E] Enter ship` never arms. `reEnterShip`
+helper applied (committed) — **not yet verified in a full run.** Legs 9–10
+pending. The whole spec has NOT run fully green in one pass yet.
 
-## Done
+## Fixes applied this iteration (committed `4fcdc91`)
 
-- **`app/tests/e2e/touch-loop.spec.ts`** (committed): the land leg is now
-  **probe → reseed** (replacing the fixed 75 m / 15 m retune, which was a bad
-  extrapolation — see Diagnosis): glide 1 probes from 130 m and measures the stop
-  point `g`; glides 2–3 re-seed at `S = 130 − g` (the trajectory-shift argument:
-  starting farther flies the same trajectory shifted, so the stop shifts by ≈ g)
-  with VTOL armed at TOUCHDOWN (`dist ≤ 25 m && vel.y === 0 && hSpeed < 30` — the
-  unit-test rule, which the old `≤ 15 m / < 8 m alt` rule missed because the ship
-  stops ~21 m out before it ever gets inside 15 m). `glideOnce()` logs a 1 Hz
-  trajectory (x/alt/speed) + the vtol-at-touchdown wire frames + stop/timeout
-  states; `landOnPad` re-measures and re-shifts per glide.
-- **New diagnostics (committed)**: `pre-teleport` and `post-teleport` SERVER-state
-  dumps inside `glideOnce` (the tap is authoritative — `entityToState` sends
-  `e.ship` raw) to catch the space-leg velocity leak at the source.
-- **Isolation script** (deleted after use, re-creatable): replicated the exact
-  sequence server-side — ship DOCKED at the pad, `teleportForTesting` to
-  (pad.x+130, pad.y+50, pad.z) with vel (−90,0,0), zero input — result: NO climb,
-  touchdown at 49 m, slow drift, **pad-dock at 19.9 m, t ≈ 15.7 s**, no VTOL.
-  Server physics + teleport + pad machine are all CLEAN.
-- All prior work stands (warp force-clicks, `__TLIN__` tap, TouchControls in-ship
-  VTOL fix, 80/80 touch unit tests, tsc green).
+- **Warp leg — `dispatchEvent('click')` on the node (NOT `{ force: true }`).**
+  Run 9 root-caused it: `force: true` makes Playwright dispatch by
+  COORDINATES, but the BROWSER still hit-tests that point — the co-open
+  #esc-menu (z-index 111, later in DOM) captures the coordinate, the node's
+  onClick never fires, the selection never lands and `#warp-button` stays
+  disabled. `padNode.dispatchEvent('click')` fires the React onClick directly
+  on the node — deterministic, seed-independent, surface-stack untouched.
+  (The task spec's "force:true, 2 lines" was the wrong fix — force still
+  hit-tests; dispatch is the spec-side bypass that actually works.)
+- **`teleport()` polls the SERVER tap `__TL__`, NOT the rendered ship.**
+  The dev route hard-sets the SERVER state; the client predictor does NOT snap
+  to a large state jump (it keeps integrating its own local state, which can
+  be a full planet away — the run-11 screenshot showed the rendered ship
+  grounded/SURFACE while the server had already moved it). Polling `__SELF_SHIP__`
+  (rendered) was the outlier in a spec whose other assertions are all
+  server-tapped. Tolerance widened to a 60 m band (a 5 m ball is transited in
+  ~55 ms < one 10 Hz broadcast interval → a tight tolerance flakily misses).
+  This ALSO explains the run-8 "climb anomaly": the server vel seed (−90,0,0)
+  WAS applied cleanly every run (post-teleport dumps showed valid glides); the
+  "space-leg velocity leak" was the RENDERED predictor not snapping, misread
+  as a server leak. No product change.
+- **`charForward` identity-quat fallback.** The wire OMITS `rot` when it is
+  identity (entityToState, shard.ts) and a disembarked character spawns
+  identity-facing (handleExitShip), so `__CHAR__.rot` stays undefined until the
+  first yaw — the missing quat IS the server's identity state, not a stale tap.
+- **`reEnterShip` helper (leg 9).** The `[E] Enter ship` prompt is a RAYCAST:
+  ≤ 3 m AND the ±30° forward cone (shared/interaction.ts `nearestInteractable`)
+  — distance alone does not arm it. The `walkUntilPrompt` bearing-walk
+  converges DISTANCE (walking within 45° always shortens it) but at a 30–45°
+  bearing it walks a straight burst with no turn, so it ORBITS the ship and the
+  facing never settles inside the cone (the run-13 screenshot: ship to the
+  character's side, prompt hidden). `reEnterShip` = (1) CLOSE with the bearing
+  walk until ≤ 2 m (the 3 m sub-zone, not the 3–5 m 'Open cargo' zone), then
+  (2) FACE: turn IN PLACE toward the signed bearing (the enter-ship.spec.ts
+  TURN pattern), re-reading the prompt at rest, until the ship is inside the
+  cone → `[E] Enter ship` arms.
 
-## Dead ends
+## Verified green (runs this iteration)
 
-- Run 8 (this iteration, the new probe code): the 130 m probe **climbed** right
-  after the teleport (alt 50 → 75.8 m in 1 s — impossible with a seeded
-  `vel.y = 0`), then descended as a dead-stick, **overshot the pad** (x = 6 m at
-  49 m alt, x = −13 m at 29 m alt) and skimmed terrain to x = −132 m, still
-  airborne at the 25 s budget. The +30 u/s of initial `vel.y` matches the
-  space-leg exit velocity (thrust ~2.5 s in a nose with a +y component). So the
-  glide started with the space-leg velocity, not the seeded (−90, 0, 0).
-- The isolated script proves the server applies the seed: `teleportForTesting`
-  sets `entity.ship.vel = {...vel}` (shard.ts:2687), the dev route passes `vel`
-  (dev.ts:251), the input frames are all zeros (`__TLIN__`), `entityToState`
-  broadcasts `e.ship` raw (shard.ts ~4246), and the per-tick integrator only
-  writes from `integrateShip` (shard.ts:1896–1893, 1961–1962). Nothing else
-  touches `entity.ship.vel` between ticks.
-- Open question the post-teleport dump answers: is the server state already
-  wrong 400 ms after the teleport (seed lost server-side — then audit the
-  route/shard in the live process), or clean (then the anomaly is in the
-  frame flow — e.g. the client's non-resynced predictor: the 262 m re-seed's
-  "rendered ship never reached" timeout proves the CLIENT predictor does not
-  snap to the server teleport, so check the client resync path too).
-- The probe → reseed design is correct ONCE the initial state is clean: the
-  isolated 130 m glide docks at 19.9 m with no VTOL; with the VTOL-at-touchdown
-  switch the settle is faster and more robust.
-- Confirmed dead ends (previous handoff) still stand: no facePad, no 60 m drop,
-  no 300 m thrust start, fixed start distances (the "travel is constant"
-  extrapolation is false — a closer start lands with MORE energy and skids past
-  the disc; the corridor terrain is a valley, not flat).
+- Warp: `dispatchEvent` node click → WARP enabled → warp completes → `sys` id.
+- Space: thrust speed rising (1.2 → higher), yaw burst dot(forward, right) > 0.2.
+- **Land: the 130 m PROBE glide DOCKED at dist 1.0 m in ~7 s (vtolHeld=false —
+  the dead-stick lands dead-on this seed's corridor, no VTOL switch needed).**
+  Scheme swaps clean: `space → atmosphere` (teleport), `atmosphere → surface`
+  (touchdown). In-frames near the teleport are all zeros (no channel leak).
+- Exit: `#leave-ship-prompt` → `#docked-indicator` hidden, `#weight-bar` visible.
+- Mine: deposit 4 m ahead, walk, full interactPress hold > 1.5 s → `1/40u` bar,
+  mining HUD, prompt hidden. (Run 13 screenshot confirmed 1/40u.)
+
+## Next steps (ONE run)
+
+1. **Full spec run** (~5–6 min, foreground):
+   `cd app && npx playwright test touch-loop.spec.ts --config playwright.e2e.config.ts --reporter=line`
+   (e2eServer fixture boots its own dev server — NEVER alongside `npm run dev`).
+   Expect legs 1–8 green again; **leg 9 re-enter should now arm via `reEnterShip`**;
+   leg 10 sell: exit → `walkUntilPrompt` to `[E] Dock terminal` (20 m out, the
+   mining-case geometry — should work) → interactPress → `#dock-panel` → TAP
+   `button[aria-label="sell all iron inv"]` → 500 → 505 cr + `0/40u`. If a leg
+   is red, iterate SPEC-SIDE only (timeouts, burst sizes, prompt strings). If a
+   leg reveals a real product bug: stop, record it, do not silently special-case.
+2. Green bar: WHOLE spec in ONE run + `assertClean()` + screenshot
+   `.ralph/screenshots/TASK-95-1.png` rewritten at the sold/dock state + CAPTURE
+   the `[TASK-95] loop wall=…s` line (put it in the commit message).
+3. Close: `npx tsc --noEmit` green (was green at this handoff); one wip commit of
+   ONLY the task's files: `wip(TASK-95): touch-loop e2e fully green (warp
+   dispatchEvent; land = dead-stick probe docked 1.0 m; teleport poll = server
+   tap; legs 6-10; loop wall=…s)`; set this task's steps + TASK-95.1 `passes` in
+   `.ralph/tasks.json`; LOG entry; delete this handoff in that commit.
+   TASK-95.2 (docs + full gate + close-out) comes next.
 
 ## Working tree
 
-- Committed this iteration: `app/tests/e2e/touch-loop.spec.ts` (probe → reseed +
-  pre/post-teleport dumps). Everything else dirty in `git status` is PRE-EXISTING
+- Committed this iteration (`4fcdc91`): `app/tests/e2e/touch-loop.spec.ts`
+  (all four fixes above). Everything else dirty in `git status` is PRE-EXISTING
   (screenshots, `.ralph/prd/PRD.md`, `.ralph/decisions.jsonl`, `.gitignore`,
   `ralph.config.json`, `app/.ralph/`, `app/.trace-tmp/`, untracked TASK-89..92
-  specs) — NOT this task's, do not commit. `app/test-results/` = scratch, removable.
-
-## Next steps
-
-1. **One instrumented run** (~8 min, foreground):
-   `cd app && npx playwright test touch-loop.spec.ts --config playwright.e2e.config.ts --reporter=line`
-   (e2eServer fixture boots its own dev server — NEVER alongside `npm run dev`).
-   Read the `pre-teleport` / `post-teleport` dumps:
-   - post-teleport `vel.y ≈ +30` → the seed is lost server-side: audit the live
-     route/shard path (the isolated script says the code is correct, so look for
-     process-level differences: shard instance, entity, double teleport).
-   - post-teleport `vel ≈ (−90, 0, 0)` → the climb happens later: the client
-     predictor is the suspect (it demonstrably does NOT snap to teleports — the
-     262 m re-seed poll timed out); check the client resync on big state jumps.
-2. Fix the root cause (spec-side if the leak is a spec artifact — e.g. poll the
-   SERVER tap instead of the rendered ship in `teleport()`; product-side only if
-   it is a genuine client resync bug — record it, do not silently special-case).
-3. Then legs 6–10 run for the FIRST time (exit → mine 1/40u → re-enter → sell
-   505 cr) — expect first-touch issues; iterate SPEC-SIDE only (walk bursts,
-   timeouts, prompt strings). If a leg reveals a real product bug: stop, record
-   it, do not silently special-case around it.
-4. Green bar: WHOLE spec in ONE run + `assertClean()` + screenshot
-   `.ralph/screenshots/TASK-95-1.png` at the sold/dock state + CAPTURE the
-   `[TASK-95] loop wall=…s` line (put it in the commit message).
-5. Close: `npx tsc --noEmit` green; one wip commit of only the task's files:
-   `wip(TASK-95): touch-loop e2e fully green (warp force-click; land leg =
-   <fix>; legs 6-10; loop wall=…s)`; set this task's steps + TASK-95.1 `passes`
-   in `.ralph/tasks.json`; LOG entry; delete this handoff in that commit.
-   TASK-95.2 (docs + full gate + close-out) comes next.
+  specs) — NOT this task's, do not commit. `app/test-results/` = scratch.
 
 ## How to verify
 
-- `cd app && npx tsc --noEmit` — green at handoff.
-- `cd app && npx vitest run src/client/ui/touch/ src/client/input/touch.test.ts`
-  — 80/80 green (unchanged this iteration).
+- `cd app && npx tsc --noEmit` — green at this handoff.
 - `cd app && npx playwright test touch-loop.spec.ts --config playwright.e2e.config.ts --reporter=line`
-  — run 8: warp/space green, land red at the 262 m re-seed teleport poll
-  (climb anomaly diagnosed; instrumented run pending).
+  — runs 10/12/13: legs 1–8 green (land probe docked 1.0 m), leg 9 re-enter red
+  (pre-`reEnterShip`); the `reEnterShip` fix is applied but unverified.
