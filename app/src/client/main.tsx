@@ -2370,8 +2370,7 @@ function App() {
       />
       {/* TASK-91: the FLIGHT touch layout (space + atmosphere) — dual
           sticks + the per-regime VTOL/BOOST button, feeding the shared
-          TouchInputSource (TASK-89's merge picks the channels up). Renders
-          nothing when disabled or on the surface (TASK-93's layout). */}
+          TouchInputSource (TASK-89's merge picks the channels up). */}
       {/* TASK-92: the COMBAT cluster rides the same container — FIRE /
           LASER / MISSILE / TARGET call the SAME shared paths as LMB and
           the '1'/'2'/'T' keys (the server re-derives everything). */}
@@ -2379,6 +2378,9 @@ function App() {
           renders the ON-FOOT layout (MOVE stick + RUN/JUMP/DROP/INTERACT)
           feeding the SAME virtual keys + shared discrete paths the
           on-foot loop and the E/Q keys already use. */}
+      {/* TASK-97: a pad-docked / landed ship (wire 'surface', in-ship)
+          renders the FLIGHT layout with the atmosphere scheme (VTOL), and
+          touch OFF on a touch-capable device keeps a lone MENU button up. */}
       <TouchControls
         enabled={touchEnabled}
         regime={regimeWiring.regime}
@@ -2392,6 +2394,7 @@ function App() {
         onInteractRelease={interactRelease}
         onDrop={dropHeld}
         onMenu={() => menuKeyActionRef.current()}
+        touchCapable={touchNavHints.maxTouchPoints > 0}
       />
       {/* TASK-50: the combat HUD (target box, weapon readout, threat ping,
           kill feed) — in-ship regions unmount on foot (selfShip null). */}

@@ -39,10 +39,23 @@
  * the outgoing layout mid-press (the removed element's onRelease never
  * fires), so the flip clears the channels it would otherwise leave held.
  *
+ * TASK-97: the SURFACE regime splits by `onFoot`. IN the ship (a
+ * pad-docked / landed wire regime 'surface'), the FLIGHT layout renders
+ * with the atmosphere scheme (VTOL, not BOOST — the same mapping the
+ * flight loop reads through dockedFlightScheme('surface')), so a
+ * pad-docked ship can take off by touch; the held channels SURVIVE the
+ * liftoff flip (onFoot stays false) and only the disembark flip clears
+ * them. The on-foot layout (above) renders only while `onFoot` is true.
+ *
  * When `enabled` is false (the feature is off — TASK-94's flag, resolved
  * from the persisted touchControls setting: 'auto' = a touch-capable
  * device, 'on'/'off' = the manual choice) the container renders nothing
  * and the channels stay empty: the merge in TASK-89 is a no-op.
+ * TASK-97 exception: on a touch-CAPABLE device (the `touchCapable` prop,
+ * main.tsx's maxTouchPoints > 0) a lone MENU button still renders, so the
+ * ESC layer (→ SETTINGS → TOUCH CONTROLS) stays reachable by touch to
+ * re-enable. Desktop (touchCapable false) renders nothing — the
+ * byte-for-byte keyboard path is preserved.
  *
  * TASK-94 adds the MENU button in BOTH layouts (top-right, clear of every
  * stick + HUD): its onPress calls the SAME open/pop function the Esc key
@@ -92,6 +105,10 @@ export interface TouchControlsProps {
   // open/pop function the Esc key calls (main.tsx's menuKeyAction).
   /** Open the ESC menu / pop the top surface (the shared Esc path). */
   onMenu?: () => void;
+  // TASK-97: the lone-MENU branch when disabled. DEFAULT false, so existing
+  // renderings (desktop, unit tests) keep rendering nothing.
+  /** The device is touch-capable (maxTouchPoints > 0, main.tsx). */
+  touchCapable?: boolean;
 }
 
 /** Corner inset from the screen edge (on top of the safe-area inset). */
@@ -115,6 +132,7 @@ export function TouchControls({
   onInteractRelease,
   onDrop,
   onMenu,
+  touchCapable = false,
 }: TouchControlsProps): React.ReactElement | null {
   // TASK-92: the FIRE button's controlled held state (visual only — the
   // press is one-shot, matching the one-shot-per-click canvas LMB).
@@ -139,29 +157,34 @@ export function TouchControls({
   // A regime flip unmounts the outgoing layout's buttons mid-press (the
   // removed element's onRelease never fires) — clear the channels they
   // would leave held so the deliberate key collision can't leak across
-  // regimes (surface → atmosphere/space: the on-foot layout's
-  // thrust/yaw/run/jump; the cross-flips: the per-regime flight button).
-  // The initial mount writes nothing (no channel is held yet).
-  // TASK-95.1: the in-ship EXCEPTION — a touchdown (atmosphere/space →
-  // surface while IN the ship, `onFoot` false) keeps the held VTOL. The
-  // flight loop reads it through dockedFlightScheme('surface') and the
-  // 1.35·g lift + pad machine settle the ship onto the disc; cutting the
-  // lift the instant the regime flips (what the keyboard's held Space key
-  // never does) kills the touchdown exactly when the lift is needed — a
-  // glide strands the ship hovering just short of the pad. Disembarking
-  // (the onFoot flip, below) still clears, so the ' ' collision can't leak
-  // into the on-foot JUMP.
+  // regimes (the cross-flips: the per-regime flight button). The initial
+  // mount writes nothing (no channel is held yet).
+  // TASK-95.1 / TASK-97: the in-ship EXCEPTION — a touchdown
+  // (atmosphere/space → surface while IN the ship, `onFoot` false) keeps
+  // the held VTOL, and LIFTOFF (surface → atmosphere/space while `onFoot`
+  // stays false) keeps the held thrust + VTOL too: the flight loop reads
+  // both through dockedFlightScheme('surface') = the atmosphere scheme,
+  // and the keyboard's held keys survive the flip, so the finger that is
+  // still on the stick must as well (cutting the lift kills exactly the
+  // take-off / landing the flip is about). DISSEMBARKING (the onFoot
+  // flip) still clears, so the ' ' collision can't leak into the
+  // on-foot JUMP.
   const prevRegimeRef = React.useRef<Regime | null>(null);
+  const prevOnFootRef = React.useRef(false);
   React.useEffect(() => {
     const prev = prevRegimeRef.current;
+    const prevOnFoot = prevOnFootRef.current;
     prevRegimeRef.current = regime;
+    prevOnFootRef.current = !!onFoot;
     if (prev === null) return;
-    if (prev === 'surface')
-      source.clear(); // the on-foot layout unmounted (re-entry / disembark)
-    else if (regime === 'atmosphere') source.setChannel({ boost: false });
+    if (prev === 'surface') {
+      // The on-foot layout unmounted (disembark: onFoot now true, or
+      // re-entry: onFoot was true) — clear its held channels.
+      if (prevOnFoot || onFoot) source.clear();
+      // liftoff (in ship → in ship): the held channels take the ship off — keep
+    } else if (regime === 'atmosphere') source.setChannel({ boost: false });
     else if (regime === 'space') source.setChannel({ vtol: false });
-    else if (onFoot) source.clear(); // disembarked: the on-foot layout owns the input
-    // in-ship surface: the held VTOL is the lift that settles the landing
+    else if (onFoot) source.clear(); // disembark from flight: the on-foot layout owns the input
   }, [regime, source, onFoot]);
   // TASK-93: an INTERACT held when the on-foot layout unmounts (regime flip,
   // re-entry, disable) must end its channel — the removed button's
@@ -175,11 +198,11 @@ export function TouchControls({
     };
   }, [onFootActive, onInteractRelease]);
 
-  if (!enabled) return null;
   /**
    * TASK-94: the MENU button — top-right, clear of the sticks (bottom
    * corners), the ship HUD / player list (left edge) and the on-foot HUD
-   * (bottom-right). The SAME open/pop the Esc key calls.
+   * (bottom-right). The SAME open/pop the Esc key calls. Hoisted above the
+   * disabled early return (TASK-97): the lone-MENU branch reuses it.
    */
   const menuButton = onMenu ? (
     <div
@@ -193,8 +216,25 @@ export function TouchControls({
       <TouchButton label="MENU" onPress={() => onMenu()} onRelease={() => {}} />
     </div>
   ) : null;
-  if (regime === 'surface') {
-    if (!onFoot) return null; // a docked/landed ship owns no on-foot layout
+  if (!enabled) {
+    // TASK-97: touch OFF on a touch-CAPABLE device — a lone MENU button
+    // keeps the ESC layer (→ SETTINGS → TOUCH CONTROLS) reachable so the
+    // player can re-enable by touch. Desktop (touchCapable false) renders
+    // nothing: the keyboard path stays byte-for-byte. Channels are empty
+    // (the effect above cleared them).
+    if (!touchCapable) return null;
+    if (!onMenu) return null;
+    return (
+      <div
+        id="touch-controls"
+        aria-label="Touch controls"
+        style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 80 }}
+      >
+        {menuButton}
+      </div>
+    );
+  }
+  if (regime === 'surface' && onFoot) {
     const onMove = (v: TouchVector): void => source.setChannel({ thrust: v.y, yaw: v.x });
     return (
       <div
@@ -284,7 +324,11 @@ export function TouchControls({
       </div>
     );
   }
-  const atmosphere = regime === 'atmosphere';
+  // TASK-97: the surface-in-ship case (pad-docked / landed) renders this
+  // layout with the ATMOSPHERE scheme — the same mapping the flight loop
+  // reads through dockedFlightScheme('surface') (VTOL = the ' ' lift, NOT
+  // BOOST), so the pad-docked ship takes off by touch.
+  const atmosphere = regime === 'atmosphere' || (regime === 'surface' && !onFoot);
 
   const onLeft = (v: TouchVector): void => source.setChannel({ thrust: v.y, yaw: v.x });
   const onRight = (v: TouchVector): void => source.setChannel({ pitch: v.y, roll: v.x });

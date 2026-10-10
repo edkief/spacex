@@ -42,6 +42,8 @@ function renderControls(props: Partial<Parameters<typeof TouchControls>[0]> = {}
         onInteractPress={props.onInteractPress}
         onInteractRelease={props.onInteractRelease}
         onDrop={props.onDrop}
+        onMenu={props.onMenu}
+        touchCapable={props.touchCapable}
       />,
     );
   });
@@ -113,9 +115,29 @@ describe('TouchControls — layout and regime gating', () => {
     expect(document.getElementById('touch-controls')).toBeNull();
   });
 
-  it('renders nothing on the surface (the on-foot layout owns it)', () => {
-    renderControls({ regime: 'surface' });
-    expect(document.getElementById('touch-controls')).toBeNull();
+  it('pad-docked (surface, in-ship) renders the FLIGHT layout incl. MENU, no BOOST (TASK-97)', () => {
+    // The wire regime of a pad-docked ship is 'surface'; the player is IN
+    // the ship (not onFoot). The overlay must show the atmosphere-scheme
+    // flight layout (VTOL = the ' ' lift, per dockedFlightScheme) — the
+    // pre-fix code returned null here, stranding a touch-only player.
+    renderControls({ regime: 'surface', onMenu: vi.fn<() => void>() });
+    expect(document.getElementById('touch-controls')).not.toBeNull();
+    expect(document.getElementById('touch-stick-left')).not.toBeNull();
+    expect(document.getElementById('touch-stick-right')).not.toBeNull();
+    expect(document.getElementById('touch-btn-vtol')?.textContent).toContain('VTOL');
+    expect(document.getElementById('touch-btn-menu')?.textContent).toContain('MENU');
+    expect(document.getElementById('touch-btn-boost')).toBeNull();
+  });
+
+  it('disabled + touchCapable + onMenu: a lone MENU renders while the sticks are absent (TASK-97)', () => {
+    // Touch OFF on a touch-capable device: a lone MENU button keeps the ESC
+    // layer (→ SETTINGS → TOUCH CONTROLS) reachable; channels stay empty.
+    renderControls({ enabled: false, touchCapable: true, onMenu: vi.fn<() => void>() });
+    expect(document.getElementById('touch-controls')).not.toBeNull();
+    expect(document.getElementById('touch-btn-menu')?.textContent).toContain('MENU');
+    expect(document.getElementById('touch-stick-left')).toBeNull();
+    expect(document.getElementById('touch-stick-right')).toBeNull();
+    expect(source.snapshot()).toEqual({});
   });
 });
 
@@ -235,6 +257,27 @@ describe('TouchControls — channel hygiene across regime / enable flips', () =>
     });
     expect(source.snapshot().vtol).toBeUndefined();
   });
+
+  it('liftoff (surface → atmosphere, in-ship) KEEPS the held thrust + VTOL (TASK-97)', () => {
+    const c = renderControls({ regime: 'surface' });
+    const vtol = c.querySelector('[aria-label="VTOL"]')!;
+    const left = c.querySelector('[aria-label="thrust and yaw stick"]')!;
+    pointer('pointerdown', 0, 0, vtol);
+    pointer('pointerdown', 0, -64, left);
+    expect(source.snapshot()).toEqual({ thrust: 1, yaw: 0, vtol: true });
+    // LIFTOFF: the regime flips to atmosphere while onFoot stays false —
+    // the finger is still on the stick and the server is taking the ship
+    // off (the keyboard's held keys survive the flip; touch must match).
+    act(() => {
+      roots[0].render(<TouchControls enabled regime="atmosphere" source={source} />);
+    });
+    expect(source.snapshot()).toEqual({ thrust: 1, yaw: 0, vtol: true });
+    // DISSEMBARK (onFoot flips true) must still CLEAR (the ' ' leak rule).
+    act(() => {
+      roots[0].render(<TouchControls enabled regime="surface" source={source} onFoot />);
+    });
+    expect(source.snapshot()).toEqual({});
+  });
 });
 
 describe('TouchControls — the COMBAT cluster (TASK-92)', () => {
@@ -311,10 +354,15 @@ describe('TouchControls — the COMBAT cluster (TASK-92)', () => {
     expect(combat.onTarget).toHaveBeenCalledTimes(2);
   });
 
-  it('the combat cluster is absent on the surface (the on-foot layout owns it)', () => {
-    withCombat({ regime: 'surface' });
+  it('the combat cluster is absent while on foot (the on-foot layout owns it)', () => {
+    withCombat({ regime: 'surface', onFoot: true });
     expect(document.getElementById('touch-btn-fire')).toBeNull();
-    expect(document.getElementById('touch-controls')).toBeNull();
+    expect(document.getElementById('touch-stick-move')).not.toBeNull();
+  });
+
+  it('the combat cluster rides the surface-in-ship flight layout (TASK-97)', () => {
+    withCombat({ regime: 'surface' });
+    expect(document.getElementById('touch-btn-fire')?.textContent).toContain('FIRE');
   });
 });
 
@@ -349,10 +397,13 @@ describe('TouchControls — the ON-FOOT layout (TASK-93)', () => {
     expect(document.getElementById('touch-btn-fire')).toBeNull();
   });
 
-  it('renders nothing on the surface when NOT on foot (a docked/landed ship)', () => {
+  it('in-ship on the surface shows the flight sticks, NOT the on-foot layout (TASK-97)', () => {
     renderControls({ regime: 'surface' });
-    expect(document.getElementById('touch-controls')).toBeNull();
+    expect(document.getElementById('touch-controls')).not.toBeNull();
+    expect(document.getElementById('touch-stick-left')).not.toBeNull();
+    expect(document.getElementById('touch-stick-right')).not.toBeNull();
     expect(document.getElementById('touch-stick-move')).toBeNull();
+    expect(document.getElementById('touch-btn-jump')).toBeNull();
   });
 
   it('renders the flight layout in space even when onFoot is set (surface-only gate)', () => {
