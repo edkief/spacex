@@ -362,30 +362,168 @@ async function walkUntilPrompt(
  *  - GLIDE: thrust 0, VTOL 0 — momentum + drag + gravity carry the last
  *    stretch (the unit test's GLIDE phase, 100 m/50 m/90 u/s docked in
  *    4.5 s of sim time on the test seed's planet);
- *  - VTOL: OVER the disc (within 15 m, below 8 m) the VTOL channel on —
- *    the server assist (×0.5/tick on horizontal drift, up > 0, < 50 u/s,
- *    within 100 m) damps the residual drift INSIDE the 20 m disc while,
- *    once drag slows the drift under the 5 u/s lift gate, the 1.35·g lift
- *    settles the ship onto the flat disc; the pad machine docks it
- *    (surface regime, |vel.y| < 2, ≤ 20 m, ≤ 1 m altitude). The switch is
- *    at 15 m — NOT 25 m: the assist kills the drift in place, so
- *    switching outside the disc would freeze the ship just short of it.
- *    (The unit test's effective switch is the same: its alt < 2 gate only
- *    arms once the ship is ~13 m out.)
- *  - if the glide grounds OFF the disc (high terrain in the approach
- *    corridor), the attempt is abandoned and the approach is re-seeded —
- *    up to 3 attempts (deterministic reset, no steering needed).
+ *  - VTOL at TOUCHDOWN (≤ 25 m, on the ground — the unit-test rule): the
+ *    server assist (×0.5/tick on horizontal drift, up > 0) kills the
+ *    residual drift in place while the 1.35·g lift holds the ship at ground
+ *    level, and the pad machine docks it (surface regime, |vel.y| < 2,
+ *    ≤ 20 m, ≤ 1 m pad altitude). (The pre-TASK-95.1 "≤ 15 m / < 8 m"
+ *    switch armed too late: on this seed the ship had already stopped
+ *    ~21 m out, outside the disc.)
+ *  - the stop point is MEASURED, not assumed (the probe glide, below): the
+ *    world is deterministic, so the probe's stop distance tells the final
+ *    glide exactly where to start; a stop OFF the disc is re-measured and
+ *    re-shifted (up to 3 glides total — no steering needed).
  */
-// Start distance tuned to THIS seed's planet: the measured glide (run 7,
-// 85 m start) dead-sticks ~61 m of horizontal travel from 90 u/s — this
-// world's planet is denser than the unit test's, so the unit test's 100 m
-// start would ground ~39 m out, well clear of the disc. 75 m → the ship
-// grounds ~13–14 m from the pad center, INSIDE the 20 m disc, where the
-// pad machine docks it (surface regime, |vel.y| < 2, ≤ 20 m, ≤ 1 m).
-const LAND_START_DIST_M = 75;
+// The world is deterministic (DRIFT-SEED-0001), so the leg MEASURES the
+// glide's stop point and re-seeds to it. The run-7 lesson: the stop point is
+// a property of (start distance, corridor terrain) — the corridor relief
+// broke the "travel is constant" extrapolation (the 85 m start stopped 23 m
+// out; the 75 m start stopped ~21 m out on all three attempts: a CLOSER
+// start lands with MORE energy, not less, and skids past the 20 m disc).
+//
+//  PROBE (glide 1): the 130 m dead-stick stops well clear of the pad; its
+//  stop distance g is the measurement (no VTOL — a pure measurement).
+//  FINAL (glides 2–3): start shifted by g — S = 130 − g. Starting farther
+//  flies the SAME trajectory shifted (drag + gravity are translation
+//  invariant; only the corridor terrain under the shifted path differs), so
+//  the stop shifts by ≈ g and lands ON the pad centre; the residual is the
+//  corridor relief (a few m — inside the 20 m dock disc). If it still stops
+//  off the disc, the stop is re-measured and the shift re-applied (the
+//  deterministic world converges).
+const LAND_PROBE_DIST_M = 130;
 const LAND_START_ALT_M = 50;
 const LAND_INBOUND_M_S = 90;
 const LAND_MAX_ATTEMPTS = 3;
+// The VTOL switch (the unit-test rule): at TOUCHDOWN within 25 m of the pad
+// — the ×0.5/tick assist then kills the residual drift in place while the
+// 1.35·g lift holds the ship at ground level, and the pad machine docks it.
+const VTOL_SWITCH_DIST_M = 25;
+const VTOL_SWITCH_HSPD = 30;
+
+/**
+ * One dead-stick glide: seed at `startDist` out / 50 m up / 90 u/s inbound,
+ * glide until the pad machine docks the ship (or it comes to rest off the
+ * disc) and report the outcome. With `vtolAtTouchdown` the VTOL channel
+ * arms on touchdown within {@link VTOL_SWITCH_DIST_M} (the settle phase).
+ */
+async function glideOnce(
+  page: Page,
+  baseURL: string,
+  token: string,
+  pad: Vec3,
+  padId: string,
+  startDist: number,
+  vtolAtTouchdown: boolean,
+  label: string,
+): Promise<{ docked: boolean; stopX: number | null; vtolHeld: boolean; ms: number }> {
+  const t0 = Date.now();
+  // Seed the approach: startDist out on the +x side of the pad, 50 m up,
+  // 90 u/s inbound (the aim is −x — the dev teleport takes the vel).
+  // The pre-teleport server state (diagnostic — the run-8 anomaly: the ship
+  // carried its space-leg velocity into the glide, as if the vel seed had
+  // not taken).
+  const pre = await lastState(page);
+  if (pre) {
+    console.log(
+      `[TASK-95] ${label} pre-teleport: vel=(${pre.vel.x.toFixed(1)}, ${pre.vel.y.toFixed(1)}, ` +
+        `${pre.vel.z.toFixed(1)}) regime=${pre.regime}/${pre.flightRegime}`,
+    );
+  }
+  await teleport(
+    page,
+    baseURL,
+    token,
+    { x: pad.x + startDist, y: pad.y + LAND_START_ALT_M, z: pad.z },
+    { x: -LAND_INBOUND_M_S, y: 0, z: 0 },
+  );
+  // The SERVER state 400 ms after the teleport (the tap is authoritative —
+  // entity_update carries e.ship raw): must show vel ≈ (−90, 0, 0).
+  await page.waitForTimeout(400);
+  const post = await lastState(page);
+  if (post) {
+    console.log(
+      `[TASK-95] ${label} post-teleport: pos=(${post.pos.x.toFixed(0)}, ${post.pos.y.toFixed(0)}, ` +
+        `${post.pos.z.toFixed(0)}) vel=(${post.vel.x.toFixed(1)}, ${post.vel.y.toFixed(1)}, ` +
+        `${post.vel.z.toFixed(1)}) regime=${post.regime}/${post.flightRegime}`,
+    );
+  }
+  await expect
+    .poll(() => lastState(page).then((u) => u?.flightRegime ?? 'none'), {
+      timeout: 20_000,
+      message: `server flightRegime never reached atmosphere (${label})`,
+    })
+    .toBe('atmosphere');
+  expect(await setChannel(page, { thrust: 0, vtol: false }), 'glide channels set').toBe(true);
+
+  let vtolHeld = false;
+  let restMs = 0;
+  let lastLog = 0;
+  for (;;) {
+    if (Date.now() - t0 > 25_000) {
+      const s = (await lastState(page))!;
+      const stopX = s.pos.x - pad.x;
+      const spd = Math.hypot(s.vel.x, s.vel.y, s.vel.z);
+      console.log(
+        `[TASK-95] ${label} 25 s timeout (x=${stopX.toFixed(0)} m alt=${(s.pos.y - pad.y).toFixed(1)} ` +
+          `m speed=${spd.toFixed(1)} u/s frames=${JSON.stringify(await lastInFrames(page))})`,
+      );
+      return { docked: false, stopX, vtolHeld, ms: Date.now() - t0 };
+    }
+    const s = await lastState(page);
+    if (!s) {
+      await page.waitForTimeout(100);
+      continue;
+    }
+    if (s.regime === 'docked' && s.padId === padId) {
+      const dist = Math.hypot(s.pos.x - pad.x, s.pos.z - pad.z);
+      console.log(`[TASK-95] ${label} DOCKED (dist=${dist.toFixed(1)} m vtolHeld=${vtolHeld})`);
+      return { docked: true, stopX: null, vtolHeld, ms: Date.now() - t0 };
+    }
+    const dx = s.pos.x - pad.x;
+    const dist = Math.hypot(dx, s.pos.z - pad.z);
+    const hSpeed = Math.hypot(s.vel.x, s.vel.z);
+    if (
+      !vtolHeld &&
+      vtolAtTouchdown &&
+      dist <= VTOL_SWITCH_DIST_M &&
+      s.vel.y === 0 &&
+      hSpeed < VTOL_SWITCH_HSPD
+    ) {
+      vtolHeld = true;
+      expect(await setChannel(page, { vtol: true }), 'vtol set').toBe(true);
+      // TASK-95.1 diagnostic (kept — the wire evidence): what the client
+      // put on the wire once the VTOL channel is on ('vtol' in action =
+      // up: 1 the server integrates).
+      console.log(
+        `[TASK-95] ${label} vtol at touchdown (dist=${dist.toFixed(1)} m ` +
+          `alt=${(s.pos.y - pad.y).toFixed(1)} m hSpeed=${hSpeed.toFixed(1)} u/s): ` +
+          `sent frames=${JSON.stringify(await lastInFrames(page, 3))}`,
+      );
+    }
+    if (Date.now() - lastLog > 1_000) {
+      lastLog = Date.now();
+      const spd = Math.hypot(s.vel.x, s.vel.y, s.vel.z);
+      console.log(
+        `[TASK-95] ${label} t=${((Date.now() - t0) / 1000).toFixed(0)} s x=${dx.toFixed(0)} m ` +
+          `alt=${(s.pos.y - pad.y).toFixed(1)} m speed=${spd.toFixed(1)} u/s${vtolHeld ? ' [vtol]' : ''}`,
+      );
+    }
+    // Rested: on the ground (the server clamps vel.y to 0) and stopped.
+    const spd = Math.hypot(s.vel.x, s.vel.y, s.vel.z);
+    if (s.vel.y === 0 && spd < 0.5 && s.pos.y - pad.y < 1.5) {
+      restMs += 100;
+      if (restMs >= 300) {
+        console.log(
+          `[TASK-95] ${label} STOPPED x=${dx.toFixed(1)} m (alt=${(s.pos.y - pad.y).toFixed(1)} m)`,
+        );
+        return { docked: false, stopX: dx, vtolHeld, ms: Date.now() - t0 };
+      }
+    } else {
+      restMs = 0;
+    }
+    await page.waitForTimeout(100);
+  }
+}
 
 async function landOnPad(
   page: Page,
@@ -395,88 +533,33 @@ async function landOnPad(
   padId: string,
 ): Promise<{ vtolHeldAtDock: boolean; landMs: number }> {
   const start = Date.now();
-  for (let attempt = 1; attempt <= LAND_MAX_ATTEMPTS; attempt++) {
-    const attemptStart = Date.now();
-    // Seed the approach state: 75 m out, 50 m up, 90 u/s inbound (see the
-    // LAND_START_DIST_M tuning note) — the ship starts on the +x side of
-    // the pad, so the aim is −x.
-    await teleport(
-      page,
-      baseURL,
-      token,
-      { x: pad.x + LAND_START_DIST_M, y: pad.y + LAND_START_ALT_M, z: pad.z },
-      { x: -LAND_INBOUND_M_S, y: 0, z: 0 },
+  // Glide 1 = PROBE: measure where the 130 m dead-stick stops on this
+  // seed's corridor (no VTOL — a pure measurement of the terrain).
+  const probe = await glideOnce(
+    page,
+    baseURL,
+    token,
+    pad,
+    padId,
+    LAND_PROBE_DIST_M,
+    false,
+    'probe',
+  );
+  if (probe.docked) return { vtolHeldAtDock: probe.vtolHeld, landMs: Date.now() - start };
+  let g = probe.stopX ?? 0;
+  for (let attempt = 2; attempt <= LAND_MAX_ATTEMPTS; attempt++) {
+    const s = LAND_PROBE_DIST_M - g;
+    console.log(
+      `[TASK-95] land attempt ${attempt}: re-seeding at ${s.toFixed(0)} m ` +
+        `(last stop ${g.toFixed(0)} m from the pad)`,
     );
-    await expect
-      .poll(() => lastState(page).then((u) => u?.flightRegime ?? 'none'), {
-        timeout: 20_000,
-        message: `server flightRegime never reached atmosphere (attempt ${attempt})`,
-      })
-      .toBe('atmosphere');
-    expect(await setChannel(page, { thrust: 0, vtol: false }), 'glide channels set').toBe(true);
-
-    let vtolHeld = false;
-    let iterations = 0;
-    let missed = false;
-    for (;;) {
-      if (Date.now() - attemptStart > 25_000) {
-        const s = (await lastState(page))!;
-        const frames = await lastInFrames(page);
-        throw new Error(
-          `land leg attempt ${attempt} timed out (regime=${s?.regime} ` +
-            `dist=${Math.hypot(pad.x - s.pos.x, pad.z - s.pos.z).toFixed(0)} m ` +
-            `alt=${(s.pos.y - pad.y).toFixed(0)} m ` +
-            `speed=${Math.hypot(s.vel.x, s.vel.y, s.vel.z).toFixed(1)} u/s ` +
-            `last frames=${JSON.stringify(frames)})`,
-        );
-      }
-      if (++iterations > 400) {
-        throw new Error(`land leg attempt ${attempt}: too many state-machine passes`);
-      }
-      const s = await lastState(page);
-      if (!s) continue;
-      if (s.regime === 'docked' && s.padId === padId) {
-        return { vtolHeldAtDock: vtolHeld, landMs: Date.now() - start };
-      }
-      if (!vtolHeld) {
-        const dist = Math.hypot(pad.x - s.pos.x, pad.z - s.pos.z);
-        const alt = s.pos.y - pad.y;
-        // OVER the disc: the assist damps the drift in place, so the
-        // switch must arm INSIDE the 20 m acquisition range or the ship
-        // freezes just short of the pad (see the leg doc).
-        if (dist <= 15 && alt < 8) {
-          vtolHeld = true;
-          expect(await setChannel(page, { vtol: true }), 'vtol set').toBe(true);
-          // TASK-95.1 diagnostic: the wire evidence — what the client actually
-          // put on the wire once the VTOL channel is on ('vtol' in action =
-          // up: 1 the server integrates).
-          console.log(
-            `[TASK-95] vtol switch (dist=${dist.toFixed(1)} m alt=${alt.toFixed(1)} m): ` +
-              `sent frames=${JSON.stringify(await lastInFrames(page))}`,
-          );
-          // The VTOL channel reached the server (proof: if it had not, the
-          // ship would have free-fallen ~15 m in the next 2 s).
-          const altAtVtol = alt;
-          await page.waitForTimeout(2_000);
-          const later = (await lastState(page))!;
-          const laterAlt = later.pos.y - pad.y;
-          expect(
-            laterAlt,
-            `alt ${laterAlt.toFixed(1)} m must not dive past the VTOL switch (${altAtVtol.toFixed(1)} m)`,
-          ).toBeLessThanOrEqual(altAtVtol + 1);
-        } else if (dist > 20 && alt < 1.5 && Date.now() - attemptStart > 3_000) {
-          // Grounded OFF the disc (the corridor terrain is high here) — the
-          // glide missed; abandon the attempt and re-seed the approach.
-          missed = true;
-          break;
-        }
-      }
-      await page.waitForTimeout(100);
-    }
-    if (!missed) throw new Error('land leg: inner loop ended without a result');
-    console.log(`[TASK-95] land attempt ${attempt} missed the disc — re-seeding`);
+    const r = await glideOnce(page, baseURL, token, pad, padId, s, true, `final${attempt - 1}`);
+    if (r.docked) return { vtolHeldAtDock: r.vtolHeld, landMs: Date.now() - start };
+    if (r.stopX !== null) g = r.stopX; // re-measure; the next glide re-shifts
   }
-  throw new Error(`land leg: the glide missed the pad disc ${LAND_MAX_ATTEMPTS} times`);
+  throw new Error(
+    `land leg: still ${g.toFixed(0)} m from the pad after ${LAND_MAX_ATTEMPTS} glides`,
+  );
 }
 
 test('touch-only SC-1 loop: claim → warp → fly → VTOL land → exit → mine → re-enter → sell', async ({
