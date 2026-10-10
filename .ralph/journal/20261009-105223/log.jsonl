@@ -1,0 +1,58 @@
+{"time":"2026-10-09T11:05:21.308Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":1}}
+{"time":"2026-10-09T11:25:21.064Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":2}}
+{"time":"2026-10-09T12:10:23.763Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-09T12:15:21.557Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-91.md"}}
+{"time":"2026-10-09T12:15:25.563Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":3}}
+{"time":"2026-10-09T12:22:26.992Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":4}}
+{"time":"2026-10-09T13:07:32.052Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":5}}
+{"time":"2026-10-09T13:52:34.882Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-09T13:59:26.775Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-93.md"}}
+{"time":"2026-10-09T13:59:30.365Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":6}}
+{"time":"2026-10-09T14:44:33.408Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-09T15:04:33.947Z","level":"info","message":"agent left no handoff; wrote one from what the loop saw","fields":{"path":".ralph/handoff/TASK-93.md"}}
+{"time":"2026-10-09T15:49:36.072Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-09T15:56:49.180Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-93.md"}}
+{"time":"2026-10-09T15:56:52.456Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":8}}
+{"time":"2026-10-09T15:56:52.457Z","level":"info","message":"asking the agent to propose a split","fields":{"task":"TASK-93","folder":".ralph/split/TASK-93"}}
+{"time":"2026-10-09T16:16:03.041Z","level":"info","message":"split the task","fields":{"task":"TASK-93","into":"TASK-93.1,TASK-93.2","committed":true}}
+{"time":"2026-10-09T17:01:03.951Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-09T17:10:06.488Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-93.1.md"}}
+{"time":"2026-10-09T17:10:11.020Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":9}}
+{"time":"2026-10-09T17:37:48.622Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":10}}
+{"time":"2026-10-09T17:37:48.623Z","level":"warn","message":"waiting for a person: answer in the web UI or with `ralph respond`","fields":{"kind":"decide","task":"TASK-93.1","about":"TASK-93.1 NaN-BigInt flake now root-caused (quatSlerp unclamped acos, vec.ts:178 — one-line fix) but recurs ~80% of runs on this HEAD: (A) split it into its own product task (clamp dot in quatSlerp +…"}}
+{"time":"2026-10-09T21:56:20.593Z","level":"info","message":"web UI action","fields":{"action":"answer","request":"20261009-105223-1","delivered":"loop"}}
+{"time":"2026-10-09T21:56:20.620Z","level":"info","message":"a person answered","fields":{"kind":"decide","action":"answer","by":"ui"}}
+{"time":"2026-10-09T22:08:03.615Z","level":"warn","message":"agent claimed a task without marking it passing","fields":{"claimed":"TASK-93.1"}}
+{"time":"2026-10-09T22:08:07.007Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":11}}
+{"time":"2026-10-09T22:21:49.614Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":12}}
+{"time":"2026-10-09T22:26:43.343Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":13}}
+{"time":"2026-10-09T22:55:05.065Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":14}}
+{"time":"2026-10-09T23:30:23.433Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":15}}
+{"time":"2026-10-10T00:15:25.761Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-10T00:23:45.961Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-95.md"}}
+{"time":"2026-10-10T00:23:49.392Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":16}}
+{"time":"2026-10-10T01:08:52.015Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-10T01:18:21.415Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-95.md"}}
+{"time":"2026-10-10T01:18:24.606Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":17}}
+{"time":"2026-10-10T02:03:26.973Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-10T02:11:07.460Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-95.md"}}
+{"time":"2026-10-10T02:11:10.743Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":18}}
+{"time":"2026-10-10T02:11:10.744Z","level":"info","message":"asking the agent to propose a split","fields":{"task":"TASK-95","folder":".ralph/split/TASK-95"}}
+{"time":"2026-10-10T02:26:22.212Z","level":"info","message":"split the task","fields":{"task":"TASK-95","into":"TASK-95.1,TASK-95.2","committed":true}}
+{"time":"2026-10-10T03:11:22.818Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-10T03:17:52.469Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-95.1.md"}}
+{"time":"2026-10-10T03:17:56.015Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":19}}
+{"time":"2026-10-10T04:00:39.904Z","level":"warn","message":"the agent ended its turn with the task unfinished; resuming it","fields":{"task":"TASK-95.1","resume":1,"minutesLeft":2}}
+{"time":"2026-10-10T04:02:58.926Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-10T04:03:40.661Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-95.1.md"}}
+{"time":"2026-10-10T04:03:43.955Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":20}}
+{"time":"2026-10-10T04:06:59.864Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-10T04:22:33.596Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-10T04:36:43.673Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-10T04:48:34.667Z","level":"info","message":"agent left no handoff; wrote one from what the loop saw","fields":{"path":".ralph/handoff/TASK-95.1.md"}}
+{"time":"2026-10-10T04:48:37.808Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":21}}
+{"time":"2026-10-10T05:23:26.152Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":22}}
+{"time":"2026-10-10T06:08:28.690Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-10T06:11:19.791Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-95.2.md"}}
+{"time":"2026-10-10T06:11:23.288Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":23}}
+{"time":"2026-10-10T06:33:15.559Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":24}}
