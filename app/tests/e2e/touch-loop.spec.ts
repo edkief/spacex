@@ -244,10 +244,26 @@ async function teleport(
     data: vel ? { ...to, vel } : to,
   });
   expect(res.status(), `teleport response: ${await res.text()}`).toBe(200);
-  // The server broadcasts at 10 Hz and the ship LEAVES the target at 90 u/s
-  // (a 5 m ball is transited in ~55 ms — under one broadcast interval, so a
-  // tight tolerance flakily misses); a 60 m band is a ~1.3 s window, which
-  // 10 Hz samples with near certainty.
+  if (vel) {
+    // With a seeded velocity the ship LEAVES the point immediately (90 u/s —
+    // it glides the whole way to the pad and grounds ~140 m from the start,
+    // run 15), so proximity to the point is NOT observable: the tap's first
+    // post-teleport frame can already be far outside any band, and the poll
+    // flakely reads only the grounded state. The regime flip IS the
+    // server's confirmation the teleport landed: the target sits in the
+    // atmosphere band (50 m up) while the ship was in space / on the
+    // surface before, and stays in the atmosphere for the whole glide.
+    await expect
+      .poll(() => lastState(page).then((u) => u?.flightRegime ?? 'none'), {
+        timeout: 10_000,
+        message: `server flightRegime never reached atmosphere after vel-seeded teleport to ${JSON.stringify(to)}`,
+      })
+      .toBe('atmosphere');
+    return;
+  }
+  // No velocity: the ship HOLDS the point, and the server broadcasts at
+  // 10 Hz. A 60 m band is a ~1.3 s window at the ship's residual creep,
+  // which 10 Hz samples with near certainty.
   await expect
     .poll(
       () =>
@@ -365,14 +381,18 @@ async function walkUntilPrompt(
 }
 
 /**
- * Re-enter the docked ship (leg 9). The ship sits at the pad center — a
- * KNOWN point — so the approach is two phases:
+ * Re-enter the docked ship (leg 9). The ship sits WHEREVER THE GLIDE STOPPED
+ * IT — the pad machine docks anywhere within the 20 m disc (run 14: docked
+ * 18.6 m from the pad centre) — so the approach targets the ship's SERVER
+ * position (the __TL__ tap; the ship is docked and stationary) and the pad
+ * centre is only the fallback when the tap has no frame yet. Two phases:
  *
  *  1. CLOSE: the bearing walk (the walkUntilPrompt geometry, distance gate
- *     only) shrinks the distance to the pad center — walking within 45° of
- *     the goal always shortens the distance — until the character is within
+ *     only) shrinks the distance to the ship — walking within 45° of the
+ *     goal always shortens the distance — until the character is within
  *     2 m (inside the ship's 3 m '[E] Enter ship' sub-zone, not the 3–5 m
- *     '[E] Open cargo' zone).
+ *     '[E] Open cargo' zone; the docked ship's pos is at ground level, alt
+ *     ≈ 0, so the 3D feet→pos distance ≈ the horizontal one).
  *  2. FACE: the ship prompt is a RAYCAST (≤ 3 m AND the ±30° forward cone,
  *     shared/interaction.ts) — distance alone does not arm it. Once close,
  *     turn IN PLACE toward the signed bearing (the enter-ship.spec.ts TURN
@@ -386,6 +406,11 @@ async function reEnterShip(
   pad: { x: number; z: number },
   goalPrompt: string,
 ): Promise<void> {
+  // Target the SHIP's server position, not the pad centre (run 14 root
+  // cause: the ship docked 18.6 m off the centre, the character walked to
+  // the centre, and the 5 m enter radius was never reached).
+  const last = await lastState(page);
+  const ship = last ? { x: last.pos.x, z: last.pos.z } : pad;
   const prompt = page.locator('#interact-prompt');
   const promptText = async (): Promise<string | null> =>
     prompt
@@ -397,8 +422,8 @@ async function reEnterShip(
   for (let i = 0; i < 40; i++) {
     const p = await charPos(page);
     const f = await charForward(page);
-    const dx = pad.x - p.x;
-    const dz = pad.z - p.z;
+    const dx = ship.x - p.x;
+    const dz = ship.z - p.z;
     const dist = Math.hypot(dx, dz);
     if (dist <= 2) break;
     const angle = Math.atan2(f.z * dx - f.x * dz, f.x * dx + f.z * dz);
@@ -421,8 +446,8 @@ async function reEnterShip(
     if ((await promptText()) === goalPrompt) break;
     const p = await charPos(page);
     const f = await charForward(page);
-    const dx = pad.x - p.x;
-    const dz = pad.z - p.z;
+    const dx = ship.x - p.x;
+    const dz = ship.z - p.z;
     const angle = Math.atan2(f.z * dx - f.x * dz, f.x * dx + f.z * dz);
     if (Math.abs(angle) <= 0.5) break; // inside the ±30° cone
     const dir = angle > 0 ? -1 : 1;
@@ -688,8 +713,8 @@ test('touch-only SC-1 loop: claim → warp → fly → VTOL land → exit → mi
       const pg = await ctx.newPage();
       const claim = new ClaimPage(pg, baseURL);
       await claim.claim(callsign);
-      const stored = (await pg.evaluate(
-        () => JSON.parse(localStorage.getItem('drift.session.v1') ?? 'null'),
+      const stored = (await pg.evaluate(() =>
+        JSON.parse(localStorage.getItem('drift.session.v1') ?? 'null'),
       )) as ClaimResponse | null;
       expect(stored?.token, `session stored by the claim flow (attempt ${attempt})`).toBeTruthy();
       const auth = { authorization: `Bearer ${stored!.token}` };
@@ -697,12 +722,17 @@ test('touch-only SC-1 loop: claim → warp → fly → VTOL land → exit → mi
       // mobile-profile.spec.ts search, neighbours only — the warp leg needs
       // a non-current destination).
       const overview = (await (
-        await fetch(`${baseURL}/api/galaxy/overview?home=${stored!.homeSystemId}`, { headers: auth })
+        await fetch(`${baseURL}/api/galaxy/overview?home=${stored!.homeSystemId}`, {
+          headers: auth,
+        })
       ).json()) as Overview;
-      const neighbors = overview.systems.find((s) => s.systemId === stored!.homeSystemId)!
-        .neighbors;
+      const neighbors = overview.systems.find(
+        (s) => s.systemId === stored!.homeSystemId,
+      )!.neighbors;
       for (const n of neighbors) {
-        const res = await fetch(`${baseURL}/api/dev/pad-target?systemId=${n.to}`, { headers: auth });
+        const res = await fetch(`${baseURL}/api/dev/pad-target?systemId=${n.to}`, {
+          headers: auth,
+        });
         if (res.status !== 200) continue;
         const cand = (await res.json()) as PadTarget;
         if (cand.pad) {
@@ -721,10 +751,7 @@ test('touch-only SC-1 loop: claim → warp → fly → VTOL land → exit → mi
   });
   expect(termRes.status).toBe(200);
   const term = (await termRes.json()) as TerminalTarget;
-  expect(
-    term.systemId,
-    'the terminal is on the same planet as the pad',
-  ).toBe(t.systemId);
+  expect(term.systemId, 'the terminal is on the same planet as the pad').toBe(t.systemId);
   console.log(
     `[TASK-95] callsign=${session.callsign} padSystem=${t.systemId} pad=(${t.pad.x.toFixed(0)}, ${t.pad.y.toFixed(0)}, ${t.pad.z.toFixed(0)})`,
   );
@@ -757,10 +784,10 @@ test('touch-only SC-1 loop: claim → warp → fly → VTOL land → exit → mi
     timeout: 20_000,
   });
   await expect
-    .poll(
-      () => page.evaluate(() => window.__STREAM__?.lodRadii()?.farMaxM ?? -1),
-      { timeout: 15_000, message: 'mobile pipeline never activated (farMaxM)' },
-    )
+    .poll(() => page.evaluate(() => window.__STREAM__?.lodRadii()?.farMaxM ?? -1), {
+      timeout: 15_000,
+      message: 'mobile pipeline never activated (farMaxM)',
+    })
     .toBe(3_000);
 
   // (3) MENU → CHART → WARP (the touch-menu path, TASK-94): the MENU button
@@ -772,9 +799,7 @@ test('touch-only SC-1 loop: claim → warp → fly → VTOL land → exit → mi
   await page.locator('#esc-menu-systems').click();
   await expect(page.locator('#star-chart')).toBeVisible();
   await expect(page.locator('#star-chart-loading')).toBeHidden();
-  const padNode = page.locator(
-    `[data-testid="star-chart-node"][data-system-id="${t.systemId}"]`,
-  );
+  const padNode = page.locator(`[data-testid="star-chart-node"][data-system-id="${t.systemId}"]`);
   await expect(padNode).toHaveCount(1); // the pad system is on the chart (a neighbour)
   // The ESC menu is STILL OPEN under the chart — openChart()
   // (src/client/state/menu.ts:80) PUSHES the chart onto the surface stack
@@ -868,9 +893,7 @@ test('touch-only SC-1 loop: claim → warp → fly → VTOL land → exit → mi
     land = await landOnPad(page, baseURL, session.token, t.pad, t.padId);
   } catch (err) {
     // TASK-95.1 diagnostic: the scheme timeline next to the failure.
-    console.log(
-      `[TASK-95] land-leg failure — scheme swaps: ${JSON.stringify(schemeSwaps)}`,
-    );
+    console.log(`[TASK-95] land-leg failure — scheme swaps: ${JSON.stringify(schemeSwaps)}`);
     throw err;
   }
   console.log(`[TASK-95] landed — scheme swaps: ${JSON.stringify(schemeSwaps)}`);
@@ -917,9 +940,10 @@ test('touch-only SC-1 loop: claim → warp → fly → VTOL land → exit → mi
   );
   await expect(page.locator('#mining-hud')).toBeVisible({ timeout: 10_000 });
   await page.waitForTimeout(1_800); // a full 1.5 s server mining channel
-  expect(await touch(page, 'interactRelease'), 'interactRelease (mine) through the touch hook').toBe(
-    undefined,
-  );
+  expect(
+    await touch(page, 'interactRelease'),
+    'interactRelease (mine) through the touch hook',
+  ).toBe(undefined);
   await expect(bar).toHaveText(/1\/40u/, { timeout: 15_000 });
   await expect(prompt).toBeHidden({ timeout: 10_000 });
 
@@ -929,9 +953,10 @@ test('touch-only SC-1 loop: claim → warp → fly → VTOL land → exit → mi
   await reEnterShip(page, { x: t.pad.x, z: t.pad.z }, '[E] Enter ship');
   await page.waitForTimeout(400);
   await expect(prompt).toHaveText('[E] Enter ship'); // the prompt HOLDS
-  expect(await touch(page, 'interactPress'), 'interactPress (re-enter) through the touch hook').toBe(
-    undefined,
-  );
+  expect(
+    await touch(page, 'interactPress'),
+    'interactPress (re-enter) through the touch hook',
+  ).toBe(undefined);
   await expect(prompt).toBeHidden({ timeout: 10_000 });
   await expect(page.locator('#docked-indicator')).toBeVisible({ timeout: 15_000 });
   await expect(page.locator('#leave-ship-prompt')).toBeVisible({ timeout: 15_000 });
@@ -940,17 +965,19 @@ test('touch-only SC-1 loop: claim → warp → fly → VTOL land → exit → mi
   // (10) SELL — exit again (touch INTERACT), walk to the station terminal
   // (at the pad edge), interactPress → the dock panel, TAP 'sell all iron
   // inv': credits 500 → 505 cr, cargo empty (the SC-1 terminal condition).
-  expect(await touch(page, 'interactPress'), 'interactPress (egress #2) through the touch hook').toBe(
-    undefined,
-  );
+  expect(
+    await touch(page, 'interactPress'),
+    'interactPress (egress #2) through the touch hook',
+  ).toBe(undefined);
   await expect(page.locator('#leave-ship-prompt')).toBeHidden({ timeout: 15_000 });
   await charPos(page);
   await walkUntilPrompt(page, { x: term.pos.x, z: term.pos.z }, '[E] Dock terminal', 2.0);
   await page.waitForTimeout(400);
   await expect(prompt).toHaveText('[E] Dock terminal'); // the prompt HOLDS
-  expect(await touch(page, 'interactPress'), 'interactPress (dock terminal) through the touch hook').toBe(
-    undefined,
-  );
+  expect(
+    await touch(page, 'interactPress'),
+    'interactPress (dock terminal) through the touch hook',
+  ).toBe(undefined);
   const panel = page.locator('#dock-panel');
   await expect(panel).toBeVisible({ timeout: 15_000 });
   await expect(panel).toContainText('STATION DOCK');
