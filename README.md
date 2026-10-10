@@ -14,7 +14,7 @@ land on a pad, exit the ship, mine a resource node into your pack, haul it
 home in the ship's hold, and sell it at a dock for credits. Rogue AI ships
 patrol every system, and combat uses one pipeline for players and AI alike —
 shields absorb first, then hull. It is a v1: no crafting, no trading market,
-no voice, no touch controls. See [ops.md](app/docs/ops.md#known-gaps-v1-scope-lines) for the
+no voice. See [ops.md](app/docs/ops.md#known-gaps-v1-scope-lines) for the
 explicit scope lines.
 
 ## Features
@@ -35,7 +35,7 @@ explicit scope lines.
   pipeline for PvP and PvE, rogue AI that patrols/aggros/engages.
 - **Survivability.** Hull 0 → ship lost, immediate dock respawn in a starter
   ship, static wreck left behind; surface hazards (storms, rad zones) on foot.
-- **Accessibility.** Keyboard-only play, WCAG-AA contrast, scalable text,
+- **Accessibility.** Keyboard + touch play, WCAG-AA contrast, scalable text,
   screen-reader live region, reduced-motion setting.
 
 ## Quick start
@@ -106,6 +106,14 @@ npm run test:e2e  # Playwright, headless chromium (boots its own isolated server
 
 Controls remap automatically as the flight regime changes (the server is
 authoritative about which regime you are in).
+
+**Touch controls.** On a touch device the same play is driven by a virtual
+control overlay: in the ship, dual sticks (left = thrust + yaw, right =
+pitch + roll) plus the per-regime buttons — VTOL in the atmosphere, BOOST in
+space, and the FIRE / LASER / MISSILE / TARGET combat cluster; on foot, a move
+stick plus RUN / JUMP / DROP / INTERACT. A MENU button opens the chart (warp),
+ships, chat, and settings. **Settings → Touch controls** has an Auto / On /
+Off toggle — Auto enables the overlay when the device reports touch points.
 
 ## Tech stack
 

@@ -107,6 +107,17 @@ the server integrated. On-foot uses the same machinery in
 lerp/slerp on a 200 ms buffer
 ([interpolation.ts](../src/client/net/interpolation.ts)).
 
+**Touch / mobile controls.** Touch is synthesized as virtual keys, not a
+parallel input path: [TouchInputSource](../src/client/input/touch.ts) projects
+the active channels (sticks + buttons) to the SAME key names the keyboard
+capture produces (`virtualKeys()`) and `mergePressed` unions them with the
+keyboard pressed set at the two prediction loops (`effectivePressed()` in
+[main.tsx](../src/client/main.tsx)) — so the server, prediction, wire mapping,
+and cheat resistance are UNCHANGED (with touch empty, the merged set is
+exactly the keyboard set). Enablement is `Settings.touchControls` =
+`'auto' | 'on' | 'off'` (`auto` = `navigator.maxTouchPoints > 0`), set from
+the **Settings → Touch controls** panel and persisted on the player row.
+
 **Camera handoff.** One continuous `PerspectiveCamera` across cockpit →
 on-foot → back. [CameraRig](../src/client/camera/CameraRig.ts) eases between
 poses over a short, terrain-nudged path (no cut, no reset), and the shared
