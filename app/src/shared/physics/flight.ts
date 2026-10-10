@@ -19,16 +19,19 @@
  *   TASK-87: inside a landable airless planet's surface disc the surface is
  *   SOLID — the ship clamps to terrain (no tunnel-through) and friction
  *   (SURFACE_FRICTION, standing in for the missing drag) stops it there.
- * - 'atmosphere': quadratic drag (k·|v|·v, opposing velocity), gravity,
- *   VTOL vertical lift, ground collision at terrain height (substepped so
- *   fast ships never tunnel: substep whenever |vel|·dt > 2 u). Drag ramps
- *   0→k continuously from the atmosphere enter radius (space) down to the
- *   surface (see ./atmosphere — the single shared boundary function,
- *   TASK-28).
+ * - 'atmosphere': quadratic drag (k·|v|·v, opposing velocity), main thruster
+ *   along the ship's forward axis (TASK-98 — the same push + TASK-81
+ *   max-velocity clamp as space, so a planet is flyable AND escapable),
+ *   gravity, VTOL vertical lift, ground collision at terrain height
+ *   (substepped so fast ships never tunnel: substep whenever |vel|·dt > 2 u).
+ *   Drag ramps 0→k continuously from the atmosphere enter radius (space)
+ *   down to the surface (see ./atmosphere — the single shared boundary
+ *   function, TASK-28).
  * - 'surface': landed. Integrates with the same atmosphere physics (drag,
- *   gravity, VTOL, ground clamp), so a landed ship rests on the terrain and
- *   can VTOL-lift off; the regime manager (../regime) flips it back to
- *   'atmosphere' once it climbs out of the surface hysteresis band.
+ *   thrust, gravity, VTOL, ground clamp), so a landed ship rests on the
+ *   terrain, can taxi on the main thruster and VTOL-lift off; the regime
+ *   manager (../regime) flips it back to 'atmosphere' once it climbs out of
+ *   the surface hysteresis band (or speeds up).
  *
  * Planet-agnostic by design: atmosphere density arrives as a plain
  * `PlanetAtmo` (the server derives it from the generated Planet), and
@@ -401,6 +404,8 @@ function integrateStep(
     // TASK-87: gravity inside the surface disc (see above).
     if (inDisc) vel.y -= GRAVITY * h;
   } else {
+    // Application order (TASK-98): drag → forward thrust (+TASK-81 clamp) →
+    // gravity → VTOL lift.
     // Quadratic drag opposing velocity, ramped continuously from the
     // atmosphere enter radius (0 in space) down to the surface (1) — the
     // shared boundaryFactor (TASK-28 visuals use the same number).
@@ -408,6 +413,18 @@ function integrateStep(
     const factor = planet ? boundaryFactor(s.pos.y - groundY, planet) : 0;
     const speed = vecLength(vel);
     vel = vecAdd(vel, vecScale(vel, -k * factor * speed * h));
+    // TASK-98: the main thruster works in the atmosphere/surface regimes too
+    // (pre-fix it was dropped here, so on a planet W/S did nothing and the
+    // ship was inescapable). The SAME forward-axis push + TASK-81 clamp as
+    // the 'space' branch — the shared integrateShip is the one change point
+    // for the server tick, the client predictor and the AI.
+    const forward = quatRotateVector(quat, FORWARD);
+    const speed0 = vecLength(vel);
+    vel = vecAdd(vel, vecScale(forward, input.thrust * acceleration * h));
+    const speed1 = vecLength(vel);
+    if (speed1 > maxVelocity && speed1 > speed0) {
+      vel = vecScale(vecNormalize(vel), Math.max(speed0, maxVelocity));
+    }
     // Gravity.
     vel.y -= GRAVITY * h;
     // VTOL lift: vertical, heading-independent, only near hover speed.

@@ -24,11 +24,11 @@ import { RawWsClient } from './raw-ws';
  * onto the seeded station pad → DOCKED indicator → the ship is FROZEN while
  * idle (TASK-78 wire invariant: the client sends nothing while docked, so
  * the server integrates zero input on the settled ship) → hold SPACE (the
- * VTOL key — in the atmosphere/surface regime the main thrust channel does
- * nothing, VTOL lift is the pad takeoff channel; TASK-86: full VTOL climbs
- * on the 1.35×g margin, so it lifts the ship off the pad) → within the
- * budget the wire regime leaves 'docked' and the server position moves →
- * the indicator clears. A second test repeats the undock from the HOME dock
+ * VTOL key — VTOL lift is the VERTICAL pad-takeoff channel; the main thrust
+ * channel is the horizontal flight control in atmosphere/surface (TASK-98),
+ * and TASK-86: full VTOL climbs on the 1.35×g margin, so it lifts the ship
+ * off the pad) → within the budget the wire regime leaves 'docked' and the
+ * server position moves → the indicator clears. A second test repeats the undock from the HOME dock
  * starter spawn (regime 'docked', NO padId, flightRegime 'space' — W
  * thrust takes that one off).
  *

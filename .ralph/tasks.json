@@ -865,5 +865,12 @@
     "category": "ui",
     "specFilePath": ".ralph/tasks/TASK-97.json",
     "passes": true
+  },
+  {
+    "id": "TASK-98",
+    "title": "Atmospheric/surface flight: main thruster dead on a planet — ship can't move or leave",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-98.json",
+    "passes": true
   }
 ]

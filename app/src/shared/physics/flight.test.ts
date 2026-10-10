@@ -421,7 +421,9 @@ describe('space cruise boost (TASK-85)', () => {
       });
       expect(vecLength(s.vel), `t=${((i + 1) * DT).toFixed(2)}s`).toBeLessThanOrEqual(120 + 1e-9);
     }
-    // Atmosphere: the space-only gate (thrust itself does not apply there).
+    // Atmosphere: the space-only gate (the boost never engages there). The
+    // main thrust DOES apply in atmosphere (TASK-98) — sustained thrust
+    // settles at/below the class maxVelocity, which this bound asserts.
     let sa = restShipState({ x: 0, y: 200, z: 0 }, 'atmosphere');
     for (let i = 0; i < 600; i++) {
       sa = integrateShip(
@@ -669,6 +671,64 @@ describe('atmosphere regime', () => {
     expect(integrateShip(inSpace, NO_INPUT, DT, 'space', undefined, 'scout', { pads }).onPad).toBe(
       undefined,
     );
+  });
+
+  // TASK-98: the main thruster works in the atmosphere/surface regimes.
+  // Before the fix the 'atmosphere'/'surface' branch of integrateStep ignored
+  // input.thrust entirely (only drag, gravity and VTOL lift applied), so on a
+  // planet W/S did nothing and the ship was inescapable (drag-limited VTOL
+  // crawl). These tests encode the new contract: forward thrust accelerates
+  // the ship along its nose in atmosphere, a grounded ship taxis, and the
+  // TASK-81 max-velocity clamp still holds.
+  it('forward thrust accelerates the ship in the atmosphere (TASK-98: W works on a planet)', () => {
+    const planet = atmo(0.01);
+    // 5 s of held forward thrust from rest (scout, facing +Z, 200 u up in the band).
+    const s = runSteps(
+      restShipState({ x: 0, y: 200, z: 0 }, 'atmosphere'),
+      { ...NO_INPUT, thrust: 1 },
+      DT,
+      100,
+      'atmosphere',
+      planet,
+    );
+    // The ship gained real speed along its nose and moved forward. Pre-fix the
+    // thrust was dropped, so it only free-fell (|vel| ≈ g·t with drag, no +Z).
+    expect(vecLength(s.vel)).toBeGreaterThan(5);
+    expect(s.pos.z).toBeGreaterThan(0);
+  });
+
+  it('a grounded ship taxis on W in the atmosphere (TASK-98: horizontal motion on the ground)', () => {
+    const planet = atmo(0.01);
+    // Resting ON flat ground (y = 0), held forward thrust for 5 s: it must
+    // crawl along the ground, not sit still.
+    const s = runSteps(
+      restShipState({ x: 0, y: 0, z: 0 }, 'atmosphere'),
+      { ...NO_INPUT, thrust: 1 },
+      DT,
+      100,
+      'atmosphere',
+      planet,
+    );
+    expect(s.pos.z, 'taxiing forward on the ground').toBeGreaterThan(0);
+    expect(s.pos.y, 'staying on the ground').toBeLessThanOrEqual(1e-6);
+  });
+
+  it('sustained thrust in the atmosphere never exceeds the class maxVelocity (TASK-81 clamp)', () => {
+    // Grounded taxi: the ground clamp zeroes vel.y, so speed is exactly the
+    // horizontal speed the thrust push builds — the TASK-81 clamp must keep
+    // it at/below the class maxVelocity every tick (as in space). A gravity
+    // fall adds a separate excess the per-tick SOFT_CAP_DECAY bleeds off, so
+    // the clean clamp contract is asserted on the ground.
+    const planet = atmo(0.01);
+    for (const cls of Object.values(SHIP_CLASSES)) {
+      let s = restShipState({ x: 0, y: 0, z: 0 }, 'atmosphere');
+      for (let i = 0; i < 1200; i++) {
+        s = integrateShip(s, { ...NO_INPUT, thrust: 1 }, DT, 'atmosphere', planet, cls.id);
+        expect(vecLength(s.vel), `${cls.id} t=${((i + 1) * DT).toFixed(2)}s`).toBeLessThanOrEqual(
+          cls.maxVelocity + 1e-9,
+        );
+      }
+    }
   });
 });
 

@@ -43,9 +43,10 @@ const teleportBody = z
     y: z.number().finite(),
     z: z.number().finite(),
     // TASK-95: optional inbound velocity (the VTOL-approach e2e starts the
-    // ship with a dead-stick velocity aimed at the pad — the atmosphere has
-    // NO main thruster, so the horizontal part of the approach must be
-    // carried by momentum, exactly as the shard.pads.approach unit test).
+    // ship with a dead-stick velocity aimed at the pad — the approach is
+    // momentum-carried by design, exactly as the shard.pads.approach unit
+    // test; the atmosphere gained a main thruster in TASK-98, but the e2e
+    // seeds the glide's momentum instead of thrusting it in).
     vel: z
       .object({ x: z.number().finite(), y: z.number().finite(), z: z.number().finite() })
       .strict()

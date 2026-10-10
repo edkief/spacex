@@ -61,21 +61,19 @@ function makeShard(): SystemShard {
  * Script (driven through the REAL SimLoop via enqueueInput + sim.step):
  * - cruise: full thrust in space on a flat -X run at y = 300 toward the
  *   planet (inertial model);
- * - retro: full retro until the ship is SLOW (≤ 4 u/s, still inbound). The
- *   TASK-22 atmosphere regime has no main thruster — only drag, gravity and
- *   hover VTOL — so the ship must ENTER the atmosphere surface-eligible;
+ * - retro: full retro until the ship is SLOW (≤ 4 u/s, still inbound), so
+ *   the ship ENTERS the atmosphere surface-eligible (low + slow) — the
+ *   thrust channel works in atmosphere too (TASK-98), so entering fast
+ *   would keep the ship airborne on the 5 u/s surface threshold;
  * - coast: dead-sticks into the atmosphere at ~4 u/s, then falls (no VTOL
  *   input) onto the terrain. The ground clamp zeroes the vertical velocity,
  *   so the ship ends low + slow → the shared machine resolves 'surface';
  * - settle: two on-surface ticks, then a scripted SUSTAINED climb (vel.y =
- *   100 every tick): the v1 atmosphere model cannot climb under its own
- *   power (VTOL exactly cancels gravity), and since TASK-28 the drag is
- *   densest at the surface — a single ballistic kick from the ground is
- *   capped at ~210 u of climb (the local terminal speed near the surface
- *   is an unstable equilibrium), far short of the 1.05 exit radius — so
- *   the ascent is an external sustained thrust applied as scripted state.
- *   The regime transitions it triggers are still resolved by the real
- *   state machine in the real tick;
+ *   100 every tick): an external velocity applied as scripted state so the
+ *   ascent duration is deterministic and independent of the drag tuning
+ *   (a VTOL-limited climb would be slower than the 100 u/s script). The
+ *   regime transitions it triggers are still resolved by the real state
+ *   machine in the real tick;
  * - ascent: climbs through the surface band (→ atmosphere) and past the
  *   1.05 exit radius (→ space) no matter where the terrain put the ship.
  */
@@ -127,8 +125,8 @@ function runScriptedFlight(noise: boolean): string[] {
       entity.ship.pos.y += i % 3 === 1 ? 1 : -1;
       entity.ship.pos.z += i % 3 === 2 ? 1 : -1;
     }
-    // TASK-28: the sustained scripted climb — an external +Y thrust injected
-    // as state each tick (the v1 atmosphere model cannot climb on its own).
+    // The sustained scripted climb — an external +Y velocity injected as
+    // state each tick (deterministic ascent, independent of drag tuning).
     if (phase === 'ascent') {
       entity.ship.vel = { x: entity.ship.vel.x, y: 100, z: entity.ship.vel.z };
     }

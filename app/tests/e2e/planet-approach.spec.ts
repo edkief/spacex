@@ -22,7 +22,11 @@ import { planetAnchor, planetAtmosphereRadius } from '../../src/shared/galaxy/pl
  * and keeps the first whose home system has a landable AIRLESS planet —
  * ~55% of the seeded systems do, so the bug case runs most times. The ship
  * teleports to ground level OUTSIDE the planet, aims at its anchor, and
- * holds W (+ Shift cruise on the leg). Assertions:
+ * holds W (+ Shift cruise on the leg). On an atmospheric home the ship
+ * DEADSTICKS once the wire regime flips to 'atmosphere' (TASK-98: the main
+ * thruster works in the band, so holding W would keep it above the 5 u/s
+ * surface threshold and it would never settle); the airless home keeps
+ * thrusting (the space-disc friction grinds it to the surface). Assertions:
  *  - the wire flightRegime sequence reaches 'surface' (space→atmosphere→surface
  *    for atmospheric; space→surface for airless — never 'atmosphere' there);
  *  - the ship's wire position is never below the surface (never inside the
@@ -239,6 +243,14 @@ test('space → planet approach lands on the surface (no tunnel-through)', async
   let minY = Infinity;
   let lastSample: Tap | null = null;
   let landed = false;
+  // TASK-98: the main thruster now works inside the band — holding W there
+  // keeps the ship above the 5 u/s surface threshold and it would never
+  // settle to 'surface'. DEADSTICK into the band on an atmospheric home:
+  // release W + Shift the moment the wire regime flips to 'atmosphere' and
+  // let drag + gravity carry the landing. The airless path never sees
+  // 'atmosphere' (space → surface via the 2 km disc), so keep thrusting
+  // there (the SURFACE_FRICTION grind-stop lands it).
+  let deadstickArmed = !airless;
   while (Date.now() - t0 < 120_000) {
     const taps = await page.evaluate(() => (window as unknown as { __t87?: Tap[] }).__t87 ?? []);
     lastSample = taps[taps.length - 1] ?? lastSample;
@@ -248,6 +260,11 @@ test('space → planet approach lands on the surface (no tunnel-through)', async
       minY = Math.min(minY, p.y);
       const r = lastSample.flightRegime;
       if (seen[seen.length - 1] !== r) seen.push(r);
+      if (deadstickArmed && r === 'atmosphere') {
+        deadstickArmed = false;
+        await page.keyboard.up('w');
+        await page.keyboard.up('Shift');
+      }
       if (r === 'surface') {
         landed = true;
         // A beat for the regime to settle before sampling the final position.
