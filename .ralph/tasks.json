@@ -892,7 +892,7 @@
     "title": "Touch FIRE: hold-to-fire at the weapon cooldown (keyboard one-shot unchanged)",
     "category": "ui",
     "specFilePath": ".ralph/tasks/TASK-101.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-102",
