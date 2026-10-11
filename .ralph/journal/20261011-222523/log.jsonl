@@ -1,0 +1,11 @@
+{"time":"2026-10-11T23:10:24.297Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-11T23:14:19.974Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-104.md"}}
+{"time":"2026-10-11T23:14:23.808Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":1}}
+{"time":"2026-10-11T23:33:29.331Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-11T23:34:54.332Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-11T23:35:04.056Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-11T23:43:17.847Z","level":"warn","message":"force-pushed over diverged history","fields":{"remote":"origin","branch":"master","iteration":2,"from":"c86d34543edc37c0af7c59f88221b53541ca1216","to":"cfae750cf53033a84b89a7cb8d6ae446e667a846","backup":"origin/ralph/overwritten/master-20261011T234311Z","ref":"refs/ralph/overwritten/master/20261011T234311Z"}}
+{"time":"2026-10-11T23:43:17.848Z","level":"warn","message":"Force-pushed master to origin over diverged history: c86d34543edc → cfae750cf530, overwriting 1 commit:"}
+{"time":"2026-10-11T23:43:17.848Z","level":"warn","message":"  c86d34543edc wip(TASK-104): input/fire pacing implemented + e2e red/green verified; gates & bookkeeping remain (NOT in the new history)"}
+{"time":"2026-10-11T23:43:17.848Z","level":"warn","message":"The old tip c86d34543edc37c0af7c59f88221b53541ca1216 is kept at refs/ralph/overwritten/master/20261011T234311Z and at origin/ralph/overwritten/master-20261011T234311Z."}
+{"time":"2026-10-11T23:43:17.848Z","level":"warn","message":"To restore a commit: git fetch origin ralph/overwritten/master-20261011T234311Z && git cherry-pick <sha>. To restore the branch: git push --force origin c86d34543edc37c0af7c59f88221b53541ca1216:refs/heads/master."}
