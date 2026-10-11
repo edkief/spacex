@@ -16,13 +16,19 @@
  *
  * TASK-92 adds the COMBAT cluster in the right-mid clear zone (above the
  * VTOL/BOOST slot, clear of the left-edge ship HUD and the centre reticle):
- * FIRE (one shot per press — the SAME fireWeapon path as the canvas LMB;
- * the held state is visual only, matching the one-shot-per-click LMB),
- * LASER / MISSILE select (the SAME path as the '1'/'2' keys — the active
- * weapon shows its pressed accent), and TARGET (the SAME toggle path as
- * the 'T' key). The callbacks are props: main.tsx owns the shared paths,
- * and the server stays authoritative (intent only). When a callback is not
- * provided the cluster renders nothing (the layout stays flight-only).
+ * FIRE, LASER / MISSILE select (the SAME path as the '1'/'2' keys — the
+ * active weapon shows its pressed accent), and TARGET (the SAME toggle
+ * path as the 'T' key). The callbacks are props: main.tsx owns the shared
+ * paths, and the server stays authoritative (intent only). When a callback
+ * is not provided the cluster renders nothing (the layout stays
+ * flight-only).
+ *
+ * TASK-101: FIRE is now a FUNCTIONAL hold (the useFireHold loop): press
+ * fires immediately and keeps sending fire intents once per frame while
+ * held; release/unmount/regime-flip stop it. The server rate-limits the
+ * intents to the weapon's cooldown (no client-side limiter), so a touch
+ * hold matches the keyboard's held-LMB feel. The pressed accent is the
+ * functional held state now. The canvas LMB stays one-shot-per-click.
  *
  * ON-FOOT layout (TASK-93): visible on the SURFACE only while the player is
  * DISSEMBARDED (the `onFoot` prop). A single MOVE stick feeds the SAME
@@ -71,6 +77,7 @@ import type { WeaponId } from '@shared/weapons';
 
 import { TouchButton } from './TouchButton';
 import { TouchJoystick, type TouchVector } from './TouchJoystick';
+import { useFireHold } from './use-fire-hold';
 
 export interface TouchControlsProps {
   /** The feature-enable state (false = render nothing, channels stay off). */
@@ -134,26 +141,32 @@ export function TouchControls({
   onMenu,
   touchCapable = false,
 }: TouchControlsProps): React.ReactElement | null {
-  // TASK-92: the FIRE button's controlled held state (visual only — the
-  // press is one-shot, matching the one-shot-per-click canvas LMB).
+  // TASK-101: the FIRE button's FUNCTIONAL hold (the per-frame fire loop;
+  // the pressed accent mirrors the live loop).
   // TASK-93: the INTERACT button's held state (like a held E: press starts
   // the channel, release ends it). Rules of hooks: both declared before
   // the early return below.
-  const [fireHeld, setFireHeld] = React.useState(false);
+  const fireHold = useFireHold(onFire);
   const [interactHeld, setInteractHeld] = React.useState(false);
   const interactHeldRef = React.useRef(false);
   interactHeldRef.current = interactHeld;
   // Rules of hooks: these run before the early return below, so the
   // unmount / disabled cleanups always fire.
-  // Disabled (or an unmount while enabled) clears every channel — a stale
-  // held channel would keep flying the ship with no visible control.
+  // Disabled (or an unmount while enabled) clears every channel AND stops
+  // the FIRE loop (TASK-101) — a stale held channel / fire loop would keep
+  // flying (and firing) the ship with no visible control.
+  const stopFireLoop = fireHold.stop;
   React.useEffect(() => {
     if (!enabled) {
+      stopFireLoop();
       source.clear();
       return;
     }
-    return () => source.clear();
-  }, [enabled, source]);
+    return () => {
+      stopFireLoop();
+      source.clear();
+    };
+  }, [enabled, source, stopFireLoop]);
   // A regime flip unmounts the outgoing layout's buttons mid-press (the
   // removed element's onRelease never fires) — clear the channels they
   // would leave held so the deliberate key collision can't leak across
@@ -197,6 +210,12 @@ export function TouchControls({
       if (interactHeldRef.current) onInteractRelease?.();
     };
   }, [onFootActive, onInteractRelease]);
+  // TASK-101: the on-foot layout REPLACES the flight layout (the disembark
+  // flip) — the removed FIRE button's onRelease never fires, so stop the
+  // fire loop too: the ship must never fire with no visible control.
+  React.useEffect(() => {
+    if (onFootActive) stopFireLoop();
+  }, [onFootActive, stopFireLoop]);
 
   /**
    * TASK-94: the MENU button — top-right, clear of the sticks (bottom
@@ -380,10 +399,12 @@ export function TouchControls({
       {/* TASK-92: the COMBAT cluster — the right-mid clear zone above the
           VTOL/BOOST slot (clear of the left-edge ship HUD + the centre
           reticle). Only when the combat callbacks are wired (main.tsx).
-          FIRE is one-shot per press (the shared fireWeapon); the accent
-          border is the visual held state. LASER / MISSILE share the '1'/'2'
-          path and show the active weapon's accent; TARGET shares the 'T'
-          toggle path. All intents only — the server re-derives. */}
+          FIRE is a FUNCTIONAL hold (TASK-101): press fires immediately +
+          per frame while held (the shared fireWeapon; the server
+          rate-limits to the weapon cooldown); the accent border IS the
+          held state. LASER / MISSILE share the '1'/'2' path and show the
+          active weapon's accent; TARGET shares the 'T' toggle path. All
+          intents only — the server re-derives. */}
       {onFire && onWeapon && onTarget && (
         <>
           <div
@@ -397,12 +418,9 @@ export function TouchControls({
             <TouchButton
               label="FIRE"
               size={72}
-              pressed={fireHeld}
-              onPress={() => {
-                setFireHeld(true);
-                onFire();
-              }}
-              onRelease={() => setFireHeld(false)}
+              pressed={fireHold.held}
+              onPress={fireHold.press}
+              onRelease={fireHold.release}
             />
           </div>
           <div

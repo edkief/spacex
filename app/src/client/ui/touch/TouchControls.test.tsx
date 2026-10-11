@@ -8,7 +8,9 @@
  * y), the regime gates the VTOL (atmosphere) / BOOST (space) button, the
  * container renders nothing when disabled or on the surface, and held
  * channels are cleared on disable / unmount / regime flip. The touchDebug
- * hook's passthrough + live snapshot are covered too.
+ * hook's passthrough + live snapshot are covered too. TASK-101: the FIRE
+ * button is a functional hold (a fake rAF clock proves press fires every
+ * frame, and release / unmount / disembark / disable stop the loop).
  */
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -92,6 +94,7 @@ afterEach(() => {
   roots.forEach((r) => r.unmount());
   roots = [];
   document.body.innerHTML = '';
+  vi.unstubAllGlobals(); // the fake rAF clock (TASK-101)
 });
 
 describe('TouchControls — layout and regime gating', () => {
@@ -311,17 +314,18 @@ describe('TouchControls — the COMBAT cluster (TASK-92)', () => {
     }
   });
 
-  it('FIRE: one press = exactly one onFire; the held accent is visual only', () => {
+  it('FIRE: a tap fires exactly once (the first shot); release never re-fires', () => {
     const c = withCombat();
     const fire = c.querySelector('[aria-label="FIRE"]')!;
     pointer('pointerdown', 0, 0, fire);
     expect(combat.onFire).toHaveBeenCalledTimes(1);
+    // The pressed accent is the FUNCTIONAL held state now (TASK-101).
     expect(fire.getAttribute('aria-pressed')).toBe('true');
-    // Release never re-fires (the LMB path is one-shot per click).
+    // Release stops the loop (no frames elapse here, so no further calls).
     pointer('pointerup', 0, 0, fire);
     expect(combat.onFire).toHaveBeenCalledTimes(1);
     expect(fire.getAttribute('aria-pressed')).toBe('false');
-    // A second full press fires exactly once more.
+    // A second tap fires exactly once more.
     pointer('pointerdown', 0, 0, fire);
     pointer('pointerup', 0, 0, fire);
     expect(combat.onFire).toHaveBeenCalledTimes(2);
@@ -363,6 +367,134 @@ describe('TouchControls — the COMBAT cluster (TASK-92)', () => {
   it('the combat cluster rides the surface-in-ship flight layout (TASK-97)', () => {
     withCombat({ regime: 'surface' });
     expect(document.getElementById('touch-btn-fire')?.textContent).toContain('FIRE');
+  });
+});
+
+describe('TouchControls — FIRE hold-to-fire (TASK-101)', () => {
+  /**
+   * The fake rAF clock: requestAnimationFrame queues, frames(n) advances n
+   * frames (each queued callback schedules the next loop iteration).
+   */
+  function fakeRaf(): { frames: (n: number) => void } {
+    const queue: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      queue.push(cb);
+      return queue.length;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+      queue.splice(id - 1, 1);
+    });
+    return {
+      frames: (n: number) => {
+        for (let i = 0; i < n; i++) {
+          act(() => {
+            const pending = queue.splice(0, queue.length);
+            for (const cb of pending) cb(i + 1);
+          });
+        }
+      },
+    };
+  }
+
+  const withCombat = (extra: Partial<Parameters<typeof TouchControls>[0]> = {}): HTMLDivElement =>
+    renderControls({
+      regime: 'space',
+      onFire: combat.onFire,
+      onWeapon: combat.onWeapon,
+      onTarget: combat.onTarget,
+      weapon: combat.weapon,
+      ...extra,
+    });
+  const fireButton = (c: Element): Element => c.querySelector('[aria-label="FIRE"]')!;
+
+  it('a press fires immediately; every simulated frame while held fires again', () => {
+    const raf = fakeRaf();
+    const c = withCombat();
+    pointer('pointerdown', 0, 0, fireButton(c));
+    expect(combat.onFire).toHaveBeenCalledTimes(1); // the immediate first shot
+    expect(fireButton(c).getAttribute('aria-pressed')).toBe('true');
+    raf.frames(3);
+    expect(combat.onFire).toHaveBeenCalledTimes(4); // ≥ 1 call per simulated frame
+    raf.frames(5);
+    expect(combat.onFire).toHaveBeenCalledTimes(9);
+  });
+
+  it('releasing stops the fire loop (no further calls on later frames)', () => {
+    const raf = fakeRaf();
+    const c = withCombat();
+    pointer('pointerdown', 0, 0, fireButton(c));
+    raf.frames(2);
+    const held = combat.onFire.mock.calls.length;
+    expect(held).toBe(3); // immediate + 2 frames
+    pointer('pointerup', 0, 0, fireButton(c));
+    expect(fireButton(c).getAttribute('aria-pressed')).toBe('false');
+    raf.frames(4);
+    expect(combat.onFire).toHaveBeenCalledTimes(held); // the loop is dead
+  });
+
+  it('a second press after release starts a fresh loop', () => {
+    const raf = fakeRaf();
+    const c = withCombat();
+    pointer('pointerdown', 0, 0, fireButton(c));
+    pointer('pointerup', 0, 0, fireButton(c));
+    expect(combat.onFire).toHaveBeenCalledTimes(1);
+    raf.frames(2);
+    expect(combat.onFire).toHaveBeenCalledTimes(1); // the stopped loop stays stopped
+    pointer('pointerdown', 0, 0, fireButton(c));
+    expect(combat.onFire).toHaveBeenCalledTimes(2);
+    raf.frames(2);
+    expect(combat.onFire).toHaveBeenCalledTimes(4);
+    pointer('pointerup', 0, 0, fireButton(c));
+  });
+
+  it('unmounting while held stops the fire loop', () => {
+    const raf = fakeRaf();
+    const c = withCombat();
+    pointer('pointerdown', 0, 0, fireButton(c));
+    raf.frames(2);
+    const held = combat.onFire.mock.calls.length;
+    act(() => roots[0].unmount());
+    raf.frames(3);
+    expect(combat.onFire).toHaveBeenCalledTimes(held); // no firing with no control
+  });
+
+  it('a disembark flip (the on-foot layout replaces the flight one) stops the loop', () => {
+    const raf = fakeRaf();
+    withCombat();
+    pointer('pointerdown', 0, 0, fireButton(document.getElementById('touch-controls')!));
+    raf.frames(2);
+    const held = combat.onFire.mock.calls.length;
+    // The removed FIRE button's onRelease never fires — the flip must stop
+    // the loop so the ship never fires with no visible control.
+    act(() => {
+      roots[0].render(
+        <TouchControls
+          enabled
+          regime="surface"
+          source={source}
+          onFire={combat.onFire}
+          onWeapon={combat.onWeapon}
+          onTarget={combat.onTarget}
+          weapon={combat.weapon}
+          onFoot
+        />,
+      );
+    });
+    raf.frames(3);
+    expect(combat.onFire).toHaveBeenCalledTimes(held);
+  });
+
+  it('disabling stops the fire loop', () => {
+    const raf = fakeRaf();
+    withCombat();
+    pointer('pointerdown', 0, 0, fireButton(document.getElementById('touch-controls')!));
+    raf.frames(2);
+    const held = combat.onFire.mock.calls.length;
+    act(() => {
+      roots[0].render(<TouchControls enabled={false} regime="space" source={source} />);
+    });
+    raf.frames(3);
+    expect(combat.onFire).toHaveBeenCalledTimes(held);
   });
 });
 
@@ -542,7 +674,7 @@ describe('touchDebug — the deterministic e2e driver', () => {
 });
 
 describe('touchDebug — the combat bridge (TASK-92)', () => {
-  it('fire / setWeapon / toggleTarget delegate; state is a live snapshot', async () => {
+  it('fire / fireHold / setWeapon / toggleTarget delegate; state is a live snapshot', async () => {
     // A fresh module instance (the combat binding is module state).
     vi.resetModules();
     const { installTouchDebug, bindTouchCombat } = await import('@client/touch-debug');
@@ -551,6 +683,8 @@ describe('touchDebug — the combat bridge (TASK-92)', () => {
     let snap: { weapon: WeaponId; locked: boolean } = { weapon: 'laser', locked: false };
     bindTouchCombat(state, () => ({
       fire: () => calls.push('fire'),
+      // TASK-101: the functional-hold passthrough (the same loop as the button).
+      fireHold: (on) => calls.push(on ? 'hold-on' : 'hold-off'),
       setWeapon: (w) => {
         snap = { weapon: w, locked: snap.locked };
         calls.push(`set:${w}`);
@@ -562,11 +696,38 @@ describe('touchDebug — the combat bridge (TASK-92)', () => {
       snapshot: () => snap,
     }));
     state.fire();
+    state.fireHold(true);
+    state.fireHold(false);
     state.setWeapon('missile');
     state.toggleTarget();
-    expect(calls).toEqual(['fire', 'set:missile', 'target']);
+    expect(calls).toEqual(['fire', 'hold-on', 'hold-off', 'set:missile', 'target']);
     // The snapshot is live: it tracks the bridge's state, not a copy.
     expect(state.state).toEqual({ weapon: 'missile', locked: true });
+  });
+
+  it('fireHold is a no-op before the combat bridge is bound (no crash)', async () => {
+    vi.resetModules();
+    const { installTouchDebug } = await import('@client/touch-debug');
+    const state = installTouchDebug()!;
+    expect(() => {
+      state!.fireHold(true);
+      state!.fireHold(false);
+    }).not.toThrow();
+  });
+
+  it('fireHold stays a no-op when the bridge omits it (no crash)', async () => {
+    vi.resetModules();
+    const { installTouchDebug, bindTouchCombat } = await import('@client/touch-debug');
+    const state = installTouchDebug()!;
+    bindTouchCombat(state, () => ({
+      fire: () => {},
+      setWeapon: () => {},
+      toggleTarget: () => {},
+      snapshot: () => ({ weapon: 'laser', locked: false }),
+    }));
+    expect(() => {
+      state!.fireHold(true);
+    }).not.toThrow();
   });
 
   it('combat is a no-op before the combat bridge is bound (no crash)', async () => {

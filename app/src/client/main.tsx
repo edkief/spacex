@@ -137,6 +137,7 @@ import {
   bindTouchOnFoot,
   installTouchDebug,
 } from '@client/touch-debug';
+import { useFireHold } from '@client/ui/touch/use-fire-hold';
 
 import {
   ingestCombatEvent,
@@ -1583,22 +1584,31 @@ function App() {
   const fireWeapon = React.useCallback(() => fireWeaponRef.current(), []);
   const selectWeapon = React.useCallback((w: WeaponId) => selectWeaponRef.current(w), []);
   const toggleTarget = React.useCallback(() => toggleTargetRef.current(), []);
+  // TASK-101: the touchDebug fireHold(on) e2e driver — the SAME functional
+  // hold the touch FIRE button uses (a second useFireHold instance over the
+  // shared fireWeapon). Deterministic start/stop for the sustained-fire
+  // e2e; the button's own instance is independent (each cleans up on
+  // unmount).
+  const debugFireHold = useFireHold(fireWeapon);
   // TASK-92: the touchDebug combat bridge (window.__TOUCH__.fire / setWeapon
   // / toggleTarget / state) — the deterministic e2e driver for the combat
   // half, bound lazily over the refs so it is always live.
   const touchCombatRef = React.useRef<{
     fire: () => void;
+    fireHold: (on: boolean) => void;
     setWeapon: (w: WeaponId) => void;
     toggleTarget: () => void;
     snapshot: () => { weapon: WeaponId; locked: boolean };
   }>({
     fire: () => {},
+    fireHold: () => {},
     setWeapon: () => {},
     toggleTarget: () => {},
     snapshot: () => ({ weapon: 'laser', locked: false }),
   });
   touchCombatRef.current = {
     fire: fireWeapon,
+    fireHold: (on: boolean) => debugFireHold.setHeld(on),
     setWeapon: selectWeapon,
     toggleTarget: toggleTarget,
     snapshot: () => ({ weapon: weaponRef.current, locked: targetingView().box !== null }),

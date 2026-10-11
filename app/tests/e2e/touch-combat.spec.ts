@@ -4,6 +4,8 @@ import { test, expect } from './fixtures';
 import { collectErrors, uniqueCallsign } from './helpers';
 import { ClaimPage } from './pages/claim';
 import { RawWsClient } from './raw-ws';
+import { LASER } from '../../src/shared/weapons';
+import { SHIP_CLASSES } from '../../src/shared/ships';
 
 /**
  * TASK-92 — E2E: combat by touch fires through the IDENTICAL server pipeline
@@ -32,6 +34,12 @@ import { RawWsClient } from './raw-ws';
  *      the target card + touchDebug snapshot appear, then go away.
  *      Screenshot with the target card up.
  *
+ * TASK-101 adds the SUSTAINED-fire legs (7.5/7.6): a real CDP-held press
+ * on the FIRE button (the pressed accent tracks the functional hold; the
+ * TASK-101-1.png screenshot) and a 2 s touchDebug.fireHold(true) whose
+ * server-reported damage ≈ 2 s × fireRate × per-shot damage (±1 shot,
+ * from the shared LASER stats) that STOPS on fireHold(false).
+ *
  * The e2eServer fixture boots the real dev server (NODE_ENV=development →
  * the DEV-only __TOUCH__ / __FX__ hooks exist); never run alongside npm run dev.
  */
@@ -50,6 +58,7 @@ interface ShieldTap {
 }
 interface TouchHook {
   fire: () => void;
+  fireHold: (on: boolean) => void;
   setWeapon: (w: string) => void;
   toggleTarget: () => void;
   state: { weapon: string; locked: boolean } | null;
@@ -98,12 +107,25 @@ const lastShields = (page: Page): Promise<number> =>
   });
 
 /**
+ * The last SERVER-reported total HP of the scout in ABSOLUTE points
+ * (shields + hull, both normalized 0..1 on the wire — TASK-101 measures
+ * damage this way so shield-overflow into the hull doesn't under-report).
+ */
+const totalHp = (page: Page): Promise<number> =>
+  page.evaluate(() => {
+    const ups = (window as unknown as { __t92?: ShieldTap[] }).__t92 ?? [];
+    if (ups.length === 0) return -1;
+    const { shields, hull } = ups[ups.length - 1];
+    return shields * SHIP_CLASSES.scout.shieldCapacity + hull * SHIP_CLASSES.scout.hull;
+  });
+
+/**
  * Drive ONE action on the touchDebug hook INSIDE the page (functions cannot
  * cross the Playwright serialization boundary — the hook is a live page
  * object, not something to hand back). 'state' returns the { weapon, locked }
  * snapshot.
  */
-type TouchAction = 'fire' | 'setWeapon' | 'toggleTarget' | 'state';
+type TouchAction = 'fire' | 'fireHold' | 'setWeapon' | 'toggleTarget' | 'state';
 const touch = (page: Page, action: TouchAction, arg?: string): Promise<unknown> =>
   page.evaluate(
     ([a, w]) => {
@@ -112,6 +134,9 @@ const touch = (page: Page, action: TouchAction, arg?: string): Promise<unknown> 
       switch (a as TouchAction) {
         case 'fire':
           hook.fire();
+          return null;
+        case 'fireHold':
+          hook.fireHold(w === 'true');
           return null;
         case 'setWeapon':
           hook.setWeapon(w as string);
@@ -292,6 +317,59 @@ test('touch combat: fire / weapon select / target lock (server-confirmed)', asyn
       message: 'B shields never dropped after a real tap on the FIRE button',
     })
     .toBeLessThan(afterHookFire);
+
+  // (7.5) TASK-101: a REAL held press on the FIRE button (CDP touchStart
+  //      with no touchEnd — the only way to HOLD in headless): the pressed
+  //      accent (aria-pressed) tracks the FUNCTIONAL hold while shots keep
+  //      landing at the weapon's cooldown. Screenshot with the accent up.
+  const fireBox = await pageA.locator('#touch-btn-fire [role="button"]').boundingBox();
+  if (!fireBox) throw new Error('FIRE button not visible');
+  const cdp = await contextA.newCDPSession(pageA);
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x: fireBox.x + fireBox.width / 2, y: fireBox.y + fireBox.height / 2, id: 0 }],
+  });
+  await pageA.waitForTimeout(700);
+  await expect(pageA.locator('#touch-btn-fire [role="button"]')).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await pageA.screenshot({
+    path: path.join(__dirname, '../../../.ralph/screenshots/TASK-101-1.png'),
+  });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await expect(pageA.locator('#touch-btn-fire [role="button"]')).toHaveAttribute(
+    'aria-pressed',
+    'false',
+    { timeout: 5_000 },
+  );
+
+  // (7.6) TASK-101: SUSTAINED touch fire via the touchDebug fireHold
+  //      passthrough — the SAME functional hold the button uses. 2 s of
+  //      held fire ≈ (2 s × fireRate) shots at the SHARED LASER stats
+  //      (±1 shot of tick-boundary rounding); release STOPS the damage.
+  const HOLD_MS = 2_000;
+  const expectedDamage = (HOLD_MS / 1_000) * (LASER.fireRate ?? 1) * LASER.damage;
+  const hpBefore = await totalHp(pageB);
+  await touch(pageA, 'fireHold', 'true');
+  await pageA.waitForTimeout(HOLD_MS);
+  await touch(pageA, 'fireHold', 'false');
+  await pageA.waitForTimeout(500); // let the last in-flight intent land
+  const hpAfter = await totalHp(pageB);
+  const damage = hpBefore - hpAfter;
+  expect(damage, 'sustained touch fire dealt damage').toBeGreaterThan(0);
+  expect(
+    Math.abs(damage - expectedDamage),
+    `damage ${damage} ≈ ${expectedDamage} (±1 shot = ${LASER.damage})`,
+  ).toBeLessThanOrEqual(LASER.damage);
+  // Release stops the sustained fire: no further damage at +1 s / +2 s.
+  const hpStop1 = await totalHp(pageB);
+  await pageA.waitForTimeout(1_000);
+  const hpStop2 = await totalHp(pageB);
+  expect(
+    hpStop2,
+    'no further damage after fireHold(false) (damage stopped)',
+  ).toBeGreaterThanOrEqual(hpStop1 - 1e-9);
 
   // (8) TARGET: spawn the dev dummy 200 m dead ahead (the targeting.spec
   //     pattern — inside the 500 m / 30° cone by construction) and toggle

@@ -15,6 +15,11 @@
  * bridge over its refs), and the `state` getter snapshots the live
  * { weapon, locked } so the e2e can assert deterministically.
  *
+ * TASK-101 adds `fireHold(on)`: start/stop the SAME functional hold the
+ * FIRE button uses (the per-frame fire-intent loop; the server
+ * rate-limits to the weapon cooldown). `fire()` stays one-shot (the
+ * legacy e2e assertions depend on it).
+ *
  * TASK-93 adds the ON-FOOT half: `move({ thrust, yaw })` / `run(on)` /
  * `jump(on)` delegate straight to the bound source (the same channels the
  * MOVE stick + RUN/JUMP buttons write), and `interactPress()` /
@@ -34,6 +39,8 @@ export interface TouchDebugState {
   clear: () => void;
   /** TASK-92: fire once via the shared fireWeapon (no-op before binding). */
   fire: () => void;
+  /** TASK-101: start/stop the functional FIRE hold (same loop as the button). */
+  fireHold: (on: boolean) => void;
   /** TASK-92: select a weapon (the '1'/'2' path; no-op before binding). */
   setWeapon: (w: WeaponId) => void;
   /** TASK-92: toggle the target lock (the 'T' path; no-op before binding). */
@@ -59,6 +66,8 @@ export interface TouchDebugState {
 /** The combat bridge main.tsx binds (the shared fire/select/lock paths). */
 interface TouchCombatBridge {
   fire: () => void;
+  /** TASK-101: start/stop the same functional hold the button uses (optional). */
+  fireHold?: (on: boolean) => void;
   setWeapon: (w: WeaponId) => void;
   toggleTarget: () => void;
   snapshot: () => { weapon: WeaponId; locked: boolean };
@@ -102,6 +111,7 @@ export function installTouchDebug(): TouchDebugState | null {
     setChannel: (channels) => boundSource?.()?.setChannel(channels),
     clear: () => boundSource?.()?.clear(),
     fire: () => boundCombat?.().fire(),
+    fireHold: (on) => boundCombat?.().fireHold?.(on),
     setWeapon: (w) => boundCombat?.().setWeapon(w),
     toggleTarget: () => boundCombat?.().toggleTarget(),
     get state() {
