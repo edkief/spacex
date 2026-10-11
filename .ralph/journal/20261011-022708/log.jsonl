@@ -1,0 +1,15 @@
+{"time":"2026-10-11T03:12:08.644Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-11T03:19:11.370Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-100.md"}}
+{"time":"2026-10-11T03:19:14.832Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":1}}
+{"time":"2026-10-11T03:30:13.121Z","level":"warn","message":"force-pushed over diverged history","fields":{"remote":"origin","branch":"master","iteration":2,"from":"ab77d801717c2de3a244254abcd681680670d66d","to":"2f48413c61a2db1414b25f0235a8faff23f8e1b3","backup":"origin/ralph/overwritten/master-20261011T033006Z","ref":"refs/ralph/overwritten/master/20261011T033006Z"}}
+{"time":"2026-10-11T03:30:13.121Z","level":"warn","message":"Force-pushed master to origin over diverged history: ab77d801717c → 2f48413c61a2, overwriting 1 commit:"}
+{"time":"2026-10-11T03:30:13.122Z","level":"warn","message":"  ab77d801717c wip(TASK-100): analog CharacterInput (move/turn) + linear physics + clamped wire mapping + client mergeAxis; units/tsc/e2e green, close-out pending (NOT in the new history)"}
+{"time":"2026-10-11T03:30:13.122Z","level":"warn","message":"The old tip ab77d801717c2de3a244254abcd681680670d66d is kept at refs/ralph/overwritten/master/20261011T033006Z and at origin/ralph/overwritten/master-20261011T033006Z."}
+{"time":"2026-10-11T03:30:13.122Z","level":"warn","message":"To restore a commit: git fetch origin ralph/overwritten/master-20261011T033006Z && git cherry-pick <sha>. To restore the branch: git push --force origin ab77d801717c2de3a244254abcd681680670d66d:refs/heads/master."}
+{"time":"2026-10-11T04:15:15.548Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-11T04:18:29.334Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-101.md"}}
+{"time":"2026-10-11T04:18:33.014Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":3}}
+{"time":"2026-10-11T04:43:23.712Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":4}}
+{"time":"2026-10-11T05:28:25.838Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-11T05:48:25.906Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-102.md"}}
+{"time":"2026-10-11T06:02:01.169Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":6}}
