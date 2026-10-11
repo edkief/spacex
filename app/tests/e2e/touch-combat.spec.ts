@@ -112,12 +112,18 @@ const lastShields = (page: Page): Promise<number> =>
  * damage this way so shield-overflow into the hull doesn't under-report).
  */
 const totalHp = (page: Page): Promise<number> =>
-  page.evaluate(() => {
-    const ups = (window as unknown as { __t92?: ShieldTap[] }).__t92 ?? [];
-    if (ups.length === 0) return -1;
-    const { shields, hull } = ups[ups.length - 1];
-    return shields * SHIP_CLASSES.scout.shieldCapacity + hull * SHIP_CLASSES.scout.hull;
-  });
+  page.evaluate(
+    ({ shieldMax, hullMax }) => {
+      const ups = (window as unknown as { __t92?: ShieldTap[] }).__t92 ?? [];
+      if (ups.length === 0) return -1;
+      const { shields, hull } = ups[ups.length - 1];
+      return shields * shieldMax + hull * hullMax;
+    },
+    {
+      shieldMax: SHIP_CLASSES.scout.shieldCapacity,
+      hullMax: SHIP_CLASSES.scout.hull,
+    },
+  );
 
 /**
  * Drive ONE action on the touchDebug hook INSIDE the page (functions cannot
