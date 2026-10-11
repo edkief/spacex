@@ -18,18 +18,25 @@ import { planetAnchor } from '../../src/shared/galaxy/planets';
  * → merged set → readSchemeInput → wire 'input' → server → state.
  *
  * Legs (fresh player, like cruise.spec.ts / flight.spec.ts):
- *  (1) SPACE: thrust=+1 for ~3 s → the SERVER-reported speed rises from
- *      rest; +boost (the BOOST button's channel) cruises past 300 u/s;
+ *  (1) LAYOUT: both sticks present in space; the BOOST button visible
+ *      (no VTOL in space). Screenshot of the layout over the space view.
+ *  (2) SPACE: thrust=+1 from rest → the SERVER-reported speed rises.
+ *  (3) SPACE (deep-space teleport): thrust+boost cruises past 300 u/s;
  *      release → the soft cap bleeds the speed back to ≤ 121 (decay).
- *  (2) SPACE: yaw=+1 for ~2 s → the nose turns toward the ship's RIGHT
+ *  (4) SPACE (TASK-99 ANALOG): from rest, thrust=0.5 for 2 s vs
+ *      thrust=1.0 for 2 s → the server-speed ratio is 0.5 in
+ *      [0.45, 0.55] (linear thrust, no drag in space). The binary
+ *      virtual-key projection would read both as 1.0 — only the analog
+ *      merge (touchFlightAxes → mergeFlightInput) makes 0.5 distinct.
+ *  (5) SPACE (TASK-99 ANALOG): from rest, yaw=1.0 for 1 s vs yaw=0.5 for
+ *      1 s → the nose turn is ≈ half (dot(forward, start-right) ratio in
+ *      [0.4, 0.6] — sin(0.4)/sin(0.8) ≈ 0.54 at the scout's 0.8 rad/s).
+ *  (6) SPACE: yaw=+1 for ~2 s → the nose turns toward the ship's RIGHT
  *      (dot(forward, initial right) > 0.2 — the TASK-80 convention, the
  *      same probe math as controls-direction.spec.ts).
- *  (3) ATMOSPHERE (teleport inside a home-system planet's band, the
+ *  (7) ATMOSPHERE (teleport inside a home-system planet's band, the
  *      planet-approach pattern): vtol=+1 → the SERVER reports a positive
  *      vertical velocity / altitude gain.
- *  (4) Layout: both sticks present in both regimes; the BOOST button is
- *      visible in space and the VTOL button in atmosphere (asserted on the
- *      rendered labels). Screenshot of the layout over the space view.
  */
 
 const SEED = 'DRIFT-SEED-0001';
@@ -295,7 +302,62 @@ test('touch flight: thrust + yaw in space, VTOL in atmosphere (server-confirmed)
     })
     .toBeLessThanOrEqual(121);
 
-  // (4) YAW: the nose must turn toward the ship's RIGHT (TASK-80 convention,
+  // (4) ANALOG THRUST (TASK-99): the stick MAGNITUDE reaches the wire.
+  // From rest in deep space, thrust=0.5 for 2 s vs thrust=1.0 for 2 s —
+  // linear thrust, no drag in space ⇒ the server-speed ratio is exactly
+  // 0.5 (band [0.45, 0.55]). The binary virtual-key projection reads both
+  // as 1.0; only the analog merge makes the half-deflection distinct.
+  await teleport(page, baseURL, s.token, DEEP_SPACE);
+  expect(await setChannel(page, { thrust: 0.5 }), 'thrust 0.5 channel set').toBe(true);
+  await page.waitForTimeout(2_000);
+  const vHalf = await lastSpeed(page);
+  // Visual artifact: the touch flight layout over the deep-space view with
+  // a half-thrust run in flight.
+  await page.screenshot({
+    path: path.join(__dirname, '../../../.ralph/screenshots/TASK-99-1.png'),
+  });
+  expect(await setChannel(page, { thrust: 0 }), 'thrust released (half run)').toBe(true);
+  expect(vHalf, 'partial thrust must move the ship').toBeGreaterThan(0);
+  await teleport(page, baseURL, s.token, DEEP_SPACE);
+  expect(await setChannel(page, { thrust: 1 }), 'thrust 1.0 channel set').toBe(true);
+  await page.waitForTimeout(2_000);
+  const vFull = await lastSpeed(page);
+  expect(await setChannel(page, { thrust: 0 }), 'thrust released (full run)').toBe(true);
+  const vRatio = vHalf / vFull;
+  expect(
+    vRatio,
+    `partial/full thrust speed ratio = ${vRatio.toFixed(3)} (must be in [0.45, 0.55] — analog linear thrust)`,
+  ).toBeGreaterThanOrEqual(0.45);
+  expect(vRatio).toBeLessThanOrEqual(0.55);
+
+  // (5) ANALOG YAW (TASK-99): the partial stick turns the nose at ~half
+  // rate. From rest, yaw=1.0 for 1 s vs yaw=0.5 for 1 s — each run probed
+  // against ITS OWN start orientation (dot(forward, start-right) = sin θ;
+  // at the scout's 0.8 rad/s the turns are 0.8/0.4 rad, ratio ≈ 0.54, band
+  // [0.4, 0.6]). 2 s runs would saturate the dot (sin 1.6 ≈ 1) and flatten
+  // the ratio, so the runs are 1 s.
+  await teleport(page, baseURL, s.token, DEEP_SPACE);
+  const probeA = await page.evaluate(() => window.__SELF_SHIP__!.probe()!);
+  const rightA = initialRight(probeA.rot as Quat);
+  expect(await setChannel(page, { yaw: 1 }), 'yaw 1.0 channel set').toBe(true);
+  await page.waitForTimeout(1_000);
+  expect(await setChannel(page, { yaw: 0 }), 'yaw released (full run)').toBe(true);
+  const dotFull = await dotForwardRight0(page, rightA);
+  expect(dotFull, 'full yaw must turn the nose').toBeGreaterThan(0.2);
+  const probeB = await page.evaluate(() => window.__SELF_SHIP__!.probe()!);
+  const rightB = initialRight(probeB.rot as Quat);
+  expect(await setChannel(page, { yaw: 0.5 }), 'yaw 0.5 channel set').toBe(true);
+  await page.waitForTimeout(1_000);
+  expect(await setChannel(page, { yaw: 0 }), 'yaw released (half run)').toBe(true);
+  const dotHalf = await dotForwardRight0(page, rightB);
+  const yawRatio = dotHalf / dotFull;
+  expect(
+    yawRatio,
+    `partial/full yaw turn ratio = ${yawRatio.toFixed(3)} (must be in [0.4, 0.6] — analog turn rate)`,
+  ).toBeGreaterThanOrEqual(0.4);
+  expect(yawRatio).toBeLessThanOrEqual(0.6);
+
+  // (6) YAW: the nose must turn toward the ship's RIGHT (TASK-80 convention,
   // probe math from controls-direction.spec.ts). 2 s × 0.8 rad/s = 1.6 rad.
   const probe0 = await page.evaluate(() => window.__SELF_SHIP__!.probe()!);
   const right0 = initialRight(probe0.rot as Quat);
@@ -308,7 +370,7 @@ test('touch flight: thrust + yaw in space, VTOL in atmosphere (server-confirmed)
     `yaw=+1 for 2 s: dot(forward, initial right) = ${dotD.toFixed(3)} (must be > 0.2 — turns right)`,
   ).toBeGreaterThan(0.2);
 
-  // (5) ATMOSPHERE: teleport inside the home planet's band (the
+  // (7) ATMOSPHERE: teleport inside the home planet's band (the
   // planet-approach pattern) and let the wire regime settle there.
   const atmoPos = { x: anchor.x + 700, y: 400, z: anchor.z };
   await teleport(page, baseURL, s.token, atmoPos);
@@ -322,7 +384,7 @@ test('touch flight: thrust + yaw in space, VTOL in atmosphere (server-confirmed)
   await expect(page.locator('#touch-btn-vtol')).toContainText('VTOL');
   expect(await page.locator('#touch-btn-boost').count(), 'no BOOST button in atmosphere').toBe(0);
 
-  // (6) VTOL: the lift must beat gravity (TASK-86's 1.35× margin) — the
+  // (8) VTOL: the lift must beat gravity (TASK-86's 1.35× margin) — the
   // server reports a positive vertical velocity / an altitude gain.
   const before = (await lastState(page))!;
   expect(await setChannel(page, { vtol: 1 }), 'vtol channel set').toBe(true);
@@ -343,7 +405,10 @@ test('touch flight: thrust + yaw in space, VTOL in atmosphere (server-confirmed)
 
   console.log(
     `[TASK-91] callsign=${s.callsign} thrust ${s1.toFixed(1)} → ${s2.toFixed(1)} u/s (rising) ` +
-      `cruise-top=${topSpeed.toFixed(1)} u/s (≤121 after release) yaw-dot=${dotD.toFixed(3)} ` +
+      `cruise-top=${topSpeed.toFixed(1)} u/s (≤121 after release) ` +
+      `analog: v-half=${vHalf.toFixed(1)} v-full=${vFull.toFixed(1)} u/s ratio=${vRatio.toFixed(3)} ` +
+      `yaw-dot full=${dotFull.toFixed(3)} half=${dotHalf.toFixed(3)} ratio=${yawRatio.toFixed(3)} ` +
+      `yaw-dot=${dotD.toFixed(3)} ` +
       `vtol vel.y=${vtolState.vel.y.toFixed(1)} u/s (altitude ${before.pos.y.toFixed(0)} → ${vtolState.pos.y.toFixed(0)})`,
   );
 

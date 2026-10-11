@@ -22,7 +22,15 @@
  * Shift means 'cruise' in space and 'run' on foot.
  *
  * DOM-free (no window/document) so it unit-tests under Node.
+ *
+ * TASK-99 (analog): the HELD axis channels are also merged into the flight
+ * ShipInput by MAGNITUDE (the virtual-key projection above stays binary and
+ * unchanged — the analog path runs alongside it, not through it).
  */
+
+import type { ShipInput } from '@shared/physics/flight';
+
+import type { ControlScheme } from './controls';
 
 /**
  * The HELD touch channels (all optional, default off). A value present in a
@@ -128,4 +136,83 @@ export function mergePressed(
   const out = new Set<string>(keyboard);
   for (const key of touch) out.add(key);
   return out;
+}
+
+// --- TASK-99: analog flight magnitudes ---------------------------------------
+
+/**
+ * Per-axis merge of the keyboard readout (binary ±1/0) with the live touch
+ * channel magnitude (analog, −1..1). The LARGER ABSOLUTE VALUE wins; with
+ * equal magnitudes (including both zero, and equal-magnitude opposition)
+ * the KEYBOARD wins — a held key is a deliberate player action that must
+ * not be cancelled by a stick that merely rests at the same deflection.
+ */
+export function mergeAxis(kb: number, touch: number): number {
+  return Math.abs(kb) >= Math.abs(touch) ? kb : touch;
+}
+
+/**
+ * The touch axis channels in the FLIGHT-MODEL physics convention, at their
+ * ANALOG magnitudes (the virtual-key projection above collapses them to
+ * ±1; this keeps the stick deflection).
+ *
+ * The channels are ON-SCREEN direction (thrust > 0 forward, yaw > 0 nose
+ * RIGHT, pitch > 0 nose UP, roll > 0 top RIGHT — see {@link TouchChannels}),
+ * and readSchemeInput (TASK-80) is the ONE place that translates on-screen
+ * key pairs to the physics convention, so a channel at ±1 must land on
+ * exactly the physics sign the same key produces there:
+ * - thrust: the pair is [forward, back] = [w, s] and is NOT flipped → +c;
+ * - yaw: the pair is [right, left] = [d, a] and IS flipped → −c (physics
+ *   yaw + is a nose-LEFT turn, so on-screen right is negative);
+ * - pitch: the pair is [down, up] = [r, f], unflipped, and +c is nose UP
+ *   = pair[1] → −c (physics pitch + is nose DOWN);
+ * - roll: the pair is [left, right] = [q, e], flipped, and +c is top RIGHT
+ *   = pair[1] → −(−c) = +c (physics roll + IS roll right, so it agrees).
+ * A scheme with a NULL flight axis (the surface/character scheme) projects
+ * to zero — the merge must never invent flight demand from a character
+ * scheme, whatever the touch source holds.
+ */
+export function touchFlightAxes(
+  scheme: ControlScheme,
+  channels: TouchChannels,
+): Pick<ShipInput, 'thrust' | 'yaw' | 'pitch' | 'roll'> {
+  const mag = (v: number | undefined): number => (v === 0 ? 0 : (v ?? 0));
+  // Negate without producing −0 (Object.is/toEqual distinguish −0 from +0 —
+  // the idle frame must stay the canonical zero frame, the readSchemeInput
+  // `flip` rule).
+  const flip = (v: number): number => (v === 0 ? 0 : -v);
+  return {
+    thrust: scheme.thrust ? mag(channels.thrust) : 0,
+    yaw: scheme.yaw ? flip(mag(channels.yaw)) : 0,
+    pitch: scheme.pitch ? flip(mag(channels.pitch)) : 0,
+    roll: scheme.roll ? mag(channels.roll) : 0,
+  };
+}
+
+/**
+ * The ship loop's merged flight demand: the keyboard's binary readout
+ * (readSchemeInput) merged per axis with the live touch magnitudes
+ * ({@link touchFlightAxes}) via {@link mergeAxis}. `up` (VTOL) and `boost`
+ * stay the keyboard readout's — they are BUTTON-driven binary channels
+ * (the touch buttons write the ' ' / 'Shift' virtual keys that the
+ * merged pressed-set readout already picks up; the ship loop ORs them in
+ * from that readout, since the AXIS readout must be keyboard-only so the
+ * sticks' own virtual keys cannot flatten the analog magnitudes). With no
+ * active touch axis channels the result deep-equals the keyboard input
+ * (the legacy path unchanged).
+ */
+export function mergeFlightInput(
+  keyboardInput: ShipInput,
+  touchChannels: TouchChannels,
+  scheme: ControlScheme,
+): ShipInput {
+  const touch = touchFlightAxes(scheme, touchChannels);
+  return {
+    thrust: mergeAxis(keyboardInput.thrust, touch.thrust),
+    yaw: mergeAxis(keyboardInput.yaw, touch.yaw),
+    pitch: mergeAxis(keyboardInput.pitch, touch.pitch),
+    roll: mergeAxis(keyboardInput.roll, touch.roll),
+    up: keyboardInput.up,
+    boost: keyboardInput.boost,
+  };
 }

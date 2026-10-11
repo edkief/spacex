@@ -168,7 +168,7 @@ import type {
 } from '@shared/protocol/schemas';
 import { inputToCharacterInput, shipInputToPayload } from '@shared/protocol/inputs';
 import { readSchemeInput } from '@client/input/controls';
-import { TouchInputSource, mergePressed } from '@client/input/touch';
+import { TouchInputSource, mergeFlightInput, mergePressed } from '@client/input/touch';
 import { TouchControls } from '@client/ui/touch/TouchControls';
 import {
   InputFrameSender,
@@ -1849,10 +1849,34 @@ function App() {
       // character (walking) scheme for a pad-docked ship, which maps W to
       // zero flight demand and the gate below would swallow the take-off.
       const flightScheme = docked || regimeWiring.regime === 'surface';
+      // TASK-99: the keyboard readout of the ANALOG axes (binary ±1/0) is
+      // merged per axis with the LIVE touch stick magnitudes, and the
+      // merged analog ShipInput flows through the EXISTING
+      // shipInputToPayload unchanged (the wire already carries analog
+      // axes). Two readouts of the same scheme:
+      // - the AXIS readout comes from the REAL KEYBOARD SET ONLY — the
+      //   touch sticks' own virtual keys ('w'/'s'/…) would read as ±1
+      //   there and mergeAxis would let that binary 1 beat the stick's
+      //   0.5, collapsing the analog path back to on/off;
+      // - the VTOL/boost BUTTON channels stay binary (button-driven): the
+      //   touch buttons write the ' ' / 'Shift' virtual keys that the
+      //   merged-set readout picks up, so up/boost are taken from it.
+      // With no active touch channel both readouts are the keyboard one —
+      // the payload is byte-for-byte the legacy one.
+      const kbOnly = effectiveFlightPressed(pressedRef.current, {
+        chartOpen: chartOpenRef.current,
+      });
+      const scheme = flightScheme
+        ? dockedFlightScheme(regimeWiring.regime)
+        : regimeWiring.remapper.scheme;
+      const kbInput = readSchemeInput(scheme, kbOnly);
+      const withButtons = readSchemeInput(scheme, pressed);
       const input = scaleLookDemand(
-        flightScheme
-          ? readSchemeInput(dockedFlightScheme(regimeWiring.regime), pressed)
-          : regimeWiring.remapper.readInput(pressed),
+        {
+          ...mergeFlightInput(kbInput, touchRef.current.snapshot(), scheme),
+          up: withButtons.up,
+          boost: withButtons.boost,
+        },
         settingsState().sensitivity,
       );
       const nonzero = anyFlightDemand(input);
