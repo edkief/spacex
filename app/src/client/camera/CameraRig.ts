@@ -10,8 +10,10 @@
  *  - 'chase'   — TASK-72: third person behind the ship: ship-local
  *    (0, 4, -14) rotated by the ship quat, looking 20 u ahead. The default
  *    in-ship view.
- *  - 'onfoot'  — third person: 4 m behind the character, 1.6 m up,
- *    mouse-look yaw/pitch (pitch clamped ±80°).
+ *  - 'onfoot'  — third person: 4 m behind the character, 1.6 m up.
+ *    TASK-103: the yaw follows the character's physics facing at
+ *    FOOT_FOLLOW_K (shortest arc); pitch stays rig-owned (no mouse look
+ *    in v1 — applyLookDelta remains test-only, pitch clamp ±80°).
  *
  * Mode switches never cut or teleport: `handoff` precomputes a 5-sample
  * safe path (position lerp + look slerp, terrain-nudged against heightAt)
@@ -67,6 +69,15 @@ export const SMOOTH_K = 8;
  */
 export const CHASE_ROT_K = 6;
 
+/**
+ * TASK-103: on-foot yaw approach rate (the facing-follow). ~80 ms time
+ * constant — fast enough that a 90° facing step catches up in < 300 ms
+ * (the character turns at CHAR_TURN_RATE = 3 rad/s, so a turn is never
+ * longer than that), smooth enough to absorb a predictor reconcile snap
+ * without a visible camera pop.
+ */
+export const FOOT_FOLLOW_K = 12;
+
 /** The single camera the rig drives (spec: one camera, FOV 75 constant). */
 export const CAMERA_FOV = 75;
 
@@ -84,7 +95,8 @@ export interface CameraRigOptions {
 
 /**
  * Owns the shared camera across regimes. Call `update(dtSec)` every frame;
- * feed fresh transforms via `setShip` / `setCharacterPosition`; switch
+ * feed fresh transforms via `setShip` / `setCharacterTransform` (the
+ * position-only `setCharacterPosition` is a thin wrapper over it); switch
  * modes via `handoff` (which starts the 600 ms animation).
  */
 export class CameraRig {
@@ -156,7 +168,18 @@ export class CameraRig {
 
   /** Fresh on-foot character position (yaw/pitch stay rig-owned). */
   setCharacterPosition(pos: Vec3): void {
+    this.setCharacterTransform(pos);
+  }
+
+  /**
+   * Fresh on-foot character transform. Always updates the position; when a
+   * finite `yawRad` is provided (TASK-103) it also updates the character's
+   * physics facing, which the steady-state on-foot mode follows (see
+   * FOOT_FOLLOW_K). Pitch stays rig-owned (no mouse look in v1).
+   */
+  setCharacterTransform(pos: Vec3, yawRad?: number): void {
     this.character = { ...this.character, pos };
+    if (yawRad !== undefined && Number.isFinite(yawRad)) this.character.yaw = yawRad;
   }
 
   /** Current mouse-look angles (radians, pitch already clamped). */
@@ -202,6 +225,9 @@ export class CameraRig {
    *    (CHASE_ROT_K), and the rigid pose of the CURRENT ship position is
    *    applied directly (no position lerp — the distance camera→ship is
    *    constant at any speed).
+   *  - 'onfoot' — TASK-103: first the look yaw approaches the character's
+   *    physics facing (FOOT_FOLLOW_K, shortest arc), then the legacy
+   *    exponential chase of the target pose.
    *  - others   — the legacy exponential chase of the target pose
    *    (position lerp + quaternion slerp, k = SMOOTH_K).
    */
@@ -221,6 +247,7 @@ export class CameraRig {
         this.handoffTo = null;
         this.inputLocked = false;
         if (this.mode === 'chase') this.armViewQuat();
+        if (this.mode === 'onfoot') this.armOnFoot();
         this.onHandoffEnd?.(this.mode);
         return;
       }
@@ -252,6 +279,15 @@ export class CameraRig {
       return;
     }
 
+    if (this.mode === 'onfoot') {
+      // TASK-103: facing follow — the look yaw approaches the character's
+      // physics facing along the SHORTEST ARC (yaw is an angle, not a
+      // scalar: without wrapping a facing near ±π would spin the camera
+      // the long way around). Pitch is untouched (rig-owned, no mouse
+      // look in v1).
+      this.lookYaw +=
+        wrapAngle(this.character.yaw - this.lookYaw) * (1 - Math.exp(-FOOT_FOLLOW_K * dtSec));
+    }
     const target = this.targetPose(this.mode);
     if (!this.primed) {
       // First frame: snap (no visible chase from the camera's spawn pose).
@@ -317,6 +353,18 @@ export class CameraRig {
   }
 
   /**
+   * TASK-103: the on-foot analogue of armViewQuat — snap the look yaw to
+   * the character's physics facing along the shortest arc and land the
+   * smoothed state EXACTLY on the resulting on-foot pose, so the 600 ms
+   * disembark/re-enter animation ends on the facing-follow pose with no
+   * swing-in (the precomputed path itself ends on the rig's own stale yaw).
+   */
+  private armOnFoot(): void {
+    this.lookYaw += wrapAngle(this.character.yaw - this.lookYaw);
+    this.applyPose(this.targetPose('onfoot'));
+  }
+
+  /**
    * TASK-78: apply a rigid chase pose DIRECTLY (no lerp): the camera sits
    * exactly at `pose.position`, oriented by a lookAt toward `pose.look`
    * with the SHIP'S up (the camera rolls with the ship, never flips).
@@ -343,6 +391,11 @@ export class CameraRig {
     this.camera.position.copy(this.curPos);
     this.camera.quaternion.copy(this.curQuat);
   }
+}
+
+/** Wrap an angle delta into [-π, π] (the shortest arc between two yaws). */
+function wrapAngle(d: number): number {
+  return ((((d + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) - Math.PI;
 }
 
 const UP = new THREE.Vector3(0, 1, 0);

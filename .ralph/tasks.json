@@ -900,5 +900,12 @@
     "category": "ui",
     "specFilePath": ".ralph/tasks/TASK-102.json",
     "passes": true
+  },
+  {
+    "id": "TASK-103",
+    "title": "On-foot camera: face the character's facing (facing-follow)",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-103.json",
+    "passes": true
   }
 ]

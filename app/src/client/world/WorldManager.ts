@@ -5,6 +5,7 @@ import { SPAWN_GATE_POS } from '@shared/galaxy/spawn';
 import { planetAnchor } from '@shared/galaxy/planets';
 import type { SpectralClass, SystemGen } from '@shared/galaxy/types';
 import { ATMOSPHERE_BOUNDARY_M } from '@shared/physics/atmosphere';
+import { quatRotateVector } from '@shared/physics/vec';
 import type { Quat, Vec3 } from '@shared/physics/vec';
 import type { Regime } from '@shared/regime';
 import type { EntityState } from '@shared/protocol/schemas';
@@ -976,8 +977,9 @@ export class WorldManager {
   /**
    * TASK-32: per-frame drive from the local CharacterPredictor — moves the
    * model to the predicted feet position with the predicted facing (the
-   * physics yaw; the camera keeps its own mouse-owned look). `livery` (the
-   * player's ship livery) re-tints the model when it changes.
+   * physics yaw) and feeds that facing to the camera rig (TASK-103: the
+   * on-foot camera FOLLOWS the predicted facing, smoothed, shortest arc).
+   * `livery` (the player's ship livery) re-tints the model when it changes.
    */
   setCharacterTransform(
     pos: Vec3,
@@ -985,7 +987,13 @@ export class WorldManager {
     livery?: Livery | null,
   ): void {
     this.applyCharacterTransform(pos);
-    if (quat) this.characterMesh?.quaternion.set(quat.x, quat.y, quat.z, quat.w);
+    if (quat) {
+      // The character quat is yaw-only by construction (integrateCharacter
+      // rotates about +Y only), so atan2(fwd.x, fwd.z) is exact.
+      const fwd = quatRotateVector(quat, { x: 0, y: 0, z: 1 });
+      this.cameraRig.setCharacterTransform(pos, Math.atan2(fwd.x, fwd.z));
+      this.characterMesh?.quaternion.set(quat.x, quat.y, quat.z, quat.w);
+    }
     if (livery !== undefined) this.setCharacterLivery(livery);
   }
 
@@ -1002,13 +1010,14 @@ export class WorldManager {
     return this.characterGround.heightAt(x, z);
   }
 
-  /** One character model placement: the group's origin is the FEET. */
+  /**
+   * One character model placement: the group's origin is the FEET. The
+   * camera rig is fed at the CALLERS: setCharacterPos (10 Hz snapshot,
+   * position only) and setCharacterTransform (per-frame prediction,
+   * position + facing — the yaw writer, TASK-103).
+   */
   private applyCharacterTransform(pos: Vec3): void {
     if (!this.characterMesh) return;
-    // The rig's steady-state on-foot pose tracks THIS position (4 m back,
-    // 1.6 m up) — feed it every update so the camera follows the character,
-    // not the rig's stale origin.
-    this.cameraRig.setCharacterPosition(pos);
     this.characterMesh.position.set(pos.x, pos.y, pos.z);
   }
 

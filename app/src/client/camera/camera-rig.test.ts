@@ -17,7 +17,7 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 
-import { quatFromEuler } from '@shared/physics/vec';
+import { quatFromEuler, quatRotateVector } from '@shared/physics/vec';
 
 import { CameraRig, CAMERA_FOV, SMOOTH_K } from './CameraRig';
 import {
@@ -455,5 +455,84 @@ describe('CameraRig steady-state following', () => {
     const dest = cockpitPose({ pos: SHIP_POS, quat: quatFromEuler(Math.PI / 2, 0, 0) });
     expect(h.rig.camera.position.x).toBeCloseTo(dest.position.x, 3);
     expect(h.rig.camera.position.z).toBeCloseTo(dest.position.z, 3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TASK-103: on-foot facing follow — the on-foot camera yaw follows the
+// character's physics facing (FOOT_FOLLOW_K, shortest arc); pitch stays
+// rig-owned at 0 (no mouse look in v1, the applyLookDelta path stays
+// test-only). A handoff INTO on-foot arms the yaw so the 600 ms disembark
+// ends exactly on the facing-follow pose, with no swing-in.
+
+describe('CameraRig on-foot facing follow (TASK-103)', () => {
+  const DEG = 180 / Math.PI;
+
+  /** Angle (deg) between the camera forward and a world direction. */
+  function camForwardErrorDeg(h: RigHarness, worldDir: Vec3): number {
+    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(h.rig.camera.quaternion);
+    const dot = fwd.x * worldDir.x + fwd.y * worldDir.y + fwd.z * worldDir.z;
+    return Math.acos(Math.min(1, Math.max(-1, dot))) * DEG;
+  }
+
+  /** Run the in-flight handoff to completion. */
+  function finishHandoff(h: RigHarness): void {
+    const t0 = h.nowMs.t;
+    while (h.nowMs.t - t0 < HANDOFF_DURATION_MS) h.step();
+  }
+
+  it('steady follow: a 90° facing step converges within 1 s', () => {
+    const h = makeRig();
+    settle(h);
+    h.rig.handoff('onfoot');
+    finishHandoff(h);
+    // Settled on the character's (zero) facing before the step.
+    expect(h.rig.lookAngles.yaw).toBeCloseTo(0, 6);
+    expect(h.rig.lookAngles.pitch).toBe(0);
+
+    const charYaw = Math.PI / 2;
+    const charFwd = quatRotateVector(quatFromEuler(charYaw, 0, 0), { x: 0, y: 0, z: 1 });
+    h.rig.setCharacterTransform(CHAR_POS, charYaw);
+    h.step(30); // 300 ms: most of the way (the smoothing lag is visible)
+    expect(camForwardErrorDeg(h, charFwd), 'camera yaw error at 300 ms').toBeLessThan(45);
+    h.step(100); // 1.3 s total
+    expect(camForwardErrorDeg(h, charFwd), 'camera yaw error after 1 s').toBeLessThan(1);
+    const dest = onFootPose({ pos: CHAR_POS, yaw: charYaw, pitch: 0 });
+    const c = h.rig.camera.position;
+    expect(
+      Math.hypot(c.x - dest.position.x, c.y - dest.position.y, c.z - dest.position.z),
+      'camera position vs onFootPose(π/2)',
+    ).toBeLessThan(0.05);
+    expect(Math.abs(h.rig.lookAngles.yaw - charYaw) * DEG, 'lookAngles.yaw vs π/2').toBeLessThan(1);
+  });
+
+  it('handoff into on-foot arms the yaw (no swing after disembark)', () => {
+    const h = makeRig();
+    settle(h);
+    // The character is ALREADY facing 45° before the disembark handoff.
+    h.rig.setCharacterTransform(CHAR_POS, Math.PI / 4);
+    h.rig.handoff('onfoot');
+    finishHandoff(h);
+    h.step(5);
+    // The camera ends on the character's facing, NOT the stale yaw 0.
+    const dest = onFootPose({ pos: CHAR_POS, yaw: Math.PI / 4, pitch: 0 });
+    const c = h.rig.camera.position;
+    expect(
+      Math.hypot(c.x - dest.position.x, c.y - dest.position.y, c.z - dest.position.z),
+      'camera position vs onFootPose(π/4)',
+    ).toBeLessThan(0.05);
+  });
+
+  it('pitch stays rig-owned at 0 through the whole scenario', () => {
+    const h = makeRig();
+    settle(h);
+    h.rig.setCharacterTransform(CHAR_POS, Math.PI / 4);
+    h.rig.handoff('onfoot');
+    finishHandoff(h);
+    h.rig.setCharacterTransform(CHAR_POS, Math.PI / 2);
+    for (let i = 0; i < 130; i++) {
+      h.step();
+      expect(h.rig.lookAngles.pitch, `frame ${i}`).toBe(0);
+    }
   });
 });
