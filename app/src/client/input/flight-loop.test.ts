@@ -21,40 +21,69 @@ import {
  * from the previous regime arrive stale and get silently dropped.
  */
 
-describe('InputFrameSender (TASK-73)', () => {
-  it('sends on the first frame, on key change, and at 20 Hz while held', () => {
+/**
+ * TASK-104: the PURE-period cadence contract. A frame is due only when
+ * INPUT_SEND_PERIOD_MS has elapsed since the last send — the key never
+ * bypasses the period. (The old key-change bypass let the analog touch
+ * sticks' per-frame key changes stream 'input' at frame rate into the
+ * server's 20 msg/s inbound bucket → 4009 kicks on touch.)
+ */
+describe('InputFrameSender (TASK-104 pure-period cadence)', () => {
+  it('first frame always sends (t=0)', () => {
     const s = new InputFrameSender();
     expect(s.seq).toBe(0);
-    expect(s.shouldSend(0, '1|0|0|0|0')).toBe(1);
-    // Same key inside the period: nothing due (the server holds the frame).
-    expect(s.shouldSend(1, '1|0|0|0|0')).toBeNull();
-    expect(s.shouldSend(INPUT_SEND_PERIOD_MS - 1, '1|0|0|0|0')).toBeNull();
-    // At the period boundary the held frame is re-sent.
-    expect(s.shouldSend(INPUT_SEND_PERIOD_MS, '1|0|0|0|0')).toBe(2);
-    // A key change fires immediately regardless of the clock.
-    expect(s.shouldSend(INPUT_SEND_PERIOD_MS + 1, '0|0|0|0|0')).toBe(3);
+    // The NEGATIVE_INFINITY init makes the first call due — the docked
+    // 'first input = take-off' contract (TASK-78/86) depends on it: while
+    // wire-docked the loop suppresses frames, lastSendMs goes stale, and
+    // the player's first W must go out on the very next frame.
+    expect(s.shouldSend(0)).toBe(1);
+  });
+
+  it('a key change INSIDE the period does NOT send (no bypass)', () => {
+    const s = new InputFrameSender();
+    expect(s.shouldSend(0)).toBe(1); // keyA at t=0
+    // The analog touch sticks (TASK-99/100) change the key on EVERY
+    // pointermove — pre-fix each change sent immediately (≈60-120 msg/s →
+    // the 20 msg/s bucket kicked the socket 4009). Now nothing is due
+    // inside the period, whatever the key is.
+    expect(s.shouldSend(10)).toBeNull(); // keyB
+    expect(s.shouldSend(65)).toBeNull(); // keyC — 65 = 66 ms period - 1
+  });
+
+  it('the period boundary re-sends even for the SAME key', () => {
+    const s = new InputFrameSender();
+    expect(s.shouldSend(0)).toBe(1);
+    expect(s.shouldSend(65)).toBeNull();
+    expect(s.shouldSend(66)).toBe(2); // 66 = the new INPUT_SEND_PERIOD_MS
+  });
+
+  it('a key change AT the boundary sends (one send, not two)', () => {
+    const s = new InputFrameSender();
+    expect(s.shouldSend(0)).toBe(1); // keyA at t=0
+    // keyB at exactly the boundary: the period fires ONE send.
+    expect(s.shouldSend(66)).toBe(2);
   });
 
   it('keeps ONE monotonic seq across ship → on-foot → ship (no resets)', () => {
     const s = new InputFrameSender();
     let now = 0;
-    const send = (key: string): number | null => {
-      const seq = s.shouldSend(now, key);
+    const send = (): number | null => {
+      const seq = s.shouldSend(now);
       now += INPUT_SEND_PERIOD_MS;
       return seq;
     };
     // In the ship (flight key format from shipInputKey).
-    expect(send('1|0|0|0|0')).toBe(1);
-    expect(send('1|1|0|0|0')).toBe(2);
-    expect(send('0|0|0|0|0')).toBe(3);
+    expect(send()).toBe(1); // key '1|0|0|0|0'
+    expect(send()).toBe(2); // key '1|1|0|0|0'
+    expect(send()).toBe(3); // key '0|0|0|0|0'
     // Disembark → on foot (the on-foot loop's DIFFERENT key format). The
     // counter must continue, never restart — a restarted seq would be
     // stale (<= conn.lastSeq) and dropped by the server.
-    expect(send('1|0|run')).toBe(4);
-    expect(send('1|0|')).toBe(5);
-    expect(send('0|0|')).toBe(6);
+    expect(send()).toBe(4); // key '1|0|run'
+    expect(send()).toBe(5); // key '1|0|'
+    expect(send()).toBe(6); // key '0|0|'
     // Re-enter the ship: still monotonic.
-    expect(send('1|0|0|0|0')).toBe(7);
+    expect(send()).toBe(7); // key '1|0|0|0|0'
     expect(s.seq).toBe(7);
   });
 
@@ -65,7 +94,7 @@ describe('InputFrameSender (TASK-73)', () => {
     for (const key of ['0|0|0|0|0', '1|0|0|0|0', '1|0|', '1|0|0|0|0']) {
       for (let i = 0; i < 3; i++) {
         // 3 held sends per key (past the cadence boundary).
-        const seq = s.shouldSend(now, key);
+        const seq = s.shouldSend(now);
         if (seq !== null) seqs.push(seq);
         now += INPUT_SEND_PERIOD_MS;
       }
@@ -92,7 +121,7 @@ describe('effectiveFlightPressed (TASK-73)', () => {
 });
 
 describe('shipInputKey (TASK-73)', () => {
-  it('every channel change produces a distinct key (the cadence trigger)', () => {
+  it('every channel change produces a distinct key (stable wire-fingerprint)', () => {
     const zero = shipInputKey({ thrust: 0, yaw: 0, pitch: 0, roll: 0, up: 0 });
     expect(shipInputKey({ thrust: 1, yaw: 0, pitch: 0, roll: 0, up: 0 })).not.toBe(zero);
     expect(shipInputKey({ thrust: 0, yaw: 1, pitch: 0, roll: 0, up: 0 })).not.toBe(zero);
@@ -125,7 +154,7 @@ function loopFrame(
     : CONTROL_SCHEMES[opts.activeRegime];
   const input = readSchemeInput(scheme, new Set(pressed));
   const nonzero = anyFlightDemand(input);
-  const seq = !opts.docked || nonzero ? sender.shouldSend(nowMs, shipInputKey(input)) : null;
+  const seq = !opts.docked || nonzero ? sender.shouldSend(nowMs) : null;
   return { seq, input };
 }
 

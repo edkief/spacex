@@ -176,7 +176,6 @@ import {
   anyFlightDemand,
   dockedFlightScheme,
   effectiveFlightPressed,
-  shipInputKey,
 } from '@client/input/flight-loop';
 import { ClientShipPredictor, shipStateFromWire } from '@client/net/prediction';
 import { CorrectionSmoother } from '@client/net/correction-smoother';
@@ -1740,10 +1739,12 @@ function App() {
       const run = pressed.has('Shift');
       const jump = pressed.has(' ');
       const action = run && jump ? 'run+jump' : run ? 'run' : jump ? 'jump' : undefined;
-      const key = `${thrust}|${yaw}|${action ?? ''}`;
       // TASK-73: the SHARED seq counter + cadence (the ship loop stamps
-      // the same counter — one monotonic seq per connection).
-      const seq = inputSender.shouldSend(now, key);
+      // the same counter — one monotonic seq per connection). TASK-104:
+      // the cadence is a PURE period — the key never bypasses it (the
+      // analog MOVE stick changed the key every frame and flooded the
+      // server's 20 msg/s bucket).
+      const seq = inputSender.shouldSend(now);
       if (seq !== null) {
         const payload: InputPayload = {
           seq,
@@ -1912,7 +1913,9 @@ function App() {
         held: (input.boost ?? 0) > 0,
         allowed: cruiseAllowedAt(p.getState().pos, regimeWiring.regimePlanets),
       });
-      const seq = !docked || nonzero ? inputSender.shouldSend(now, shipInputKey(input)) : null;
+      // TASK-104: PURE-period cadence — the key (analog touch sticks
+      // changed it every frame) no longer bypasses the period.
+      const seq = !docked || nonzero ? inputSender.shouldSend(now) : null;
       if (seq !== null) {
         clientRef.current?.send('input', shipInputToPayload(seq, input));
         p.step(dt, now, { seq, input });

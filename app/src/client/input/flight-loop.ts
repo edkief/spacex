@@ -9,10 +9,17 @@
  * Disembark / re-entry must never reset it, or a frame in flight from the
  * previous regime arrives as stale and is silently dropped.
  *
- * `InputFrameSender` owns that counter + the send cadence (a frame goes
- * out on key CHANGE or at 20 Hz while held — the same rule the on-foot
- * loop shipped with in TASK-32). DOM-free and clock-injected so the whole
- * cadence is unit-testable.
+ * `InputFrameSender` owns that counter + the send cadence. TASK-104 made
+ * the cadence a PURE period: a frame goes out only when
+ * INPUT_SEND_PERIOD_MS has elapsed since the last send — the input key
+ * NEVER bypasses it. The old key-change bypass was correct for keyboard
+ * input (exact ±1/0 values, the key changes only on press/release → a
+ * stable 20 msg/s at the bucket's refill rate), but the M7 ANALOG touch
+ * sticks (TASK-99/100) write a continuous magnitude on every
+ * pointermove — a NEW key every frame — so the bypass streamed 'input'
+ * frames at FRAME rate (60-120+ msg/s) into the server's 20 msg/s
+ * per-connection bucket and got the socket 4009-kicked on touch devices.
+ * DOM-free and clock-injected so the whole cadence is unit-testable.
  */
 
 import type { ShipInput } from '@shared/physics/flight';
@@ -20,8 +27,15 @@ import type { Regime } from '@shared/regime';
 
 import { CONTROL_SCHEMES, type ControlScheme } from './controls';
 
-/** Send cadence (ms): 20 Hz while a held frame stays unchanged. */
-export const INPUT_SEND_PERIOD_MS = 50;
+/**
+ * Send cadence (ms): the PURE send period (TASK-104). 66 ms ≈ 15.2 msg/s —
+ * deliberately UNDER the server's 20 msg/s inbound bucket (TASK-65) so
+ * sustained input leaves headroom for fire-intents (the 333 ms fire
+ * pacer, ≈3 msg/s) and chat (2 s min gap): worst-case legit traffic is
+ * ≈18.2 msg/s < 20. The server's 20 Hz tick absorbs the extra ≤16 ms
+ * input latency with no visible change (150 ms latency budget, TASK-14).
+ */
+export const INPUT_SEND_PERIOD_MS = 66;
 
 /**
  * The shared input-seq + cadence owner. `shouldSend` decides whether a
@@ -29,8 +43,14 @@ export const INPUT_SEND_PERIOD_MS = 50;
  */
 export class InputFrameSender {
   private seqValue = 0;
-  private lastKey = '';
-  private lastSendMs = 0;
+  /**
+   * NEGATIVE_INFINITY (not 0): the FIRST call always sends immediately.
+   * Load-bearing for the docked 'first input = take-off' contract
+   * (TASK-78/86): while wire-docked the loop suppresses zero-demand
+   * frames, so lastSendMs goes stale, and the player's first W after
+   * docking must go out on the very next frame.
+   */
+  private lastSendMs = Number.NEGATIVE_INFINITY;
 
   /** The last seq stamped (0 = nothing sent yet). */
   get seq(): number {
@@ -38,14 +58,15 @@ export class InputFrameSender {
   }
 
   /**
-   * A frame is due when the input KEY changed or the last send is at least
-   * {@link INPUT_SEND_PERIOD_MS} old (held-frame cadence). Returns the NEW
-   * seq to stamp on the frame, or null when nothing is due.
+   * PURE period (TASK-104): a frame is due only when
+   * {@link INPUT_SEND_PERIOD_MS} has elapsed since the last send — the
+   * input key never bypasses the cadence (the bypass streamed touch
+   * input at frame rate and tripped the 20 msg/s bucket). Returns the
+   * NEW seq to stamp on the frame, or null when nothing is due.
    */
-  shouldSend(nowMs: number, key: string): number | null {
-    if (key === this.lastKey && nowMs - this.lastSendMs < INPUT_SEND_PERIOD_MS) return null;
+  shouldSend(nowMs: number): number | null {
+    if (nowMs - this.lastSendMs < INPUT_SEND_PERIOD_MS) return null;
     this.seqValue += 1;
-    this.lastKey = key;
     this.lastSendMs = nowMs;
     return this.seqValue;
   }
