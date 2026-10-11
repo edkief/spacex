@@ -899,6 +899,6 @@
     "title": "Touch layout & haptics polish: bigger buttons, small-screen clearance, vibration",
     "category": "ui",
     "specFilePath": ".ralph/tasks/TASK-102.json",
-    "passes": false
+    "passes": true
   }
 ]

@@ -76,6 +76,31 @@ let combat: {
   weapon: WeaponId;
 };
 
+/**
+ * The fake rAF clock: requestAnimationFrame queues, frames(n) advances n
+ * frames (each queued callback schedules the next loop iteration).
+ */
+function fakeRaf(): { frames: (n: number) => void } {
+  const queue: FrameRequestCallback[] = [];
+  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+    queue.push(cb);
+    return queue.length;
+  });
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+    queue.splice(id - 1, 1);
+  });
+  return {
+    frames: (n: number) => {
+      for (let i = 0; i < n; i++) {
+        act(() => {
+          const pending = queue.splice(0, queue.length);
+          for (const cb of pending) cb(i + 1);
+        });
+      }
+    },
+  };
+}
+
 beforeEach(() => {
   source = new TouchInputSource();
   document.body.innerHTML = '';
@@ -371,31 +396,6 @@ describe('TouchControls — the COMBAT cluster (TASK-92)', () => {
 });
 
 describe('TouchControls — FIRE hold-to-fire (TASK-101)', () => {
-  /**
-   * The fake rAF clock: requestAnimationFrame queues, frames(n) advances n
-   * frames (each queued callback schedules the next loop iteration).
-   */
-  function fakeRaf(): { frames: (n: number) => void } {
-    const queue: FrameRequestCallback[] = [];
-    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
-      queue.push(cb);
-      return queue.length;
-    });
-    vi.stubGlobal('cancelAnimationFrame', (id: number) => {
-      queue.splice(id - 1, 1);
-    });
-    return {
-      frames: (n: number) => {
-        for (let i = 0; i < n; i++) {
-          act(() => {
-            const pending = queue.splice(0, queue.length);
-            for (const cb of pending) cb(i + 1);
-          });
-        }
-      },
-    };
-  }
-
   const withCombat = (extra: Partial<Parameters<typeof TouchControls>[0]> = {}): HTMLDivElement =>
     renderControls({
       regime: 'space',
@@ -495,6 +495,67 @@ describe('TouchControls — FIRE hold-to-fire (TASK-101)', () => {
     });
     raf.frames(3);
     expect(combat.onFire).toHaveBeenCalledTimes(held);
+  });
+});
+
+describe('TouchControls — TASK-102 button sizes + press haptics', () => {
+  /** The rendered hit-target width/height of a button by its label. */
+  const hitSize = (label: string): { w: string; h: string } => {
+    const el = document.querySelector<HTMLElement>(`[aria-label="${label}"]`)!;
+    return { w: el.style.width, h: el.style.height };
+  };
+  const withCombat = (extra: Partial<Parameters<typeof TouchControls>[0]> = {}): HTMLDivElement =>
+    renderControls({
+      regime: 'space',
+      onFire: combat.onFire,
+      onWeapon: combat.onWeapon,
+      onTarget: combat.onTarget,
+      weapon: combat.weapon,
+      ...extra,
+    });
+
+  it('LASER / MISSILE (combat) and TARGET are on the 56 px floor', () => {
+    withCombat();
+    for (const label of ['LASER', 'MISSILE', 'TARGET']) {
+      expect(hitSize(label).w, `${label} width`).toBe('56px');
+      expect(hitSize(label).h, `${label} height`).toBe('56px');
+    }
+    // FIRE keeps its 72 px size (already above the floor).
+    expect(hitSize('FIRE').w).toBe('72px');
+  });
+
+  it('RUN / DROP (on-foot) are 56 px; JUMP / INTERACT stay 64 px', () => {
+    renderControls({
+      regime: 'surface',
+      onFoot: true,
+      onInteractPress: vi.fn<() => void>(),
+      onInteractRelease: vi.fn<() => void>(),
+      onDrop: vi.fn<() => void>(),
+    });
+    for (const label of ['RUN', 'DROP']) {
+      expect(hitSize(label).w, `${label} width`).toBe('56px');
+      expect(hitSize(label).h, `${label} height`).toBe('56px');
+    }
+    for (const label of ['JUMP', 'INTERACT']) {
+      expect(hitSize(label).w, `${label} width`).toBe('64px');
+    }
+  });
+
+  it('FIRE: the press vibrates once, the per-frame hold loop never does', () => {
+    const vibrate = vi.fn<() => boolean>();
+    vi.stubGlobal('navigator', { ...navigator, vibrate });
+    const raf = fakeRaf();
+    withCombat();
+    const fire = document.querySelector('[aria-label="FIRE"]')!;
+    pointer('pointerdown', 0, 0, fire);
+    expect(vibrate, 'the press pulses once').toHaveBeenCalledTimes(1);
+    raf.frames(5);
+    expect(combat.onFire).toHaveBeenCalledTimes(6); // immediate + 5 frames
+    expect(vibrate, 'the hold loop must not buzz per frame').toHaveBeenCalledTimes(1);
+    pointer('pointerup', 0, 0, fire);
+    raf.frames(3);
+    expect(combat.onFire).toHaveBeenCalledTimes(6); // the loop is dead
+    expect(vibrate).toHaveBeenCalledTimes(1);
   });
 });
 

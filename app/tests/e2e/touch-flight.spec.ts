@@ -139,6 +139,36 @@ const lastState = (page: Page): Promise<Tap | null> =>
     return ups[ups.length - 1] ?? null;
   });
 
+/**
+ * TASK-102: the ids of #touch-controls' direct children whose bounding box
+ * intersects the 200×200 px centre reticle zone. An empty array proves no
+ * control covers the reticle at the current viewport.
+ */
+const reticleOverlaps = (page: Page): Promise<string[]> =>
+  page.evaluate(() => {
+    const root = document.getElementById('touch-controls');
+    if (!root) return ['#touch-controls missing'];
+    const zone = {
+      left: window.innerWidth / 2 - 100,
+      top: window.innerHeight / 2 - 100,
+      right: window.innerWidth / 2 + 100,
+      bottom: window.innerHeight / 2 + 100,
+    };
+    const hits: string[] = [];
+    for (const el of Array.from(root.children)) {
+      const b = el.getBoundingClientRect();
+      if (
+        b.left < zone.right &&
+        b.right > zone.left &&
+        b.top < zone.bottom &&
+        b.bottom > zone.top
+      ) {
+        hits.push(el.id);
+      }
+    }
+    return hits;
+  });
+
 /** The signed dot of the ship's CURRENT forward with the INITIAL right. */
 const dotForwardRight0 = (page: Page, right0: Vec3): Promise<number> =>
   page.evaluate((r0: Vec3) => {
@@ -252,6 +282,27 @@ test('touch flight: thrust + yaw in space, VTOL in atmosphere (server-confirmed)
   await expect(page.locator('#touch-stick-right')).toBeVisible();
   await expect(page.locator('#touch-btn-boost')).toContainText('BOOST');
   expect(await page.locator('#touch-btn-vtol').count(), 'no VTOL button in space').toBe(0);
+
+  // (1b) TASK-102 small-screen clearance: on BOTH phone viewports, no
+  // control inside #touch-controls intersects the 200×200 px centre
+  // reticle zone (the 56 px floor + the re-anchored combat row + top-right
+  // TARGET clear the reticle at 390×844 and 844×390). Screenshot of the
+  // flight layout on the portrait phone (the repo's UI-evidence convention).
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('#touch-controls')).toBeVisible();
+  expect(
+    await reticleOverlaps(page),
+    'no touch control may cover the centre reticle at 390×844 (portrait)',
+  ).toEqual([]);
+  await page.screenshot({
+    path: path.join(__dirname, '../../../.ralph/screenshots/TASK-102-1.png'),
+  });
+  await page.setViewportSize({ width: 844, height: 390 });
+  expect(
+    await reticleOverlaps(page),
+    'no touch control may cover the centre reticle at 844×390 (landscape)',
+  ).toEqual([]);
+  await page.setViewportSize({ width: 1280, height: 720 }); // restore the default
 
   // (2) THRUST: channel up from rest → the server speed rises (the first
   // input also takes the docked ship off).

@@ -277,8 +277,10 @@ export function TouchControls({
         {/* The action cluster — right-mid clear zone ABOVE the on-foot HUD
             (the weight bar + exposure meter sit in the bottom-right corner,
             the interaction line is bottom-center):
-              [DROP 48]  [JUMP 64]
-              [RUN 48]   [INTERACT 64] */}
+              [DROP 56]  [JUMP 64]
+              [RUN 56]   [INTERACT 64]
+            TASK-102: RUN/DROP are on the 56 px floor (the 64 px row max —
+            JUMP/INTERACT — keeps the row offsets unchanged). */}
         <div
           id="touch-btn-interact"
           style={{
@@ -310,7 +312,7 @@ export function TouchControls({
         >
           <TouchButton
             label="RUN"
-            size={48}
+            size={56}
             onPress={() => source.setChannel({ run: true })}
             onRelease={() => source.setChannel({ run: false })}
           />
@@ -338,7 +340,7 @@ export function TouchControls({
           }}
         >
           {/* One-shot (the Q keydown): a release never drops a second unit. */}
-          <TouchButton label="DROP" size={48} onPress={() => onDrop?.()} onRelease={() => {}} />
+          <TouchButton label="DROP" size={56} onPress={() => onDrop?.()} onRelease={() => {}} />
         </div>
       </div>
     );
@@ -404,7 +406,13 @@ export function TouchControls({
           rate-limits to the weapon cooldown); the accent border IS the
           held state. LASER / MISSILE share the '1'/'2' path and show the
           active weapon's accent; TARGET shares the 'T' toggle path. All
-          intents only — the server re-derives. */}
+          intents only — the server re-derives.
+          TASK-102: LASER / MISSILE are on the 56 px floor, the FIRE row is
+          anchored at bottom+224 (was +248: its top edge sat INSIDE the
+          200×200 centre reticle zone on a 390×844 phone), and TARGET lives
+          top-right beside MENU — see the TARGET slot for why. All slots
+          clear the reticle zone at BOTH phone viewports (the e2e layout
+          leg proves it), 12 px gap rhythm kept. */}
       {onFire && onWeapon && onTarget && (
         <>
           <div
@@ -412,7 +420,7 @@ export function TouchControls({
             style={{
               ...side,
               right: `calc(${CORNER + 32}px + env(safe-area-inset-right, 0px))`,
-              bottom: `calc(${CORNER + 248}px + env(safe-area-inset-bottom, 0px))`,
+              bottom: `calc(${CORNER + 224}px + env(safe-area-inset-bottom, 0px))`,
             }}
           >
             <TouchButton
@@ -428,12 +436,12 @@ export function TouchControls({
             style={{
               ...side,
               right: `calc(${CORNER + 32 + 72 + 12}px + env(safe-area-inset-right, 0px))`,
-              bottom: `calc(${CORNER + 248}px + env(safe-area-inset-bottom, 0px))`,
+              bottom: `calc(${CORNER + 224}px + env(safe-area-inset-bottom, 0px))`,
             }}
           >
             <TouchButton
               label="LASER"
-              size={48}
+              size={56}
               pressed={weapon === 'laser'}
               onPress={() => onWeapon('laser')}
               onRelease={() => {}}
@@ -443,24 +451,29 @@ export function TouchControls({
             id="touch-btn-weapon-missile"
             style={{
               ...side,
-              right: `calc(${CORNER + 32 + 72 + 12 + 48 + 12}px + env(safe-area-inset-right, 0px))`,
-              bottom: `calc(${CORNER + 248}px + env(safe-area-inset-bottom, 0px))`,
+              right: `calc(${CORNER + 32 + 72 + 12 + 56 + 12}px + env(safe-area-inset-right, 0px))`,
+              bottom: `calc(${CORNER + 224}px + env(safe-area-inset-bottom, 0px))`,
             }}
           >
             <TouchButton
               label="MISSILE"
-              size={48}
+              size={56}
               pressed={weapon === 'missile'}
               onPress={() => onWeapon('missile')}
               onRelease={() => {}}
             />
           </div>
+          {/* TASK-102: TARGET moves to the TOP-right (left of MENU). A 4th
+              button in the bottom row is 332 px wide — on an 844×390 phone
+              its left edge crosses the reticle zone; a second row sits on
+              the zone at 390×844. Top-right (clear of both zones at both
+              phone viewports) is the only slot that keeps all four buttons. */}
           <div
             id="touch-btn-target"
             style={{
               ...side,
-              right: `calc(${CORNER + 32}px + env(safe-area-inset-right, 0px))`,
-              bottom: `calc(${CORNER + 248 + 72 + 12}px + env(safe-area-inset-bottom, 0px))`,
+              right: `calc(${CORNER + 64 + 12}px + env(safe-area-inset-right, 0px))`,
+              top: `calc(${CORNER}px + env(safe-area-inset-top, 0px))`,
             }}
           >
             <TouchButton label="TARGET" size={56} onPress={() => onTarget()} onRelease={() => {}} />

@@ -54,6 +54,7 @@ afterEach(() => {
   for (const root of roots) act(() => root.unmount());
   roots = [];
   document.body.innerHTML = '';
+  vi.unstubAllGlobals(); // the mocked navigator.vibrate (TASK-102)
 });
 
 describe('TouchButton', () => {
@@ -130,5 +131,41 @@ describe('TouchButton', () => {
   it('renders an icon alongside the label', () => {
     const btn = renderButton({ icon: <span data-testid="icon">✚</span> });
     expect(btn.querySelector('[data-testid="icon"]')).not.toBeNull();
+  });
+});
+
+describe('TouchButton — haptics (TASK-102)', () => {
+  /** Mock navigator.vibrate, keeping the rest of happy-dom's navigator. */
+  const mockVibrate = (): ReturnType<typeof vi.fn> => {
+    const vibrate = vi.fn<() => boolean>();
+    vi.stubGlobal('navigator', { ...navigator, vibrate });
+    return vibrate;
+  };
+
+  it('a real press vibrates exactly once (10 ms pulse)', () => {
+    const vibrate = mockVibrate();
+    const btn = renderButton();
+    pointer('pointerdown', btn);
+    expect(vibrate).toHaveBeenCalledTimes(1);
+    expect(vibrate).toHaveBeenCalledWith(10);
+    // Release / a long hold add no further pulses.
+    pointer('pointermove', btn);
+    pointer('pointerup', btn);
+    expect(vibrate).toHaveBeenCalledTimes(1);
+  });
+
+  it('a disabled press vibrates nothing', () => {
+    const vibrate = mockVibrate();
+    const btn = renderButton({ disabled: true });
+    pointer('pointerdown', btn);
+    pointer('pointerup', btn);
+    expect(vibrate).not.toHaveBeenCalled();
+  });
+
+  it('a stray pointerup (no prior down) vibrates nothing', () => {
+    const vibrate = mockVibrate();
+    const btn = renderButton();
+    pointer('pointerup', btn);
+    expect(vibrate).not.toHaveBeenCalled();
   });
 });

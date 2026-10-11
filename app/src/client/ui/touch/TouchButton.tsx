@@ -49,6 +49,13 @@ export function TouchButton({
     if (disabled) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     pressedRef.current = true;
+    // TASK-102: haptic press confirmation — a single short pulse per REAL
+    // press (after the disabled guard). The FIRE hold loop calls `onPress`'s
+    // downstream path per frame, NOT this handler, so a held button never
+    // buzzes continuously. Guarded: a no-op on desktop / headless.
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      navigator.vibrate(10);
+    }
     onPress();
   };
 
