@@ -885,7 +885,7 @@
     "title": "Touch on-foot analog: analog move/turn through shared CharacterInput + physics",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-100.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-101",

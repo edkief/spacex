@@ -81,7 +81,7 @@ describe('characterSpawnPos (TASK-31)', () => {
 
 describe('integrateCharacter: speeds (TASK-32 step 1)', () => {
   it('walk: 3 u/s along the facing, y pinned to the terrain', () => {
-    const path = simulate(1, { ...ZERO_CHARACTER_INPUT, forward: true });
+    const path = simulate(1, { ...ZERO_CHARACTER_INPUT, move: 1 });
     const s = path[path.length - 1];
     expect(s.pos.z).toBeCloseTo(CHAR_WALK_SPEED, 6); // 3 m in 1 s along +Z
     expect(s.pos.x).toBe(0);
@@ -91,21 +91,21 @@ describe('integrateCharacter: speeds (TASK-32 step 1)', () => {
   });
 
   it('run (shift): 6 u/s', () => {
-    const path = simulate(1, { ...ZERO_CHARACTER_INPUT, forward: true, run: true });
+    const path = simulate(1, { ...ZERO_CHARACTER_INPUT, move: 1, run: true });
     const s = path[path.length - 1];
     expect(s.pos.z).toBeCloseTo(CHAR_RUN_SPEED, 6);
     expect(s.vel.z).toBeCloseTo(CHAR_RUN_SPEED, 6);
   });
 
   it('back: walks along −facing', () => {
-    const path = simulate(1, { ...ZERO_CHARACTER_INPUT, back: true });
+    const path = simulate(1, { ...ZERO_CHARACTER_INPUT, move: -1 });
     expect(path[path.length - 1].pos.z).toBeCloseTo(-CHAR_WALK_SPEED, 6);
   });
 
   it('no input: a moving character decelerates at 8 u/s² (ground friction)', () => {
     let s = restCharacterState({ x: 0, y: 0, z: 0 });
     for (let i = 0; i < 10; i++)
-      s = integrateCharacter(s, { ...ZERO_CHARACTER_INPUT, forward: true, run: true }, 0.05, FLAT);
+      s = integrateCharacter(s, { ...ZERO_CHARACTER_INPUT, move: 1, run: true }, 0.05, FLAT);
     // Holding the key for 0.5 s → exactly run speed…
     expect(Math.hypot(s.vel.x, s.vel.z)).toBeCloseTo(CHAR_RUN_SPEED, 6);
     // …then release: 6 − 8t, floored at 0.
@@ -125,7 +125,7 @@ describe('integrateCharacter: speeds (TASK-32 step 1)', () => {
   it('turning: right/left yaw the facing at CHAR_TURN_RATE (yaw-only quat)', () => {
     let s = restCharacterState({ x: 0, y: 0, z: 0 });
     for (let i = 0; i < 20; i++) {
-      s = integrateCharacter(s, { ...ZERO_CHARACTER_INPUT, right: true }, 0.05, FLAT);
+      s = integrateCharacter(s, { ...ZERO_CHARACTER_INPUT, turn: -1 }, 0.05, FLAT);
     }
     // 1 s of right-turn = exactly CHAR_TURN_RATE radians of −yaw about +Y
     // (TASK-80: right-handed, +Y up, +Z forward ⇒ right = local −X).
@@ -138,7 +138,7 @@ describe('integrateCharacter: speeds (TASK-32 step 1)', () => {
     // negative (a right turn toward −X) — and the NEXT forward step must
     // follow the NEW facing.
     const fwdNow = { x: -Math.sin(CHAR_TURN_RATE), y: 0, z: Math.cos(CHAR_TURN_RATE) };
-    const s2 = integrateCharacter(s, { ...ZERO_CHARACTER_INPUT, forward: true }, 0.05, FLAT);
+    const s2 = integrateCharacter(s, { ...ZERO_CHARACTER_INPUT, move: 1 }, 0.05, FLAT);
     expect(s2.pos.x).toBeCloseTo(fwdNow.x * CHAR_WALK_SPEED * 0.05, 5);
     expect(s2.pos.z).toBeCloseTo(fwdNow.z * CHAR_WALK_SPEED * 0.05, 5);
   });
@@ -149,12 +149,12 @@ describe('integrateCharacter: speeds (TASK-32 step 1)', () => {
     const fwd = (s: CharacterState): Vec3 => quatRotateVector(s.quat, { x: 0, y: 0, z: 1 });
     let s = restCharacterState({ x: 0, y: 0, z: 0 });
     for (let i = 0; i < 10; i++) {
-      s = integrateCharacter(s, { ...ZERO_CHARACTER_INPUT, right: true }, 0.05, FLAT);
+      s = integrateCharacter(s, { ...ZERO_CHARACTER_INPUT, turn: -1 }, 0.05, FLAT);
     }
     expect(fwd(s).x).toBeLessThan(0); // facing turned toward −X = screen-right
     s = restCharacterState({ x: 0, y: 0, z: 0 });
     for (let i = 0; i < 10; i++) {
-      s = integrateCharacter(s, { ...ZERO_CHARACTER_INPUT, left: true }, 0.05, FLAT);
+      s = integrateCharacter(s, { ...ZERO_CHARACTER_INPUT, turn: 1 }, 0.05, FLAT);
     }
     expect(fwd(s).x).toBeGreaterThan(0); // facing turned toward +X = screen-left
   });
@@ -169,7 +169,7 @@ describe('integrateCharacter: speeds (TASK-32 step 1)', () => {
 
 describe('integrateCharacter: jump (TASK-32 step 1)', () => {
   const JUMP: CharacterInput = { ...ZERO_CHARACTER_INPUT, jump: true };
-  const WALK: CharacterInput = { ...ZERO_CHARACTER_INPUT, forward: true };
+  const WALK: CharacterInput = { ...ZERO_CHARACTER_INPUT, move: 1 };
 
   it('jump arc: apex ≈ 1.04 m (v²/2g = 25/24 at v=5, g=12) and lands back on the ground', () => {
     const dt = 0.01; // fine frame dt: the discrete arc tracks the analytic one
@@ -228,7 +228,7 @@ describe('integrateCharacter: jump (TASK-32 step 1)', () => {
   it('no air control: horizontal input is ignored while airborne', () => {
     const dt = 0.05;
     const s0 = restCharacterState({ x: 0, y: 0, z: 0 });
-    const WALK_RUN_TURN: CharacterInput = { ...WALK, run: true, right: true };
+    const WALK_RUN_TURN: CharacterInput = { ...WALK, run: true, turn: -1 };
     // One clean jump tick, then full forward + turn demand for the WHOLE
     // flight — all of it must be ignored until landing.
     let s = integrateCharacter(s0, JUMP, dt, FLAT);
@@ -264,7 +264,7 @@ describe('integrateCharacter: terrain following (TASK-32 step 1)', () => {
     const faceX = quatFromEuler(Math.PI / 2, 0, 0); // forward → +X
     const path = simulate(
       20,
-      { ...ZERO_CHARACTER_INPUT, forward: true, run: true },
+      { ...ZERO_CHARACTER_INPUT, move: 1, run: true },
       0.05,
       (x) => (x > 0 ? slope(x) : 0),
       restCharacterState({ x: 0, y: 0, z: 0 }, faceX),
@@ -283,7 +283,7 @@ describe('integrateCharacter: terrain following (TASK-32 step 1)', () => {
     let s = restCharacterState({ x: 9, y: 5, z: 0 }, faceX);
     let maxAirborne = false;
     for (let i = 0; i < 400 && !(s.onGround && s.pos.y < 0.01); i++) {
-      s = integrateCharacter(s, { ...ZERO_CHARACTER_INPUT, forward: true, run: true }, 0.05, cliff);
+      s = integrateCharacter(s, { ...ZERO_CHARACTER_INPUT, move: 1, run: true }, 0.05, cliff);
       expect(s.pos.y).toBeGreaterThanOrEqual(cliff(s.pos.x) - 1e-6); // never in the ground
       if (!s.onGround) maxAirborne = true;
     }
@@ -301,7 +301,7 @@ describe('integrateCharacter: terrain following (TASK-32 step 1)', () => {
     let s = restCharacterState({ x: 9, y: 0, z: 0 }, faceX);
     const dt = 0.25; // 6 u/s × 0.25 s = 1.5 m travel → 2 substeps per tick
     for (let i = 0; i < 30 && s.pos.x < 14; i++) {
-      s = integrateCharacter(s, { ...ZERO_CHARACTER_INPUT, forward: true, run: true }, dt, kink);
+      s = integrateCharacter(s, { ...ZERO_CHARACTER_INPUT, move: 1, run: true }, dt, kink);
       // Never below the surface, never floating above it by more than one
       // terrain-lerp step (the anti-tunnel / anti-teleport invariant).
       expect(s.pos.y).toBeGreaterThanOrEqual(kink(s.pos.x) - 1e-6);
@@ -313,16 +313,95 @@ describe('integrateCharacter: terrain following (TASK-32 step 1)', () => {
   });
 });
 
+describe('integrateCharacter: analog magnitudes (TASK-100)', () => {
+  const fwdAngle = (s: CharacterState): number => {
+    const f = quatRotateVector(s.quat, { x: 0, y: 0, z: 1 });
+    return Math.atan2(f.x, f.z);
+  };
+
+  it('move=0.5: half-stick walks at half walk speed (linear, ±2% band)', () => {
+    const path = simulate(1, { ...ZERO_CHARACTER_INPUT, move: 0.5 });
+    const s = path[path.length - 1];
+    expect(s.vel.z).toBeCloseTo(CHAR_WALK_SPEED / 2, 2); // 1.5 u/s
+    expect(s.pos.z).toBeCloseTo(CHAR_WALK_SPEED / 2, 2); // 1.5 m in 1 s
+  });
+
+  it('move=−0.5: half-stick backward at half walk speed', () => {
+    const path = simulate(1, { ...ZERO_CHARACTER_INPUT, move: -0.5 });
+    const s = path[path.length - 1];
+    expect(s.vel.z).toBeCloseTo(-CHAR_WALK_SPEED / 2, 2);
+    expect(s.pos.z).toBeCloseTo(-CHAR_WALK_SPEED / 2, 2);
+  });
+
+  it('move=0.5 + run: half of RUN speed (run doubles the base, magnitude scales it)', () => {
+    const path = simulate(1, { ...ZERO_CHARACTER_INPUT, move: 0.5, run: true });
+    expect(path[path.length - 1].vel.z).toBeCloseTo(CHAR_RUN_SPEED / 2, 2);
+  });
+
+  it('turn=±0.5: exactly half the facing delta of turn=±1 over the same dt', () => {
+    const dt = 0.05;
+    for (const sign of [1, -1] as const) {
+      let full = restCharacterState({ x: 0, y: 0, z: 0 });
+      let half = restCharacterState({ x: 0, y: 0, z: 0 });
+      for (let i = 0; i < 20; i++) {
+        full = integrateCharacter(full, { ...ZERO_CHARACTER_INPUT, turn: sign }, dt, FLAT);
+        half = integrateCharacter(half, { ...ZERO_CHARACTER_INPUT, turn: sign / 2 }, dt, FLAT);
+      }
+      const deltaFull = Math.abs(fwdAngle(full));
+      const deltaHalf = Math.abs(fwdAngle(half));
+      expect(deltaFull).toBeCloseTo(CHAR_TURN_RATE, 6); // full = the legacy rate
+      expect(deltaHalf).toBeCloseTo(deltaFull / 2, 6); // half-stick = half rate
+    }
+  });
+
+  it('move=0: the friction path is untouched (release at half speed stops in v₀/8 s)', () => {
+    let s = restCharacterState({ x: 0, y: 0, z: 0 });
+    for (let i = 0; i < 20; i++)
+      s = integrateCharacter(s, { ...ZERO_CHARACTER_INPUT, move: 0.5 }, 0.05, FLAT);
+    const v0 = Math.hypot(s.vel.x, s.vel.z);
+    expect(v0).toBeCloseTo(CHAR_WALK_SPEED / 2, 2);
+    let t = 0;
+    while (t < 1 && Math.hypot(s.vel.x, s.vel.z) > 1e-9) {
+      s = integrateCharacter(s, ZERO_CHARACTER_INPUT, 0.05, FLAT);
+      t += 0.05;
+    }
+    // v₀/8 = 0.1875 s to a full stop (± one tick, as in the full-key case).
+    expect(t).toBeGreaterThan(0.13);
+    expect(t).toBeLessThan(0.25);
+    expect(Math.hypot(s.vel.x, s.vel.z)).toBeLessThan(1e-9);
+  });
+
+  it('keyboard parity: full magnitude (±1 / true) reproduces the legacy golden states', () => {
+    // The pre-task boolean inputs (forward/back/left/right = true) ARE the
+    // |move| = |turn| = 1 cases — the legacy expectations (3 m walk, one
+    // full CHAR_TURN_RATE yaw turn) are unchanged and pin the parity.
+    let s = restCharacterState({ x: 0, y: 0, z: 0 });
+    for (let i = 0; i < 20; i++)
+      s = integrateCharacter(s, { ...ZERO_CHARACTER_INPUT, move: 1 }, 0.05, FLAT);
+    expect(s.pos.x).toBeCloseTo(0, 6);
+    expect(s.pos.y).toBeCloseTo(0, 6);
+    expect(s.pos.z).toBeCloseTo(CHAR_WALK_SPEED, 6);
+    s = restCharacterState({ x: 0, y: 0, z: 0 });
+    for (let i = 0; i < 20; i++)
+      s = integrateCharacter(s, { ...ZERO_CHARACTER_INPUT, turn: -1 }, 0.05, FLAT);
+    const expected = quatFromEuler(-CHAR_TURN_RATE, 0, 0);
+    expect(s.quat.x).toBeCloseTo(expected.x, 6);
+    expect(s.quat.y).toBeCloseTo(expected.y, 6);
+    expect(s.quat.z).toBeCloseTo(expected.z, 6);
+    expect(s.quat.w).toBeCloseTo(expected.w, 6);
+  });
+});
+
 describe('integrateCharacter: determinism (TASK-32 step 1)', () => {
   it('same input sequence → same path (two runs, mixed inputs, 30 s)', () => {
     const dt = 0.05;
     const phases: Array<{ secs: number; input: CharacterInput }> = [
-      { secs: 8, input: { ...ZERO_CHARACTER_INPUT, forward: true } },
-      { secs: 5, input: { ...ZERO_CHARACTER_INPUT, forward: true, run: true } },
-      { secs: 2, input: { ...ZERO_CHARACTER_INPUT, right: true } },
-      { secs: 3, input: { ...ZERO_CHARACTER_INPUT, forward: true, jump: true } },
+      { secs: 8, input: { ...ZERO_CHARACTER_INPUT, move: 1 } },
+      { secs: 5, input: { ...ZERO_CHARACTER_INPUT, move: 1, run: true } },
+      { secs: 2, input: { ...ZERO_CHARACTER_INPUT, turn: -1 } },
+      { secs: 3, input: { ...ZERO_CHARACTER_INPUT, move: 1, jump: true } },
       { secs: 4, input: ZERO_CHARACTER_INPUT },
-      { secs: 8, input: { ...ZERO_CHARACTER_INPUT, left: true, run: true } },
+      { secs: 8, input: { ...ZERO_CHARACTER_INPUT, turn: 1, run: true } },
     ];
     const runOnce = (): Array<[number, number, number]> => {
       let s = restCharacterState({ x: 0, y: 0, z: 0 });

@@ -25,41 +25,47 @@ function frame(partial: Partial<InputPayload> = {}): InputPayload {
   };
 }
 
-describe('inputToCharacterInput (TASK-32)', () => {
-  it('zero frame → zero character input', () => {
+describe('inputToCharacterInput (TASK-32, analog TASK-100)', () => {
+  it('zero frame → zero character input (canonical +0, not −0)', () => {
     expect(inputToCharacterInput(frame())).toEqual({
-      forward: false,
-      back: false,
-      left: false,
-      right: false,
+      move: 0,
+      turn: 0,
       run: false,
       jump: false,
     });
+    expect(Object.is(inputToCharacterInput(frame()).turn, 0)).toBe(true);
   });
 
-  it('thrust axis → forward/back (W/S); yaw axis → left/right (A/D)', () => {
-    expect(inputToCharacterInput(frame({ thrust: 1 })).forward).toBe(true);
-    expect(inputToCharacterInput(frame({ thrust: -1 })).back).toBe(true);
-    expect(inputToCharacterInput(frame({ yaw: 1 })).right).toBe(true);
-    expect(inputToCharacterInput(frame({ yaw: -1 })).left).toBe(true);
-    // Both ends of an axis at once → the channel is off (net zero demand).
-    expect(inputToCharacterInput(frame({ thrust: 0 }))).toMatchObject({
-      forward: false,
-      back: false,
+  it('thrust axis → move (W/S forward-positive); yaw axis → turn (sign-flipped, A/D left-positive)', () => {
+    expect(inputToCharacterInput(frame({ thrust: 1 })).move).toBe(1);
+    expect(inputToCharacterInput(frame({ thrust: -1 })).move).toBe(-1);
+    // Wire yaw is screen-RIGHT positive (D → +1); physics turn is
+    // screen-LEFT positive (TASK-80) → D is turn = −1, A is turn = +1.
+    expect(inputToCharacterInput(frame({ yaw: 1 })).turn).toBe(-1);
+    expect(inputToCharacterInput(frame({ yaw: -1 })).turn).toBe(1);
+    // Net-zero demand → zero channels.
+    expect(inputToCharacterInput(frame({ thrust: 0, yaw: 0 }))).toMatchObject({
+      move: 0,
+      turn: 0,
     });
   });
 
-  it('the 0.5x sensitivity edge: a scaled full-hold demand (±0.5) still registers a turn', () => {
-    // TASK-55: the client scales the yaw demand by the sensitivity into
-    // [±0.5, ±2] — the inclusive threshold keeps the minimum preset turning
-    // (and sub-threshold noise, 0 < |yaw| < 0.5, stays off).
-    expect(inputToCharacterInput(frame({ yaw: 0.5 })).right).toBe(true);
-    expect(inputToCharacterInput(frame({ yaw: -0.5 })).left).toBe(true);
-    expect(inputToCharacterInput(frame({ yaw: 2 })).right).toBe(true);
-    expect(inputToCharacterInput(frame({ yaw: 0.49 }))).toMatchObject({
-      left: false,
-      right: false,
-    });
+  it('magnitudes pass through: a partial stick (0.5) maps to a partial channel', () => {
+    expect(inputToCharacterInput(frame({ thrust: 0.5 })).move).toBe(0.5);
+    expect(inputToCharacterInput(frame({ thrust: -0.25 })).move).toBe(-0.25);
+    expect(inputToCharacterInput(frame({ yaw: 0.5 })).turn).toBe(-0.5);
+    expect(inputToCharacterInput(frame({ yaw: -0.5 })).turn).toBe(0.5);
+  });
+
+  it('clamps to [−1, 1] (cheat-resistance: spoofed magnitudes cannot exceed ±1)', () => {
+    // The TASK-55 sensitivity pre-scales the wire yaw into [±0.5, ±2] — at
+    // 0.5x a full keyboard press turns at HALF rate (new, intended), at
+    // 1x/2x the clamp caps the channel at ±1 (keyboard 1x unchanged).
+    expect(inputToCharacterInput(frame({ thrust: 100 })).move).toBe(1);
+    expect(inputToCharacterInput(frame({ thrust: -100 })).move).toBe(-1);
+    expect(inputToCharacterInput(frame({ yaw: 2 })).turn).toBe(-1);
+    expect(inputToCharacterInput(frame({ yaw: -2 })).turn).toBe(1);
+    expect(inputToCharacterInput(frame({ yaw: 0.5 })).turn).toBe(-0.5); // 0.5x preset: half turn
   });
 
   it('action string: run / jump / the combined run+jump', () => {
