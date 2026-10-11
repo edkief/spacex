@@ -9,6 +9,9 @@
 export interface CharDebugState {
   /** Feet position from the last self character entity_update. */
   pos: { x: number; y: number; z: number } | null;
+  /** Velocity from the same snapshot (TASK-100: the e2e reads the
+   * server-reported speed from it). */
+  vel?: { x: number; y: number; z: number };
   /** Facing quat from the same snapshot (undefined pre-rot wire field). */
   rot?: { x: number; y: number; z: number; w: number };
   /** Last input seq the server APPLIED (0 = none yet). */

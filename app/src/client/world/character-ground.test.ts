@@ -38,10 +38,8 @@ function padTarget(): { system: SystemGen; planet: Planet; pad: PadInfo } {
 }
 
 const WALK: CharacterInput = {
-  forward: true,
-  back: false,
-  left: false,
-  right: false,
+  move: 1,
+  turn: 0,
   run: false,
   jump: false,
 };

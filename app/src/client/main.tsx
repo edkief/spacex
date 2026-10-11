@@ -168,7 +168,7 @@ import type {
 } from '@shared/protocol/schemas';
 import { inputToCharacterInput, shipInputToPayload } from '@shared/protocol/inputs';
 import { readSchemeInput } from '@client/input/controls';
-import { TouchInputSource, mergeFlightInput, mergePressed } from '@client/input/touch';
+import { TouchInputSource, mergeAxis, mergeFlightInput, mergePressed } from '@client/input/touch';
 import { TouchControls } from '@client/ui/touch/TouchControls';
 import {
   InputFrameSender,
@@ -1066,6 +1066,7 @@ function App() {
         );
         if (charDebug) {
           charDebug.pos = { ...self.pos };
+          charDebug.vel = self.vel ? { ...self.vel } : undefined;
           charDebug.rot = self.rot ? { ...self.rot } : undefined;
         }
       } else {
@@ -1706,11 +1707,26 @@ function App() {
       const world = worldRef.current;
       if (!p || !world) return;
       const pressed = effectivePressed();
-      const thrust = (pressed.has('w') ? 1 : 0) - (pressed.has('s') ? 1 : 0);
-      // TASK-55: the sensitivity scales the LOOK demand (read LIVE off the
-      // store each frame — the next input frame picks up a slider change).
-      const yaw =
-        ((pressed.has('d') ? 1 : 0) - (pressed.has('a') ? 1 : 0)) * settingsState().sensitivity;
+      // TASK-100: the on-foot axes are ANALOG (the same TASK-99 pattern as
+      // the ship loop): the axis readout comes from the REAL KEYBOARD set
+      // only — the MOVE stick's own virtual keys ('w'/'s'/'a'/'d') would
+      // read as ±1 there and mergeAxis would let that binary 1 beat the
+      // stick's 0.5, collapsing the analog path back to on/off — and is
+      // merged per axis with the live MOVE stick magnitudes, so a partial
+      // stick deflection rides the wire (InputPayload is already analog).
+      // With no active touch channel the merge is a no-op: the payload is
+      // byte-for-byte the legacy one. run/jump stay the merged-set buttons.
+      const kb = pressedRef.current;
+      const kbThrust = (kb.has('w') ? 1 : 0) - (kb.has('s') ? 1 : 0);
+      const kbYaw = (kb.has('d') ? 1 : 0) - (kb.has('a') ? 1 : 0);
+      const ch = touchRef.current.snapshot();
+      const thrust = mergeAxis(kbThrust, ch.thrust ?? 0);
+      // TASK-55: the sensitivity scales the (merged) LOOK demand — read
+      // LIVE off the store each frame. The wire yaw is pre-scaled
+      // [−2, +2]; the server clamps it to [−1, 1], so a full keyboard press
+      // is a full turn at 1x and 2x (unchanged) and a HALF turn at 0.5x
+      // (new, intended with analog turning).
+      const yaw = mergeAxis(kbYaw, ch.yaw ?? 0) * settingsState().sensitivity;
       const run = pressed.has('Shift');
       const jump = pressed.has(' ');
       const action = run && jump ? 'run+jump' : run ? 'run' : jump ? 'jump' : undefined;

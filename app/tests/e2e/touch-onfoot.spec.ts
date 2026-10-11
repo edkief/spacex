@@ -216,11 +216,15 @@ async function charPos(page: Page): Promise<Vec3> {
   return p!;
 }
 
-/** The character's CURRENT facing (from the __CHAR__ rot quat — TASK-30+ probe math). */
+/**
+ * The character's CURRENT facing (from the __CHAR__ rot quat — TASK-30+
+ * probe math). A MISSING rot is the IDENTITY quat (the wire omits identity
+ * — the spawn facing), so it reads as +Z.
+ */
 async function charForward(page: Page): Promise<Vec3> {
   const f = await page.evaluate(() => {
     const r = window.__CHAR__?.rot;
-    if (!r) return null;
+    if (!r) return { x: 0, y: 0, z: 1 };
     const { x, y, z, w } = r;
     return { x: 2 * (x * z + w * y), y: 2 * (y * z - w * x), z: 1 - 2 * (x * x + y * y) };
   });
@@ -503,6 +507,160 @@ test('touch on-foot: MOVE stick + RUN/JUMP/DROP/INTERACT (mine + re-enter, serve
   console.log(
     `[TASK-93] walked=${Math.hypot(walked.x - start.x, walked.z - start.z).toFixed(1)} m ` +
       `yaw-dot=${dotYaw.toFixed(3)} mined=1/40u re-entered=ok`,
+  );
+
+  assertClean();
+  await context.close();
+});
+
+// --- TASK-100: analog MOVE magnitudes ----------------------------------------
+
+/**
+ * TASK-100 — E2E: the partial MOVE stick magnitude reaches the SERVER
+ * (PRD §4.14 / SC-6). Same setup as the TASK-93 test above (claim → dock →
+ * touch-emulated browser → disembark), then three server-confirmed legs —
+ * every measurement reads the SERVER-authoritative __CHAR__ (10 Hz), never
+ * the client prediction:
+ *  (1) FULL THRUST: move({thrust: 1}) → the server-reported horizontal
+ *      speed is the baseline (walk = 3 u/s on the flat pad).
+ *  (2) PARTIAL THRUST: move({thrust: 0.5}) → the server-reported speed is
+ *      strictly between rest and full and within [0.4, 0.6]× full
+ *      (the linear 0.5× law, latency-tolerant band).
+ *  (3) PARTIAL TURN: a fixed 600 ms {yaw: 0.5} burst rotates the
+ *      server-reported facing at ~half the rate of a {yaw: 1} burst
+ *      (ratio within [0.4, 0.6]×, the same band).
+ * Before TASK-100 the server thresholded the wire at ±0.5, so a 0.5 stick
+ * read as full speed / full turn — legs 2/3 fail against the old binary
+ * mapping (ratio ≈ 1.0).
+ */
+
+/** The server-reported horizontal speed, averaged over `ms` (via __CHAR__.vel). */
+async function avgCharSpeed(page: Page, ms: number): Promise<number> {
+  return page.evaluate((ms) => {
+    return new Promise<number>((resolve) => {
+      let sum = 0;
+      let n = 0;
+      const start = Date.now();
+      const tick = (): void => {
+        const v = window.__CHAR__?.vel;
+        if (v) {
+          sum += Math.hypot(v.x, v.z);
+          n++;
+        }
+        if (Date.now() - start >= ms) {
+          resolve(n > 0 ? sum / n : -1);
+        } else {
+          setTimeout(tick, 50);
+        }
+      };
+      tick();
+    });
+  }, ms);
+}
+
+/** The absolute angle (rad) between two XZ-facing unit vectors. */
+function facingAngle(a: Vec3, b: Vec3): number {
+  const cross = a.x * b.z - a.z * b.x;
+  const dot = a.x * b.x + a.z * b.z;
+  return Math.abs(Math.atan2(cross, dot));
+}
+
+test('touch on-foot ANALOG: partial MOVE stick scales the server speed/turn rate (TASK-100)', async ({
+  browser,
+  e2eServer,
+}) => {
+  const { baseURL, apiPort } = e2eServer;
+  test.setTimeout(150_000);
+  const callsign = uniqueCallsign('t100');
+
+  const claimRes = await fetch(`${baseURL}/api/callsigns`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ callsign }),
+  });
+  expect(claimRes.status).toBe(201);
+  const session = (await claimRes.json()) as ClaimResponse;
+  const target = await dockAtPad(baseURL, apiPort, session);
+  console.log(`[TASK-100] callsign=${session.callsign} padSystem=${target.systemId}`);
+
+  const context = await browser.newContext({ hasTouch: true });
+  const page = await context.newPage();
+  const { assertClean } = collectErrors(page);
+  await page.goto(baseURL);
+  await page.evaluate((s) => localStorage.setItem('drift.session.v1', JSON.stringify(s)), session);
+  await page.goto(`${baseURL}/?sys=${target.systemId}`);
+  await expect(page.locator('#docked-indicator')).toBeVisible({ timeout: 15_000 });
+
+  // Disembark → the character entity arrives and __CHAR__ starts reporting.
+  await page.keyboard.press('e');
+  await expect(page.locator('#docked-indicator')).toBeHidden({ timeout: 15_000 });
+  await charPos(page);
+  await expect(page.locator('#touch-stick-move')).toBeVisible({ timeout: 15_000 });
+  await charSettled(page);
+
+  // (1) FULL THRUST baseline: ~1 s of {thrust: 1} (well inside the flat
+  //     pad disc), then 1 s of server-vel sampling.
+  await touch(page, 'move', { thrust: 1 });
+  await page.waitForTimeout(1_000);
+  const fullSpeed = await avgCharSpeed(page, 1_000);
+  await touch(page, 'move', { thrust: 0 });
+  await charSettled(page);
+  expect(fullSpeed, 'full-thrust server speed (≈ 3 u/s walk)').toBeGreaterThan(2.4);
+
+  // (2) PARTIAL THRUST: {thrust: 0.5} → linear half speed on the wire, on
+  //     the server, strictly between rest and full.
+  await touch(page, 'move', { thrust: 0.5 });
+  await page.waitForTimeout(1_000);
+  const partialSpeed = await avgCharSpeed(page, 1_000);
+  await touch(page, 'move', { thrust: 0 });
+  await charSettled(page);
+  expect(partialSpeed, 'partial-thrust server speed (≈ 1.5 u/s)').toBeGreaterThan(0.4);
+  expect(
+    partialSpeed / fullSpeed,
+    `partial/full ratio = ${(partialSpeed / fullSpeed).toFixed(3)} (must be in [0.4, 0.6])`,
+  ).toBeGreaterThanOrEqual(0.4);
+  expect(
+    partialSpeed / fullSpeed,
+    `partial/full ratio = ${(partialSpeed / fullSpeed).toFixed(3)} (must be in [0.4, 0.6])`,
+  ).toBeLessThanOrEqual(0.6);
+
+  // (3) PARTIAL TURN: two fixed 600 ms bursts (rest between), facing read
+  //     from the server quat before/after each — the ratio is the turn-rate
+  //     ratio (same duration, same start rest).
+  const facingA = await charForward(page);
+  await touch(page, 'move', { yaw: 1 });
+  await page.waitForTimeout(600);
+  await touch(page, 'move', { yaw: 0 });
+  await charSettled(page);
+  const facingB = await charForward(page);
+  const fullTurn = facingAngle(facingA, facingB);
+  expect(fullTurn, 'full-yaw burst turned the server facing (≈ 1.8 rad)').toBeGreaterThan(0.5);
+
+  await touch(page, 'move', { yaw: 0.5 });
+  await page.waitForTimeout(600);
+  await touch(page, 'move', { yaw: 0 });
+  await charSettled(page);
+  const facingC = await charForward(page);
+  const partialTurn = facingAngle(facingB, facingC);
+  expect(
+    partialTurn / fullTurn,
+    `partial/full turn ratio = ${(partialTurn / fullTurn).toFixed(3)} (must be in [0.4, 0.6])`,
+  ).toBeGreaterThanOrEqual(0.4);
+  expect(
+    partialTurn / fullTurn,
+    `partial/full turn ratio = ${(partialTurn / fullTurn).toFixed(3)} (must be in [0.4, 0.6])`,
+  ).toBeLessThanOrEqual(0.6);
+
+  // Screenshot: the on-foot analog run (the MOVE stick layout up).
+  await page.screenshot({
+    path: path.join(__dirname, '../../../.ralph/screenshots/TASK-100-1.png'),
+  });
+
+  console.log(
+    `[TASK-100] full=${fullSpeed.toFixed(2)} u/s partial=${partialSpeed.toFixed(2)} u/s ` +
+      `ratio=${(partialSpeed / fullSpeed).toFixed(3)} ` +
+      `turnFull=${fullTurn.toFixed(2)} rad turnPartial=${partialTurn.toFixed(2)} rad ` +
+      `turnRatio=${(partialTurn / fullTurn).toFixed(3)}`,
   );
 
   assertClean();

@@ -66,14 +66,30 @@ export function shipInputToPayload(seq: number, input: ShipInput): InputPayload 
   };
 }
 
+/** Clamp a wire axis to [−1, 1] (0 normalizes −0); see inputToCharacterInput. */
+function clampAxis(v: number): number {
+  if (v !== 0) v = v < -1 ? -1 : v > 1 ? 1 : v;
+  return v === 0 ? 0 : v;
+}
+
 /**
  * Map a wire input frame onto the surface-regime character channels
- * (TASK-32). The SAME 'input' message drives both regimes — the server
- * routes by the player's active entity kind, so no protocol change:
- * - forward/back ride the thrust axis (W/S → +1/−1),
- * - left/right ride the yaw axis (A/D → ±1, or ±0.5..±2 when the client's
- *   TASK-55 sensitivity scales the demand — the 0.5 INCLUSIVE threshold is
- *   what keeps the 0.5x preset still registering a turn),
+ * (TASK-32, analog since TASK-100). The SAME 'input' message drives both
+ * regimes — the server routes by the player's active entity kind, so no
+ * protocol change:
+ * - move rides the thrust axis: the magnitude PASSES THROUGH (forward
+ *   positive) — the touch MOVE stick's partial deflection walks at partial
+ *   speed, a keyboard press is ±1 exactly as before;
+ * - turn rides the yaw axis, sign-flipped: the wire yaw is screen-RIGHT
+ *   positive (D → +1) while the physics turn is screen-LEFT positive
+ *   (TASK-80), so turn = −yaw at the same magnitude;
+ * - both are CLAMPED to [−1, 1] (cheat-resistance: a spoofed thrust = 100
+ *   must not yield 100× speed — the same stance as the flight mapping's
+ *   trust model, TASK-67). The client pre-scales yaw by the TASK-55
+ *   sensitivity (0.5x..2x), so at 0.5x a full keyboard press turns at HALF
+ *   rate (new, intended — analog turning at reduced sensitivity), and at
+ *   1x/2x the clamped value is ±1.0 (keyboard 1x unchanged; the old 0.5
+ *   threshold is gone with the booleans);
  * - run/jump ride the `action` string ('run', 'jump', or the combined
  *   'run+jump' while both are held — the surface analogue of 'vtol').
  * Fire/lock stay reserved (combat, TASK-43/44).
@@ -81,14 +97,8 @@ export function shipInputToPayload(seq: number, input: ShipInput): InputPayload 
 export function inputToCharacterInput(input: InputPayload): CharacterInput {
   const action = input.action ?? '';
   return {
-    forward: input.thrust > 0.5,
-    back: input.thrust < -0.5,
-    // INCLUSIVE: the TASK-55 sensitivity scales the client's yaw demand into
-    // [±0.5, ±2] — at the 0.5x minimum a full-hold demand is exactly 0.5
-    // and must still turn (the server's turn RATE stays the v1 constant;
-    // magnitude-scaled turning lands with mouse look).
-    left: input.yaw <= -0.5,
-    right: input.yaw >= 0.5,
+    move: clampAxis(input.thrust),
+    turn: clampAxis(-input.yaw),
     run: action === 'run' || action === 'run+jump',
     jump: action === 'jump' || action === 'run+jump',
   };

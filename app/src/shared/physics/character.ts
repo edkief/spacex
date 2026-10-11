@@ -9,8 +9,9 @@
  * no swimming, no climbing — v1 terrain has no water.
  *
  * Model:
- * - walk 3 u/s, run 6 u/s (the speed is set directly while a move key is
- *   held — arcade, no accel phase); with no move input, ground friction
+ * - walk 3 u/s, run 6 u/s (the speed is set directly while moving — arcade,
+ *   no accel phase), scaled LINEARLY by the move magnitude (TASK-100: a
+ *   half-stick walks at half speed); with no move input, ground friction
  *   decays the horizontal speed at 8 u/s².
  * - jump: only from the ground (no double jump), impulse 5 u/s. With
  *   gravity 12 u/s² the arc apex is v²/2g ≈ 1.04 m and the airtime is
@@ -97,23 +98,28 @@ const LANDING_EPS_M = 1e-6;
 const Y_AXIS: Vec3 = { x: 0, y: 1, z: 0 };
 const FORWARD_LOCAL: Vec3 = { x: 0, y: 0, z: 1 };
 
-/** Per-tick control input for the surface regime. */
+/**
+ * Per-tick control input for the surface regime. TASK-100: the move and
+ * turn channels are ANALOG (the touch MOVE stick's magnitude rides the wire
+ * and the physics scales speed/turn rate linearly with it); a keyboard
+ * press is a full-magnitude ±1, so the legacy boolean behavior is exactly
+ * the |input| = 1 case (the golden tests pin that parity).
+ */
 export interface CharacterInput {
-  forward: boolean;
-  back: boolean;
   /**
-   * Turn the facing LEFT ON SCREEN (TASK-80): a +yaw rotation about +Y,
+   * Move magnitude along the facing: forward = +, backward = − (−1..1).
+   * 0 = no move (the ground-friction path); the horizontal speed is set to
+   * (run ? run : walk) · |move|, linear in the magnitude.
+   */
+  move: number;
+  /**
+   * Turn magnitude, LEFT ON SCREEN positive (TASK-80: a +rotation about +Y,
    * which swings local +Z toward local +X — screen-left in the right-handed
-   * +Y-up/+Z-forward frame (the on-foot camera looks along the facing).
-   * Ground only (no air control).
+   * +Y-up/+Z-forward frame). −1 = full right turn (screen-right, local −X).
+   * The facing rotates at CHAR_TURN_RATE · |turn| (ground only — no air
+   * control).
    */
-  left: boolean;
-  /**
-   * Turn the facing RIGHT ON SCREEN (TASK-80): a −yaw rotation about +Y,
-   * which swings local +Z toward local −X — the character's right. Ground
-   * only (no air control).
-   */
-  right: boolean;
+  turn: number;
   /** Double the move speed (the shift key). */
   run: boolean;
   /** Jump (only while onGround; holding it auto-rejumps on landing — v1). */
@@ -122,10 +128,8 @@ export interface CharacterInput {
 
 /** Zero character input (a disconnected / coasting character). */
 export const ZERO_CHARACTER_INPUT: CharacterInput = {
-  forward: false,
-  back: false,
-  left: false,
-  right: false,
+  move: 0,
+  turn: 0,
   run: false,
   jump: false,
 };
@@ -170,7 +174,8 @@ function cloneState(s: CharacterState): CharacterState {
  * stay in lock step (TASK-14 pattern).
  *
  * @param state    current kinematic state (never mutated)
- * @param input    control input this tick (booleans, no clamping needed)
+ * @param input    control input this tick (move/turn in −1..1 — the wire
+ *                 mapping clamps; run/jump booleans)
  * @param dt       timestep in seconds (must be > 0 and finite)
  * @param heightAt terrain height at (x, z) in u (caller-injected, the
  *                 flight model's contract; defaults to flat y = 0)
@@ -215,24 +220,25 @@ function characterSubstep(
   if (onGround) {
     // Turning: yaw only, ground only (air control is ignored — spec).
     // TASK-80: right-handed, +Y up, +Z forward ⇒ the character's right is
-    // local −X, so RIGHT turns by a NEGATIVE rotation about +Y (nose
-    // toward −X = screen-right) and left by a positive one.
-    if (input.right && !input.left) {
-      quat = quatNormalize(quatMultiply(quat, quatFromAxisAngle(Y_AXIS, -CHAR_TURN_RATE * h)));
-    } else if (input.left && !input.right) {
-      quat = quatNormalize(quatMultiply(quat, quatFromAxisAngle(Y_AXIS, CHAR_TURN_RATE * h)));
+    // local −X, so a RIGHT (screen-right) turn is a NEGATIVE rotation about
+    // +Y (nose toward −X) and a LEFT one positive. The turn sign carries
+    // that convention; the magnitude scales the rate (TASK-100): at |turn|
+    // = 1 the rotation is exactly the legacy full-key turn.
+    if (input.turn > 0) {
+      quat = quatNormalize(quatMultiply(quat, quatFromAxisAngle(Y_AXIS, CHAR_TURN_RATE * input.turn * h)));
+    } else if (input.turn < 0) {
+      quat = quatNormalize(quatMultiply(quat, quatFromAxisAngle(Y_AXIS, -CHAR_TURN_RATE * -input.turn * h)));
     }
 
-    if (input.forward || input.back) {
+    if (input.move !== 0) {
       // Arcade move: the horizontal velocity is set directly along the
-      // facing (local +Z projected on XZ — the quat is yaw-only).
+      // facing (local +Z projected on XZ — the quat is yaw-only), scaled
+      // LINEARLY by the magnitude (TASK-100): a half-stick walks at half
+      // speed; ±1 is exactly the legacy full-key behavior.
+      const sign = input.move > 0 ? 1 : -1;
       const fwd = quatRotateVector(quat, FORWARD_LOCAL);
-      const dir = vecNormalize({
-        x: fwd.x * ((input.forward ? 1 : 0) - (input.back ? 1 : 0)),
-        y: 0,
-        z: fwd.z * ((input.forward ? 1 : 0) - (input.back ? 1 : 0)),
-      });
-      const speed = input.run ? CHAR_RUN_SPEED : CHAR_WALK_SPEED;
+      const dir = vecNormalize({ x: fwd.x * sign, y: 0, z: fwd.z * sign });
+      const speed = (input.run ? CHAR_RUN_SPEED : CHAR_WALK_SPEED) * Math.abs(input.move);
       vel.x = dir.x * speed;
       vel.z = dir.z * speed;
       vel.y = 0;
