@@ -953,10 +953,21 @@ test('touch-only SC-1 loop: claim → warp → fly → VTOL land → exit → mi
   await reEnterShip(page, { x: t.pad.x, z: t.pad.z }, '[E] Enter ship');
   await page.waitForTimeout(400);
   await expect(prompt).toHaveText('[E] Enter ship'); // the prompt HOLDS
-  expect(
-    await touch(page, 'interactPress'),
-    'interactPress (re-enter) through the touch hook',
-  ).toBe(undefined);
+  // The E path is a one-shot against the client's 10 Hz raycast target: a
+  // press landing while the target is stale no-ops (the documented
+  // re-enter flake family — the keyboard-only spec's ≤3× press retry, the
+  // TASK-95.1 log). The server's enter_ship is idempotent, so re-press while
+  // the prompt still arms the ship (once in-ship the prompt is hidden and
+  // the loop stops — a second press can never egress the pilot).
+  for (let press = 1; press <= 3; press++) {
+    const armed = (await prompt.isVisible()) && (await prompt.textContent()) === '[E] Enter ship';
+    if (!armed) break;
+    expect(
+      await touch(page, 'interactPress'),
+      `interactPress (re-enter, press ${press}) through the touch hook`,
+    ).toBe(undefined);
+    if (await prompt.isHidden({ timeout: 3_000 })) break;
+  }
   await expect(prompt).toBeHidden({ timeout: 10_000 });
   await expect(page.locator('#docked-indicator')).toBeVisible({ timeout: 15_000 });
   await expect(page.locator('#leave-ship-prompt')).toBeVisible({ timeout: 15_000 });
