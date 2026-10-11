@@ -9,8 +9,11 @@
  * container renders nothing when disabled or on the surface, and held
  * channels are cleared on disable / unmount / regime flip. The touchDebug
  * hook's passthrough + live snapshot are covered too. TASK-101: the FIRE
- * button is a functional hold (a fake rAF clock proves press fires every
- * frame, and release / unmount / disembark / disable stop the loop).
+ * button is a functional hold (a fake rAF clock proves the press fires
+ * immediately, release / unmount / disembark / disable stop the loop).
+ * TASK-104: the held loop PACES intents at most one per 333 ms (the fake
+ * clock advances performance.now 16 ms per frame, so the pace is
+ * deterministic — a 333 ms interval is ≈ 21 frames).
  */
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -79,9 +82,14 @@ let combat: {
 /**
  * The fake rAF clock: requestAnimationFrame queues, frames(n) advances n
  * frames (each queued callback schedules the next loop iteration).
+ * TASK-104: each fake frame also advances the fake `performance.now` by
+ * FRAME_MS (16 ms), so the FIRE hold's 333 ms pace elapses deterministically
+ * across simulated frames (a pace of 333 ms ≈ 21 frames).
  */
+const FRAME_MS = 16;
 function fakeRaf(): { frames: (n: number) => void } {
   const queue: FrameRequestCallback[] = [];
+  let t = 0;
   vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
     queue.push(cb);
     return queue.length;
@@ -89,12 +97,16 @@ function fakeRaf(): { frames: (n: number) => void } {
   vi.stubGlobal('cancelAnimationFrame', (id: number) => {
     queue.splice(id - 1, 1);
   });
+  // Spy (not stubGlobal) so the rest of the Performance API stays intact —
+  // only `now` is fake, and `vi.restoreAllMocks()` in afterEach restores it.
+  vi.spyOn(performance, 'now').mockImplementation(() => t);
   return {
     frames: (n: number) => {
       for (let i = 0; i < n; i++) {
+        t += FRAME_MS;
         act(() => {
           const pending = queue.splice(0, queue.length);
-          for (const cb of pending) cb(i + 1);
+          for (const cb of pending) cb(t);
         });
       }
     },
@@ -120,6 +132,7 @@ afterEach(() => {
   roots = [];
   document.body.innerHTML = '';
   vi.unstubAllGlobals(); // the fake rAF clock (TASK-101)
+  vi.restoreAllMocks(); // the fake performance.now (TASK-104)
 });
 
 describe('TouchControls — layout and regime gating', () => {
@@ -407,28 +420,34 @@ describe('TouchControls — FIRE hold-to-fire (TASK-101)', () => {
     });
   const fireButton = (c: Element): Element => c.querySelector('[aria-label="FIRE"]')!;
 
-  it('a press fires immediately; every simulated frame while held fires again', () => {
+  it('a press fires immediately; the held loop paces at most one fire per 333 ms (TASK-104)', () => {
     const raf = fakeRaf();
     const c = withCombat();
     pointer('pointerdown', 0, 0, fireButton(c));
     expect(combat.onFire).toHaveBeenCalledTimes(1); // the immediate first shot
     expect(fireButton(c).getAttribute('aria-pressed')).toBe('true');
-    raf.frames(3);
-    expect(combat.onFire).toHaveBeenCalledTimes(4); // ≥ 1 call per simulated frame
-    raf.frames(5);
-    expect(combat.onFire).toHaveBeenCalledTimes(9);
+    // 20 frames × 16 ms = 320 ms < 333 → the pace has NOT elapsed (no fire).
+    raf.frames(20);
+    expect(combat.onFire).toHaveBeenCalledTimes(1);
+    // Frame 21 → t = 336 ms ≥ 333 → exactly one paced intent.
+    raf.frames(1);
+    expect(combat.onFire).toHaveBeenCalledTimes(2);
+    // The next pace lands 333 ms later (≈ 21 more frames) — not per frame.
+    raf.frames(21);
+    expect(combat.onFire).toHaveBeenCalledTimes(3);
+    pointer('pointerup', 0, 0, fireButton(c));
   });
 
   it('releasing stops the fire loop (no further calls on later frames)', () => {
     const raf = fakeRaf();
     const c = withCombat();
     pointer('pointerdown', 0, 0, fireButton(c));
-    raf.frames(2);
+    raf.frames(21);
     const held = combat.onFire.mock.calls.length;
-    expect(held).toBe(3); // immediate + 2 frames
+    expect(held).toBe(2); // immediate + one paced fire
     pointer('pointerup', 0, 0, fireButton(c));
     expect(fireButton(c).getAttribute('aria-pressed')).toBe('false');
-    raf.frames(4);
+    raf.frames(42);
     expect(combat.onFire).toHaveBeenCalledTimes(held); // the loop is dead
   });
 
@@ -438,12 +457,12 @@ describe('TouchControls — FIRE hold-to-fire (TASK-101)', () => {
     pointer('pointerdown', 0, 0, fireButton(c));
     pointer('pointerup', 0, 0, fireButton(c));
     expect(combat.onFire).toHaveBeenCalledTimes(1);
-    raf.frames(2);
+    raf.frames(30);
     expect(combat.onFire).toHaveBeenCalledTimes(1); // the stopped loop stays stopped
     pointer('pointerdown', 0, 0, fireButton(c));
-    expect(combat.onFire).toHaveBeenCalledTimes(2);
-    raf.frames(2);
-    expect(combat.onFire).toHaveBeenCalledTimes(4);
+    expect(combat.onFire).toHaveBeenCalledTimes(2); // a fresh press fires at once
+    raf.frames(21);
+    expect(combat.onFire).toHaveBeenCalledTimes(3); // the fresh loop paces
     pointer('pointerup', 0, 0, fireButton(c));
   });
 
@@ -541,7 +560,7 @@ describe('TouchControls — TASK-102 button sizes + press haptics', () => {
     }
   });
 
-  it('FIRE: the press vibrates once, the per-frame hold loop never does', () => {
+  it('FIRE: the press vibrates once, the paced hold loop never does', () => {
     const vibrate = vi.fn<() => boolean>();
     vi.stubGlobal('navigator', { ...navigator, vibrate });
     const raf = fakeRaf();
@@ -549,12 +568,13 @@ describe('TouchControls — TASK-102 button sizes + press haptics', () => {
     const fire = document.querySelector('[aria-label="FIRE"]')!;
     pointer('pointerdown', 0, 0, fire);
     expect(vibrate, 'the press pulses once').toHaveBeenCalledTimes(1);
-    raf.frames(5);
-    expect(combat.onFire).toHaveBeenCalledTimes(6); // immediate + 5 frames
-    expect(vibrate, 'the hold loop must not buzz per frame').toHaveBeenCalledTimes(1);
+    expect(combat.onFire).toHaveBeenCalledTimes(1); // the immediate first shot
+    raf.frames(42); // 672 ms held — two more PACED intents (3 total), no buzz
+    expect(combat.onFire).toHaveBeenCalledTimes(3);
+    expect(vibrate, 'the hold loop must not buzz per fire').toHaveBeenCalledTimes(1);
     pointer('pointerup', 0, 0, fire);
     raf.frames(3);
-    expect(combat.onFire).toHaveBeenCalledTimes(6); // the loop is dead
+    expect(combat.onFire).toHaveBeenCalledTimes(3); // the loop is dead
     expect(vibrate).toHaveBeenCalledTimes(1);
   });
 });

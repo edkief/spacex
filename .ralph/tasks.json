@@ -907,5 +907,12 @@
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-103.json",
     "passes": true
+  },
+  {
+    "id": "TASK-104",
+    "title": "Touch disconnect fix: cap client input/fire sends to the 20 msg/s inbound bucket",
+    "category": "ui",
+    "specFilePath": ".ralph/tasks/TASK-104.json",
+    "passes": true
   }
 ]
