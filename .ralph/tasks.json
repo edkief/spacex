@@ -232,7 +232,7 @@
   },
   {
     "id": "TASK-25.1",
-    "title": "Regime manager: fix the 2 stale atmosphere fixtures — full suite green",
+    "title": "Regime manager: fix the 2 stale atmosphere fixtures \u2014 full suite green",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-25.1.json",
     "passes": true,
@@ -311,7 +311,7 @@
   },
   {
     "id": "TASK-29.2",
-    "title": "VTOL-assisted approach: scripted 100 m → docked in < 15 s (sim convergence test)",
+    "title": "VTOL-assisted approach: scripted 100 m \u2192 docked in < 15 s (sim convergence test)",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-29.2.json",
     "passes": true,
@@ -444,7 +444,7 @@
   },
   {
     "id": "TASK-43.1",
-    "title": "Weapons: fix the failing ridge-LOS unit test — all 33 weapon tests green",
+    "title": "Weapons: fix the failing ridge-LOS unit test \u2014 all 33 weapon tests green",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-43.1.json",
     "passes": true,
@@ -453,7 +453,7 @@
   },
   {
     "id": "TASK-43.2",
-    "title": "Weapons: WS integration — A fires at B, B's shields drop, C sees the FX events",
+    "title": "Weapons: WS integration \u2014 A fires at B, B's shields drop, C sees the FX events",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-43.2.json",
     "passes": true,
@@ -619,7 +619,7 @@
   },
   {
     "id": "TASK-58.1",
-    "title": "First full 60 s benchmark run — stabilize the committed gates",
+    "title": "First full 60 s benchmark run \u2014 stabilize the committed gates",
     "category": "performance",
     "specFilePath": ".ralph/tasks/TASK-58.1.json",
     "passes": true,
@@ -662,7 +662,7 @@
     "category": "performance",
     "specFilePath": ".ralph/tasks/TASK-61.json",
     "passes": true,
-    "note": "closed 2026-10-06: fresh perf:report desktop (git 3936efc) all four benchmarks green — transitions worst-p99 medians 0.59-0.78 ms (owner TASK-30.1 fix verified on the reference-class machine); SC-1/SC-3/SC-4(desktop)/SC-5 PASS; phone BLOCKED-PENDING-DEVICE (SC-4 mobile UNVERIFIED); report at app/docs/performance.md"
+    "note": "closed 2026-10-06: fresh perf:report desktop (git 3936efc) all four benchmarks green \u2014 transitions worst-p99 medians 0.59-0.78 ms (owner TASK-30.1 fix verified on the reference-class machine); SC-1/SC-3/SC-4(desktop)/SC-5 PASS; phone BLOCKED-PENDING-DEVICE (SC-4 mobile UNVERIFIED); report at app/docs/performance.md"
   },
   {
     "id": "TASK-69",
@@ -670,7 +670,7 @@
     "category": "documentation",
     "specFilePath": ".ralph/tasks/TASK-69.json",
     "passes": true,
-    "note": "closed 2026-10-06: root README + app/docs/{architecture,protocol,ops,contributing}.md written and verified — clean-clone dry run green (claim 201 -> session 200), perf:report desktop PASS, backup cmds + graceful SIGTERM verified, 13 env vars + 61 doc links cross-checked, tsc + full suite green (182 files, 1638 passed / 1 skipped)"
+    "note": "closed 2026-10-06: root README + app/docs/{architecture,protocol,ops,contributing}.md written and verified \u2014 clean-clone dry run green (claim 201 -> session 200), perf:report desktop PASS, backup cmds + graceful SIGTERM verified, 13 env vars + 61 doc links cross-checked, tsc + full suite green (182 files, 1638 passed / 1 skipped)"
   },
   {
     "id": "TASK-75",
@@ -699,14 +699,14 @@
   },
   {
     "id": "TASK-80",
-    "title": "Controls: A/D (yaw/turn) and Q/E (roll) are mirrored — D must turn right",
+    "title": "Controls: A/D (yaw/turn) and Q/E (roll) are mirrored \u2014 D must turn right",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-80.json",
     "passes": true
   },
   {
     "id": "TASK-81",
-    "title": "Flight: maxVelocity is not a top speed — thrust overshoots it by 20 × acceleration × dt",
+    "title": "Flight: maxVelocity is not a top speed \u2014 thrust overshoots it by 20 \u00d7 acceleration \u00d7 dt",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-81.json",
     "passes": true
@@ -720,7 +720,7 @@
   },
   {
     "id": "TASK-78",
-    "title": "Camera drop-off (2/3): rigid chase camera — constant distance at any speed",
+    "title": "Camera drop-off (2/3): rigid chase camera \u2014 constant distance at any speed",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-78.json",
     "passes": true
@@ -769,7 +769,7 @@
   },
   {
     "id": "TASK-87",
-    "title": "Planet approach: space→surface transition missing, ship flies through the planet",
+    "title": "Planet approach: space\u2192surface transition missing, ship flies through the planet",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-87.json",
     "passes": true
@@ -811,7 +811,7 @@
   },
   {
     "id": "TASK-96",
-    "title": "Fix NaN in quatSlerp (unclamped acos) — root cause of the on-foot NaN-BigInt terrain page error",
+    "title": "Fix NaN in quatSlerp (unclamped acos) \u2014 root cause of the on-foot NaN-BigInt terrain page error",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-96.json",
     "passes": true
@@ -843,7 +843,7 @@
   },
   {
     "id": "TASK-95.1",
-    "title": "Touch loop e2e: warp-leg flake + land leg + legs 6–10 — touch-loop.spec.ts fully green",
+    "title": "Touch loop e2e: warp-leg flake + land leg + legs 6\u201310 \u2014 touch-loop.spec.ts fully green",
     "category": "docs",
     "specFilePath": ".ralph/tasks/TASK-95.1.json",
     "passes": true,
@@ -868,7 +868,7 @@
   },
   {
     "id": "TASK-98",
-    "title": "Atmospheric/surface flight: main thruster dead on a planet — ship can't move or leave",
+    "title": "Atmospheric/surface flight: main thruster dead on a planet \u2014 ship can't move or leave",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-98.json",
     "passes": true
@@ -941,7 +941,7 @@
     "title": "Boost toggle: Shift toggles cruise boost (client input + HUD + touch + e2e)",
     "category": "ui",
     "specFilePath": ".ralph/tasks/TASK-108.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-109",

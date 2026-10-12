@@ -119,7 +119,8 @@ async function teleport(page: import('@playwright/test').Page, baseURL: string, 
   await expect
     .poll(
       async () => {
-        const ups = (await page.evaluate(() => (window as unknown as { __t108?: TapEntry[] }).__t108)) ?? [];
+        const ups =
+          (await page.evaluate(() => (window as unknown as { __t108?: TapEntry[] }).__t108)) ?? [];
         const u = ups[ups.length - 1];
         return u ? Math.hypot(u.pos.x - to.x, u.pos.y - to.y, u.pos.z - to.z) < 50 : false;
       },
@@ -158,9 +159,10 @@ test('boost toggle: one Shift press sustains the cruise, the next decays, the CR
   // idle-frame gate and takes the ship off (the server's first-input
   // contract) with the cruise engaging at the same time.
   await page.keyboard.press('Shift');
-  expect(await page.evaluate(() => window.__BOOST__?.on ?? null), 'toggle ON after one Shift tap').toBe(
-    true,
-  );
+  expect(
+    await page.evaluate(() => window.__BOOST__?.on ?? null),
+    'toggle ON after one Shift tap',
+  ).toBe(true);
   // The CRUISE indicator follows the TOGGLE: lit (the home dock is > 10 km
   // from any planet anchor, far outside the 2.5 km no-cruise band).
   await expect(page.locator('#ship-hud-cruise')).toBeVisible({ timeout: 10_000 });
@@ -205,15 +207,17 @@ test('boost toggle: one Shift press sustains the cruise, the next decays, the CR
     }
   }
   expect(samples, 'got server speed samples during the 5 s hold').toBeGreaterThanOrEqual(20);
-  expect(minSpeed, 'speed stayed > 100 u/s for 5 s with NO keys held (boost persists)').toBeGreaterThan(
-    100,
-  );
+  expect(
+    minSpeed,
+    'speed stayed > 100 u/s for 5 s with NO keys held (boost persists)',
+  ).toBeGreaterThan(100);
 
   // ---------- Phase C: the next Shift tap disengages; the speed decays ----------
   await page.keyboard.press('Shift');
-  expect(await page.evaluate(() => window.__BOOST__?.on ?? null), 'toggle OFF after the second tap').toBe(
-    false,
-  );
+  expect(
+    await page.evaluate(() => window.__BOOST__?.on ?? null),
+    'toggle OFF after the second tap',
+  ).toBe(false);
   await expect(page.locator('#ship-hud-cruise')).toBeHidden();
   // The SOFT_CAP_DECAY (5 %/tick, TASK-81) bleeds the excess above the
   // normal class cap (120) within ~10 s.
@@ -234,13 +238,21 @@ test('boost toggle: one Shift press sustains the cruise, the next decays, the CR
   // (> BOOST_TAP_MAX_MS), so it must NEVER arm the toggle: the store stays
   // off.
   await page.keyboard.down('w');
+  const shiftDownAt = Date.now();
   await page.keyboard.down('Shift');
   await expect
     .poll(() => lastSpeed(page), {
       timeout: 10_000,
-      message: 'W+Shift press-hold with the toggle off never boosted past the normal cap (legacy path broken)',
+      message:
+        'W+Shift press-hold with the toggle off never boosted past the normal cap (legacy path broken)',
     })
     .toBeGreaterThan(121);
+  // The speed crossing can happen quickly; ensure the WHOLE press is a genuine
+  // press-hold (> BOOST_TAP_MAX_MS) before releasing, otherwise the release
+  // would be classified as a tap and arm the toggle (the very thing we assert
+  // it does not).
+  const heldMs = Date.now() - shiftDownAt;
+  if (heldMs < 400) await page.waitForTimeout(400 - heldMs);
   await page.keyboard.up('Shift');
   await page.keyboard.up('w');
   expect(

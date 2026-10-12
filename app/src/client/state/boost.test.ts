@@ -186,6 +186,15 @@ describe('boost toggle → wire payload (the flight loop composition)', () => {
       })(),
     );
     // Exactly the pre-task W+Shift frame: thrust 1, boost tag, nothing else.
-    expect(payload).toEqual({ seq: 1, thrust: 1, yaw: 0, pitch: 0, turn: 0, fire: false, lock: false, action: 'boost' });
+    expect(payload).toEqual({
+      seq: 1,
+      thrust: 1,
+      yaw: 0,
+      pitch: 0,
+      turn: 0,
+      fire: false,
+      lock: false,
+      action: 'boost',
+    });
   });
 });

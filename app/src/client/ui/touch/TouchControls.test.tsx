@@ -339,7 +339,7 @@ describe('TouchControls — channel hygiene across regime / enable flips', () =>
     expect(source.snapshot().boost).toBe(false);
   });
 
-  it('the toggle store SURVIVES the layout flip (auto-offer is the wire handler\'s job)', () => {
+  it("the toggle store SURVIVES the layout flip (auto-offer is the wire handler's job)", () => {
     renderControls({ regime: 'space' });
     setBoostOn(true); // the keyboard / touch toggle
     act(() => {

@@ -168,8 +168,13 @@ function ThrustVectorBar({
  * carries the state (not just colour), and both colours clear
  * ≥ 4.5:1 on the tag background.
  */
-function CruiseTag({ state, regime }: { state: CruiseState; regime: SelfShipView['regime'] }):
-  React.ReactElement | null {
+function CruiseTag({
+  state,
+  regime,
+}: {
+  state: CruiseState;
+  regime: SelfShipView['regime'];
+}): React.ReactElement | null {
   if (!state.held || regime !== 'space') return null;
   const active = state.allowed;
   return (
