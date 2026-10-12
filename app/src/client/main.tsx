@@ -1807,6 +1807,10 @@ function App() {
           interactDebug.distance = raw.distance;
           interactDebug.feet = { ...st.pos };
         }
+        if (interactDebug) {
+          interactDebug.targets = interactTargetsRef.current; // TEMP DEBUG
+          interactDebug.facing = { ...st.quat }; // TEMP DEBUG
+        }
         const next = nextPromptState(promptStateRef.current, raw);
         if (next !== promptStateRef.current) {
           promptStateRef.current = next;
