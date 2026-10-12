@@ -29,6 +29,12 @@ function actionTags(action: string | undefined): string[] {
  * OR the 'hover' tag is present, and hover = 1 only when 'hover' is present.
  * The physics layer treats them as mutually exclusive lift sources (hover
  * replaces the up-demand lift; see flight.ts).
+ *
+ * TASK-109: the 'stop' tag is deliberately IGNORED here — it is a
+ * SHARD-LEVEL COMMAND on the frame, not a per-tick ShipInput channel (the
+ * shard detects the tag on the RAW InputPayload before this mapping and
+ * drives its stop autopilot; a 'stop' engage frame carries no flight
+ * demand by contract, so ignoring the tag is behaviour-neutral).
  */
 export function inputToShipInput(input: InputPayload): ShipInput {
   const tags = actionTags(input.action);
@@ -63,6 +69,10 @@ export function inputToShipInput(input: InputPayload): ShipInput {
  * held-key path. On the wire the 'hover' tag wins over 'vtol' (it implies
  * up, so 'vtol' would be redundant) — a `hover: 1` input therefore emits
  * 'hover' and its round-trip is {up: 1, hover: 1} (the normalized form).
+ *
+ * TASK-109: the 'stop' tag is never emitted here — like in
+ * {@link inputToShipInput}, it is a one-shot command the shard reads off
+ * the raw frame, not a per-tick channel of this round-trip.
  */
 export function shipInputToPayload(seq: number, input: ShipInput): InputPayload {
   const tags: string[] = [];

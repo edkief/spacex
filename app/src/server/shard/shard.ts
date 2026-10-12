@@ -15,6 +15,7 @@ import {
 import { CHAT_HISTORY_MAX } from '@shared/chat';
 import { applyDamage, type ApplyDamageResult, type DamageSource } from '@shared/physics/damage';
 import { integrateShip, type FlightOptions, type PlanetAtmo } from '@shared/physics/flight';
+import { STOP_SPEED_EPS, stopInput } from '@shared/physics/stop-autopilot';
 import {
   quatIdentity,
   quatRotateVector,
@@ -691,6 +692,7 @@ export class SystemShard implements Shard {
       const entity = this.playerEntities.get(state.playerId);
       if (entity) {
         entity.heldInput = undefined;
+        entity.stopActive = false; // TASK-109: no autopilot without a pilot
         entity.idle = true;
         // TASK-32: a disconnect while on foot also releases the character's
         // held frame — it coasts to a stop (friction) instead of walking
@@ -1610,6 +1612,7 @@ export class SystemShard implements Shard {
     entity.shields = 0;
     entity.targetId = null;
     entity.heldInput = undefined;
+    entity.stopActive = false; // TASK-109: a wreck is not an autopilot ship
     const connId = entity.playerId ? this.playerConns.get(entity.playerId) : undefined;
     if (connId) {
       const conn = this.connections.get(connId);
@@ -1735,6 +1738,7 @@ export class SystemShard implements Shard {
     entity.energy = ENERGY_MAX;
     entity.fireCooldownUntil = undefined;
     entity.heldInput = undefined;
+    entity.stopActive = false; // TASK-109: a docked respawn is already stopped
     entity.idle = !this.playerConns.has(playerId);
     // Persist: replace the record (classId → scout, full caps, docked, cargo
     // scrubbed) in one transaction. Best-effort — a persistence failure must
@@ -1884,17 +1888,50 @@ export class SystemShard implements Shard {
         const conn = connId ? this.connections.get(connId) : undefined;
         const input = conn?.input;
         if (conn && input) {
+          // TASK-109: the 'stop' tag is a COMMAND on the raw frame (the
+          // ShipInput mapping ignores it). A PURE engage frame (the tag, no
+          // flight demand) engages the autopilot; ANY non-zero
+          // thrust/turn/pitch/roll demand cancels an active one.
+          const stopTag = (input.action ?? '').split('+').includes('stop');
+          const hasDemand =
+            input.thrust !== 0 || input.turn !== 0 || input.pitch !== 0 || input.yaw !== 0;
+          if (entity.stopActive) {
+            if (hasDemand) {
+              entity.stopActive = false;
+              this.log.info('stop cancelled by manual demand', {
+                id: entity.id,
+                playerId: entity.playerId,
+              });
+            }
+          } else if (stopTag && !hasDemand) {
+            if (entity.docked) {
+              this.log.debug('stop ignored (docked)', { id: entity.id, playerId: entity.playerId });
+            } else {
+              entity.stopActive = true; // idempotent engage (no-op if active)
+              this.log.info('stop engaged', { id: entity.id, playerId: entity.playerId });
+            }
+          }
           conn.input = undefined; // consumed: becomes the held frame
           entity.heldInput = input; // held until a newer frame replaces it
           conn.appliedSeq = input.seq; // TASK-14: reconcilable from this tick on
-          if (entity.docked) entity.docked = false; // first input = take-off
+          // A pure 'stop' frame on a docked ship is a no-op — it must not
+          // undock (a docked ship is already stopped; the tick skips it).
+          if (entity.docked && !(stopTag && !hasDemand)) entity.docked = false; // first input = take-off
         }
         // TASK-25: resolve the regime FIRST (the shared state machine is the
         // authority — hysteresis included); a change is an event, and the new
         // regime drives the physics context for THIS tick.
         this.resolveRegime(entity);
         const ctx = this.resolveRegimeCtx(entity);
-        const shipInput = inputToShipInput(entity.heldInput ?? ZERO_INPUT);
+        // TASK-109: a stopActive ship integrates the SHARED stop autopilot
+        // (from the AUTHORITY state) instead of the player's frame — the
+        // frame was consumed above for the engage/cancel rule, then discarded.
+        const shipInput = entity.stopActive
+          ? stopInput(entity.ship, shipStats(entity.classId), this.dt, {
+              regime: entity.ship.regime,
+              heightAt: ctx.options.heightAt,
+            })
+          : inputToShipInput(entity.heldInput ?? ZERO_INPUT);
         entity.ship = integrateShip(
           entity.ship,
           shipInput,
@@ -1910,6 +1947,18 @@ export class SystemShard implements Shard {
         // TASK-43: energy regen (10/s, max 100) — including while docked or
         // disembarked (the idle tick keeps regenerating, spec note).
         entity.energy = regenEnergy(entity.energy ?? ENERGY_MAX, this.dt);
+        // TASK-109: stop completion — slow enough AND (space, or grounded):
+        // clear the flag, log, and emit the event (the client HUD derives its
+        // state from the next entity_update — nothing new on the wire).
+        if (entity.stopActive) {
+          const heightAt = ctx.options.heightAt ?? (() => 0);
+          const grounded = entity.ship.pos.y <= heightAt(entity.ship.pos.x, entity.ship.pos.z) + 0.05;
+          if (vecLength(entity.ship.vel) < STOP_SPEED_EPS && (entity.ship.regime === 'space' || grounded)) {
+            entity.stopActive = false;
+            this.log.info('stop complete', { id: entity.id, playerId: entity.playerId });
+            this.events.emit('stop-complete', { id: entity.id, playerId: entity.playerId });
+          }
+        }
       }
     });
 
@@ -2687,6 +2736,7 @@ export class SystemShard implements Shard {
     entity.ship.pos = { ...pos };
     entity.ship.vel = vel ? { ...vel } : { x: 0, y: 0, z: 0 };
     entity.heldInput = undefined;
+    entity.stopActive = false; // TASK-109: a teleport kills any in-flight stop
     entity.idle = false;
     this.log.debug('teleport (dev/test hook)', { playerId, x: pos.x, y: pos.y, z: pos.z });
     return true;
@@ -2785,6 +2835,7 @@ export class SystemShard implements Shard {
       ...(entity.livery ? { livery: entity.livery } : {}),
     });
     entity.disembarked = true;
+    entity.stopActive = false; // TASK-109: the frozen ship keeps no autopilot
     this.log.info('player disembarked', {
       playerId,
       ship: shipId,
@@ -2858,6 +2909,7 @@ export class SystemShard implements Shard {
     this.entities.delete(character.id);
     entity.disembarked = false;
     entity.heldInput = undefined; // no ghost thrust on re-entry
+    entity.stopActive = false; // TASK-109: re-entry starts with a clean slate
     entity.idle = false; // the owner is here again (covers reconnect races)
     this.log.info('player re-entered ship', {
       playerId,
@@ -4162,6 +4214,7 @@ export class SystemShard implements Shard {
       if (entity.hull > 0) {
         entity.destroyed = false;
         entity.heldInput = undefined;
+        entity.stopActive = false; // TASK-109: a swap/revive resets the stop
       }
       entity.docked = ship.state === 'docked';
       entity.ship.pos = { x: ship.position.x, y: ship.position.y, z: ship.position.z };

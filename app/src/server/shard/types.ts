@@ -142,6 +142,16 @@ export interface SimEntity {
    */
   heldInput?: InputPayload;
   /**
+   * TASK-109: the stop autopilot is actively decelerating this ship (the
+   * owner sent a one-shot 'stop' frame). Transient per-session sim state
+   * like heldInput / idle — NOT persisted: a reconnect mid-stop resumes
+   * with the flag false (acceptable v1). Set by the tick on a pure 'stop'
+   * frame, cleared by any manual flight demand (cancel), on completion
+   * (slow + in space OR grounded), and at every held-frame clear (disconnect,
+   * teleport, disembark/re-entry, respawn, swap-revive, destroy).
+   */
+  stopActive?: boolean;
+  /**
    * TASK-17: the owner currently has NO live connection. The ship keeps
    * being simulated (coasting on zero input — the held frame is cleared)
    * for as long as the shard lives; inputs are only accepted when the
