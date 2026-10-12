@@ -335,13 +335,10 @@ test('VTOL hover: one Space press toggles the 10 m hold, the next descends, spac
   const spacePoint = { x: anchor.x, y: groundA + atmoR * 1.2, z: anchor.z };
   await teleportRest(page, baseURL, s.token, spacePoint);
   await expect
-    .poll(
-      async () => (await lastTap(page))?.flightRegime ?? '',
-      {
-        timeout: 15_000,
-        message: "wire flightRegime never reached 'space' after the teleport",
-      },
-    )
+    .poll(async () => (await lastTap(page))?.flightRegime ?? '', {
+      timeout: 15_000,
+      message: "wire flightRegime never reached 'space' after the teleport",
+    })
     .toBe('space');
 
   // The wire regime left atmosphere/surface → the store AUTO-OFFERED

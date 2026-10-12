@@ -119,9 +119,7 @@ export function dockedFlightScheme(regime: Regime): ControlScheme {
  * reads the regime's own scheme.
  */
 export function flightLoopScheme(regime: Regime, wireDocked: boolean): ControlScheme {
-  return wireDocked || regime === 'surface'
-    ? dockedFlightScheme(regime)
-    : CONTROL_SCHEMES[regime];
+  return wireDocked || regime === 'surface' ? dockedFlightScheme(regime) : CONTROL_SCHEMES[regime];
 }
 
 const EMPTY_PRESSED: ReadonlySet<string> = new Set();

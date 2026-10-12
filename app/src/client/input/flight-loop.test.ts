@@ -174,9 +174,7 @@ describe('hover channel + scheme selection (TASK-107)', () => {
     expect(shipInputKey({ ...base, hover: 1 })).not.toBe(shipInputKey(base));
     // up + hover (the normalized 'hover' form) is distinct from up alone
     // (the legacy 'vtol' form) — the two lift sources never collide.
-    expect(shipInputKey({ ...base, up: 1, hover: 1 })).not.toBe(
-      shipInputKey({ ...base, up: 1 }),
-    );
+    expect(shipInputKey({ ...base, up: 1, hover: 1 })).not.toBe(shipInputKey({ ...base, up: 1 }));
   });
 
   it('flightLoopScheme: wire-docked OR in-ship surface reads the flight (atmosphere) scheme', () => {

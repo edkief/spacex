@@ -934,7 +934,7 @@
     "title": "VTOL hover client: Space toggle, HUD indicator, touch button, e2e",
     "category": "ui",
     "specFilePath": ".ralph/tasks/TASK-107.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-108",

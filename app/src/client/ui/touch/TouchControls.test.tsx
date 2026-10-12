@@ -288,7 +288,6 @@ describe('TouchControls — the VTOL button is the hover TOGGLE (TASK-107)', () 
 });
 
 describe('TouchControls — buttons feed the source', () => {
-
   it('BOOST: press = boost true, release = boost false (space)', () => {
     const c = renderControls({ regime: 'space' });
     const boost = c.querySelector('[aria-label="BOOST"]')!;
