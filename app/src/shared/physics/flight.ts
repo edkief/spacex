@@ -22,7 +22,9 @@
  * - 'atmosphere': quadratic drag (k·|v|·v, opposing velocity), main thruster
  *   along the ship's forward axis (TASK-98 — the same push + TASK-81
  *   max-velocity clamp as space, so a planet is flyable AND escapable),
- *   gravity, VTOL vertical lift, ground collision at terrain height
+ *   gravity, VTOL vertical lift (or the TASK-106 hover altitude-hold when
+ *   `input.hover` is set — a deterministic HOVER_ALT_M hold over the
+ *   heightAt-seamed terrain, see ./hover), ground collision at terrain height
  *   (substepped so fast ships never tunnel: substep whenever |vel|·dt > 2 u).
  *   Drag ramps 0→k continuously from the atmosphere enter radius (space)
  *   down to the surface (see ./atmosphere — the single shared boundary
@@ -43,6 +45,7 @@ import type { ShipClass, ShipClassId } from '../ships';
 import { shipStats } from '../ships';
 import type { SurfaceDisc } from '../galaxy/planets';
 import { boundaryFactor } from './atmosphere';
+import { hoverLift } from './hover';
 import {
   quatFromEuler,
   quatIdentity,
@@ -115,6 +118,16 @@ export interface ShipInput {
    * before — the golden fixtures must not move).
    */
   boost?: number;
+  /**
+   * VTOL hover (altitude-hold) demand, 0|1 (TASK-106). In the
+   * 'atmosphere'/'surface' regimes this REPLACES the `up` demand lift with
+   * the deterministic {@link HOVER_ALT_M} altitude-hold (see ./hover); in
+   * 'space' it is a no-op. Optional: default 0 — the controller is a NEW
+   * branch, so every pre-TASK-106 call site and golden fixture stays
+   * byte-identical. The wire 'hover' action tag maps here (and implies
+   * `up: 1`; see the protocol layer).
+   */
+  hover?: 0 | 1;
 }
 
 /**
@@ -282,6 +295,8 @@ export function integrateShip(
 
   // boost is a 0..1 demand (SHIFT on or off) — clamp, never negate.
   const boost = Math.min(1, Math.max(0, input.boost ?? 0));
+  // hover is a binary toggle — any non-1 value (undefined, 0, a spammed 42)
+  // is normalized to 0.
   const clamped: ShipInput = {
     thrust: clampUnit(input.thrust),
     yaw: clampUnit(input.yaw),
@@ -289,6 +304,7 @@ export function integrateShip(
     roll: clampUnit(input.roll),
     up: clampUnit(input.up),
     boost,
+    hover: input.hover === 1 ? 1 : 0,
   };
 
   // TASK-85: cruise engages ONLY in open space with a positive boost demand
@@ -425,10 +441,26 @@ function integrateStep(
     if (speed1 > maxVelocity && speed1 > speed0) {
       vel = vecScale(vecNormalize(vel), Math.max(speed0, maxVelocity));
     }
+    // TASK-106: the hover branch — a NEW lift source gated on input.hover,
+    // replacing the `up` demand with the deterministic HOVER_ALT_M
+    // altitude-hold (./hover). It reads the PRE-gravity velocity and applies
+    // BEFORE the gravity add (see the hoverLift ordering note: the inverse
+    // would leak a dt·KD·g bias into the rest point). groundY is this
+    // substep's heightAt sample, so sloped terrain is tracked per substep.
+    // The horizontal VTOL gate stays with the legacy path (hover is an
+    // explicit toggle; its lift is VTOL_LIFT-bounded anyway), and the pad
+    // docking logic is untouched (a hovering ship only docks if it settles
+    // ON the ground over a pad). In 'space' this branch never runs (the
+    // hover flag is a no-op there).
+    if (input.hover === 1) {
+      vel.y += hoverLift(s.pos.y - groundY, vel.y, GRAVITY, VTOL_LIFT) * h;
+    }
     // Gravity.
     vel.y -= GRAVITY * h;
     // VTOL lift: vertical, heading-independent, only near hover speed.
-    if (input.up > 0) {
+    // (hover === 1 took the lift for this substep — the two sources are
+    // mutually exclusive, as on the wire.)
+    if (input.hover !== 1 && input.up > 0) {
       const hSpeed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
       if (hSpeed < VTOL_HORIZONAL_LIMIT) {
         vel.y += input.up * VTOL_LIFT * h;
@@ -506,3 +538,6 @@ export function horizontalSpeedSquared(vel: Vec3): number {
 
 // Re-exported so sim code can build inputs without importing vec directly.
 export { vecAdd, vecCross, vecDot, vecLength, vecScale, vecSub };
+
+// TASK-106: the hover altitude-hold controller (extracted for file-size).
+export { HOVER_ALT_M, HOVER_KD, HOVER_KP, hoverLift } from './hover';

@@ -92,7 +92,9 @@ const ZERO_SHIP_INPUT: ShipInput = { thrust: 0, yaw: 0, pitch: 0, roll: 0, up: 0
  * re-integrate a NaN rotation on top of every later state.
  */
 function inputFinite(i: ShipInput): boolean {
-  return Number.isFinite(i.thrust + i.yaw + i.pitch + i.roll + i.up + (i.boost ?? 0));
+  return Number.isFinite(
+    i.thrust + i.yaw + i.pitch + i.roll + i.up + (i.boost ?? 0) + (i.hover ?? 0),
+  );
 }
 
 /** TASK-76.1: a state the predictor may adopt (see inputFinite). */

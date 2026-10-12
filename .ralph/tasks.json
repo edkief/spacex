@@ -921,5 +921,47 @@
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-105.json",
     "passes": true
+  },
+  {
+    "id": "TASK-106",
+    "title": "VTOL hover: deterministic 10 m altitude-hold in shared flight model + wire tag",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-106.json",
+    "passes": true
+  },
+  {
+    "id": "TASK-107",
+    "title": "VTOL hover client: Space toggle, HUD indicator, touch button, e2e",
+    "category": "ui",
+    "specFilePath": ".ralph/tasks/TASK-107.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-108",
+    "title": "Boost toggle: Shift toggles cruise boost (client input + HUD + touch + e2e)",
+    "category": "ui",
+    "specFilePath": ".ralph/tasks/TASK-108.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-109",
+    "title": "Stop autopilot physics: shared stopInput module + server stopActive integration",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-109.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-110",
+    "title": "Stop autopilot client: P key + touch STOP button, predictor mirror, e2e",
+    "category": "ui",
+    "specFilePath": ".ralph/tasks/TASK-110.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-111",
+    "title": "Chunk flicker fix: wider mount hysteresis + warm per-planet streamer cache",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-111.json",
+    "passes": false
   }
 ]

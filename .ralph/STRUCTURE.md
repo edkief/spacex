@@ -201,7 +201,8 @@ Excludes dotfiles, tests, and config.
 │           ├── physics/
 │           │   ├── vec.ts        # TASK-22: Vec3/Quat ops (add/scale/dot/cross/normalize/lerp, fromEuler/multiply/toMat3/rotateVector)
 │           │   ├── atmosphere.ts # TASK-22: 1 km drag boundary ramp atmosphereFactor (shared with TASK-28)
-│           │   ├── flight.ts     # TASK-22: integrateShip — deterministic space/atmosphere/VTOL physics + ground collision (substepped)
+│           │   ├── flight.ts     # TASK-22: integrateShip — deterministic space/atmosphere/VTOL physics + ground collision (substepped); TASK-106: ShipInput.hover (default 0, byte-identical when off) — atmosphere/surface altitude-hold lift targeting heightAt + HOVER_ALT_M (replaces the legacy VTOL lift when on, pre-gravity velocity sampling), re-exports hover.ts
+│           │   ├── hover.ts      # TASK-106: pure hoverLift(alt, velY, gravity, vtolLift) = clamp(G + KP·(target−alt) − KD·velY, 0, VTOL_LIFT), HOVER_ALT_M = 10 / KP = 2 / KD = 4 + stability proof (discrete poles ≈ {0.97, 0.84} at dt = 0.05 s); shared verbatim by server tick + client predictor
 │           │   ├── damage.ts     # TASK-23: applyDamage (pure, shield-first, destroyed at hull zero, double-destroy guard) + repairCost
 │           │   └── character.ts  # TASK-31: disembark spawn math — characterSpawnPos(shipPos, quat, padHeight) = ship world pos + 2.5 m world-right (CHAR_SHIP_SIDE_OFFSET_M), y pinned to the pad plane; TASK-32: integrateCharacter — walk 3 / run 6 u/s, jump 5 u/s (apex 25/24 m, g 12), ground friction 8 u/s², no air control, terrain lerp 20 u/s + hard floor (never sinks, sub-stepped ≤ 1 m), heightAt injected — shared verbatim by the sim (authority) + client prediction
 │           └── world/

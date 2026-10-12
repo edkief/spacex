@@ -86,6 +86,10 @@ describe('inputToCharacterInput (TASK-32, analog TASK-100)', () => {
       run: false,
       jump: false,
     });
+    expect(inputToCharacterInput(frame({ action: 'hover' }))).toMatchObject({
+      run: false,
+      jump: false,
+    });
   });
 });
 
@@ -97,28 +101,50 @@ describe('inputToCharacterInput (TASK-32, analog TASK-100)', () => {
  */
 describe('shipInputToPayload (TASK-73)', () => {
   const CASES: Array<{ name: string; input: ShipInput }> = [
-    { name: 'coast (all zero)', input: { thrust: 0, yaw: 0, pitch: 0, roll: 0, up: 0, boost: 0 } },
-    { name: 'thrust +', input: { thrust: 1, yaw: 0, pitch: 0, roll: 0, up: 0, boost: 0 } },
-    { name: 'thrust -', input: { thrust: -1, yaw: 0, pitch: 0, roll: 0, up: 0, boost: 0 } },
-    { name: 'yaw +', input: { thrust: 0, yaw: 1, pitch: 0, roll: 0, up: 0, boost: 0 } },
-    { name: 'yaw -', input: { thrust: 0, yaw: -1, pitch: 0, roll: 0, up: 0, boost: 0 } },
-    { name: 'pitch +', input: { thrust: 0, yaw: 0, pitch: 1, roll: 0, up: 0, boost: 0 } },
-    { name: 'pitch -', input: { thrust: 0, yaw: 0, pitch: -1, roll: 0, up: 0, boost: 0 } },
-    { name: 'roll +', input: { thrust: 0, yaw: 0, pitch: 0, roll: 1, up: 0, boost: 0 } },
-    { name: 'roll -', input: { thrust: 0, yaw: 0, pitch: 0, roll: -1, up: 0, boost: 0 } },
-    { name: 'VTOL up', input: { thrust: 0, yaw: 0, pitch: 0, roll: 0, up: 1, boost: 0 } },
+    {
+      name: 'coast (all zero)',
+      input: { thrust: 0, yaw: 0, pitch: 0, roll: 0, up: 0, boost: 0, hover: 0 },
+    },
+    {
+      name: 'thrust +',
+      input: { thrust: 1, yaw: 0, pitch: 0, roll: 0, up: 0, boost: 0, hover: 0 },
+    },
+    {
+      name: 'thrust -',
+      input: { thrust: -1, yaw: 0, pitch: 0, roll: 0, up: 0, boost: 0, hover: 0 },
+    },
+    { name: 'yaw +', input: { thrust: 0, yaw: 1, pitch: 0, roll: 0, up: 0, boost: 0, hover: 0 } },
+    { name: 'yaw -', input: { thrust: 0, yaw: -1, pitch: 0, roll: 0, up: 0, boost: 0, hover: 0 } },
+    { name: 'pitch +', input: { thrust: 0, yaw: 0, pitch: 1, roll: 0, up: 0, boost: 0, hover: 0 } },
+    {
+      name: 'pitch -',
+      input: { thrust: 0, yaw: 0, pitch: -1, roll: 0, up: 0, boost: 0, hover: 0 },
+    },
+    { name: 'roll +', input: { thrust: 0, yaw: 0, pitch: 0, roll: 1, up: 0, boost: 0, hover: 0 } },
+    { name: 'roll -', input: { thrust: 0, yaw: 0, pitch: 0, roll: -1, up: 0, boost: 0, hover: 0 } },
+    { name: 'VTOL up', input: { thrust: 0, yaw: 0, pitch: 0, roll: 0, up: 1, boost: 0, hover: 0 } },
     {
       name: 'combined burn',
-      input: { thrust: 1, yaw: 0.5, pitch: -0.5, roll: 1, up: 1, boost: 0 },
+      input: { thrust: 1, yaw: 0.5, pitch: -0.5, roll: 1, up: 1, boost: 0, hover: 0 },
     },
     // TASK-85: the cruise boost channel round-trips through the action string.
     {
       name: 'boost (space cruise)',
-      input: { thrust: 1, yaw: 0, pitch: 0, roll: 0, up: 0, boost: 1 },
+      input: { thrust: 1, yaw: 0, pitch: 0, roll: 0, up: 0, boost: 1, hover: 0 },
     },
     {
       name: 'VTOL + boost combined',
-      input: { thrust: 1, yaw: 0, pitch: 0, roll: 0, up: 1, boost: 1 },
+      input: { thrust: 1, yaw: 0, pitch: 0, roll: 0, up: 1, boost: 1, hover: 0 },
+    },
+    // TASK-106: the hover channel (the 'hover' tag implies up — the
+    // normalized form is {up: 1, hover: 1}).
+    {
+      name: 'hover (altitude-hold)',
+      input: { thrust: 0, yaw: 0, pitch: 0, roll: 0, up: 1, boost: 0, hover: 1 },
+    },
+    {
+      name: 'hover + boost combined',
+      input: { thrust: 1, yaw: 0, pitch: 0, roll: 0, up: 1, boost: 1, hover: 1 },
     },
   ];
 
@@ -152,6 +178,21 @@ describe('shipInputToPayload (TASK-73)', () => {
     ).toBe('vtol+boost');
   });
 
+  it('TASK-106: hover rides the action string; the hover tag implies up (wins over vtol)', () => {
+    expect(
+      shipInputToPayload(1, { thrust: 0, yaw: 0, pitch: 0, roll: 0, up: 1, hover: 1 }).action,
+    ).toBe('hover');
+    // Legacy held-key VTOL (hover off) is unchanged.
+    expect(
+      shipInputToPayload(1, { thrust: 0, yaw: 0, pitch: 0, roll: 0, up: 1, hover: 0 }).action,
+    ).toBe('vtol');
+    // hover + boost: 'hover' first (same convention as 'vtol+boost').
+    expect(
+      shipInputToPayload(1, { thrust: 1, yaw: 0, pitch: 0, roll: 0, up: 1, boost: 1, hover: 1 })
+        .action,
+    ).toBe('hover+boost');
+  });
+
   it('every produced payload is a valid wire frame (strict schema)', () => {
     for (const { input } of CASES) {
       const parsed = messageSchemas.input.safeParse(shipInputToPayload(1, input));
@@ -171,6 +212,7 @@ describe('inputToShipInput (regression guard, TASK-14)', () => {
       roll: -1,
       up: 1,
       boost: 0,
+      hover: 0,
     });
     expect(inputToShipInput(frame()).up).toBe(0);
     // TASK-85: the boost channel (action 'boost' / the combined 'vtol+boost').
@@ -178,8 +220,25 @@ describe('inputToShipInput (regression guard, TASK-14)', () => {
     expect(inputToShipInput(frame({ action: 'vtol+boost' }))).toMatchObject({
       up: 1,
       boost: 1,
+      hover: 0,
+    });
+    // TASK-106: the 'hover' tag → up = 1 (it implies the up demand) and
+    // hover = 1; the legacy 'vtol' tag keeps hover = 0.
+    expect(inputToShipInput(frame({ action: 'hover' }))).toMatchObject({
+      up: 1,
+      hover: 1,
+      boost: 0,
+    });
+    expect(inputToShipInput(frame({ action: 'hover+boost' }))).toMatchObject({
+      up: 1,
+      hover: 1,
+      boost: 1,
     });
     // a foreign action string never leaks into the ship channels
-    expect(inputToShipInput(frame({ action: 'run' }))).toMatchObject({ up: 0, boost: 0 });
+    expect(inputToShipInput(frame({ action: 'run' }))).toMatchObject({
+      up: 0,
+      boost: 0,
+      hover: 0,
+    });
   });
 });
