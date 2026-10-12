@@ -42,6 +42,15 @@ export const ENTER_SHIP_RANGE_M = 5;
  */
 export const ENTER_SHIP_MAX_SPEED = 1;
 
+/**
+ * TASK-105: the max ship speed (u/s) at which a LANDED (off-pad) ship can be
+ * exited — a surface-regime ship slower than 2 u/s may be left (the
+ * 'not-landed' denial above the cap); a pad-docked ship ignores the cap
+ * (the pad path is unchanged). ONE definition so the server gate and the
+ * client's leave-ship prompt agree on the threshold.
+ */
+export const EXIT_SHIP_MAX_SPEED = 2;
+
 /** Entity kinds a player can interact with (the registry's key space). */
 export const INTERACTABLE_KINDS = ['deposit', 'ship', 'terminal', 'groundItem'] as const;
 export type InteractableKind = (typeof INTERACTABLE_KINDS)[number];

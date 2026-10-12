@@ -35,7 +35,11 @@ import { createRouterGateway } from './gateway';
  *   the ship STAYS docked in the same snapshot, and NO error is sent;
  * - TWO clients in the system see the EXACT same character position (the
  *   10 Hz snapshot is one shared buffer);
- * - denial: a non-docked ship → {code:'not-docked'} and no character entity.
+ * - TASK-105: exit_ship on a ship LANDED off-pad (surface regime at rest)
+ *   → the character appears at TERRAIN height (± 0.5 m) beside the ship,
+ *   the ship stays in place, and re-entry via enter_ship works unchanged;
+ * - denial: an airborne / never-landed ship → {code:'not-landed'} and no
+ *   character entity.
  */
 
 const GALAXY_SEED = 'DRIFT-SEED-0001';
@@ -43,6 +47,7 @@ const GALAXY_SEED = 'DRIFT-SEED-0001';
 /** The deterministic pad target (first star-order system with a landable atmo planet). */
 function findPadTarget(): {
   systemId: string;
+  planetId: string;
   pad: { padId: string; pos: { x: number; y: number; z: number } };
 } {
   for (const star of generateStars(GALAXY_SEED)) {
@@ -50,7 +55,13 @@ function findPadTarget(): {
     const planet = system.planets.find((p) => p.landable && p.hasAtmosphere);
     if (!planet) continue;
     const pad = padsForSystem(GALAXY_SEED, system).find((p) => p.planetId === planet.id);
-    if (pad) return { systemId: system.systemId, pad: { padId: pad.padId, pos: pad.pos } };
+    if (pad) {
+      return {
+        systemId: system.systemId,
+        planetId: planet.id,
+        pad: { padId: pad.padId, pos: pad.pos },
+      };
+    }
   }
   throw new Error('no landable atmospheric pad in the seeded galaxy');
 }
@@ -150,8 +161,10 @@ interface WireEntity {
   id: string;
   kind: string;
   pos: { x: number; y: number; z: number };
+  vel?: { x: number; y: number; z: number };
   rot?: { x: number; y: number; z: number; w: number };
   regime: string;
+  flightRegime?: string;
   padId?: string;
   callsign?: string;
   playerId?: string;
@@ -264,11 +277,11 @@ describe('TASK-31: disembark over live ws', () => {
     expect(errorsFor(cb)).toHaveLength(0);
   });
 
-  it('denied when not docked: {code: not-docked}, no character entity ever appears', async () => {
+  it('denied when airborne: {code: not-landed}, no character entity ever appears', async () => {
     const a = await claim('ws-exit-c');
     const ca = mkClient();
     await arriveAtPad(ca, a);
-    // The ship is at the spawn gate: in flight, never docked.
+    // The ship is at the spawn gate: in flight, never docked, never landed.
     await ca.next(
       (m) =>
         m.type === 'entity_update' &&
@@ -280,8 +293,8 @@ describe('TASK-31: disembark over live ws', () => {
     );
 
     ca.send({ v: PROTOCOL_VERSION, type: 'exit_ship', payload: { shipId: a.shipId } });
-    const err = await ca.next((m) => m.type === 'error', 'not-docked error', 5000);
-    expect((err.payload as { code: string }).code).toBe('not-docked');
+    const err = await ca.next((m) => m.type === 'error', 'not-landed error', 5000);
+    expect((err.payload as { code: string }).code).toBe('not-landed');
 
     // A few more snapshot batches: still no character for this player.
     await ca.next((m) => m.type === 'entity_update', 'follow-up entity_update', 5000);
@@ -291,5 +304,78 @@ describe('TASK-31: disembark over live ws', () => {
       const entities = (m.payload as { entities: WireEntity[] }).entities ?? [];
       expect(entities.some((e) => e.kind === 'character' && e.callsign === a.callsign)).toBe(false);
     }
+  });
+
+  it('TASK-105: a ship landed off-pad can be exited (character at terrain height) and re-entered', async () => {
+    const a = await claim('ws-exit-d');
+    const ca = mkClient();
+    await arriveAtPad(ca, a);
+    const shard = router.active(PAD.systemId)?.shard;
+    expect(shard, `shard for ${PAD.systemId} must be active`).toBeDefined();
+
+    // Land ~100 m off the pad: hard-set onto the terrain at rest (the pad
+    // machine releases the ship past its 25 m hysteresis; the regime machine
+    // settles it to 'surface').
+    const x = PAD.pad.pos.x + 100;
+    const z = PAD.pad.pos.z;
+    const groundY = shard!.terrainHeightAt(PAD.planetId, x, z);
+    expect(shard!.teleportForTesting(a.playerId, { x, y: groundY, z })).toBe(true);
+    const landed = await ca.next(
+      (m) =>
+        m.type === 'entity_update' &&
+        ((m.payload as { entities: WireEntity[] }).entities ?? []).some(
+          (e) =>
+            e.callsign === a.callsign &&
+            e.flightRegime === 'surface' &&
+            e.padId === undefined &&
+            e.regime !== 'docked',
+        ),
+      'surface (off-pad) entity_update',
+      15_000,
+    );
+    const shipPos = (
+      (landed.payload as { entities: WireEntity[] }).entities.find(
+        (e) => e.callsign === a.callsign,
+      ) as WireEntity
+    ).pos;
+
+    ca.send({ v: PROTOCOL_VERSION, type: 'exit_ship', payload: { shipId: a.shipId } });
+    const upd = await ca.next(
+      (m) =>
+        m.type === 'entity_update' &&
+        ((m.payload as { entities: WireEntity[] }).entities ?? []).some(
+          (e) => e.kind === 'character' && e.callsign === a.callsign,
+        ),
+      'character entity_update (surface egress)',
+      10_000,
+    );
+    const entities = (upd.payload as { entities: WireEntity[] }).entities;
+    const char = entities.find((e) => e.kind === 'character' && e.callsign === a.callsign)!;
+
+    // The character stands at TERRAIN height (± 0.5 m per the AC), beside the
+    // ship (the 2.5 m side offset), and the ship STAYS where it landed.
+    const terrainY = shard!.terrainHeightAt(PAD.planetId, char.pos.x, char.pos.z);
+    expect(Math.abs(char.pos.y - terrainY)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(char.pos.y - shipPos.y)).toBeLessThanOrEqual(2);
+    expect(Math.hypot(char.pos.x - shipPos.x, char.pos.z - shipPos.z)).toBeLessThanOrEqual(3);
+    const ship = entities.find((e) => e.kind === 'ship' && e.callsign === a.callsign)!;
+    expect(Math.hypot(ship.pos.x - shipPos.x, ship.pos.z - shipPos.z)).toBeLessThan(1);
+    expect(ship.padId).toBeUndefined();
+    expect(ship.flightRegime).toBe('surface');
+    expect(errorsFor(ca)).toHaveLength(0);
+
+    // Re-entry: the existing off-pad enter_ship rule (range + idle speed)
+    // works UNCHANGED — the character disappears and no errors are sent.
+    ca.send({ v: PROTOCOL_VERSION, type: 'enter_ship', payload: { shipId: a.shipId } });
+    await ca.next(
+      (m) =>
+        m.type === 'entity_update' &&
+        ((m.payload as { entities: WireEntity[] }).entities ?? []).every(
+          (e) => !(e.kind === 'character' && e.callsign === a.callsign),
+        ),
+      'character gone after enter_ship',
+      10_000,
+    );
+    expect(errorsFor(ca)).toHaveLength(0);
   });
 });

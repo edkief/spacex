@@ -1,13 +1,17 @@
 import React from 'react';
 
 import { dockedIndicator, dockedIndicatorSubscribe } from '@client/state/docked';
+import { canExitShip, canExitShipSubscribe } from '@client/state/exit-ship';
 
 /**
- * "E — LEAVE SHIP" prompt (TASK-31) — the disembark entry point. Bottom-center
- * above the DOCKED indicator, visible EXACTLY while the player's OWN entity
- * is a docked ship (the same state/docked store drives #docked-indicator —
- * after disembark the player's self entity is the character, the store goes
- * false, and the prompt disappears with it).
+ * "E — LEAVE SHIP" prompt (TASK-31, TASK-105) — the disembark entry point.
+ * Bottom-center above the DOCKED indicator, visible while the player's OWN
+ * ship is PAD-DOCKED (the state/docked store that drives #docked-indicator)
+ * OR LANDED on the surface off-pad (the state/exit-ship store — the DOCKED
+ * indicator is hidden there, the prompt carries the affordance). After
+ * disembark the player's self entity is the character, both stores go false,
+ * and the prompt disappears with them. "LEAVE SHIP" reads accurately in both
+ * states (leaving a docked ship and leaving a landed ship).
  *
  * Purely cosmetic: the key press is handled in the session (main.tsx) — this
  * component just renders the affordance. pointer-events none, same idiom as
@@ -18,6 +22,12 @@ function useDocked(): boolean {
   const [docked, setDocked] = React.useState(dockedIndicator);
   React.useEffect(() => dockedIndicatorSubscribe(setDocked), []);
   return docked;
+}
+
+function useCanExit(): boolean {
+  const [canExit, setCanExit] = React.useState(canExitShip);
+  React.useEffect(() => canExitShipSubscribe(setCanExit), []);
+  return canExit;
 }
 
 const base: React.CSSProperties = {
@@ -47,7 +57,8 @@ const keyCap: React.CSSProperties = {
 
 export function LeaveShipPrompt(): React.ReactElement | null {
   const docked = useDocked();
-  if (!docked) return null;
+  const canExit = useCanExit();
+  if (!docked && !canExit) return null;
   return (
     <div id="leave-ship-prompt" role="status" style={base}>
       <span style={keyCap}>E</span>

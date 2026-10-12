@@ -5,7 +5,7 @@ import { quatIdentity, vecLength, type Vec3 } from '@shared/physics/vec';
 import type { InputPayload } from '@shared/protocol/schemas';
 import type { Planet, SystemGen } from '@shared/galaxy/types';
 import { padsForSystem, type PadInfo } from '@shared/world/pads';
-import { SystemShard, entityToState } from './shard';
+import { SystemShard, canExitShip, entityToState } from './shard';
 import type { SimEntity } from './types';
 
 /**
@@ -20,7 +20,11 @@ import type { SimEntity } from './types';
  *   'surface'} and the ship keeps its 'docked' {padId} state;
  * - a disembarked ship is FROZEN: inputs dropped, even a smuggled held frame
  *   cannot move it or undock it;
- * - denial: not-docked → {code:'not-docked'} to the requesting connection;
+ * - TASK-105: surface egress — a grounded (off-pad) ship spawns the
+ *   character at TERRAIN height beside the ship; a grounded ship moving
+ *   ≥ 2 u/s gets the {code:'not-landed'} denial; the pure canExitShip gate
+ *   is covered for every branch;
+ * - denial: airborne → {code:'not-landed'} to the requesting connection;
  *   foreign ship id → {code:'unknown-ship'}; double exit → no-op;
  * - disconnect while disembarked leaves the character in the sim (the
  *   TASK-24 pattern) and a re-adopt restores the on-foot state.
@@ -265,7 +269,7 @@ describe('TASK-31 step 1: server disembark', () => {
     expect(entityToState(entity).regime).toBe('docked');
   });
 
-  it('denial: not docked → {code: not-docked}; foreign ship → {code: unknown-ship}', () => {
+  it('denial: airborne → {code: not-landed}; foreign ship → {code: unknown-ship}', () => {
     const shard = makeShard();
     const entity = makeEntity({ x: 0, y: 500, z: 0 }); // in space, never docked
     shard.addEntity(entity);
@@ -288,16 +292,17 @@ describe('TASK-31 step 1: server disembark', () => {
         .filter((m) => m.type === 'error')
         .map((m) => m.payload);
 
-    // p1's ship is flying: not-docked denial lands on p1's connection ONLY.
-    expect(shard.handleExitShip('p1', 'ship-p1')).toBe('not-docked');
-    expect(errors(sentToP1).map((e) => e.code)).toEqual(['not-docked']);
+    // p1's ship is airborne (space regime): the TASK-105 'not-landed' denial
+    // lands on p1's connection ONLY (pre-TASK-105 this was 'not-docked').
+    expect(shard.handleExitShip('p1', 'ship-p1')).toBe('not-landed');
+    expect(errors(sentToP1).map((e) => e.code)).toEqual(['not-landed']);
     expect(errors(sentToP2)).toHaveLength(0); // p2 sees nothing
     expect(shard.entities.has('char:p1')).toBe(false);
 
     // p2 tries to exit p1's ship: unknown-ship (not owned by p2).
     expect(shard.handleExitShip('p2', 'ship-p1')).toBe('unknown-ship');
     expect(errors(sentToP2).map((e) => e.code)).toEqual(['unknown-ship']);
-    expect(errors(sentToP1).map((e) => e.code)).toEqual(['not-docked']); // p1 unchanged
+    expect(errors(sentToP1).map((e) => e.code)).toEqual(['not-landed']); // p1 unchanged
 
     // p2 CAN exit their OWN docked ship (control: happy path stays reachable).
     const e2 = shard.entities.get('ship-p2')!;
@@ -310,6 +315,75 @@ describe('TASK-31 step 1: server disembark', () => {
     expect(e2.padId).toBe(PAD.padId);
     expect(shard.handleExitShip('p2', 'ship-p2')).toBe('ok');
     expect(shard.entities.get('char:p2')?.kind).toBe('character');
+  });
+
+  it('TASK-105 surface egress: a grounded off-pad ship can be exited — character at TERRAIN height, ship stays', () => {
+    const shard = makeShard();
+    const entity = makeEntity({ x: PAD.pos.x, y: PAD.pos.y + 20, z: PAD.pos.z });
+    shard.addEntity(entity);
+    shard.registerConnection('p1', 'pilot', () => {});
+    const step = makeStepper(shard);
+    // Land 100 m off the pad: hard-set onto the terrain at rest, then let the
+    // regime machine settle it (→ 'surface' within a couple of ticks).
+    const x = PAD.pos.x + 100;
+    const z = PAD.pos.z;
+    const groundY = shard.terrainHeightAt(PLANET.id, x, z);
+    expect(shard.teleportForTesting('p1', { x, y: groundY, z })).toBe(true);
+    for (let i = 0; i < 20 && entity.ship.regime !== 'surface'; i++) step();
+    expect(entity.ship.regime).toBe('surface');
+    expect(entity.padId).toBeUndefined(); // 100 m out: past the pad's 25 m release
+    expect(vecLength(entity.ship.vel)).toBeLessThan(2); // at rest (the gate's cap)
+
+    const spawnTerrainY = shard.terrainHeightAt(
+      PLANET.id,
+      entity.ship.pos.x,
+      entity.ship.pos.z,
+    );
+    expect(shard.handleExitShip('p1', 'ship-p1')).toBe('ok');
+
+    const char = shard.entities.get('char:p1');
+    expect(char).toBeDefined();
+    expect(char!.kind).toBe('character');
+    // Beside the ship: the shared 2.5 m side offset…
+    expect(
+      Math.hypot(char!.ship.pos.x - entity.ship.pos.x, char!.ship.pos.z - entity.ship.pos.z),
+    ).toBeCloseTo(CHAR_SHIP_SIDE_OFFSET_M, 6);
+    // …pinned to the TERRAIN height at the ship's (x, z) (not the pad plane).
+    expect(char!.ship.pos.y).toBeCloseTo(spawnTerrainY, 6);
+    expect(char!.ship.regime).toBe('surface');
+    expect(vecLength(char!.ship.vel)).toBe(0);
+
+    // The ship stays frozen where it landed (the disembarked tick is skipped).
+    const shipPosBefore = { ...entity.ship.pos };
+    for (let i = 0; i < 10; i++) step();
+    expect(entity.ship.pos).toEqual(shipPosBefore);
+    expect(entity.padId).toBeUndefined();
+  });
+
+  it('TASK-105: a grounded ship moving ≥ 2 u/s gets {code: not-landed} on the requesting connection', () => {
+    const shard = makeShard();
+    const entity = makeEntity({ x: PAD.pos.x, y: PAD.pos.y + 20, z: PAD.pos.z });
+    shard.addEntity(entity);
+    const sentToP1: string[] = [];
+    shard.registerConnection('p1', 'pilot', (b) => sentToP1.push(b));
+    const step = makeStepper(shard);
+    const x = PAD.pos.x + 100;
+    const z = PAD.pos.z;
+    const groundY = shard.terrainHeightAt(PLANET.id, x, z);
+    expect(shard.teleportForTesting('p1', { x, y: groundY, z })).toBe(true);
+    for (let i = 0; i < 20 && entity.ship.regime !== 'surface'; i++) step();
+    expect(entity.ship.regime).toBe('surface');
+    expect(entity.padId).toBeUndefined();
+
+    // The gate's speed cap: a grounded ship taxiing at 3 u/s is not "landed".
+    entity.ship.vel = { x: 3, y: 0, z: 0 };
+    expect(shard.handleExitShip('p1', 'ship-p1')).toBe('not-landed');
+    const errors = sentToP1
+      .map((b) => JSON.parse(b) as { type: string; payload: { code: string } })
+      .filter((m) => m.type === 'error')
+      .map((m) => m.payload);
+    expect(errors.map((e) => e.code)).toEqual(['not-landed']);
+    expect(shard.entities.has('char:p1')).toBe(false);
   });
 
   it('double disembark is a no-op: no second character, no duplicate id', () => {
@@ -353,5 +427,52 @@ describe('TASK-31 step 1: server disembark', () => {
     const adopted = await shard.adoptEntity('p1', 'pilot');
     expect(adopted?.disembarked).toBe(true);
     expect(entity.padId).toBe(PAD.padId);
+  });
+});
+
+describe('canExitShip gate (TASK-105, pure)', () => {
+  it('pad-docked → "docked" (the pad path; the cap and regime are irrelevant)', () => {
+    expect(canExitShip({ padId: 'pad-1', docked: false, regime: 'surface', speed: 0 })).toBe(
+      'docked',
+    );
+    expect(canExitShip({ padId: 'pad-1', docked: false, regime: 'atmosphere', speed: 40 })).toBe(
+      'docked',
+    );
+  });
+
+  it('grounded-and-slow (surface regime, speed < 2 u/s) → "landed"', () => {
+    expect(canExitShip({ padId: undefined, docked: false, regime: 'surface', speed: 0 })).toBe(
+      'landed',
+    );
+    expect(canExitShip({ padId: null, docked: false, regime: 'surface', speed: 1.99 })).toBe(
+      'landed',
+    );
+  });
+
+  it('grounded-but-fast (≥ 2 u/s) → "not-landed"', () => {
+    expect(canExitShip({ padId: undefined, docked: false, regime: 'surface', speed: 2 })).toBe(
+      'not-landed',
+    );
+    expect(canExitShip({ padId: undefined, docked: false, regime: 'surface', speed: 5 })).toBe(
+      'not-landed',
+    );
+  });
+
+  it('airborne / space → "not-landed" at any speed', () => {
+    expect(
+      canExitShip({ padId: undefined, docked: false, regime: 'atmosphere', speed: 0 }),
+    ).toBe('not-landed');
+    expect(canExitShip({ padId: undefined, docked: false, regime: 'space', speed: 0 })).toBe(
+      'not-landed',
+    );
+  });
+
+  it('home-dock rest (docked flag, no pad) → "not-landed" (its egress path is unchanged)', () => {
+    expect(canExitShip({ padId: undefined, docked: true, regime: 'space', speed: 0 })).toBe(
+      'not-landed',
+    );
+    expect(canExitShip({ padId: undefined, docked: true, regime: 'surface', speed: 0 })).toBe(
+      'not-landed',
+    );
   });
 });

@@ -76,6 +76,7 @@ import { sellFrom, type SellErrorCode, type SellSource } from '@shared/sell';
 import {
   ENTER_SHIP_MAX_SPEED,
   ENTER_SHIP_RANGE_M,
+  EXIT_SHIP_MAX_SPEED,
   INTERACT_RANGE_M,
   interactRangeFor,
   isInteractableKind,
@@ -2714,14 +2715,18 @@ export class SystemShard implements Shard {
   }
 
   /**
-   * TASK-31: disembark — the player (authenticated + joined, guaranteed by
-   * the WS layer) exits their PAD-DOCKED ship: the sim spawns a static
-   * character entity (id `char:<playerId>`) 2.5 m to the ship's side on the
-   * pad plane (shared characterSpawnPos math), the ship stays docked and
-   * frozen (tick skips it, its inputs are dropped), and the character rides
-   * the next 10 Hz entity_update to every peer (one shared buffer — all
-   * clients see the same spawn). A denial answers the requesting connection
-   * with a structured error ('not-docked' per the TASK-31 contract).
+   * TASK-31 (TASK-105): disembark — the player (authenticated + joined,
+   * guaranteed by the WS layer) exits their ship when it is PAD-DOCKED or
+   * LANDED ON THE SURFACE (the canExitShip gate): the sim spawns a static
+   * character entity (id `char:<playerId>`) 2.5 m to the ship's side
+   * (shared characterSpawnPos math) — on the PAD PLANE for the docked path
+   * (byte-for-byte TASK-31) and on the TERRAIN HEIGHT at the ship's (x, z)
+   * for the surface path — the ship stays frozen (tick skips it, its inputs
+   * are dropped), and the character rides the next 10 Hz entity_update to
+   * every peer (one shared buffer — all clients see the same spawn). A
+   * denial answers the requesting connection with a structured error
+   * ('not-landed' for a ship that is airborne, in space, a home-dock rest,
+   * or grounded but moving at/above the shared cap).
    *
    * The character lives in `entities` but NOT `playerEntities`: it owns no
    * ship-input lane (walking input arrives in TASK-32), and a disconnect
@@ -2737,16 +2742,29 @@ export class SystemShard implements Shard {
       this.log.debug('exit ignored: already on foot', { playerId, shipId });
       return 'already-on-foot';
     }
-    if (!entity.padId) {
-      this.sendErrorToPlayer(playerId, 'not-docked', 'ship is not docked on a landing pad', source);
-      return 'not-docked';
+    const gate = canExitShip({
+      padId: entity.padId,
+      docked: entity.docked,
+      regime: entity.ship.regime,
+      speed: vecLength(entity.ship.vel),
+    });
+    if (gate === 'not-landed') {
+      this.sendErrorToPlayer(playerId, 'not-landed', 'the ship is not landed on the surface', source);
+      return 'not-landed';
     }
-    const pad = [...this.planetPads.values()].find((p) => p.padId === entity.padId);
-    const pos = characterSpawnPos(
-      entity.ship.pos,
-      entity.ship.quat,
-      pad ? pad.pos.y : entity.ship.pos.y,
-    );
+    // Docked path: the pad plane (byte-for-byte TASK-31). Surface path: the
+    // terrain height at the ship's (x, z) (the same surface the flight model
+    // clamps to — the pad disc flattened).
+    let groundHeight: number;
+    if (gate === 'docked') {
+      const pad = [...this.planetPads.values()].find((p) => p.padId === entity.padId);
+      groundHeight = pad ? pad.pos.y : entity.ship.pos.y;
+    } else {
+      groundHeight = entity.planetId
+        ? this.terrainHeightAt(entity.planetId, entity.ship.pos.x, entity.ship.pos.z)
+        : entity.ship.pos.y;
+    }
+    const pos = characterSpawnPos(entity.ship.pos, entity.ship.quat, groundHeight);
     this.entities.set(`char:${playerId}`, {
       id: `char:${playerId}`,
       kind: 'character',
@@ -4171,8 +4189,42 @@ export class SystemShard implements Shard {
 // predictor maps frames identically. Re-exported so existing imports work.
 export { inputToShipInput };
 
-/** The outcome of a disembark request (TASK-31). */
-export type ExitShipOutcome = 'ok' | 'not-docked' | 'unknown-ship' | 'already-on-foot';
+/**
+ * TASK-105: the disembark GATE for one ship state (the pure half of
+ * handleExitShip — unit-testable without a full shard).
+ *
+ * - 'docked' — a padId is set: the PAD path (the pad-plane spawn, exactly as
+ *   TASK-31; the cap and regime are irrelevant on a pad).
+ * - 'landed' — resting on the SURFACE off-pad: the flight regime is
+ *   'surface' (the regime machine yields it only on a landable planet's
+ *   terrain, so the landable check is implicit) AND the total velocity is
+ *   below the shared egress cap (EXIT_SHIP_MAX_SPEED).
+ * - 'not-landed' — everything else: airborne, in space, a home-dock ship
+ *   (the `docked` flag — its egress path stays the pre-TASK-105 denial), or
+ *   grounded but moving at/above the cap.
+ */
+export function canExitShip(state: {
+  padId?: string | null;
+  /** The sim's docked flag (home dock / respawn rest — never pad-docked). */
+  docked: boolean;
+  /** The regime machine's flight regime ('space' | 'atmosphere' | 'surface'). */
+  regime: string;
+  /** Total velocity (u/s). */
+  speed: number;
+}): 'docked' | 'landed' | 'not-landed' {
+  if (state.padId) return 'docked';
+  if (state.docked) return 'not-landed';
+  if (state.regime === 'surface' && state.speed < EXIT_SHIP_MAX_SPEED) return 'landed';
+  return 'not-landed';
+}
+
+/** The outcome of a disembark request (TASK-31; TASK-105 adds 'not-landed'). */
+export type ExitShipOutcome =
+  | 'ok'
+  | 'not-docked'
+  | 'not-landed'
+  | 'unknown-ship'
+  | 'already-on-foot';
 
 /** The outcome of a re-entry request (TASK-35). */
 export type EnterShipOutcome =

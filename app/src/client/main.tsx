@@ -123,6 +123,7 @@ import {
   setWireDocked,
   wireDockedIndicator,
 } from '@client/state/docked';
+import { canExitLanded, canExitShip, setCanExitShip } from '@client/state/exit-ship';
 import { reentryTintFactor } from '@shared/physics/atmosphere';
 import { FrameMonitorOverlay } from '@client/ui/debug-overlay';
 import { systemForId } from '@shared/galaxy/system';
@@ -183,6 +184,7 @@ import type { ShipClassId } from '@shared/ships';
 import type { Regime } from '@shared/regime';
 import { cruiseAllowedAt } from '@shared/regime';
 import { setCruiseState } from '@client/state/cruise';
+import { vecLength } from '@shared/physics/vec';
 import type { Quat, Vec3 } from '@shared/physics/vec';
 
 /**
@@ -484,6 +486,17 @@ function useGameSession(
           // so a home-dock starter (regime 'docked', no padId) is never
           // undocked by stray idle input frames.
           if (self) setWireDocked(self.kind === 'ship' && isWireDocked(self.regime));
+          // TASK-105: surface egress — the self ship is LANDED off-pad (the
+          // wire flight regime 'surface' + speed below the shared cap). Drives
+          // the E-key / touch INTERACT egress branch and the leave-ship
+          // prompt; the server remains the authority (a denied exit_ship
+          // answers with the structured 'not-landed' error, shown as today).
+          if (self) {
+            setCanExitShip(
+              self.kind === 'ship' &&
+                canExitLanded(self.flightRegime ?? 'space', vecLength(self.vel)),
+            );
+          }
           // TASK-56: guidance events from the docked TRANSITIONS (the
           // machine ignores the spawn-dock itself — see ui/guidance.ts).
           const becameDocked = dockedIndicator();
@@ -1411,12 +1424,14 @@ function App() {
   const interactPressRef = React.useRef<() => void>(() => {});
   interactPressRef.current = () => {
     if (anySurfaceOpen()) return; // TASK-53: any open surface is modal (ESC only)
-    // TASK-31: docked egress — the 'exit_ship' frame (the server denies with
-    // {code:'not-docked'} in the race where the ship leaves the pad). Driven
-    // by BOTH the E key and the touch INTERACT button (TASK-95: the egress
-    // prompt is part of the touch loop — one shared path, no keyboard-only
-    // branch).
-    if (dockedIndicator()) {
+    // TASK-31 (TASK-105): egress — the 'exit_ship' frame, fired when the
+    // ship is PAD-DOCKED (the docked store) OR LANDED on the surface
+    // off-pad (the can-exit store). The server stays the authority: it
+    // denies with {code:'not-landed'} in the race where the ship lifts off
+    // or starts moving. Driven by BOTH the E key and the touch INTERACT
+    // button (TASK-95: the egress prompt is part of the touch loop — one
+    // shared path, no keyboard-only branch).
+    if (dockedIndicator() || canExitShip()) {
       const shipId = selfShipIdRef.current;
       if (!shipId) return;
       clientRef.current?.send('exit_ship', { shipId });
