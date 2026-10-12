@@ -20,6 +20,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TouchInputSource } from '@client/input/touch';
+import { __resetHover, hoverOn, setHoverOn } from '@client/state/hover';
 import { bindTouchDebug, installTouchDebug } from '@client/touch-debug';
 import type { WeaponId } from '@shared/weapons';
 
@@ -115,6 +116,7 @@ function fakeRaf(): { frames: (n: number) => void } {
 
 beforeEach(() => {
   source = new TouchInputSource();
+  __resetHover(); // the shared hover store is module state (TASK-107)
   document.body.innerHTML = '';
   roots.forEach((r) => r.unmount());
   roots = [];
@@ -204,24 +206,88 @@ describe('TouchControls — sticks feed the source (up-positive y)', () => {
   });
 
   it('a stick never clobbers a held button (setChannel is partial)', () => {
+    const c = renderControls({ regime: 'space' });
+    const boost = c.querySelector('[aria-label="BOOST"]')!;
+    pointer('pointerdown', 0, 0, boost);
+    const left = c.querySelector('[aria-label="thrust and yaw stick"]')!;
+    pointer('pointerdown', 0, -64, left);
+    expect(source.snapshot()).toEqual({ thrust: 1, yaw: 0, boost: true });
+  });
+});
+
+describe('TouchControls — the VTOL button is the hover TOGGLE (TASK-107)', () => {
+  it('one tap flips the hover store ON, the next tap OFF; release never re-toggles', () => {
+    const c = renderControls({ regime: 'atmosphere' });
+    const vtol = c.querySelector('[aria-label="VTOL"]')!;
+    expect(hoverOn()).toBe(false);
+    expect(vtol.getAttribute('aria-pressed')).toBe('false');
+    pointer('pointerdown', 0, 0, vtol);
+    expect(hoverOn(), 'tap ON').toBe(true);
+    expect(vtol.getAttribute('aria-pressed'), 'accent mirrors the store').toBe('true');
+    pointer('pointerup', 0, 0, vtol);
+    expect(hoverOn(), 'release is a no-op (a held tap must not re-toggle)').toBe(true);
+    pointer('pointerdown', 0, 0, vtol);
+    pointer('pointerup', 0, 0, vtol);
+    expect(hoverOn(), 'tap OFF').toBe(false);
+    expect(vtol.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('does NOT write the vtol virtual key (the store is driven directly, the press-hold path stays legacy)', () => {
     const c = renderControls({ regime: 'atmosphere' });
     const vtol = c.querySelector('[aria-label="VTOL"]')!;
     pointer('pointerdown', 0, 0, vtol);
+    pointer('pointerup', 0, 0, vtol);
+    expect(source.snapshot(), 'no channel written by the toggle').toEqual({});
+    expect(hoverOn()).toBe(true);
+  });
+
+  it('reflects a store change made elsewhere (keyboard Space press, live subscribe)', () => {
+    const c = renderControls({ regime: 'atmosphere' });
+    const vtol = c.querySelector('[aria-label="VTOL"]')!;
+    act(() => setHoverOn(true)); // the keyboard path
+    expect(vtol.getAttribute('aria-pressed'), 'accent tracks the store').toBe('true');
+  });
+
+  it('the toggle survives the IN-SHIP touchdown (surface flip, not on foot)', () => {
+    // Hover is CLIENT state: the in-ship landing flip must not clear it
+    // (the auto-disengage is the wire handler's job — space / egress only,
+    // main.tsx), so a hovering ship settling onto a pad keeps its hold.
+    const c = renderControls({ regime: 'atmosphere' });
+    pointer('pointerdown', 0, 0, c.querySelector('[aria-label="VTOL"]')!);
+    pointer('pointerup', 0, 0, c.querySelector('[aria-label="VTOL"]')!);
+    expect(hoverOn()).toBe(true);
+    act(() => {
+      roots[0].render(<TouchControls enabled regime="surface" source={source} />);
+    });
+    expect(hoverOn(), 'hover survives the in-ship touchdown').toBe(true);
+  });
+
+  it('liftoff (surface → atmosphere, in-ship) KEEPS the hover toggle + the held thrust (TASK-97)', () => {
+    const c = renderControls({ regime: 'surface' });
     const left = c.querySelector('[aria-label="thrust and yaw stick"]')!;
+    pointer('pointerdown', 0, 0, c.querySelector('[aria-label="VTOL"]')!);
+    pointer('pointerup', 0, 0, c.querySelector('[aria-label="VTOL"]')!);
     pointer('pointerdown', 0, -64, left);
-    expect(source.snapshot()).toEqual({ thrust: 1, yaw: 0, vtol: true });
+    expect(source.snapshot()).toEqual({ thrust: 1, yaw: 0 });
+    expect(hoverOn()).toBe(true);
+    // LIFTOFF: the regime flips to atmosphere while onFoot stays false —
+    // the finger is still on the stick and the server is taking the ship
+    // off (the keyboard's held keys survive the flip; touch must match).
+    act(() => {
+      roots[0].render(<TouchControls enabled regime="atmosphere" source={source} />);
+    });
+    expect(source.snapshot(), 'thrust survives the flip').toEqual({ thrust: 1, yaw: 0 });
+    expect(hoverOn(), 'hover survives the flip').toBe(true);
+    // DISSEMBARK (onFoot flips true) clears the CHANNELS (the ' ' leak
+    // rule) — the hover store is the wire handler's, not this flip's.
+    act(() => {
+      roots[0].render(<TouchControls enabled regime="surface" source={source} onFoot />);
+    });
+    expect(source.snapshot()).toEqual({});
   });
 });
 
 describe('TouchControls — buttons feed the source', () => {
-  it('VTOL: press = vtol true, release = vtol false (atmosphere)', () => {
-    const c = renderControls({ regime: 'atmosphere' });
-    const vtol = c.querySelector('[aria-label="VTOL"]')!;
-    pointer('pointerdown', 0, 0, vtol);
-    expect(source.snapshot()).toEqual({ vtol: true });
-    pointer('pointerup', 0, 0, vtol);
-    expect(source.snapshot()).toEqual({ vtol: false });
-  });
 
   it('BOOST: press = boost true, release = boost false (space)', () => {
     const c = renderControls({ regime: 'space' });
@@ -267,57 +333,17 @@ describe('TouchControls — channel hygiene across regime / enable flips', () =>
     expect(source.snapshot()).toEqual({});
   });
 
-  it('a held VTOL survives the IN-SHIP touchdown (surface flip, not on foot)', () => {
-    const c = renderControls({ regime: 'atmosphere' });
-    const vtol = c.querySelector('[aria-label="VTOL"]')!;
-    pointer('pointerdown', 0, 0, vtol);
-    expect(source.snapshot().vtol).toBe(true);
-    // The ship LANDS (regime → surface) and the player is still in it: the
-    // flight loop reads the held ' ' through dockedFlightScheme('surface'),
-    // so the 1.35·g lift must keep working to settle the ship onto the pad
-    // (the keyboard's held Space key survives the flip; touch must match).
-    act(() => {
-      roots[0].render(<TouchControls enabled regime="surface" source={source} />);
-    });
-    expect(source.snapshot().vtol).toBe(true);
-  });
-
-  it('disembarking clears the held VTOL (the " " must not leak into the on-foot JUMP)', () => {
-    const c = renderControls({ regime: 'atmosphere' });
-    const vtol = c.querySelector('[aria-label="VTOL"]')!;
-    pointer('pointerdown', 0, 0, vtol);
-    // In-ship landing keeps the lift (the previous test) …
-    act(() => {
-      roots[0].render(<TouchControls enabled regime="surface" source={source} />);
-    });
-    expect(source.snapshot().vtol).toBe(true);
-    // … and the egress (onFoot flips) must end it with the layout
-    // (clear() drops the key entirely — nothing is held).
-    act(() => {
-      roots[0].render(<TouchControls enabled regime="surface" source={source} onFoot />);
-    });
-    expect(source.snapshot().vtol).toBeUndefined();
-  });
-
-  it('liftoff (surface → atmosphere, in-ship) KEEPS the held thrust + VTOL (TASK-97)', () => {
-    const c = renderControls({ regime: 'surface' });
-    const vtol = c.querySelector('[aria-label="VTOL"]')!;
-    const left = c.querySelector('[aria-label="thrust and yaw stick"]')!;
-    pointer('pointerdown', 0, 0, vtol);
-    pointer('pointerdown', 0, -64, left);
-    expect(source.snapshot()).toEqual({ thrust: 1, yaw: 0, vtol: true });
-    // LIFTOFF: the regime flips to atmosphere while onFoot stays false —
-    // the finger is still on the stick and the server is taking the ship
-    // off (the keyboard's held keys survive the flip; touch must match).
-    act(() => {
-      roots[0].render(<TouchControls enabled regime="atmosphere" source={source} />);
-    });
-    expect(source.snapshot()).toEqual({ thrust: 1, yaw: 0, vtol: true });
-    // DISSEMBARK (onFoot flips true) must still CLEAR (the ' ' leak rule).
-    act(() => {
-      roots[0].render(<TouchControls enabled regime="surface" source={source} onFoot />);
-    });
-    expect(source.snapshot()).toEqual({});
+  it('on-foot JUMP writes the " " virtual key, NOT the hover store (TASK-107 split)', () => {
+    // The deliberate ' ' collision (vtol+jump) is now one-way for the
+    // store: on foot JUMP stays the held-key channel (the on-foot loop
+    // reads it), and a JUMP tap never touches the hover toggle.
+    const c = renderControls({ regime: 'surface', onFoot: true });
+    const jump = c.querySelector('[aria-label="JUMP"]')!;
+    pointer('pointerdown', 0, 0, jump);
+    expect(source.snapshot()).toEqual({ jump: true });
+    expect(hoverOn(), 'JUMP must not toggle hover').toBe(false);
+    pointer('pointerup', 0, 0, jump);
+    expect(source.snapshot()).toEqual({ jump: false });
   });
 });
 

@@ -11,7 +11,11 @@
  * FLIGHT mapping (up-positive y from TASK-90):
  * - LEFT stick: thrust (up/down) + yaw (left/right) — `thrust: y, yaw: x`.
  * - RIGHT stick: pitch (up/down) + roll (left/right) — `pitch: y, roll: x`.
- * - VTOL button: atmosphere ONLY (the ' ' channel — same key as jump).
+ * - VTOL button: atmosphere ONLY — a TOGGLE (TASK-107): one tap flips the
+ *   shared hover store (the 10 m altitude-hold), NOT the press-hold ' '
+ *   virtual key (the virtual-key path is held-key semantics; the toggle
+ *   drives the store directly, exactly like the keyboard's Space press).
+ *   The pressed accent + aria-pressed mirror the store.
  * - BOOST button: space ONLY (the 'Shift' channel — same key as run).
  *
  * TASK-92 adds the COMBAT cluster in the right-mid clear zone (above the
@@ -72,6 +76,7 @@
 import React from 'react';
 
 import type { TouchInputSource } from '@client/input/touch';
+import { hoverOn, hoverOnSubscribe, toggleHover } from '@client/state/hover';
 import type { Regime } from '@shared/regime';
 import type { WeaponId } from '@shared/weapons';
 
@@ -150,6 +155,12 @@ export function TouchControls({
   const [interactHeld, setInteractHeld] = React.useState(false);
   const interactHeldRef = React.useRef(false);
   interactHeldRef.current = interactHeld;
+  // TASK-107: the VTOL button is a TOGGLE over the shared hover store
+  // (emit-on-change, like the ship HUD's HOVER tag) — the pressed accent
+  // mirrors the live store. Rules of hooks: declared before the early
+  // return below.
+  const [hover, setHover] = React.useState<boolean>(hoverOn);
+  React.useEffect(() => hoverOnSubscribe(setHover), []);
   // Rules of hooks: these run before the early return below, so the
   // unmount / disabled cleanups always fire.
   // Disabled (or an unmount while enabled) clears every channel AND stops
@@ -385,10 +396,17 @@ export function TouchControls({
         }}
       >
         {atmosphere ? (
+          // TASK-107: TOGGLE — one tap flips the hover store (the shared
+          // 10 m altitude-hold the flight loop sends as the 'hover' tag);
+          // release does nothing (a held tap must not re-toggle). The
+          // accent + aria-pressed are the live store state. NOT the ' '
+          // virtual key (that press-hold path stays the legacy held-
+          // demand, driven by the keyboard and the __TOUCH__ e2e bridge).
           <TouchButton
             label="VTOL"
-            onPress={() => source.setChannel({ vtol: true })}
-            onRelease={() => source.setChannel({ vtol: false })}
+            pressed={hover}
+            onPress={() => toggleHover()}
+            onRelease={() => {}}
           />
         ) : (
           <TouchButton

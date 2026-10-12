@@ -10,6 +10,7 @@ import {
   anyFlightDemand,
   dockedFlightScheme,
   effectiveFlightPressed,
+  flightLoopScheme,
   shipInputKey,
 } from './flight-loop';
 
@@ -157,6 +158,48 @@ function loopFrame(
   const seq = !opts.docked || nonzero ? sender.shouldSend(nowMs) : null;
   return { seq, input };
 }
+
+describe('hover channel + scheme selection (TASK-107)', () => {
+  it('anyFlightDemand counts the hover channel (the dock gate must not swallow it)', () => {
+    const zero: ShipInput = { thrust: 0, yaw: 0, pitch: 0, roll: 0, up: 0, boost: 0 };
+    expect(anyFlightDemand(zero)).toBe(false);
+    // Hover on with nothing else held IS a demand — while wire-docked it
+    // must beat the TASK-78 idle-frame gate (first input = take-off).
+    expect(anyFlightDemand({ ...zero, hover: 1 })).toBe(true);
+    expect(anyFlightDemand({ ...zero, hover: 0 })).toBe(false);
+  });
+
+  it('shipInputKey distinguishes the hover channel (stable wire fingerprint)', () => {
+    const base = { thrust: 0, yaw: 0, pitch: 0, roll: 0, up: 0, boost: 0 };
+    expect(shipInputKey({ ...base, hover: 1 })).not.toBe(shipInputKey(base));
+    // up + hover (the normalized 'hover' form) is distinct from up alone
+    // (the legacy 'vtol' form) — the two lift sources never collide.
+    expect(shipInputKey({ ...base, up: 1, hover: 1 })).not.toBe(
+      shipInputKey({ ...base, up: 1 }),
+    );
+  });
+
+  it('flightLoopScheme: wire-docked OR in-ship surface reads the flight (atmosphere) scheme', () => {
+    // TASK-86 rule: a pad-docked ship (wire 'surface', docked) and any
+    // landed in-ship ship (wire 'surface') must read the atmosphere flight
+    // scheme — W = thrust, Space = VTOL — not the character scheme.
+    expect(flightLoopScheme('surface', true)).toBe(CONTROL_SCHEMES.atmosphere);
+    expect(flightLoopScheme('surface', false)).toBe(CONTROL_SCHEMES.atmosphere);
+    expect(flightLoopScheme('atmosphere', false)).toBe(CONTROL_SCHEMES.atmosphere);
+    expect(flightLoopScheme('space', true)).toBe(CONTROL_SCHEMES.space);
+    expect(flightLoopScheme('space', false)).toBe(CONTROL_SCHEMES.space);
+  });
+
+  it('the Space-hover toggle is live exactly where the loop reads Space as VTOL', () => {
+    // The main.tsx keydown guard (scheme.vtol === ' ') — atmosphere and the
+    // in-ship surface (dockedFlightScheme) toggle; space and on foot (the
+    // character scheme) never do.
+    expect(flightLoopScheme('atmosphere', false).vtol).toBe(' ');
+    expect(flightLoopScheme('surface', false).vtol).toBe(' '); // dockedFlightScheme
+    expect(flightLoopScheme('space', false).vtol).toBeNull();
+    expect(CONTROL_SCHEMES.surface.vtol).toBeNull(); // on foot: Space = jump
+  });
+});
 
 describe('docked undock contract (TASK-86)', () => {
   it('a pad-docked ship (wire-docked, regime surface) takes off on its first W', () => {

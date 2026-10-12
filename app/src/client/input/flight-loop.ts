@@ -76,7 +76,7 @@ export class InputFrameSender {
 export function shipInputKey(input: ShipInput): string {
   return `${input.thrust}|${input.yaw}|${input.pitch}|${input.roll}|${input.up}|${
     input.boost ?? 0
-  }`;
+  }|${input.hover ?? 0}`;
 }
 
 /** True when the frame carries any real control demand (not the idle frame). */
@@ -87,7 +87,11 @@ export function anyFlightDemand(input: ShipInput): boolean {
     input.pitch !== 0 ||
     input.roll !== 0 ||
     input.up !== 0 ||
-    (input.boost ?? 0) !== 0
+    (input.boost ?? 0) !== 0 ||
+    // TASK-107: the hover toggle is a demand even with nothing else held —
+    // while wire-docked it must beat the TASK-78 idle-frame gate (the
+    // server's "first input = take-off" contract needs the 'hover' frame).
+    (input.hover ?? 0) !== 0
   );
 }
 
@@ -102,6 +106,22 @@ export function anyFlightDemand(input: ShipInput): boolean {
  */
 export function dockedFlightScheme(regime: Regime): ControlScheme {
   return CONTROL_SCHEMES[regime === 'surface' ? 'atmosphere' : regime];
+}
+
+/**
+ * TASK-107: the FLIGHT scheme the self-ship loop reads this frame — the
+ * loop's per-frame decision extracted from main.tsx so the Space-hover
+ * toggle handler applies the SAME rule (the toggle is live only when the
+ * scheme being read maps Space to VTOL): a wire-docked ship AND any
+ * in-ship 'surface' ship read the flight scheme (TASK-86: a landed /
+ * pad-docked ship's wire regime 'surface' would remap the keys to the
+ * character scheme — W = walk, Space = zero flight demand), everyone else
+ * reads the regime's own scheme.
+ */
+export function flightLoopScheme(regime: Regime, wireDocked: boolean): ControlScheme {
+  return wireDocked || regime === 'surface'
+    ? dockedFlightScheme(regime)
+    : CONTROL_SCHEMES[regime];
 }
 
 const EMPTY_PRESSED: ReadonlySet<string> = new Set();

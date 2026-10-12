@@ -13,6 +13,7 @@
  */
 import React from 'react';
 import { cruiseState, cruiseStateSubscribe, type CruiseState } from '@client/state/cruise';
+import { hoverAllowed, hoverOn, hoverOnSubscribe } from '@client/state/hover';
 import { selfShipView, selfShipViewSubscribe, type SelfShipView } from '@client/state/ship-hud';
 import { speedBlockRect } from './layout';
 import { styleFromRect, type Viewport } from '@client/ui/combat-hud/layout';
@@ -39,6 +40,10 @@ export function ShipHud(props: ShipHudProps): React.ReactElement | null {
   // through the emit-on-change store, so it only re-renders on changes.
   const [cruise, setCruise] = React.useState<CruiseState>(cruiseState);
   React.useEffect(() => cruiseStateSubscribe(setCruise), []);
+  // TASK-107: the hover tag (HOVER) — the client hover toggle through the
+  // same emit-on-change store (re-renders only on a toggle / auto-offer).
+  const [hover, setHover] = React.useState<boolean>(hoverOn);
+  React.useEffect(() => hoverOnSubscribe(setHover), []);
   const [dockedName, setDockedName] = React.useState<string | null>(null);
   // The docked tag's station name only changes with the view (10 Hz).
   React.useEffect(() => {
@@ -87,6 +92,7 @@ export function ShipHud(props: ShipHudProps): React.ReactElement | null {
             {regimeTag(view.regime)}
           </span>
           <CruiseTag state={cruise} />
+          <HoverTag on={hover} allowed={hoverAllowed(view.regime, false)} />
         </div>
         <div style={{ marginTop: 4, minHeight: 14 }}>
           <NavReadout sample={props.navSample} dockTarget={props.dockTarget} />
@@ -177,6 +183,37 @@ function CruiseTag({ state }: { state: CruiseState }): React.ReactElement | null
       }}
     >
       {active ? 'CRUISE' : 'CRUISE BLOCKED'}
+    </span>
+  );
+}
+
+/**
+ * TASK-107: the hover tag next to the regime indicator (the same slot and
+ * pattern as the CRUISE tag): lit (bright cyan) EXACTLY while the hover
+ * toggle is on AND the regime allows it (atmosphere/surface — the wire
+ * regime from the server's self-ship snapshot; the store auto-offers in
+ * space and on egress, the gate keeps the tag honest in the 10 Hz gap).
+ * Hidden entirely while off — the CRUISE tag's visibility rule. TASK-54:
+ * the tag text carries the state, and the cyan clears ≥ 4.5:1 on the tag
+ * background.
+ */
+function HoverTag({ on, allowed }: { on: boolean; allowed: boolean }): React.ReactElement | null {
+  if (!on || !allowed) return null;
+  return (
+    <span
+      id="ship-hud-hover"
+      role="status"
+      style={{
+        fontSize: 9,
+        padding: '1px 6px',
+        borderRadius: 3,
+        border: '1px solid #2a3346',
+        letterSpacing: '0.1em',
+        color: '#67e8f9',
+        background: 'rgba(11, 14, 20, 0.7)',
+      }}
+    >
+      HOVER
     </span>
   );
 }

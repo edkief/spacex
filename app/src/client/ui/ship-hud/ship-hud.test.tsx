@@ -16,6 +16,7 @@ import type { SelfShipView } from '@client/state/ship-hud';
 import { __resetShipHud, flashHullHit, setSelfShipView } from '@client/state/ship-hud';
 import { __resetChartTarget, setChartTarget } from '@client/state/chart-target';
 import { __resetCruiseState, setCruiseState } from '@client/state/cruise';
+import { __resetHover, setHoverOn } from '@client/state/hover';
 
 import { allPairwiseDisjoint, protectedRects, type Viewport } from '../combat-hud/layout';
 import { shipHudRects } from './layout';
@@ -61,6 +62,7 @@ beforeEach(() => {
   __resetShipHud();
   __resetChartTarget();
   __resetCruiseState();
+  __resetHover();
 });
 
 afterEach(() => {
@@ -144,6 +146,42 @@ describe('ShipHud cruise tag (TASK-85)', () => {
     act(() => setCruiseState({ held: true, allowed: true }));
     act(() => setCruiseState({ held: true, allowed: false }));
     expect(el.querySelector('#ship-hud-cruise')?.textContent).toBe('CRUISE BLOCKED');
+  });
+});
+
+describe('ShipHud hover tag (TASK-107)', () => {
+  it('is hidden while the hover toggle is off (any regime)', () => {
+    for (const regime of ['space', 'atmosphere', 'surface'] as const) {
+      const el = renderHud(mkView({ regime }));
+      expect(el.querySelector('#ship-hud-hover'), `${regime}: hidden while off`).toBeNull();
+    }
+  });
+
+  it('lights HOVER (bright cyan) while the store is on AND the regime allows it', () => {
+    for (const regime of ['atmosphere', 'surface'] as const) {
+      act(() => setHoverOn(true));
+      const el = renderHud(mkView({ regime }));
+      const tag = el.querySelector('#ship-hud-hover') as HTMLElement | null;
+      expect(tag, `${regime}: tag present`).not.toBeNull();
+      expect(tag?.textContent).toBe('HOVER');
+      expect(String(tag?.style.color).toLowerCase()).toBe('#67e8f9'); // bright cyan
+      expect(tag?.getAttribute('role')).toBe('status');
+    }
+  });
+
+  it('stays hidden in space even while the store is on (the allowed gate)', () => {
+    act(() => setHoverOn(true));
+    const el = renderHud(mkView({ regime: 'space' }));
+    expect(el.querySelector('#ship-hud-hover')).toBeNull();
+  });
+
+  it('live-updates on toggle-on / toggle-off (subscribe runs, emit-on-change)', () => {
+    const el = renderHud(mkView({ regime: 'atmosphere' }));
+    expect(el.querySelector('#ship-hud-hover')).toBeNull();
+    act(() => setHoverOn(true));
+    expect(el.querySelector('#ship-hud-hover')?.textContent).toBe('HOVER');
+    act(() => setHoverOn(false));
+    expect(el.querySelector('#ship-hud-hover')).toBeNull();
   });
 });
 

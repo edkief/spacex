@@ -175,8 +175,8 @@ import { TouchControls } from '@client/ui/touch/TouchControls';
 import {
   InputFrameSender,
   anyFlightDemand,
-  dockedFlightScheme,
   effectiveFlightPressed,
+  flightLoopScheme,
 } from '@client/input/flight-loop';
 import { ClientShipPredictor, shipStateFromWire } from '@client/net/prediction';
 import { CorrectionSmoother } from '@client/net/correction-smoother';
@@ -184,6 +184,8 @@ import type { ShipClassId } from '@shared/ships';
 import type { Regime } from '@shared/regime';
 import { cruiseAllowedAt } from '@shared/regime';
 import { setCruiseState } from '@client/state/cruise';
+import { hoverAutoDisengage, hoverOn, setHoverOn, toggleHover } from '@client/state/hover';
+import { installHoverDebug } from '@client/hover-debug';
 import { vecLength } from '@shared/physics/vec';
 import type { Quat, Vec3 } from '@shared/physics/vec';
 
@@ -472,6 +474,16 @@ function useGameSession(
           // TASK-25.2: route our OWN 10 Hz snapshot into the regime tracker
           // (server flightRegime authority + last-known-state prediction).
           if (self) regimeWiring.onSelfUpdate(self, Date.now());
+          // TASK-107: hover AUTO-DISENGAGE — the shared physics is a no-op
+          // once the wire regime leaves atmosphere/surface ('space': the
+          // lift branch is unreachable; egress: a character has no hover),
+          // so force-offer the store here (the wire is the source the
+          // flight loop already reads; e2e vtol-hover.spec.ts asserts it
+          // via the __HOVER__ dev probe). No-op when hover is already off
+          // (emit-on-change).
+          if (self && hoverAutoDisengage(regimeWiring.regime, self.kind === 'character')) {
+            setHoverOn(false);
+          }
           // TASK-28.1: the live tracker regime drives the atmosphere view —
           // passing it (not a local guess) keeps the exit hysteresis band
           // consistent with the sim's regime decision.
@@ -1720,6 +1732,32 @@ function App() {
     };
   }, []);
 
+  // TASK-107: Space (the VTOL key) TOGGLES the client hover state — one
+  // press enables the 10 m altitude-hold, the next disables it (owner
+  // request M8). The toggle is live ONLY when the scheme the flight loop
+  // reads this frame maps Space to VTOL (flightLoopScheme: the atmosphere
+  // scheme — including the wire-docked / in-ship 'surface' ship via
+  // dockedFlightScheme). In space Space is nothing; on foot it is JUMP
+  // (the surface scheme's vtol is null) — the scheme guard keeps both.
+  // Auto-repeat must not re-toggle (e.repeat), typing in chat is excluded
+  // (the same rule as the key capture above), and game input is suppressed
+  // while a surface is open (TASK-53 — the modal's Space stays inert).
+  // While hover is ON the flight loop sends the shared 'hover' tag (the
+  // held key is irrelevant); while OFF, Space press-hold keeps the legacy
+  // 'vtol' demand byte-for-byte (the key capture above is untouched).
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== ' ' || e.repeat) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+      if (anySurfaceOpen()) return;
+      if (flightLoopScheme(regimeWiring.regime, wireDockedIndicator()).vtol !== ' ') return;
+      toggleHover();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [regimeWiring]);
+
   // TASK-32: the on-foot prediction loop — one rAF per frame, active only
   // while disembarked (the predictor exists). Maps the pressed keys to the
   // surface input frame (sent on change or at 20 Hz so the server's held
@@ -1896,7 +1934,6 @@ function App() {
       // through a FLIGHT scheme (TASK-86): the active scheme is the
       // character (walking) scheme for a pad-docked ship, which maps W to
       // zero flight demand and the gate below would swallow the take-off.
-      const flightScheme = docked || regimeWiring.regime === 'surface';
       // TASK-99: the keyboard readout of the ANALOG axes (binary ±1/0) is
       // merged per axis with the LIVE touch stick magnitudes, and the
       // merged analog ShipInput flows through the EXISTING
@@ -1914,9 +1951,10 @@ function App() {
       const kbOnly = effectiveFlightPressed(pressedRef.current, {
         chartOpen: chartOpenRef.current,
       });
-      const scheme = flightScheme
-        ? dockedFlightScheme(regimeWiring.regime)
-        : regimeWiring.remapper.scheme;
+      // TASK-107: the scheme selection is the extracted flightLoopScheme
+      // (TASK-86 rule) — the Space-hover toggle handler applies the same
+      // one, so the toggle is live exactly when Space maps to VTOL here.
+      const scheme = flightLoopScheme(regimeWiring.regime, docked);
       const kbInput = readSchemeInput(scheme, kbOnly);
       const withButtons = readSchemeInput(scheme, pressed);
       const input = scaleLookDemand(
@@ -1927,6 +1965,20 @@ function App() {
         },
         settingsState().sensitivity,
       );
+      // TASK-107: the hover TOGGLE (client input state, like the pressed
+      // keys — the server never stores it): while ON the SHARED 'hover'
+      // channel (the deterministic 10 m altitude-hold, TASK-106) REPLACES
+      // the legacy held-'vtol' up demand (the two lift sources are mutually
+      // exclusive — the wire 'hover' tag implies up and wins over 'vtol' in
+      // shipInputToPayload). While OFF the payload is byte-identical to
+      // pre-task (Space held = the legacy 'vtol' demand, TASK-29 pad
+      // approach kept green). The store auto-disengages in space / on foot,
+      // so a 'hover' tag here means an atmosphere/surface regime (the
+      // physics no-ops it in 'space' anyway).
+      if (hoverOn()) {
+        input.up = 1;
+        input.hover = 1;
+      }
       const nonzero = anyFlightDemand(input);
       // TASK-85: the HUD cruise tag — demand held (Shift in the space
       // scheme) + clearance at the PREDICTED position (shared rule).
@@ -2651,6 +2703,8 @@ installAtmosphereDebug();
 installTransitionDebug();
 // TASK-91: dev-only touch probe + deterministic channel driver (no-op in prod).
 const touchDebug = installTouchDebug();
+// TASK-107: dev-only hover store probe (no-op in production builds).
+installHoverDebug();
 
 const root = document.getElementById('root');
 if (!root) throw new Error('missing #root element');
