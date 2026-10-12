@@ -1,0 +1,28 @@
+{"time":"2026-10-12T07:17:07.639Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-12T07:29:41.685Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-106.md"}}
+{"time":"2026-10-12T07:29:45.066Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":1}}
+{"time":"2026-10-12T07:36:38.883Z","level":"warn","message":"force-pushed over diverged history","fields":{"remote":"origin","branch":"master","iteration":2,"from":"c3197a9105cedbfb0019facd5f26c43a19a3e3b5","to":"a97e6290bd8c9363cbe894b386eb299707432ede","backup":"origin/ralph/overwritten/master-20261012T073632Z","ref":"refs/ralph/overwritten/master/20261012T073632Z"}}
+{"time":"2026-10-12T07:36:38.883Z","level":"warn","message":"Force-pushed master to origin over diverged history: c3197a9105ce → a97e6290bd8c, overwriting 1 commit:"}
+{"time":"2026-10-12T07:36:38.883Z","level":"warn","message":"  c3197a9105ce wip(TASK-106): hover controller + wire tag + tests all green in isolation; full-suite re-run under quiet load + bookkeeping pending (NOT in the new history)"}
+{"time":"2026-10-12T07:36:38.883Z","level":"warn","message":"The old tip c3197a9105cedbfb0019facd5f26c43a19a3e3b5 is kept at refs/ralph/overwritten/master/20261012T073632Z and at origin/ralph/overwritten/master-20261012T073632Z."}
+{"time":"2026-10-12T07:36:38.883Z","level":"warn","message":"To restore a commit: git fetch origin ralph/overwritten/master-20261012T073632Z && git cherry-pick <sha>. To restore the branch: git push --force origin c3197a9105cedbfb0019facd5f26c43a19a3e3b5:refs/heads/master."}
+{"time":"2026-10-12T08:15:15.625Z","level":"info","message":"compacting the conversation to fit the context window"}
+{"time":"2026-10-12T08:21:41.187Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-12T08:27:13.179Z","level":"info","message":"conversation compacted","fields":{"compactions":1}}
+{"time":"2026-10-12T08:30:36.586Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-107.md"}}
+{"time":"2026-10-12T08:30:40.766Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":3}}
+{"time":"2026-10-12T08:53:19.099Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":4}}
+{"time":"2026-10-12T09:38:21.398Z","level":"warn","message":"asking the agent to wrap up","fields":{"reason":"iteration-timeout","delivery":"steer"}}
+{"time":"2026-10-12T09:43:20.351Z","level":"info","message":"agent left a handoff","fields":{"path":".ralph/handoff/TASK-108.md"}}
+{"time":"2026-10-12T09:43:24.538Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":5}}
+{"time":"2026-10-12T09:49:59.757Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-12T09:50:09.684Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-12T09:51:44.161Z","level":"info","message":"web UI action","fields":{"action":"push-subscribe","events":"request,run-end,task"}}
+{"time":"2026-10-12T09:53:03.242Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-12T09:53:10.597Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-12T09:53:20.341Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-12T09:54:55.388Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-12T09:56:29.979Z","level":"info","message":"permission decided","fields":{"action":"external_directory","reply":"once","reason":"fallback"}}
+{"time":"2026-10-12T10:17:28.738Z","level":"info","message":"web UI action","fields":{"action":"stop","mode":"after-iteration","run":"20261012-063207"}}
+{"time":"2026-10-12T10:17:29.080Z","level":"warn","message":"stop requested: stopping after the current iteration"}
+{"time":"2026-10-12T10:22:17.513Z","level":"info","message":"pushed commits","fields":{"remote":"origin","iteration":6}}
