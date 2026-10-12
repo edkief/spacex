@@ -11,6 +11,7 @@ import {
   dockedFlightScheme,
   effectiveFlightPressed,
   flightLoopScheme,
+  isBoostTap,
   shipInputKey,
 } from './flight-loop';
 
@@ -280,5 +281,28 @@ describe('docked undock contract (TASK-86)', () => {
     expect(anyFlightDemand(readSchemeInput(dockedFlightScheme('surface'), new Set(['w'])))).toBe(
       true,
     );
+  });
+});
+
+describe('boost tap vs press-hold (TASK-108)', () => {
+  it('a Shift release under BOOST_TAP_MAX_MS is the toggle tap', () => {
+    expect(isBoostTap(0)).toBe(true);
+    expect(isBoostTap(50)).toBe(true);
+    expect(isBoostTap(199)).toBe(true);
+  });
+
+  it('a longer press is the LEGACY press-hold (the store is never touched)', () => {
+    expect(isBoostTap(200)).toBe(false);
+    expect(isBoostTap(1_500)).toBe(false);
+  });
+
+  it('the Shift toggle is live exactly where the loop reads Shift as boost', () => {
+    // The main.tsx keydown/keyup guard (scheme.boost === 'Shift') — space
+    // toggles; in atmosphere/surface Shift is nothing to the ship, and on
+    // foot it is RUN (the character scheme) — never a boost tap.
+    expect(flightLoopScheme('space', false).boost).toBe('Shift');
+    expect(flightLoopScheme('atmosphere', false).boost).toBeNull();
+    expect(flightLoopScheme('surface', false).boost).toBeNull();
+    expect(CONTROL_SCHEMES.surface.boost).toBeNull(); // on foot: Shift = run
   });
 });

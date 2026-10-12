@@ -109,6 +109,20 @@ export function dockedFlightScheme(regime: Regime): ControlScheme {
 }
 
 /**
+ * TASK-108: the Shift press is a boost TOGGLE tap only when it is RELEASED
+ * within this many milliseconds — a longer press is the legacy press-hold
+ * (the boost demand ends with the key, the store is never touched). A human
+ * tap lands well under this; 200 ms leaves margin on slow keyboards while a
+ * deliberate press-hold (≥ 200 ms) never flips the store.
+ */
+export const BOOST_TAP_MAX_MS = 200;
+
+/** Pure: true when a Shift release after `heldMs` is the toggle tap (see {@link BOOST_TAP_MAX_MS}). */
+export function isBoostTap(heldMs: number): boolean {
+  return heldMs < BOOST_TAP_MAX_MS;
+}
+
+/**
  * TASK-107: the FLIGHT scheme the self-ship loop reads this frame — the
  * loop's per-frame decision extracted from main.tsx so the Space-hover
  * toggle handler applies the SAME rule (the toggle is live only when the

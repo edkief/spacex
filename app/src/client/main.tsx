@@ -177,6 +177,7 @@ import {
   anyFlightDemand,
   effectiveFlightPressed,
   flightLoopScheme,
+  isBoostTap,
 } from '@client/input/flight-loop';
 import { ClientShipPredictor, shipStateFromWire } from '@client/net/prediction';
 import { CorrectionSmoother } from '@client/net/correction-smoother';
@@ -186,6 +187,8 @@ import { cruiseAllowedAt } from '@shared/regime';
 import { setCruiseState } from '@client/state/cruise';
 import { hoverAutoDisengage, hoverOn, setHoverOn, toggleHover } from '@client/state/hover';
 import { installHoverDebug } from '@client/hover-debug';
+import { boostAutoDisengage, boostOn, setBoostOn, toggleBoost } from '@client/state/boost';
+import { installBoostDebug } from '@client/boost-debug';
 import { vecLength } from '@shared/physics/vec';
 import type { Quat, Vec3 } from '@shared/physics/vec';
 
@@ -483,6 +486,14 @@ function useGameSession(
           // (emit-on-change).
           if (self && hoverAutoDisengage(regimeWiring.regime, self.kind === 'character')) {
             setHoverOn(false);
+          }
+          // TASK-108: boost AUTO-DISENGAGE — the owner decision: the cruise
+          // toggle force-offers the moment the wire regime leaves space
+          // (atmosphere / surface / egress), and re-entering space starts
+          // OFF (the player re-engages). The server's TASK-85 rule stays the
+          // authority — this is UX consistency. No-op when already off.
+          if (self && boostAutoDisengage(regimeWiring.regime, self.kind === 'character')) {
+            setBoostOn(false);
           }
           // TASK-28.1: the live tracker regime drives the atmosphere view —
           // passing it (not a local guess) keeps the exit hysteresis band
@@ -1758,6 +1769,55 @@ function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [regimeWiring]);
 
+  // TASK-108: Shift (the cruise-boost key) TOGGLES the client boost state on
+  // a TAP (owner request M8): a release within BOOST_TAP_MAX_MS flips the
+  // store (the flight loop then sends the 'boost' tag every frame, key no
+  // longer held), a LONGER press is the legacy press-hold byte-for-byte
+  // (the key capture above drives the demand; the store is never touched —
+  // a player holding Shift with the toggle off keeps the pre-change
+  // behaviour, the boost ends with the key). The toggle is live ONLY when
+  // the scheme the flight loop reads this frame maps Shift to boost
+  // (flightLoopScheme: the SPACE scheme — in atmosphere/surface Shift is
+  // nothing to the ship, on foot it is RUN (the surface scheme's boost is
+  // null) — the scheme guard keeps both). Auto-repeat must not re-arm the
+  // tap (e.repeat), typing in chat is excluded (the same rule as the key
+  // capture above), game input is suppressed while a surface is open
+  // (TASK-53), and a blur (a lost keyup) drops the tap so a stale release
+  // can't flip the store.
+  React.useEffect(() => {
+    let downAt: number | null = null;
+    const shiftIsBoost = (): boolean =>
+      flightLoopScheme(regimeWiring.regime, wireDockedIndicator()).boost === 'Shift';
+    const inert = (e: KeyboardEvent): boolean => {
+      const t = e.target as HTMLElement | null;
+      return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA');
+    };
+    const onDown = (e: KeyboardEvent): void => {
+      if (e.key !== 'Shift' || e.repeat) return;
+      if (inert(e) || anySurfaceOpen() || !shiftIsBoost()) return;
+      downAt = performance.now();
+    };
+    const onUp = (e: KeyboardEvent): void => {
+      if (e.key !== 'Shift' || downAt === null) return;
+      const heldMs = performance.now() - downAt;
+      downAt = null;
+      if (!isBoostTap(heldMs)) return; // a press-hold: the legacy path ended
+      if (inert(e) || anySurfaceOpen() || !shiftIsBoost()) return;
+      toggleBoost();
+    };
+    const onBlur = (): void => {
+      downAt = null;
+    };
+    window.addEventListener('keydown', onDown);
+    window.addEventListener('keyup', onUp);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('keydown', onDown);
+      window.removeEventListener('keyup', onUp);
+      window.removeEventListener('blur', onBlur);
+    };
+  }, [regimeWiring]);
+
   // TASK-32: the on-foot prediction loop — one rAF per frame, active only
   // while disembarked (the predictor exists). Maps the pressed keys to the
   // surface input frame (sent on change or at 20 Hz so the server's held
@@ -1979,9 +2039,22 @@ function App() {
         input.up = 1;
         input.hover = 1;
       }
+      // TASK-108: the boost TOGGLE (client input state, like the pressed
+      // keys — the server never stores it): while ON the SHARED 'boost'
+      // channel (the TASK-85 space-cruise rule) is demanded INDEPENDENTLY
+      // of the Shift key being physically held (the key's held state no
+      // longer matters — a sustained 'boost' tag on the normal 66 ms
+      // cadence). While OFF the demand is byte-identical to pre-task
+      // (Shift held = the legacy boost demand). The store
+      // auto-disengages off-space / on egress, so a 'boost' tag here means
+      // a space regime (the physics no-ops it outside space anyway).
+      if (boostOn()) {
+        input.boost = 1;
+      }
       const nonzero = anyFlightDemand(input);
-      // TASK-85: the HUD cruise tag — demand held (Shift in the space
-      // scheme) + clearance at the PREDICTED position (shared rule).
+      // TASK-85/108: the HUD cruise tag — demand live (the Shift key OR the
+      // boost toggle; the input above carries the store) + clearance at the
+      // PREDICTED position (shared rule).
       setCruiseState({
         held: (input.boost ?? 0) > 0,
         allowed: cruiseAllowedAt(p.getState().pos, regimeWiring.regimePlanets),
@@ -2705,6 +2778,8 @@ installTransitionDebug();
 const touchDebug = installTouchDebug();
 // TASK-107: dev-only hover store probe (no-op in production builds).
 installHoverDebug();
+// TASK-108: dev-only boost store probe (no-op in production builds).
+installBoostDebug();
 
 const root = document.getElementById('root');
 if (!root) throw new Error('missing #root element');

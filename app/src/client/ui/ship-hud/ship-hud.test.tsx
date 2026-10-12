@@ -118,13 +118,13 @@ describe('ShipHud readouts', () => {
   });
 });
 
-describe('ShipHud cruise tag (TASK-85)', () => {
-  it('is hidden while boost is not held', () => {
+describe('ShipHud cruise tag (TASK-85/108 — follows the boost toggle)', () => {
+  it('is hidden while the boost demand is off (toggle off, no key held)', () => {
     const el = renderHud(mkView({ regime: 'space' }));
     expect(el.querySelector('#ship-hud-cruise')).toBeNull();
   });
 
-  it('shows CRUISE (bright) while boost is held AND allowed', () => {
+  it('shows CRUISE (bright) while the boost demand is live AND allowed', () => {
     act(() => setCruiseState({ held: true, allowed: true }));
     const el = renderHud(mkView({ regime: 'space' }));
     const tag = el.querySelector('#ship-hud-cruise') as HTMLElement | null;
@@ -132,7 +132,7 @@ describe('ShipHud cruise tag (TASK-85)', () => {
     expect(String(tag?.style.color).toLowerCase()).toBe('#67e8f9'); // bright cyan
   });
 
-  it('shows dimmed CRUISE BLOCKED while held but not allowed (near a planet)', () => {
+  it('shows dimmed CRUISE BLOCKED while live but not allowed (near a planet)', () => {
     act(() => setCruiseState({ held: true, allowed: false }));
     const el = renderHud(mkView({ regime: 'space' }));
     const tag = el.querySelector('#ship-hud-cruise') as HTMLElement | null;
@@ -146,6 +146,18 @@ describe('ShipHud cruise tag (TASK-85)', () => {
     act(() => setCruiseState({ held: true, allowed: true }));
     act(() => setCruiseState({ held: true, allowed: false }));
     expect(el.querySelector('#ship-hud-cruise')?.textContent).toBe('CRUISE BLOCKED');
+  });
+
+  it('is hidden in the atmosphere even if the demand state is somehow on (regime gate)', () => {
+    // The store auto-offers off-space, but the HUD stays honest in the
+    // 10 Hz gap: the cruise physics is a no-op outside space, so the tag
+    // must not light there.
+    act(() => setCruiseState({ held: true, allowed: true }));
+    const el = renderHud(mkView({ regime: 'atmosphere' }));
+    expect(el.querySelector('#ship-hud-cruise')).toBeNull();
+    act(() => setCruiseState({ held: true, allowed: true }));
+    const elSurface = renderHud(mkView({ regime: 'surface' }));
+    expect(elSurface.querySelector('#ship-hud-cruise')).toBeNull();
   });
 });
 

@@ -16,7 +16,12 @@
  *   virtual key (the virtual-key path is held-key semantics; the toggle
  *   drives the store directly, exactly like the keyboard's Space press).
  *   The pressed accent + aria-pressed mirror the store.
- * - BOOST button: space ONLY (the 'Shift' channel — same key as run).
+ * - BOOST button: space ONLY, a TOGGLE (TASK-108): one tap flips the shared
+ *   boost store (the sustained 'boost' tag the flight loop sends while on),
+ *   NOT the press-hold 'Shift' virtual key (the virtual-key path is
+ *   held-key semantics; the toggle drives the store directly, exactly like
+ *   the keyboard's Shift press). The pressed accent + aria-pressed mirror
+ *   the store.
  *
  * TASK-92 adds the COMBAT cluster in the right-mid clear zone (above the
  * VTOL/BOOST slot, clear of the left-edge ship HUD and the centre reticle):
@@ -76,6 +81,7 @@
 import React from 'react';
 
 import type { TouchInputSource } from '@client/input/touch';
+import { boostOn, boostOnSubscribe, toggleBoost } from '@client/state/boost';
 import { hoverOn, hoverOnSubscribe, toggleHover } from '@client/state/hover';
 import type { Regime } from '@shared/regime';
 import type { WeaponId } from '@shared/weapons';
@@ -157,10 +163,14 @@ export function TouchControls({
   interactHeldRef.current = interactHeld;
   // TASK-107: the VTOL button is a TOGGLE over the shared hover store
   // (emit-on-change, like the ship HUD's HOVER tag) — the pressed accent
-  // mirrors the live store. Rules of hooks: declared before the early
-  // return below.
+  // mirrors the live store.
+  // TASK-108: the BOOST button is a TOGGLE over the shared boost store (the
+  // same idiom) — the pressed accent mirrors the live store. Rules of hooks:
+  // both declared before the early return below.
   const [hover, setHover] = React.useState<boolean>(hoverOn);
   React.useEffect(() => hoverOnSubscribe(setHover), []);
+  const [boost, setBoost] = React.useState<boolean>(boostOn);
+  React.useEffect(() => boostOnSubscribe(setBoost), []);
   // Rules of hooks: these run before the early return below, so the
   // unmount / disabled cleanups always fire.
   // Disabled (or an unmount while enabled) clears every channel AND stops
@@ -409,10 +419,17 @@ export function TouchControls({
             onRelease={() => {}}
           />
         ) : (
+          // TASK-108: TOGGLE — one tap flips the boost store (the sustained
+          // 'boost' tag the flight loop sends while on); release does
+          // nothing (a held tap must not re-toggle). The accent +
+          // aria-pressed are the live store state. NOT the 'Shift'
+          // virtual key (that press-hold path stays the legacy held-
+          // demand, driven by the keyboard and the __TOUCH__ e2e bridge).
           <TouchButton
             label="BOOST"
-            onPress={() => source.setChannel({ boost: true })}
-            onRelease={() => source.setChannel({ boost: false })}
+            pressed={boost}
+            onPress={() => toggleBoost()}
+            onRelease={() => {}}
           />
         )}
       </div>

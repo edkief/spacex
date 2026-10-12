@@ -91,7 +91,7 @@ export function ShipHud(props: ShipHudProps): React.ReactElement | null {
           >
             {regimeTag(view.regime)}
           </span>
-          <CruiseTag state={cruise} />
+          <CruiseTag state={cruise} regime={view.regime} />
           <HoverTag on={hover} allowed={hoverAllowed(view.regime, false)} />
         </div>
         <div style={{ marginTop: 4, minHeight: 14 }}>
@@ -156,16 +156,21 @@ function ThrustVectorBar({
 }
 
 /**
- * TASK-85: the cruise tag next to the regime indicator. 'CRUISE' (bright
- * cyan, the space-regime colour) while boost is held AND allowed at the
- * predicted position; dimmed 'CRUISE BLOCKED' while Shift is held but the
- * clearance band is not clear — the player must see WHY nothing happens
- * near planets. Hidden entirely when Shift is not held. TASK-54: the tag
- * text carries the state (not just colour), and both colours clear
+ * TASK-85/108: the cruise tag next to the regime indicator. 'CRUISE'
+ * (bright cyan, the space-regime colour) while boost demand is live — the
+ * Shift key held OR the boost TOGGLE on (the store-driven demand rides the
+ * same input feed, TASK-108) — AND allowed at the predicted position;
+ * dimmed 'CRUISE BLOCKED' while demand is live but the clearance band is
+ * not clear — the player must see WHY nothing happens near planets. Hidden
+ * entirely when no boost demand is live, and in any non-space regime (the
+ * cruise physics is a no-op there — the store auto-offers off-space, the
+ * gate keeps the tag honest in the 10 Hz gap). TASK-54: the tag text
+ * carries the state (not just colour), and both colours clear
  * ≥ 4.5:1 on the tag background.
  */
-function CruiseTag({ state }: { state: CruiseState }): React.ReactElement | null {
-  if (!state.held) return null;
+function CruiseTag({ state, regime }: { state: CruiseState; regime: SelfShipView['regime'] }):
+  React.ReactElement | null {
+  if (!state.held || regime !== 'space') return null;
   const active = state.allowed;
   return (
     <span

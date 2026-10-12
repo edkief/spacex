@@ -20,6 +20,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TouchInputSource } from '@client/input/touch';
+import { __resetBoost, boostOn, setBoostOn } from '@client/state/boost';
 import { __resetHover, hoverOn, setHoverOn } from '@client/state/hover';
 import { bindTouchDebug, installTouchDebug } from '@client/touch-debug';
 import type { WeaponId } from '@shared/weapons';
@@ -117,6 +118,7 @@ function fakeRaf(): { frames: (n: number) => void } {
 beforeEach(() => {
   source = new TouchInputSource();
   __resetHover(); // the shared hover store is module state (TASK-107)
+  __resetBoost(); // the shared boost store is module state (TASK-108)
   document.body.innerHTML = '';
   roots.forEach((r) => r.unmount());
   roots = [];
@@ -207,8 +209,9 @@ describe('TouchControls — sticks feed the source (up-positive y)', () => {
 
   it('a stick never clobbers a held button (setChannel is partial)', () => {
     const c = renderControls({ regime: 'space' });
-    const boost = c.querySelector('[aria-label="BOOST"]')!;
-    pointer('pointerdown', 0, 0, boost);
+    // The legacy press-hold boost channel (the __TOUCH__ bridge / the
+    // keyboard Shift path) — a stick write must not clear it.
+    source.setChannel({ boost: true });
     const left = c.querySelector('[aria-label="thrust and yaw stick"]')!;
     pointer('pointerdown', 0, -64, left);
     expect(source.snapshot()).toEqual({ thrust: 1, yaw: 0, boost: true });
@@ -287,28 +290,62 @@ describe('TouchControls — the VTOL button is the hover TOGGLE (TASK-107)', () 
   });
 });
 
-describe('TouchControls — buttons feed the source', () => {
-  it('BOOST: press = boost true, release = boost false (space)', () => {
+describe('TouchControls — the BOOST button is the boost TOGGLE (TASK-108)', () => {
+  it('one tap flips the boost store ON, the next tap OFF; release never re-toggles', () => {
+    const c = renderControls({ regime: 'space' });
+    const boost = c.querySelector('[aria-label="BOOST"]')!;
+    expect(boostOn()).toBe(false);
+    expect(boost.getAttribute('aria-pressed')).toBe('false');
+    pointer('pointerdown', 0, 0, boost);
+    expect(boostOn(), 'tap ON').toBe(true);
+    expect(boost.getAttribute('aria-pressed'), 'accent mirrors the store').toBe('true');
+    pointer('pointerup', 0, 0, boost);
+    expect(boostOn(), 'release is a no-op (a held tap must not re-toggle)').toBe(true);
+    pointer('pointerdown', 0, 0, boost);
+    pointer('pointerup', 0, 0, boost);
+    expect(boostOn(), 'tap OFF').toBe(false);
+    expect(boost.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('does NOT write the boost virtual key (the store is driven directly, the press-hold path stays legacy)', () => {
     const c = renderControls({ regime: 'space' });
     const boost = c.querySelector('[aria-label="BOOST"]')!;
     pointer('pointerdown', 0, 0, boost);
-    expect(source.snapshot()).toEqual({ boost: true });
     pointer('pointerup', 0, 0, boost);
-    expect(source.snapshot()).toEqual({ boost: false });
+    expect(source.snapshot(), 'no channel written by the toggle').toEqual({});
+    expect(boostOn()).toBe(true);
+  });
+
+  it('reflects a store change made elsewhere (keyboard Shift press, live subscribe)', () => {
+    const c = renderControls({ regime: 'space' });
+    const boost = c.querySelector('[aria-label="BOOST"]')!;
+    act(() => setBoostOn(true)); // the keyboard path
+    expect(boost.getAttribute('aria-pressed'), 'accent tracks the store').toBe('true');
   });
 });
 
 describe('TouchControls — channel hygiene across regime / enable flips', () => {
-  it('a held BOOST is cleared when the regime flips to atmosphere', () => {
-    const c = renderControls({ regime: 'space' });
-    const boost = c.querySelector('[aria-label="BOOST"]')!;
-    pointer('pointerdown', 0, 0, boost);
+  it('a held BOOST channel (legacy press-hold path) is cleared on the atmosphere flip', () => {
+    // TASK-108: the BOOST BUTTON no longer writes the channel (it drives
+    // the store), but the legacy press-hold path (the __TOUCH__ bridge)
+    // can — the flip must clear it so the unmounted button's onRelease
+    // can't leak the demand into the atmosphere scheme.
+    renderControls({ regime: 'space' });
+    source.setChannel({ boost: true });
     expect(source.snapshot().boost).toBe(true);
     act(() => {
       roots[0].render(<TouchControls enabled regime="atmosphere" source={source} />);
     });
-    // The unmounted button never fires onRelease — the flip must clear it.
     expect(source.snapshot().boost).toBe(false);
+  });
+
+  it('the toggle store SURVIVES the layout flip (auto-offer is the wire handler\'s job)', () => {
+    renderControls({ regime: 'space' });
+    setBoostOn(true); // the keyboard / touch toggle
+    act(() => {
+      roots[0].render(<TouchControls enabled regime="atmosphere" source={source} />);
+    });
+    expect(boostOn(), 'the store is wire-driven, not layout-driven').toBe(true);
   });
 
   it('disabling clears every held channel', () => {
