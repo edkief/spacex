@@ -12,11 +12,18 @@
  * the character's position (feet) — the client pre-filter can therefore
  * never present a target the server would reject on range, and the
  * server's check is the authority either way.
+ *
+ * TASK-105: the cone is a HORIZONTAL BEARING cone (XZ projection), not a
+ * 3-D pitch cone: the character is yaw-only, so "facing" a target means
+ * its bearing is within ±30° of the facing bearing. The vertical offset is
+ * already bounded by the 3-D distance cap — without this, a landed ship
+ * whose wire pos sits on a downslope (the character's terrain feet 1.5 m
+ * up, 2.5 m away = 31° below horizontal) is unreachable from on foot
+ * no matter how the character turns.
  */
 
 import {
   quatRotateVector,
-  vecDot,
   vecLength,
   vecNormalize,
   vecSub,
@@ -103,15 +110,19 @@ export function inInteractRange(feet: Vec3, pos: Vec3, range: number = INTERACT_
 }
 
 /**
- * Angle (radians, 0..π/2) between the forward direction and the direction
- * from `origin` to `pos` (a target exactly at the origin faces "everywhere":
- * 0). Pure; the caller passes the unit-ish forward (it is normalized here).
+ * TASK-105: HORIZONTAL BEARING angle (radians, 0..π) between the forward
+ * direction and the direction from `origin` to `pos` — both projected onto
+ * the XZ plane. The character is yaw-only, so the vertical offset is out
+ * of scope (the 3-D distance cap bounds it); a target straight overhead /
+ * below (zero horizontal offset) faces "everywhere": 0. Pure; the caller
+ * passes the unit-ish forward.
  */
 export function interactConeAngle(origin: Vec3, forward: Vec3, pos: Vec3): number {
   const to = vecSub(pos, origin);
-  const len = vecLength(to);
-  if (len === 0) return 0;
-  const cos = Math.min(1, Math.max(-1, vecDot(vecNormalize(forward), to) / len));
+  const fLen = Math.hypot(forward.x, forward.z);
+  const tLen = Math.hypot(to.x, to.z);
+  if (fLen === 0 || tLen === 0) return 0;
+  const cos = Math.min(1, Math.max(-1, (forward.x * to.x + forward.z * to.z) / (fLen * tLen)));
   // acos(cos) is already 0..π; the cone test only cares about the acute side
   // (a target behind the character is > 90° and never in the 30° cone).
   return Math.acos(cos);

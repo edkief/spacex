@@ -2,140 +2,160 @@
 
 ## Status
 
-Product code + all unit/shard/ws tests are COMPLETE and committed (c1c6f84). The e2e spec
-`app/tests/e2e/surface-egress.spec.ts` is written and PASSES through the on-foot state
-(dock → off-pad teleport → landed-gate prompt → E disembarks → character 2.5 m beside the
-ship on terrain height → screenshot). The only remaining failure is the RE-ENTRY step: the
-on-foot interaction raycast (`__INTERACT__`) never resolves the ship — all 24 turn bursts
-return null even though the server-authoritative character is 2.92 m from the ship and the
-server rot sweep covers the ship's bearing. Root cause not yet found; instrumentation was
-just added and NOT yet run.
+BOTH root causes found and fixed (product + spec), all 4 relevant e2e specs green in TWO
+consecutive combined runs; tsc + the 2 interaction unit-test files green. What remains is
+verification sweep + bookkeeping + final commit: full `npm run test`, eslint/prettier on the
+touched files, one more e2e confirmation run (ideally including `interact.spec.ts` /
+`mining.spec.ts` / `inventory.spec.ts` to prove the cone change regresses nothing), flip
+`passes: true`, LOG.md entry, delete this handoff, final commit.
 
 ## Done
 
-This session (on top of the previous handoff, whose product work is committed as c1c6f84):
+This session (all UNCOMMITTED — see Working tree):
 
-- Wrote `app/tests/e2e/surface-egress.spec.ts` (imports only `./fixtures`, `./helpers`,
-  `./raw-ws`):
-  - `dockAtPad`: raw WS hello/auth/join_system (+warp if needed), `POST /api/dev/teleport`
-    to `pad.y + 5`, wait `entity_update` regime 'docked' + padId, close raw client.
-  - Browser: goto, assert pre-state `#docked-indicator` + `#leave-ship-prompt` visible.
-  - Teleport the SHIP to `{x: pad.x + 100, y: pad.y + 5, z: pad.z}` — the +5 is REQUIRED
-    (see Dead ends: terrain at pad.x+100 is ~2.6 m HIGHER than pad.y; a pad-height drop
-    buries the ship). The ground clamp settles it on terrain, pad machine releases (25 m
-    hysteresis), regime → 'surface'.
-  - Wait `window.__SELF_SHIP__.probe().pos` within 5 m of the target; assert
-    `#docked-indicator` HIDDEN and `#leave-ship-prompt` VISIBLE (the new landed gate).
-  - Capture shipPos from the same probe; press E; assert prompt hidden, indicator hidden,
-    `#weight-bar` visible (NOT `#hazard-hud` — that only mounts inside a hazard zone).
-  - Geometry via `window.__CHAR__` (server-authoritative 10 Hz): |char.y − ship.y| < 3 and
-    horizontal distance 1.5–3.5 m (the 2.5 m `CHAR_SHIP_SIDE_OFFSET_M`).
-  - Screenshot `.ralph/screenshots/TASK-105-1.png` (EXISTS — verified on-foot view).
-  - Re-entry: 24× ('d' 100 ms burst + 400 ms rest, break on '[E] Enter ship'), then
-    `toHaveText('[E] Enter ship')` — **THIS IS WHERE IT FAILS** — then E and assert
-    `#docked-indicator` hidden + `#leave-ship-prompt` visible (off-pad re-entry: the ship
-    is NOT pad-docked, so the leave-ship prompt comes back from the landed gate alone).
-  - Second screenshot planned: `TASK-105-2.png` (only saved after re-entry succeeds).
+1. **ROOT CAUSE #1 (the null raycast from the previous handoff) — found and fixed.**
+   Fixed the instrumentation bug first (TEMP DEBUG assignments moved out of the `if (raw)`
+   hit branch in `app/src/client/main.tsx`, so the null case is captured) and ran the
+   instrumented spec. The dump was decisive: the ship IS in the target list
+   (`{id:'8414…', kind:'ship', pos:{x:10260,y:290,z:160}, callsign:matches, docked:false}`),
+   the predicted feet are at the server char pos `{x:10260,y:291.5,z:162.5}`, and `facing`
+   sweeps ALL bearings across the 24 bursts — yet `nearestInteractable` returns null every
+   frame. The ship is 2.92 m away (inside the 5 m enter radius), so the failure was the
+   CONE, not range, targets, or the predictor.
+   **Geometry:** the landed ship's wire `pos` sits on the terrain AT THE SHIP'S (x,z)
+   (y=290), while the character is spawned on the terrain at the ship's SIDE offset
+   (2.5 m away, y=291.5) — on this seed the terrain slope over 2.5 m is 1.5 m, i.e. the
+   ship is **30.96° below the character's horizontal forward axis**. The old
+   `interactConeAngle` was a 3-D pitch angle between the yaw-only (strictly horizontal)
+   forward vector and the 3-D target direction — 30.96° > 30° cone → never in cone at any
+   facing. On a pad the ship's wire pos is at pad height (Δy ≈ 0), which is why
+   enter-ship.spec.ts was always green.
+   **Fix (product, client-side math only):** `app/src/shared/interaction.ts` —
+   `interactConeAngle` now computes the HORIZONTAL BEARING angle (XZ projection of
+   forward and target direction). The vertical offset stays bounded by the 3-D distance
+   cap (the range check is unchanged 3-D). The SERVER never used the cone (it validates
+   only 3-D range ≤ 5 m — confirmed: no `inInteractCone`/`interactConeAngle` references in
+   src/server), so this changes zero server behavior. Removed the now-unused `vecDot`
+   import. Updated the module doc comment (TASK-105 note) and the function doc.
+   **Test:** new `it` in `app/src/shared/interaction.test.ts` ("TASK-105: the cone is a
+   horizontal BEARING — vertical offset is out of scope") pinning the exact egress
+   geometry (1.5 m below at 2.5 m ahead = 0° bearing, in cone), 40° off bearing = out,
+   straight overhead = 0°. All pre-existing cone tests still pass (they used y=0 or
+   angles >30° in bearing too; the (1,1,1) "excluded" case is 45° in bearing).
+   40/40 green in interaction.test.ts (shared) + interaction.test.ts (client).
 
-- Debug instrumentation in place (all marked `TEMP DEBUG`, must be stripped before the final commit):
-  - `app/src/client/interact-debug.ts` — `InteractDebugState` gained `targets?: unknown`
-    (the raycast's target list) and `facing?` (the predicted quat) fields (lines 19–22).
-  - `app/src/client/main.tsx` (~line 1810) — assignments for both fields, INSIDE the
-    `if (raw)` hit branch of the per-frame raycast (lines ~1786–1835). **BUG IN MY
-    INSTRUMENTATION: because it sits in the hit branch, it never fires when raw is null —
-    which is exactly the failing case. Move the two assignments to the TOP of the raycast
-    section (right after `resolveInteract`, before `if (raw)`) so the null case is captured.**
-  - `app/tests/e2e/surface-egress.spec.ts` — a `console.log` probe per burst (reads
-    `__INTERACT__` + `__CHAR__.rot`) in the turn loop and a `dbg` evaluate + log right
-    before the re-entry `toHaveText`. Strip both before the final commit.
+2. **ROOT CAUSE #2 (re-entry flake in combined runs) — found and fixed.**
+   After fix #1, surface-egress passed STANDALONE (18.7 s) but failed 2/2 in the combined
+   4-file run — E after the prompt showed never re-entered the ship. Instrumented the
+   E press (pre-enter `__CHAR__`/`__SELF_SHIP__` dump + full console capture, both since
+   stripped): in the failed run `__CHAR__.rot` was **absent**. `entityToState`
+   (shard.ts ~4300) OMITS `rot` when the quat is identity → the server character had
+   rotated back to identity (+Z), which is 180° from the ship's −Z bearing → out of cone →
+   raycast null → `resolvedTargetRef` cleared by the debounce → E silently no-opped. The
+   character had rotated PAST the ship (the held-'d' keyup can lag the busy software-GL
+   main thread — the known enter-ship.spec.ts lesson), and the ship sits at the CONE EDGE
+   (27° off on the passing seed), so one 10 Hz reconcile wobble clears the dispatch
+   target mid-press. Two fixes:
+   - **Product hardening:** `app/src/client/main.tsx` — `INTERACT_HOLD_FRAMES = 3` → `30`
+     (~500 ms, spans a full 10 Hz reconcile cycle with margin). Nothing else references
+     the constant (grep-verified); no test pins the value. Comment updated to explain.
+   - **Spec robustness:** `app/tests/e2e/surface-egress.spec.ts` — the re-entry section is
+     now a RETRY loop: 24× (burst 'd' 100 ms + 300 ms rest → if '[E] Enter ship' shows,
+     press E, wait 600 ms → break when `#leave-ship-prompt` is visible = re-entered).
+     Post-state asserts: `#leave-ship-prompt` visible (the landed gate, off-pad),
+     `#interact-prompt` hidden, `#docked-indicator` hidden, screenshot TASK-105-2.png.
 
-Verified facts from the failing runs (seed DRIFT-SEED-0001, system 7df0ed2af70ae07a):
-- Server char pos (10260, 291.5, 162.5), ship pos (10260, 290, 160) → distance 2.92 m,
-  WITHIN the 5 m ship enter radius (`ENTER_SHIP_RANGE_M`).
-- `__CHAR__.rot` (server rot) sweeps ALL bearings across the 24 bursts (≈ full revolution:
-  quat y goes −0.68 → −0.98 → −0.09 → 0.98 → … — the input IS reaching the server,
-  acked seq climbs to 441).
-- `__INTERACT__` stays `{text:null, targetId:null, distance:null, feet:null}` every burst —
-  the raycast returns null every frame.
-- The raycast (main.tsx ~1786) is anchored on the PREDICTED state (`st.pos`, `st.quat`
-  from CharacterPredictor, src/client/net/character-prediction.ts), NOT the server state —
-  so a predicted-pose divergence (pos > 5 m away, or facing never rotating) would produce
-  exactly this signature. The target list is `interactableTargetsRef.current`, fed from
-  every entity_update batch (main.tsx ~1212) via `interactableTargetsFrom`; ship
-  eligibility is `target.callsign === ctx.callsign` with
-  `ctx.callsign = sessionCallsignRef.current` (interaction.ts `createInteractableRegistry`).
-  The same code path works on the pad (enter-ship.spec.ts is green), so the suspect is the
-  predicted state or the target list in THIS scenario, not the registry math.
+3. **Spec geometry tolerance (seed-dependent flake, separate from the raycast):**
+   a combined run failed `Δy < 3` with 3.30 m (terrain at ship pos vs 2.5 m to its side
+   can differ by a few metres: integer-metre heightmap cells on a 5 m grid, hilly
+   terrain). Replaced with: horizontal side offset 1.5–3.5 m (unchanged), Δy < 4 (sanity:
+   on the terrain, not buried/floating), and the BINDING invariant: 3-D distance
+   char↔ship < 5 m (the enter-ship radius re-entry actually needs).
+
+4. **Stripped ALL TEMP DEBUG/DIAG** (the fields in `app/src/client/interact-debug.ts` are
+   gone — file is back to its pre-instrumentation shape; the main.tsx assignments, the
+   spec's per-burst console probe, the `dbg` evaluate, the pre-enter dump, and the
+   CONSOLE-TAIL capture are all removed).
+
+5. **Verified:** tsc --noEmit green. e2e combined set
+   `surface-egress disembark docked-indicator enter-ship` — **4/4 green in TWO
+   consecutive runs** (1.3 m each); the same set was 3/4 (surface-egress failing at
+   re-entry) in 2 of 2 runs before the fix. Screenshot TASK-105-2.png (post re-entry,
+   cockpit with the leave-ship prompt) was captured in the green runs.
 
 ## Working tree
 
-- COMMITTED in c1c6f84 (`wip(TASK-105): server/client egress work complete + unit tests
-  green; e2e spec and final commit pending`): all product code + unit/shard/ws tests
-  (interaction.ts, shard.ts, shard.character.test.ts, exit-ship.ws.test.ts, main.tsx,
-  state/exit-ship.ts + test, leave-ship-prompt.tsx + test). tsc was green at commit time.
+- COMMITTED (c1c6f84 + 5c22f80): all product code + unit/shard/ws tests, the e2e spec,
+  and the (now-stripped) instrumentation. The spec committed in 5c22f80 is the
+  PRE-fix version (old Δy<3 assert, no re-entry retry).
 - UNCOMMITTED this session (task paths — stage these):
-  - `app/tests/e2e/surface-egress.spec.ts` (NEW)
-  - `app/src/client/interact-debug.ts` (TEMP DEBUG fields)
-  - `app/src/client/main.tsx` (TEMP DEBUG assignments)
+  - `app/src/shared/interaction.ts` (bearing-cone fix — THE product fix)
+  - `app/src/shared/interaction.test.ts` (new bearing-cone test)
+  - `app/src/client/main.tsx` (TEMP DEBUG stripped + INTERACT_HOLD_FRAMES 3→30 + comment)
+  - `app/src/client/interact-debug.ts` (TEMP DEBUG fields removed — back to clean shape)
+  - `app/tests/e2e/surface-egress.spec.ts` (TEMP DIAG stripped, Δy tolerance +
+    3-D < 5 m assert, re-entry retry loop)
+  - `.ralph/screenshots/TASK-105-1.png` (modified — on-foot next to the landed ship)
+  - `.ralph/screenshots/TASK-105-2.png` (NEW — cockpit after off-pad re-entry)
   - `.ralph/handoff/TASK-105.md` (this file)
-  - `.ralph/screenshots/TASK-105-1.png` (NEW — on-foot next to the landed ship; commit it)
 - NOT part of the task (pre-existing dirt — do NOT commit): `.gitignore`,
   `.ralph/prd/PRD.md`, `.ralph/tasks.json`, `ralph.config.json`, ~90 modified
-  `.ralph/screenshots/*.png`, untracked `.agents/`, `.gitattributes`,
-  `.ralph/ESCALATION.md`, `.ralph/logs/t761/`, `.ralph/logs/t83/`, `.ralph/tasks/TASK-*.json`,
-  `app/.ralph/`, `app/.trace-tmp/`.
-- No background processes left running (the e2e fixture boots/tears down its own dev server).
+  `.ralph/screenshots/*.png` (other tasks), untracked `.agents/`, `.gitattributes`,
+  `.ralph/ESCALATION.md`, `.ralph/logs/t761/`, `.ralph/logs/t83/`,
+  `.ralph/tasks/TASK-*.json`, `app/.ralph/`, `app/.trace-tmp/`.
+- Builds: `npx tsc --noEmit` green at last check. No background processes (the e2e
+  fixture boots/tears down its own dev server tree).
 
 ## Next steps
 
-1. Fix the instrumentation bug: in `app/src/client/main.tsx`, move the two TEMP DEBUG
-   assignments OUT of the `if (raw)` block to right after the `resolveInteract(...)`
-   call (~line 1792) so they capture the null case (the target list + predicted quat +
-   also log `st.pos` if you want the predicted feet — add a TEMP field for it).
-2. Run: `cd app && npx playwright test --config playwright.e2e.config.ts surface-egress.spec.ts`
-   and read the per-burst console output (targets + facing + server rot). Diagnose:
-   - Ship MISSING from `targets` → entity_update feed or the ship's wire callsign.
-   - Ship present, `facing` rotating, but no hit → predicted `st.pos` is > 5 m from the
-     ship (check CharacterPredictor reconcile, src/client/net/character-prediction.ts;
-     compare predicted pos vs `__CHAR__.pos`).
-   - `facing` NOT rotating → predicted quat stuck (turn input not integrated client-side).
-3. Fix the root cause (client side; the server gate is proven by the committed ws/shard tests).
-4. STRIP ALL TEMP DEBUG: interact-debug.ts fields, main.tsx assignments, the spec's
-   console.log probe in the burst loop and the `dbg` evaluate block.
-5. Re-run the spec to green, then the full set:
-   `cd app && npx playwright test --config playwright.e2e.config.ts surface-egress.spec.ts disembark.spec.ts docked-indicator.spec.ts enter-ship.spec.ts`
-6. `cd app && npx tsc --noEmit`; full `npm run test`; `eslint --fix` + `prettier --write`
-   on all touched files (the 9 product files + the spec + interact-debug.ts if it stays modified).
-7. Bookkeeping: flip `passes: true` for TASK-105 in `.ralph/tasks.json` (~line 925); add a
-   NEWEST-FIRST entry to `.ralph/logs/LOG.md` (2026-10-12, summary,
-   `.ralph/screenshots/TASK-105-1.png`, Tasks Completed 122 → 123); delete this handoff.
-8. Commit ONLY the task paths + spec + screenshots as
+1. `cd app && npm run test` (FULL unit suite — only the 2 interaction files were re-run
+   this session; nothing references INTERACT_HOLD_FRAMES, but run the whole thing).
+2. `cd app && npx eslint --fix` + `npx prettier --write` on the 5 touched code files.
+3. Final e2e confirmation — the relevant set:
+   `npx playwright test --config playwright.e2e.config.ts surface-egress.spec.ts disembark.spec.ts docked-indicator.spec.ts enter-ship.spec.ts`
+   PLUS the other interact-prompt specs, to prove the bearing-cone change regresses
+   nothing (it makes the cone MORE permissive vertically — targets above/below the
+   character are now reachable on bearing alone, range still 3-D-capped):
+   `npx playwright test --config playwright.e2e.config.ts interact.spec.ts mining.spec.ts inventory.spec.ts`
+   (all 5 ship/egress specs already ran 4/4 green twice this session).
+4. Bookkeeping: flip `passes: true` for TASK-105 in `.ralph/tasks.json` (~line 925); add
+   a NEWEST-FIRST entry to `.ralph/logs/LOG.md` (2026-10-12, summary: egress off-pad —
+   server gate + landed leave-ship prompt + re-entry; the cone fix (interaction.ts
+   bearing cone) + the debounce hardening (INTERACT_HOLD_FRAMES 3→30); screenshots
+   `.ralph/screenshots/TASK-105-1.png` + `-2.png`; Tasks Completed 122 → 123);
+   delete this handoff in the same commit.
+5. Commit ONLY the task paths listed in Working tree as
    `feat(TASK-105): surface egress — exit a landed ship anywhere`.
-9. Output `<promise>TASK-105:DONE</promise>`.
+6. Output `<promise>TASK-105:DONE</promise>`.
 
 ## Dead ends
 
-- `#hazard-hud` as the on-foot-HUD marker: it only mounts inside a hazard zone (rad zone /
-  storm), not on open terrain → use `#weight-bar` (always-rendered on-foot node).
-- Teleporting the ship at `pad.y` (the previous handoff's "flat terrain, pad.y = ground
-  proxy" assumption): the terrain at pad.x+100 is ~2.6 m HIGHER than pad.y on this seed →
-  the ship sinks into terrain, Δy 2.56 > tolerance, and the "ship pose" probe reads the
-  buried position. Teleport at `pad.y + 5` and let the ground clamp settle the ship.
-- Copying enter-ship.spec.ts's re-entry expectations verbatim: after OFF-PAD re-entry the
-  ship is NOT pad-docked — `#docked-indicator` stays hidden; the leave-ship prompt comes
-  back from the landed gate (`canExitShip`) alone. (Already handled in the spec.)
-- UNRESOLVED (the open problem): the raycast never resolves the ship 2.92 m away during a
-  full-rotation sweep. The server-side state is proven correct by the debug dumps; the
-  predicted-state / target-list instrumentation (once the null-case capture bug is fixed)
-  should isolate it in one run.
+- `#hazard-hud` as the on-foot-HUD marker: it only mounts inside a hazard zone →
+  `#weight-bar` (always-rendered on-foot node). (from previous handoffs)
+- Teleporting the ship at pad.y: the off-pad terrain can sit ~2.6 m ABOVE pad.y on this
+  seed → the ship sinks; teleport at pad.y + 5 and let the ground clamp settle it.
+- Δy < 3 as the on-foot geometry tolerance: seed-dependent (3.3 m observed) — use
+  Δy < 4 + the binding 3-D < 5 m re-entry radius instead.
+- The old 3-D pitch cone for a yaw-only character (the actual root cause #1): a target
+  whose wire pos is a metre+ below the terrain feet is unreachable at EVERY facing when
+  the slope angle exceeds the cone. The fix is the horizontal bearing cone — do NOT
+  "fix" this by lowering the cone angle, raising the spawn height, or anchoring the
+  cone at the character's head: the server range check is feet-anchored 3-D and the
+  bearing cone matches the yaw-only model exactly.
+- Debounce of 3 frames (50 ms) for a cone-edge target (root cause #2): one 10 Hz
+  reconcile wobble (or a lagged keyup that rotates the character past the ship) clears
+  the dispatch target between prompt-visible and the E press. 30 frames (~500 ms) +
+  the spec's E-retry loop made it deterministic in 4/4 combined runs.
+- Do NOT assume `__CHAR__.rot` is always present: `entityToState` omits identity quats
+  — read `rot ?? identity` in any probe (the spec's probe already tolerates it).
 
 ## How to verify
 
 ```bash
 cd /workspace/master/app
 npx tsc --noEmit
-npx vitest run src/server/shard/shard.character.test.ts src/server/galaxy/exit-ship.ws.test.ts src/client/state/exit-ship.test.ts src/client/ui/leave-ship-prompt.test.tsx   # was 21/21 green at c1c6f84
-npx playwright test --config playwright.e2e.config.ts surface-egress.spec.ts
-npx playwright test --config playwright.e2e.config.ts surface-egress.spec.ts disembark.spec.ts docked-indicator.spec.ts enter-ship.spec.ts
 npm run test
+npx playwright test --config playwright.e2e.config.ts surface-egress.spec.ts disembark.spec.ts docked-indicator.spec.ts enter-ship.spec.ts
+npx playwright test --config playwright.e2e.config.ts interact.spec.ts mining.spec.ts inventory.spec.ts
+npx vitest run src/shared/interaction.test.ts src/client/input/interaction.test.ts   # 40/40 green this session
 ```

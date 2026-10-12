@@ -198,10 +198,16 @@ const STARFIELD_SEED = 'DRIFT-SEED-0001';
  * TASK-73: how many CONSECUTIVE null frames the on-foot interaction raycast
  * must report before the prompt (and E's dispatch target) is cleared. The
  * predicted state flickers resolved↔null near the 3 m / 30° boundaries
- * (release coast + prediction lead); holding ~50 ms (3 frames @ 60 fps)
- * keeps the invariant that a visible prompt is always dispatchable.
+ * (release coast + prediction lead); the hold keeps the invariant that a
+ * visible prompt is always dispatchable. TASK-105: 3 frames (~50 ms) proved
+ * too short for a target at the CONE EDGE (a landed ship on a slope: the
+ * wire pos sits 1.5 m below the terrain feet, 27° off the 30° cone) — one
+ * 10 Hz reconcile wobble cleared the dispatch target mid-press and E
+ * silently no-opped. 30 frames (~500 ms) spans a full reconcile cycle with
+ * margin; a departed target's prompt lingers a beat (imperceptible — the
+ * range caps keep any held target in front of the player).
  */
-const INTERACT_HOLD_FRAMES = 3;
+const INTERACT_HOLD_FRAMES = 30;
 
 /** TASK-53: the shared panel's view before the first ship entity arrives. */
 const EMPTY_PANEL_SHIP: PanelShipView = {
@@ -1806,10 +1812,6 @@ function App() {
           interactDebug.targetId = raw.target.id;
           interactDebug.distance = raw.distance;
           interactDebug.feet = { ...st.pos };
-        }
-        if (interactDebug) {
-          interactDebug.targets = interactTargetsRef.current; // TEMP DEBUG
-          interactDebug.facing = { ...st.quat }; // TEMP DEBUG
         }
         const next = nextPromptState(promptStateRef.current, raw);
         if (next !== promptStateRef.current) {

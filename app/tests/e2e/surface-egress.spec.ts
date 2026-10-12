@@ -174,14 +174,19 @@ test('landed ship off-pad: E disembarks onto the terrain, re-entry works', async
       return p ?? null;
     }, null, { timeout: 15_000, polling: 100 })
     .then((h) => h.jsonValue())) as { x: number; y: number; z: number };
-  // Both feet on the same terrain: |Δy| bounded by the slope over the
-  // 2.5 m side offset (the off-pad terrain is hilly, so allow a gradient);
-  // the shared side offset is exactly 2.5 m in the ship's local frame
-  // (rendered pose ≈ wire pose).
-  expect(Math.abs(geo.y - shipPos!.y), 'character on terrain height at the ship').toBeLessThan(3);
+  // Both feet on the terrain near the ship: the shared side offset is
+  // exactly 2.5 m in the ship's local frame (rendered pose ≈ wire pose).
   const dxz = Math.hypot(geo.x - shipPos!.x, geo.z - shipPos!.z);
   expect(dxz, 'character 2.5 m to the ship\'s side').toBeGreaterThan(1.5);
   expect(dxz, 'character 2.5 m to the ship\'s side').toBeLessThan(3.5);
+  // The off-pad terrain is HILLY (integer-metre heightmap cells on a 5 m
+  // grid): the terrain at the ship's (x, z) and 2.5 m to its side can
+  // differ by a few metres, so Δy is a loose sanity bound (the character
+  // is on the terrain — not buried, not floating), and the BINDING
+  // invariant is the 3-D re-entry radius (the 5 m enter ship reach).
+  expect(Math.abs(geo.y - shipPos!.y), 'character on terrain height at the ship').toBeLessThan(4);
+  const d3 = Math.hypot(geo.x - shipPos!.x, geo.y - shipPos!.y, geo.z - shipPos!.z);
+  expect(d3, 'character within the 5 m re-entry radius').toBeLessThan(5);
   await page.waitForTimeout(1_200); // the 600 ms handoff settles into the on-foot view
   await page.screenshot({
     path: path.join(__dirname, '../../../.ralph/screenshots/TASK-105-1.png'),
@@ -189,45 +194,39 @@ test('landed ship off-pad: E disembarks onto the terrain, re-entry works', async
 
   // (4) RE-ENTER (unchanged rule): the character spawns 2.5 m to the
   // ship's SIDE (the ±30° cone misses it), so burst 'd' (right, 3 rad/s)
-  // until the ship enters the cone and '[E] Enter ship' holds (5 m
-  // enter radius). Bounded 100 ms bursts + rest, NOT one long hold — the
-  // held-key release event can lag the busy software-GL main thread
-  // (enter-ship.spec.ts lesson; 24 × ~17° covers a full revolution).
+  // until the ship enters the cone and '[E] Enter ship' shows (5 m enter
+  // radius), then E. The loop RETRIES the E press (burst → E → check) until
+  // re-entry lands: the landed ship sits at the CONE EDGE (its wire pos is
+  // 1.5 m below the terrain feet on a slope), so a reconcile wobble or a
+  // lagged 'd' keyup (the held-key release can trail the busy software-GL
+  // main thread — enter-ship.spec.ts lesson) can clear the raycast between
+  // the prompt showing and the E landing. Bounded 100 ms bursts + rest,
+  // NOT one long hold; 24 × ~17° covers a full revolution with retries.
   const prompt = page.locator('#interact-prompt');
   const promptText = async (): Promise<string | null> =>
     prompt
       .isVisible()
       .then((v) => (v ? prompt.textContent() : null))
       .catch(() => null);
+  const reentered = async (): Promise<boolean> =>
+    page.locator('#leave-ship-prompt').isVisible().catch(() => false);
   for (let i = 0; i < 24; i++) {
+    if (await reentered()) break; // re-entered (the landed gate prompt is back)
     await page.keyboard.down('d');
     await page.waitForTimeout(100);
     await page.keyboard.up('d');
-    await page.waitForTimeout(400); // rest: the raycast settles
-    if ((await promptText()) === '[E] Enter ship') break;
-    const probe = await page.evaluate(() => ({
-      interact: (window as unknown as { __INTERACT__?: { text: string | null; distance: number | null; feet: unknown } }).__INTERACT__ ?? null,
-      charRot: (window as unknown as { __CHAR__?: { rot: unknown } }).__CHAR__?.rot ?? null,
-    }));
-    console.log(`[surface-egress] burst ${i}`, JSON.stringify(probe));
+    await page.waitForTimeout(300); // rest: the raycast settles
+    if ((await promptText()) === '[E] Enter ship') {
+      await page.keyboard.press('e');
+      await page.waitForTimeout(600); // the reverse handoff settles
+    }
   }
-  const dbg = await page.evaluate(() => ({
-    interact: (window as unknown as { __INTERACT__?: unknown }).__INTERACT__ ?? null,
-    char: (window as unknown as { __CHAR__?: { pos: unknown } }).__CHAR__ ?? null,
-    ship: (
-      window as unknown as { __SELF_SHIP__?: { probe(): { pos: { x: number; y: number; z: number } | null } | null } }
-    ).__SELF_SHIP__?.probe()?.pos ?? null,
-  }));
-  console.log('[surface-egress] DEBUG', JSON.stringify(dbg));
-  await expect(prompt).toHaveText('[E] Enter ship', { timeout: 5_000 });
-  await page.waitForTimeout(800); // let the on-foot camera settle
-  await page.keyboard.press('e');
   // Off-pad re-entry: the ship is NOT pad-docked — the DOCKED indicator
   // stays hidden; the leave-ship prompt comes back from the LANDED gate
   // alone (the new canExitShip signal, not the docked store).
-  await expect(prompt).toBeHidden({ timeout: 10_000 });
+  await expect(page.locator('#leave-ship-prompt')).toBeVisible({ timeout: 10_000 });
+  await expect(prompt).toBeHidden({ timeout: 5_000 });
   await expect(page.locator('#docked-indicator')).toBeHidden({ timeout: 10_000 });
-  await expect(page.locator('#leave-ship-prompt')).toBeVisible({ timeout: 15_000 });
   await page.waitForTimeout(1_500); // the 600 ms reverse handoff settles
   await page.screenshot({
     path: path.join(__dirname, '../../../.ralph/screenshots/TASK-105-2.png'),

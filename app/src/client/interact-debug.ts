@@ -16,10 +16,6 @@ export interface InteractDebugState {
   distance: number | null;
   /** The character's PREDICTED feet the raycast anchored on (null = no hit). */
   feet: { x: number; y: number; z: number } | null;
-  /** TEMP DEBUG: the current target list (removed before commit). */
-  targets?: unknown;
-  /** TEMP DEBUG: the predicted pose the raycast anchored on (removed before commit). */
-  facing?: { x: number; y: number; z: number; w: number } | null;
 }
 
 declare global {

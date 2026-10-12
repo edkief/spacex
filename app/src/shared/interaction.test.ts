@@ -91,6 +91,25 @@ describe('interactConeAngle / inInteractCone', () => {
     expect(inInteractCone(O, F, { x: 0, y: 0, z: -10 })).toBe(false); // 180°
   });
 
+  it('TASK-105: the cone is a horizontal BEARING — vertical offset is out of scope', () => {
+    // The exact off-pad egress geometry: the landed ship's wire pos sits on
+    // a downslope, 1.5 m BELOW the character's feet at 2.5 m horizontal
+    // (30.96° below horizontal — a 3-D pitch cone misses it at every
+    // facing; the bearing is dead ahead).
+    const slope = { x: 0, y: -1.5, z: 2.5 };
+    expect(interactConeAngle(O, F, slope)).toBeCloseTo(0, 9);
+    expect(inInteractCone(O, F, slope)).toBe(true);
+    // The same bearing 40° off is still outside, depth be damned.
+    const off = (deg: number) => ({
+      x: 2.5 * Math.sin((deg * Math.PI) / 180),
+      y: -1.5,
+      z: 2.5 * Math.cos((deg * Math.PI) / 180),
+    });
+    expect(inInteractCone(O, F, off(40))).toBe(false);
+    // Straight overhead = zero horizontal offset = "facing everywhere".
+    expect(interactConeAngle(O, F, { x: 0, y: 3, z: 0 })).toBe(0);
+  });
+
   it('uses the pinned INTERACT_CONE_DEG constant (half-angle)', () => {
     expect(INTERACT_CONE_DEG).toBe(30);
   });
