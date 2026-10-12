@@ -18,21 +18,29 @@ function actionTags(action: string | undefined): string[] {
 
 /**
  * Map a wire input frame onto the flight-model input channels.
- * turn → roll; action 'vtol' engages full VTOL lift and action 'boost'
+ * turn → roll; action 'vtol' engages full VTOL lift, action 'hover'
+ * (TASK-106) engages the deterministic altitude-hold, and action 'boost'
  * (the combined form 'vtol+boost' carries both) engages the space-cruise
- * boost (TASK-85 — the protocol v1 input frame has no dedicated up/boost
- * channel, so the `action` string carries them); fire/lock are reserved
- * for TASK-43/44.
+ * boost (TASK-85 — the protocol v1 input frame has no dedicated up/boost/
+ * hover channel, so the `action` string carries them); fire/lock are
+ * reserved for TASK-43/44.
+ *
+ * TASK-106 precedence: 'hover' IMPLIES up — up = 1 when EITHER the 'vtol'
+ * OR the 'hover' tag is present, and hover = 1 only when 'hover' is present.
+ * The physics layer treats them as mutually exclusive lift sources (hover
+ * replaces the up-demand lift; see flight.ts).
  */
 export function inputToShipInput(input: InputPayload): ShipInput {
   const tags = actionTags(input.action);
+  const hover = tags.includes('hover');
   return {
     thrust: input.thrust,
     yaw: input.yaw,
     pitch: input.pitch,
     roll: input.turn,
-    up: tags.includes('vtol') ? 1 : 0,
+    up: tags.includes('vtol') || hover ? 1 : 0,
     boost: tags.includes('boost') ? 1 : 0,
+    hover: hover ? 1 : 0,
   };
 }
 
@@ -49,10 +57,17 @@ export function inputToShipInput(input: InputPayload): ShipInput {
  * false — firing and target lock are separate one-shot messages
  * ('fire' / 'target_lock', TASK-43/44). Round-trips exactly:
  * `inputToShipInput(shipInputToPayload(s, i)) === i`.
+ *
+ * TASK-106: hover and vtol are MUTUALLY EXCLUSIVE up demands. Client rule:
+ * send 'hover' while the hover toggle is on, 'vtol' only for the legacy
+ * held-key path. On the wire the 'hover' tag wins over 'vtol' (it implies
+ * up, so 'vtol' would be redundant) — a `hover: 1` input therefore emits
+ * 'hover' and its round-trip is {up: 1, hover: 1} (the normalized form).
  */
 export function shipInputToPayload(seq: number, input: ShipInput): InputPayload {
   const tags: string[] = [];
-  if (input.up > 0) tags.push('vtol');
+  if ((input.hover ?? 0) === 1) tags.push('hover');
+  else if (input.up > 0) tags.push('vtol');
   if ((input.boost ?? 0) > 0) tags.push('boost');
   return {
     seq,

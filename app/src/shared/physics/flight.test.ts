@@ -6,17 +6,19 @@ import {
   CRUISE_ACCEL_FACTOR,
   CRUISE_SPEED_FACTOR,
   GRAVITY,
+  HOVER_ALT_M,
   integrateShip,
   PAD_RADIUS,
   restShipState,
   SOFT_CAP_DECAY,
   UnknownRegimeError,
+  VTOL_LIFT,
   type PlanetAtmo,
   type Regime,
   type ShipInput,
   type ShipState,
 } from './flight';
-import { quatRotateVector, vec, vecLength, vecScale, vecSub, type Quat } from './vec';
+import { quatIdentity, quatRotateVector, vec, vecLength, vecScale, vecSub, type Quat } from './vec';
 import { SHIP_CLASSES, type ShipClassId } from '../ships';
 
 const DT = 0.05; // server fixed tick (1/20 s)
@@ -729,6 +731,117 @@ describe('atmosphere regime', () => {
         );
       }
     }
+  });
+});
+
+describe('hover altitude-hold (TASK-106)', () => {
+  // The wire-normalized hover input: the 'hover' tag implies up (protocol rule).
+  const HOVER: ShipInput = { ...NO_INPUT, up: 1, hover: 1 };
+
+  it('hover off (0 / absent) is byte-identical — every pre-TASK-106 path untouched', () => {
+    const state: ShipState = {
+      pos: vec(12.5, 34.25, -8),
+      vel: vec(3.1, -2.2, 1.4),
+      quat: { x: 0, y: 0.1, z: 0, w: 0.995 },
+      regime: 'atmosphere',
+    };
+    const input: ShipInput = { thrust: 0.6, yaw: -0.3, pitch: 0.2, roll: 0.1, up: 1 };
+    for (const regime of ['atmosphere', 'surface'] as const) {
+      const base = integrateShip(state, input, DT, regime, atmo(0.1), 'scout');
+      expect(
+        integrateShip(state, { ...input, hover: 0 }, DT, regime, atmo(0.1), 'scout'),
+      ).toStrictEqual(base);
+      // …and hover ON actually changes the state (the branch is live).
+      expect(
+        integrateShip(state, { ...input, hover: 1 }, DT, regime, atmo(0.1), 'scout'),
+      ).not.toStrictEqual(base);
+    }
+  });
+
+  it('space: hover = 1 is a no-op (byte-identical to hover off)', () => {
+    const state = restShipState({ x: 0, y: 50, z: 0 }, 'space');
+    const input: ShipInput = { ...NO_INPUT, thrust: 0.5, yaw: 0.2, up: 1 };
+    const base = integrateShip(state, input, DT, 'space', undefined, 'scout');
+    expect(
+      integrateShip(state, { ...input, hover: 1 }, DT, 'space', undefined, 'scout'),
+    ).toStrictEqual(base);
+  });
+
+  it('convergence: 100 m at zero velocity → 10 ± 2 m in < 20 s, then STAYS (last 200 ticks < 2 m)', () => {
+    const planet = atmo(0.1);
+    let s = restShipState({ x: 0, y: 100, z: 0 }, 'atmosphere');
+    let entered = -1;
+    let worstTail = 0;
+    for (let i = 0; i < 400; i++) {
+      s = integrateShip(s, HOVER, DT, 'atmosphere', planet, 'scout');
+      const err = Math.abs(s.pos.y - HOVER_ALT_M);
+      if (entered < 0 && err <= 2) entered = i + 1;
+      if (i >= 200) worstTail = Math.max(worstTail, err); // last 200 ticks (10–20 s)
+    }
+    expect(entered, 'reached the ± 2 m band').toBeGreaterThan(0);
+    expect(entered, '< 20 s at the 20 Hz tick').toBeLessThanOrEqual(400);
+    expect(worstTail, 'no sustained oscillation').toBeLessThan(2);
+    expect(Math.abs(s.vel.y), 'settled vertical speed').toBeLessThan(0.5);
+  });
+
+  it('slope tracking: 1:100 slope, 5 u/s along x → altitude error < 2 m', () => {
+    const planet = atmo(0.05);
+    const heightAt = (x: number) => 0.01 * x;
+    let s: ShipState = {
+      pos: vec(0, HOVER_ALT_M, 0),
+      vel: vec(5, 0, 0),
+      quat: quatIdentity(),
+      regime: 'atmosphere',
+    };
+    let worst = 0;
+    for (let i = 0; i < 200; i++) {
+      s = integrateShip(s, HOVER, DT, 'atmosphere', planet, 'scout', { heightAt });
+      worst = Math.max(worst, Math.abs(s.pos.y - heightAt(s.pos.x) - HOVER_ALT_M));
+    }
+    expect(s.pos.x, 'the ship moved along the slope').toBeGreaterThan(30);
+    expect(worst, 'altitude error over the whole run').toBeLessThan(2);
+  });
+
+  it('surface re-engage: a landed ship lifts off (hover lift > gravity from the ground)', () => {
+    const s = runSteps(
+      restShipState({ x: 0, y: 0, z: 0 }, 'surface'),
+      HOVER,
+      DT,
+      100,
+      'surface',
+      atmo(0.1),
+    );
+    expect(s.pos.y, 'climbed off the ground').toBeGreaterThan(5);
+  });
+
+  it('lift is bounded by VTOL_LIFT (1.35·g): max net climb is +0.35·g', () => {
+    // Far below the target (alt 0, vy 0): raw demand g + 2·10 = 29.8 → clamp.
+    // Airless (no drag) → the vertical change this tick is exactly the net.
+    const s = integrateShip(
+      restShipState({ x: 0, y: 0, z: 0 }, 'atmosphere'),
+      HOVER,
+      DT,
+      'atmosphere',
+      atmo(0),
+      'scout',
+    );
+    expect(s.vel.y).toBeCloseTo((VTOL_LIFT - GRAVITY) * DT, 12);
+  });
+
+  it('deterministic: two identical integrateShip calls → deep-equal states', () => {
+    const state: ShipState = {
+      pos: vec(3.3, 14.2, -7.7),
+      vel: vec(2.2, -3.3, 4.4),
+      quat: { x: 0.1, y: -0.2, z: 0.3, w: 0.9 },
+      regime: 'atmosphere',
+    };
+    const a = integrateShip(state, HOVER, DT, 'atmosphere', atmo(0.137), 'scout', {
+      heightAt: (x) => 0.01 * x,
+    });
+    const b = integrateShip(state, HOVER, DT, 'atmosphere', atmo(0.137), 'scout', {
+      heightAt: (x) => 0.01 * x,
+    });
+    expect(a).toStrictEqual(b);
   });
 });
 
