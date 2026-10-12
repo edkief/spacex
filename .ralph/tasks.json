@@ -914,5 +914,12 @@
     "category": "ui",
     "specFilePath": ".ralph/tasks/TASK-104.json",
     "passes": true
+  },
+  {
+    "id": "TASK-105",
+    "title": "Surface egress: exit a landed ship anywhere (not only on a dock)",
+    "category": "functional",
+    "specFilePath": ".ralph/tasks/TASK-105.json",
+    "passes": true
   }
 ]

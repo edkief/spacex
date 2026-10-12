@@ -142,7 +142,11 @@ test('landed ship off-pad: E disembarks onto the terrain, re-entry works', async
   // The rendered hull snaps to the server truth (predictor snap reconcile).
   await page.waitForFunction(
     (t) => {
-      const p = (window as unknown as { __SELF_SHIP__?: { probe(): { pos: { x: number; z: number } | null } | null } }).__SELF_SHIP__?.probe()?.pos;
+      const p = (
+        window as unknown as {
+          __SELF_SHIP__?: { probe(): { pos: { x: number; z: number } | null } | null };
+        }
+      ).__SELF_SHIP__?.probe()?.pos;
       return p && Math.hypot(p.x - t.x, p.z - t.z) < 5 ? true : null;
     },
     { x: target.pad.x + OFF_PAD, z: target.pad.z },
@@ -156,7 +160,12 @@ test('landed ship off-pad: E disembarks onto the terrain, re-entry works', async
   // Capture the ship pose (it stays FROZEN once the player disembarks, so
   // the on-foot geometry check below compares against this).
   const shipPos = (await page.evaluate(
-    () => (window as unknown as { __SELF_SHIP__?: { probe(): { pos: { x: number; y: number; z: number } | null } | null } }).__SELF_SHIP__?.probe()?.pos ?? null,
+    () =>
+      (
+        window as unknown as {
+          __SELF_SHIP__?: { probe(): { pos: { x: number; y: number; z: number } | null } | null };
+        }
+      ).__SELF_SHIP__?.probe()?.pos ?? null,
   )) as { x: number; y: number; z: number } | null;
   expect(shipPos, 'self ship pose captured').not.toBeNull();
 
@@ -169,16 +178,22 @@ test('landed ship off-pad: E disembarks onto the terrain, re-entry works', async
   // (#hazard-hud only mounts inside a hazard zone — we are on open terrain).
   await expect(page.locator('#weight-bar')).toBeVisible({ timeout: 15_000 });
   const geo = (await page
-    .waitForFunction(() => {
-      const p = (window as unknown as { __CHAR__?: { pos: { x: number; y: number; z: number } | null } }).__CHAR__?.pos;
-      return p ?? null;
-    }, null, { timeout: 15_000, polling: 100 })
+    .waitForFunction(
+      () => {
+        const p = (
+          window as unknown as { __CHAR__?: { pos: { x: number; y: number; z: number } | null } }
+        ).__CHAR__?.pos;
+        return p ?? null;
+      },
+      null,
+      { timeout: 15_000, polling: 100 },
+    )
     .then((h) => h.jsonValue())) as { x: number; y: number; z: number };
   // Both feet on the terrain near the ship: the shared side offset is
   // exactly 2.5 m in the ship's local frame (rendered pose ≈ wire pose).
   const dxz = Math.hypot(geo.x - shipPos!.x, geo.z - shipPos!.z);
-  expect(dxz, 'character 2.5 m to the ship\'s side').toBeGreaterThan(1.5);
-  expect(dxz, 'character 2.5 m to the ship\'s side').toBeLessThan(3.5);
+  expect(dxz, "character 2.5 m to the ship's side").toBeGreaterThan(1.5);
+  expect(dxz, "character 2.5 m to the ship's side").toBeLessThan(3.5);
   // The off-pad terrain is HILLY (integer-metre heightmap cells on a 5 m
   // grid): the terrain at the ship's (x, z) and 2.5 m to its side can
   // differ by a few metres, so Δy is a loose sanity bound (the character
@@ -209,7 +224,10 @@ test('landed ship off-pad: E disembarks onto the terrain, re-entry works', async
       .then((v) => (v ? prompt.textContent() : null))
       .catch(() => null);
   const reentered = async (): Promise<boolean> =>
-    page.locator('#leave-ship-prompt').isVisible().catch(() => false);
+    page
+      .locator('#leave-ship-prompt')
+      .isVisible()
+      .catch(() => false);
   for (let i = 0; i < 24; i++) {
     if (await reentered()) break; // re-entered (the landed gate prompt is back)
     await page.keyboard.down('d');
