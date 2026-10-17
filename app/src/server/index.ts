@@ -23,7 +23,8 @@ import { createRepository } from "./db/repo.js";
 import { assertValidSecret } from "./auth/token.js";
 import { buildAuthResolver, buildLogoutResolver } from "./auth/resolver.js";
 import { ShardFlushService, DEFAULT_FLUSH_INTERVAL_MS } from "./shard/persist.js";
-import { ShardRegistry } from "./shard/registry.js";
+import { GalaxyRouter } from "./galaxy/router.js";
+import { buildRouterJoinResolver } from "./galaxy/join-resolver.js";
 
 async function main(): Promise<void> {
   // The token codec requires a real SESSION_SECRET. Refuse to boot if
@@ -41,11 +42,21 @@ async function main(): Promise<void> {
         : (client as { db: NodePgDatabase<typeof pgSchema> }).db,
   });
 
+  // TASK-11: galaxy router — owns every in-process system shard. Built
+  // BEFORE `buildApp` so the `/api/galaxy/health` route can register
+  // against it during the Fastify build.
+  const router = new GalaxyRouter({
+    repo,
+    galaxySeed: serverConfig.galaxySeed,
+    galaxyStarCount: 32,
+  });
+
   const app = await buildApp(serverConfig, {
     repo,
     sessionSecret: serverConfig.sessionSecret,
     galaxySeed: serverConfig.galaxySeed,
     galaxyStarCount: 32,
+    router,
   });
 
   // Real WS auth resolver — wire callsign + token resolution against
@@ -58,20 +69,39 @@ async function main(): Promise<void> {
   // TASK-66: real logout resolver — deletes every session row for the
   // player. Wired through so the WS `logout` message actually revokes.
   const logoutResolver = buildLogoutResolver(repo);
-  const ws = attachWs(app, serverConfig.wsPath, { authResolver, logoutResolver });
+  // TASK-11: router-aware join resolver so `join_system` produces a
+  // real shard + occupancy-check, not the TASK-9 stub snapshot.
+  const joinResolver = buildRouterJoinResolver({ repo, router });
+  const ws = attachWs(app, serverConfig.wsPath, {
+    authResolver,
+    logoutResolver,
+    joinResolver,
+  });
 
   // TASK-24: per-shard ship flush service. The interval cadence is
-  // configurable via `SHARD_FLUSH_INTERVAL_MS` (default 30 s) so the
-  // crash-restart integration test can shorten the cycle. Today the
-  // registry is empty — the future TASK-11 router will populate it as
-  // players join systems; the timer is wired now so the SIGTERM
-  // graceful-shutdown flush path is exercised from boot.
+  // configurable via `SHARD_FLUSH_INTERVAL_MS` (default 30 s). The
+  // router flushes imperatively on reap; the timer runs as a safety
+  // net for any shard that survives longer than the reap grace.
   const flushIntervalMs = readFlushIntervalMs();
-  const registry = new ShardRegistry(repo);
   const flusher = new ShardFlushService(repo, { intervalMs: flushIntervalMs });
   flusher.start(async () => {
-    await registry.flushAll();
+    // Walk the router's live shards; the router's `stats()` returns
+    // them in a flat list.
+    for (const stats of router.stats().shards) {
+      const shard = router.get(stats.systemId);
+      if (!shard) continue;
+      try {
+        await flusher.flushNow(shard);
+      } catch (err) {
+        app.log.error({ err, systemId: stats.systemId }, "interval flush failed");
+      }
+    }
   });
+
+  // TASK-11: start the router's reap loop after wiring the rest of
+  // the boot path so a premature SIGTERM during boot still hits the
+  // graceful-shutdown block above.
+  router.start();
 
   await app.listen({ port: serverConfig.apiPort, host: "0.0.0.0" });
   app.log.info(
@@ -82,14 +112,12 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     app.log.info({ signal }, "shutting down");
     try {
-      // TASK-24 graceful-shutdown flush: write every live ship's state
-      // to the DB before we tear down the WS / HTTP layers. The 30 s
-      // interval is too coarse to guarantee a flush within the SIGTERM
-      // window, so we run one final pass here.
+      // TASK-11 graceful-shutdown flush: reap every shard once more
+      // (with `force: true`) so ship positions survive a subsequent
+      // kill. The router's `shutdown()` runs the flush + stop.
       app.log.info({ signal }, "flushing shards before shutdown");
-      await registry.flushAll();
+      await router.shutdown();
       flusher.dispose();
-      registry.shutdownAll();
       await ws.close();
       await app.close();
       if (client.driver === "sqlite") {

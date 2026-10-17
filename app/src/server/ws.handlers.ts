@@ -125,7 +125,7 @@ export async function onJoinSystem(
   }
   const join = payload as { systemId: string };
   try {
-    const result = await joinResolver(join.systemId, conn.callsign);
+    const result = await joinResolver(join.systemId, conn.callsign, conn.connId);
     conn.systemId = result.systemId;
     sendFrame(conn, "enter_system", {
       systemId: result.systemId,

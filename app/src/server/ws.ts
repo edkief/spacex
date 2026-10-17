@@ -39,6 +39,7 @@
  */
 import { WebSocketServer, type WebSocket } from "ws";
 import type { FastifyInstance } from "fastify";
+import { randomUUID } from "node:crypto";
 
 import {
   ConnectionRegistry,
@@ -96,7 +97,11 @@ export interface JoinResolverResult {
 }
 
 /** Resolver function injected by `attachWs` so future tasks can swap it. */
-export type JoinResolver = (systemId: string, callsign: string) => Promise<JoinResolverResult>;
+export type JoinResolver = (
+  systemId: string,
+  callsign: string,
+  connId: string,
+) => Promise<JoinResolverResult>;
 
 /**
  * Auth resolver — turns the auth payload into a playerId/callsign pair.
@@ -226,6 +231,12 @@ export function attachWs(
 
   wss.on("connection", (ws: WebSocket) => {
     const conn: Connection = {
+      // TASK-11: stable connId used by the router to bind player
+      // entities to specific sockets. `randomUUID()` is fine here
+      // (the WS layer is single-threaded per `wss.on('connection')`
+      // event); tests inject their own counter via the registry's
+      // existing snapshot path.
+      connId: randomUUID(),
       ws,
       state: "hello",
       playerId: null,

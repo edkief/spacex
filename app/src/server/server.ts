@@ -11,7 +11,9 @@ import { registerCallsignRoutes } from "./routes/callsigns.js";
 import { registerPlayersRoutes } from "./routes/players.js";
 import { registerShipsRoutes } from "./routes/ships.js";
 import { registerRepairRoute } from "./routes/repair.js";
+import { registerGalaxyHealthRoute } from "./routes/galaxy-health.js";
 import type { Repository } from "./db/repo.js";
+import type { GalaxyRouter } from "./galaxy/router.js";
 
 export interface BuildAppOptions {
   /** Disable Fastify's startup logger (useful in tests). */
@@ -27,6 +29,8 @@ export interface BuildAppOptions {
   galaxySeed?: string;
   /** Galaxy size (number of stars) — needed when `repo` is provided. */
   galaxyStarCount?: number;
+  /** TASK-11: galaxy router — needed when `repo` is provided. */
+  router?: GalaxyRouter;
   /** Override the wall clock for tests (epoch ms). */
   nowMs?: number;
 }
@@ -88,6 +92,17 @@ export async function buildApp(
       sessionSecret: options.sessionSecret,
       nowMs: options.nowMs,
     });
+    // TASK-11: galaxy health endpoint. Auth-gated read-only stats
+    // surface that drives the chart UI occupancy dots (TASK-7) and
+    // the maintenance dashboard.
+    if (options.router) {
+      registerGalaxyHealthRoute(app, {
+        repo: options.repo,
+        sessionSecret: options.sessionSecret,
+        router: options.router,
+        nowMs: options.nowMs,
+      });
+    }
   }
 
   return app;

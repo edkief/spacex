@@ -63,7 +63,11 @@ export function defaultLogoutResolver(playerId: string): ReturnType<LogoutResolv
  * snapshot. The real system router (TASK-11) will replace this with a
  * shard-load + occupancy check.
  */
-export function defaultJoinResolver(systemId: string): ReturnType<JoinResolver> {
+export function defaultJoinResolver(
+  systemId: string,
+  _callsign: string,
+  _connId: string,
+): ReturnType<JoinResolver> {
   const result: JoinResolverResult = {
     systemId,
     entities: [],

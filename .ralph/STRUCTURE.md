@@ -1,6 +1,6 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-17 after **TASK-24** (Ship state persistence across restarts).
+Snapshot taken 2026-10-17 after **TASK-11** (Galaxy router: in-process system shards, cap, dispatch).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.
@@ -63,6 +63,8 @@ PROJECT_ROOT
 │   │   │   │       └── surface-dev-seed-star0-planet0-chunk01.json  # Chunk (0,1) (TASK-6)
 │   │   │   ├── health.ts        # HealthPayload interface + factory
 │   │   │   ├── health.test.ts   # Trivial vitest (TASK-68 acceptance)
+│   │   │   ├── galaxy/          # Shared galaxy constants (TASK-11)
+│   │   │   │   └── constants.ts # MAX_PLAYERS_PER_SYSTEM + DEFAULT_SHARD_REAP_GRACE_MS + DEFAULT_ROUTER_REAP_INTERVAL_MS
 │   │   │   ├── protocol/        # WS protocol: envelope + handshake + zod schemas (TASK-9 + TASK-14)
 │   │   │   │   ├── index.ts          # PROTOCOL_VERSION, EnvelopeSchema, encode/decode, parseMessage, ProtocolError
 │   │   │   │   ├── schemas.ts        # One zod schema per message type + PAYLOAD_SCHEMAS registry; EntityUpdateSchema now requires lastAppliedSeq map (TASK-14)
@@ -100,7 +102,7 @@ PROJECT_ROOT
 │   │   └── server/              # Fastify + ws backend (tsx)
 │   │       ├── config.ts        # dotenv loader + typed ServerConfig
 │   │       ├── index.ts         # Entry: listen + graceful shutdown
-│   │       ├── server.ts        # buildApp() factory (testable via inject)
+│   │       ├── server.ts        # buildApp() factory (testable via inject) + registerGalaxyHealthRoute wiring (TASK-11)
 │   │       ├── server.test.ts   # Fastify inject() smoke for /api/health
 │   │       ├── persist.ts       # PersistService: save points + dirty-set + interval (TASK-63)
 │   │       ├── persist.test.ts          # 27 cases covering save points + dirty flag (TASK-63)
@@ -116,8 +118,8 @@ PROJECT_ROOT
 │   │       │   ├── load.ts           # loadShipsForShard (deleteExpiredWrecks + listLiveShipsBySystem + shipRowToEntitySpec) + specToEntityFields + entityIdForSpec (TASK-24)
 │   │       │   ├── load.test.ts      # 11 cases: empty system, scoped to systemId, skip docked + opt-in, expired-wreck GC, future-wreck preservation
 │   │       │   ├── registry.ts       # ShardRegistry: Map<systemId, Shard> + flushAll() for graceful shutdown (TASK-24)
-│   │       ├── ws.ts            # ws upgrade handler attached to Fastify (TASK-9)
-│   │       ├── ws.connection.ts # Connection struct + ConnectionRegistry (TASK-9, extended with bucket/floodTracker/chatLimiter in TASK-65)
+│   │       ├── ws.ts            # ws upgrade handler attached to Fastify (TASK-9; JoinResolver signature gained `connId` parameter in TASK-11 so the router can bind player entities to specific sockets)
+│   │       ├── ws.connection.ts # Connection struct + ConnectionRegistry (TASK-9, extended with bucket/floodTracker/chatLimiter in TASK-65; `connId` field added in TASK-11 so the router can bind ships to specific sockets)
 │   │       ├── ws.dispatch.ts   # processRawFrame + dispatch + noteInvalidInput + noteRateViolation + INVALID_DROP_THRESHOLD=50 + MAX_MESSAGE_BYTES=64KB (TASK-9 + TASK-64 + TASK-65)
 │   │       ├── ws.dispatch.helpers.ts # sendFrame + sendError + closeFloodedConnection (TASK-65)
 │   │       ├── ws.handlers.ts   # onHello + onAuth + onJoinSystem + onChat per-state handlers (TASK-9 + TASK-65)
@@ -135,6 +137,8 @@ PROJECT_ROOT
 │   │       ├── ws.logout.test.ts # 7 cases: WS `logout` → `logout_ok` + 1000 close + concurrent-use + unauthenticated path (TASK-66)
 │   │       ├── routes/          # REST route registrations
 │   │       │   ├── repair.ts    # POST /api/ships/repair (TASK-23) — auth + docked + cost calc + atomic withdraw + restore
+│   │       │   ├── galaxy-health.ts   # GET /api/galaxy/health (TASK-11) — auth-gated read-only stats surface (shardCount, totalPlayers, per-system players+uptime)
+│   │       │   ├── galaxy-health.test.ts # 4 cases: 401 missing token, 401 bad token, 200 empty stats, 200 with populated shard
 │   │       │   ├── repair.test.ts # 11 cases: cost table per class + auth + not-docked + insufficient-credits + transaction rollback
 │   │       │   ├── callsigns.ts # POST /api/callsigns + GET /api/session + POST /api/session/logout (TASK-10 + TASK-66)
 │   │       │   ├── callsigns.test.ts # 11 cases: POST /api/callsigns + GET /api/session (REST integration via fastify.inject) (TASK-10)
@@ -145,6 +149,13 @@ PROJECT_ROOT
 │   │       │   └── ships.test.ts # 27 cases: starter on claim + happy-path buy for each class + all error paths + event-bus broadcast (TASK-20) + 11 livery endpoint cases: valid/invalid/partial hex, mid-flight rejection, livery-changed bus event, persistence round-trip (TASK-21)
 │   │       ├── shards/          # In-process shard event bus (TASK-20; future TASK-11/15 consumers)
 │   │       │   └── event-bus.ts # ShipSwapEvent + LiveryChangedEvent + ShardsBus singleton (EventEmitter + process.nextTick)
+│   │       ├── galaxy/          # Galaxy router (TASK-11)
+│   │       │   ├── router.ts    # GalaxyRouter class — Map<systemId, Shard> + pending-promise collapse for concurrent spawns + 16-player cap enforcement + reapEmpty() with 60s grace timer + flushShips-on-reap + stats() surface + forceReap
+│   │       │   ├── router.test.ts # 20 cases: construction invariants + lazy spawn + concurrent collapse + cap + grace reap (fake clock) + 10-client/3-system cross-system test + restart-with-position + force-reap + idempotent shutdown
+│   │       │   ├── system-data.ts # buildShardContext — derive SystemGen + per-planet closures from (seed, starId); GalaxySystemNotFoundError tagged error
+│   │       │   ├── join-resolver.ts # buildRouterJoinResolver — maps (systemId, callsign, connId) to router.joinSystem + repo.findPlayerByCallsign + repo.listShipsByOwner + tag errors with code field for the WS dispatcher
+│   │       │   ├── join-resolver.test.ts # 4 cases: success + cap-full + system-not-found + missing-callsign defensive path
+│   │       │   └── index.ts     # Re-export barrel
 │   │       └── auth/            # Token codec + WS auth resolver (TASK-10)
 │   │           ├── token.ts     # HMAC-SHA256 session-token codec: sign/verify/hashToken + clock-skew tolerance (TASK-10)
 │   │           ├── resolver.ts  # claimCallsign + resumeSession + revokeSession + buildAuthResolver + buildLogoutResolver + pickHomeSystemId (TASK-10 + TASK-66)

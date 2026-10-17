@@ -2,7 +2,33 @@
 
 `Current Status`
 =================
-**Last Updated:** 2026-10-17 21:05
+**Last Updated:** 2026-10-17 21:35
+
+### 2026-10-17 — Iteration 29
+- **TASK-11** Galaxy router: in-process system shards, cap, dispatch → **DONE**
+  - New `MAX_PLAYERS_PER_SYSTEM = 16` + `DEFAULT_SHARD_REAP_GRACE_MS = 60_000` + `DEFAULT_ROUTER_REAP_INTERVAL_MS = 5_000` constants in `app/src/shared/galaxy/constants.ts`. Centralised in `shared/` so the chart UI (TASK-7) and the server router both consume them.
+  - New module `app/src/server/galaxy/` (~500 lines + ~430-line test file):
+    - `router.ts` — `GalaxyRouter` class with `Map<systemId, Shard>` + **pending-promise collapse** for concurrent spawns (a 10-client burst joining the same system sees *one* hydrate); `joinSystem(...)` enforces the 16-player cap (returns `system-full` if the shard is full, leaving `conn.systemId` untouched so the player stays in their previous system); `leaveSystem(...)` drops the connection + starts the reap grace timer; `reapEmpty({force?})` flushes ships + stops the shard; `shutdown()` reaps every shard + disposes the flush service + clears the map; `stats()` returns `{shardCount, totalPlayers, routerStartedAt, shards:[{systemId, name, players, uptimeMs}]}`; `forceReap(systemId)` stops a specific shard regardless of grace.
+    - `system-data.ts` — `buildShardContext({seed, starCount, systemId})` derives a `ShardSystemContext` from `generateStars` + `generateSystem`. Throws `GalaxySystemNotFoundError` for unknown ids.
+    - `join-resolver.ts` — `buildRouterJoinResolver({repo, router})` returns a TASK-9-shaped `JoinResolver` (now with a third `connId` arg) that calls `router.joinSystem`. Tag-flavoured errors (`{code, message}`) so the WS handler forwards `system-full` / `system-not-found` cleanly.
+    - `index.ts` — re-export barrel.
+  - `src/server/ws.connection.ts` — added `connId: string` to the `Connection` shape (randomUUID per socket); `WsConnectionRecord` mirrors it. The router uses the id to bind player entities to specific connections, so the leave path doesn't need to scan the registry to find which connection to drop.
+  - `src/server/ws.ts` — `JoinResolver` signature gained the `connId` parameter (backward-incompatible for tests injecting a stub; updated `defaultJoinResolver` to match). The connection-handshake path mints the id via `crypto.randomUUID()` on the connection event.
+  - `src/server/server.ts` — extended `BuildAppOptions` with `router?: GalaxyRouter`; registers `GET /api/galaxy/health` (bearer-gated) when supplied.
+  - New `app/src/server/routes/galaxy-health.ts` (~85 lines + ~140-line test file). `GET /api/galaxy/health` returns `{ok, galaxySeed, shards, shardCount, totalPlayers, routerStartedAt}`; mirrors `router.stats()` so the chart UI (TASK-7) can plot occupancy dots per star.
+  - `src/server/index.ts` — wires the router into the boot path: instantiated *before* `buildApp` so the `/api/galaxy/health` route can register; `flusher.start(...)` walks `router.stats().shards` and flushes each one (TASK-24); `router.start()` schedules the 5 s reap loop. `shutdown()` calls `router.shutdown()` (which force-reaps every shard + disposes the flush service) before closing WS/HTTP/DB.
+  - Acceptance criteria checklist:
+    - `Router.getShard(systemId)` returns active or creates one (loads system data via `generateSystem` + ships via `loadShipsForShard` with `includeDocked:true`) → ✅ verified by `creates a shard lazily on first call` + `returns the cached shard on subsequent calls` + `throws GalaxySystemNotFoundError for unknown systems`.
+    - Cap = 16, returns `{code:'system-full'}` on overflow, leaves `conn.systemId` untouched → ✅ `rejects the 17th concurrent join with system-full`.
+    - `/api/galaxy/health` (auth) lists active shards with `{systemId, players, uptimeMs}` → ✅ 4-case route test (`galaxy-health.test.ts`).
+    - Concurrent spawn: 10 clients / 3 systems in parallel, distinct per-system state → ✅ `10 clients joining 3 different systems see per-system, distinct shard state`.
+    - Reap test: 60 s grace, ships flushed → ✅ `reaps a shard once the grace timer elapses (fake clock)` + `reaps with force regardless of grace timer`.
+    - Restart test: ship positions survive teardown + re-join → ✅ `ship positions survive a router teardown + re-join`.
+    - `npm run test` green → ✅ 910/910 (882 prior + 28 new — 20 router + 4 join-resolver + 4 galaxy-health).
+    - `npm run lint` + `npm run typecheck` clean.
+    - Smoke verified end-to-end via `npm run dev` (Fastify on `:3001`, Vite on `:3000`):
+      - `POST /api/callsigns` → token, `GET /api/galaxy/health` with token → `{ok:true, shardCount:0, totalPlayers:0, …}`; bad/no token → `401 unauthenticated`.
+      - WS handshake + `join_system` round-trip returns `enter_system` with the player's entity bound to the shard; cap test: 17 simultaneous clients trying to join the same system → `Joined: 16, Cap-failed: 1` (verified via a Node `ws` script).
 
 **Tasks Completed:** 22 of 71
 **Current Task:** TASK-24 Complete

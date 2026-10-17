@@ -41,6 +41,7 @@ export type WsConnectionState = "hello" | "authed" | "joined" | "closed";
  * references.
  */
 export interface WsConnectionRecord {
+  connId: string;
   state: WsConnectionState;
   playerId: string | null;
   callsign: string | null;
@@ -55,6 +56,8 @@ export interface WsConnectionRecord {
 
 /** Internal: the live connection handle + metadata. */
 export interface Connection {
+  /** Stable id matching `ConnectionRegistry` keys + router entity bindings. */
+  connId: string;
   ws: WebSocket;
   state: WsConnectionState;
   playerId: string | null;
@@ -99,6 +102,7 @@ export class ConnectionRegistry {
 export function snapshotConnection(c: Connection): WsConnectionRecord {
   const now = Date.now();
   return {
+    connId: c.connId,
     state: c.state,
     playerId: c.playerId,
     callsign: c.callsign,
