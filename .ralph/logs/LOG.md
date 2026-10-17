@@ -2,13 +2,36 @@
 
 `Current Status`
 =================
-**Last Updated:** 2026-10-17 13:10
-**Tasks Completed:** 6 of 71
-**Current Task:** TASK-5 Complete
+**Last Updated:** 2026-10-17 13:18
+**Tasks Completed:** 7 of 71
+**Current Task:** TASK-6 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-10-17 — Iteration 7
+- **TASK-6** Galaxy determinism verification (snapshot fixtures) → **DONE**
+  - New `app/src/shared/galaxy/snapshots.test.ts` (212 lines, 8 cases) — six deep-equal scenarios:
+    - full 200-star chart (`stars-dev-seed-full.json`) + checksum match,
+    - `SystemGen` of star #0 (`system-dev-seed-star0.json`),
+    - `SystemGen` of star #1 (`system-dev-seed-star1.json`),
+    - `SurfaceChunk (0,0)` of star #0's first landable planet (`surface-dev-seed-star0-planet0-chunk00.json`) with full 4096-cell heightmap + legacy heightmap16/stats cross-check,
+    - `SurfaceChunk (1,0)` (`surface-dev-seed-star0-planet0-chunk10.json`),
+    - `SurfaceChunk (0,1)` (`surface-dev-seed-star0-planet0-chunk01.json`).
+    On mismatch, prints the first divergent dot-path so the failure self-diagnoses.
+  - New `app/src/shared/galaxy/snapshots.mutation.test.ts` (71 lines, 2 cases) — proves the suite is sensitive to generator drift: a deliberately-mutated clone of `generateStars` with O ↔ M spectral weights swapped is shown to diverge from the committed chart on both distribution and checksum. Sanity test ensures the real generator still matches.
+  - New `app/src/shared/galaxy/snapshots.helpers.ts` (222 lines, non-test) — `DEV_SEED`/`STAR0_INDEX`/`STAR1_INDEX` constants, `loadFixture`, `firstDivergentPath` walker, `loadPlanetFromSurfaceFixture`, fixture-shape types, and `mutatedGenerateStars` (kept here so the production code path is clean).
+  - New `app/src/shared/galaxy/__fixtures__/README.md` — fixture-regeneration rules; only `npm run snapshot:update` writes, the default `npm run test` only reads.
+  - New `app/src/shared/galaxy/__fixtures__/stars-dev-seed-full.json` (full 200-star chart + checksum) — added alongside the existing first-25 parity fixture, which still passes `stars.parity.test.ts`.
+  - New `app/src/shared/galaxy/__fixtures__/system-dev-seed-star1.json` — full SystemGen for star #1 (Perexnius, 2 planets).
+  - New `app/src/shared/galaxy/__fixtures__/surface-dev-seed-star0-planet0-chunk10.json` and `surface-dev-seed-star0-planet0-chunk01.json` — full SurfaceChunk for chunks (1,0) and (0,1) respectively.
+  - `app/src/shared/galaxy/__fixtures__/surface-dev-seed-star0-planet0-chunk00.json` extended with the full 4096-cell `heightmap` field (legacy `heightmap16` + `heightmapStats` retained for the existing parity test).
+  - New `app/scripts/gen-stars-full-fixture.ts`, `gen-system-star1-fixture.ts`, `gen-surface-chunk10-fixture.ts`, `gen-surface-chunk01-fixture.ts` — one-off regenerators (mirror TASK-3/4/5 patterns).
+  - `app/scripts/gen-surface-fixture.ts` updated to also emit the full `heightmap` field.
+  - `app/package.json` — `npm run snapshot:update` chains all five regenerators (`gen-stars-full`, `gen-system-star1`, `gen-surface`, `gen-surface-chunk10`, `gen-surface-chunk01`).
+  - **Mutation verification**: temporarily changed `PEAK_HEIGHT_M` in `config-surface.ts` from `2000` to `1500`; the snapshot suite failed 3 tests (the three surface-chunk scenarios), confirming the suite catches real generator drift. Reverted, all tests green.
+  - 151/151 vitest cases pass (9 new in `snapshots.*.test.ts`, 0 pre-existing regressions). `npm run typecheck`, `npm run lint` (eslint + prettier --check), and `npm run lint:fix` all clean. File-size policy respected (each `snapshots.*.ts` under 300 lines). TASK-6 is `functional` (no UI surface) → no Playwright smoke needed. No screenshot.
 
 ### 2026-10-17 — Iteration 6
 - **TASK-5** Surface chunk generator (terrain, nodes, landing pads) → **DONE**
