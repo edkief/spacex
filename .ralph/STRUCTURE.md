@@ -75,6 +75,8 @@ PROJECT_ROOT
 │   │   │   ├── physics/         # Deterministic ship flight model (TASK-22)
 │   │   │   │   ├── vec.ts          # Vec3 + Quat math (plain objects, zero deps) + quatSlerp (TASK-14)
 │   │   │   │   ├── vec.test.ts     # 26 cases: ops + rotations + orthonormal mat3 + quatSlerp (clamp, short-arc, lerp fallback, half-rotation accuracy)
+│   │   │   │   ├── damage.ts       # applyDamage + repairCost pure math — shield-first, double-destroy guard, source attribution (TASK-23)
+│   │   │   │   ├── damage.test.ts  # 31 cases: shield-first ordering + boundary cases + degenerate inputs + repair-cost table
 │   │   │   │   ├── atmosphere.ts   # PlanetAtmosphere + boundaryFactor + dragCoefficient (shared with TASK-28)
 │   │   │   │   ├── atmosphere.test.ts # 19 cases: ramp continuity + density scaling
 │   │   │   │   ├── flight.ts       # integrateShip(state, input, dt, regime, shipClass, planet?) + helpers
@@ -104,6 +106,8 @@ PROJECT_ROOT
 │   │       ├── persist.test.ts          # 27 cases covering save points + dirty flag (TASK-63)
 │   │       ├── persist.crash.test.ts    # Child-process SIGKILL → loadSystemState round-trip (TASK-63)
 │   │       ├── persist.bench.test.ts    # 16-ship dirty-flush perf benchmark (TASK-63)
+│   │       ├── combat.ts        # applyCombatDamage + cleanupExpiredWrecks + broadcastCombatEvent + WRECK_TTL_S=600 (TASK-23) — server-side hook for weapons (TASK-43) + hazards (TASK-48)
+│   │       ├── combat.test.ts   # 17 cases: shield-first on live entity, destroyed ships skip integration, double-destroy guard, wreck TTL cleanup, combat_event broadcast to all connections
 │   │       ├── ws.ts            # ws upgrade handler attached to Fastify (TASK-9)
 │   │       ├── ws.connection.ts # Connection struct + ConnectionRegistry (TASK-9, extended with bucket/floodTracker/chatLimiter in TASK-65)
 │   │       ├── ws.dispatch.ts   # processRawFrame + dispatch + noteInvalidInput + noteRateViolation + INVALID_DROP_THRESHOLD=50 + MAX_MESSAGE_BYTES=64KB (TASK-9 + TASK-64 + TASK-65)
@@ -122,6 +126,8 @@ PROJECT_ROOT
 │   │       ├── ws.test.ts       # Real Fastify+ws boot: handshake, errors, unknown-type, keepalive (TASK-9)
 │   │       ├── ws.logout.test.ts # 7 cases: WS `logout` → `logout_ok` + 1000 close + concurrent-use + unauthenticated path (TASK-66)
 │   │       ├── routes/          # REST route registrations
+│   │       │   ├── repair.ts    # POST /api/ships/repair (TASK-23) — auth + docked + cost calc + atomic withdraw + restore
+│   │       │   ├── repair.test.ts # 11 cases: cost table per class + auth + not-docked + insufficient-credits + transaction rollback
 │   │       │   ├── callsigns.ts # POST /api/callsigns + GET /api/session + POST /api/session/logout (TASK-10 + TASK-66)
 │   │       │   ├── callsigns.test.ts # 11 cases: POST /api/callsigns + GET /api/session (REST integration via fastify.inject) (TASK-10)
 │   │       │   ├── logout.test.ts # 12 cases: POST /api/session/logout revoke + double-logout + tampered/garbage tokens (TASK-66)

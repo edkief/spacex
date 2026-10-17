@@ -32,7 +32,15 @@ import { EventEmitter } from "node:events";
 
 import type { ProtocolEntityState, ProtocolShipClassId } from "@shared/protocol/index.js";
 
-import { entityToWire, makeAiEntity, makeEntityId, makePlayerEntity } from "./entity.js";
+import {
+  entityToWire,
+  makeAiEntity,
+  makeEntityId,
+  makePlayerEntity,
+  makeWreckEntity,
+  makeWreckId,
+} from "./entity.js";
+import { WRECK_TTL_MS } from "./combat.js";
 import { enqueueInput } from "./input-queue.js";
 import { SimLoop } from "./sim.js";
 import type {
@@ -228,6 +236,41 @@ export function spawnAiShip(
 }
 
 /**
+ * Spawn a wreck entity at the given position. Idempotent on id — a
+ * second call returns the existing wreck. Used by `applyCombatDamage`
+ * (TASK-23) when a ship is destroyed and re-exposed here so tests
+ * can build wreck-only fixtures without going through damage.
+ *
+ * `wreckExpiresAt` defaults to `Date.now() + WRECK_TTL_MS` (600 s);
+ * tests can override via the `nowMs` parameter.
+ */
+export function spawnWreck(
+  shard: Shard,
+  args: {
+    id?: string;
+    classId: ProtocolShipClassId;
+    pos: { x: number; y: number; z: number };
+    quat?: { x: number; y: number; z: number; w: number };
+    sourceEntityId?: string;
+    nowMs?: number;
+  },
+): SimEntity {
+  const now = args.nowMs ?? Date.now();
+  const id = args.id ?? makeWreckId(args.sourceEntityId ?? `unknown-${now}`);
+  const existing = shard.entities.get(id);
+  if (existing !== undefined) return existing;
+  const wreck = makeWreckEntity({
+    id,
+    classId: args.classId,
+    pos: args.pos,
+    quat: args.quat,
+    wreckExpiresAt: now + WRECK_TTL_MS,
+  });
+  shard.entities.set(id, wreck);
+  return wreck;
+}
+
+/**
  * Remove an entity from the shard. Broadcasts will not include it on
  * subsequent ticks.
  */
@@ -356,7 +399,17 @@ export {
   MAX_CATCHUP_STEPS,
   SNAPSHOT_EVERY_N_TICKS,
 } from "./sim.js";
-export { entityToWire, makeEntityId } from "./entity.js";
+export { entityToWire, makeEntityId, makeWreckEntity, makeWreckId } from "./entity.js";
+export {
+  applyCombatDamage,
+  broadcastCombatEvent,
+  cleanupExpiredWrecks,
+  WRECK_TTL_S,
+  WRECK_TTL_MS,
+  type ApplyCombatDamageResult,
+  aiSource,
+  playerSource,
+} from "./combat.js";
 export { enqueueInput, STALE_LOG_THRESHOLD } from "./input-queue.js";
 export { TickHistogram, DEFAULT_CAPACITY } from "./histogram.js";
 export { SimLoop } from "./sim.js";

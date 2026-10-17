@@ -77,6 +77,13 @@ export function bindPgWorld(
     shields: number;
     livery: ShipLivery;
   }) => Promise<ShipRow>;
+  repairShip: (input: {
+    playerId: string;
+    shipId: string;
+    cost: number;
+    maxHull: number;
+    maxShields: number;
+  }) => Promise<ShipRow>;
 } {
   return {
     async addCredits(playerId: string, amount: number): Promise<PlayerRow> {
@@ -297,6 +304,75 @@ export function bindPgWorld(
           .returning();
         const first = inserted[0];
         if (!first) throw new Error("purchaseShip: insert returned no rows");
+        return mapShip(first);
+      });
+    },
+
+    /**
+     * TASK-23 dock repair. Opens a `BEGIN ... COMMIT` transaction
+     * so the docked-state validation + credit withdraw + hull/shield
+     * restore are atomic. Same shape as the SQLite implementation
+     * (`NotDockedError`, `InsufficientCreditsError`,
+     * `NotFoundError`); the route maps these to HTTP codes.
+     */
+    async repairShip(input: {
+      playerId: string;
+      shipId: string;
+      cost: number;
+      maxHull: number;
+      maxShields: number;
+    }): Promise<ShipRow> {
+      return db.transaction(async (txDb): Promise<ShipRow> => {
+        // 1. Load the ship row and verify it belongs to the player.
+        const shipRows = await txDb
+          .select()
+          .from(pgSchema.ships)
+          .where(eq(pgSchema.ships.id, input.shipId))
+          .limit(1);
+        if (shipRows.length === 0) {
+          throw new NotFoundError("Ship", input.shipId);
+        }
+        const existing = mapShip(shipRows[0]!);
+        if (existing.ownerId !== input.playerId) {
+          throw new NotFoundError("Ship", input.shipId);
+        }
+
+        // 2. Must be docked to repair.
+        if (existing.state !== "docked") {
+          throw new NotDockedError(input.playerId);
+        }
+
+        // 3. Withdraw the repair cost. Throws
+        //    `InsufficientCreditsError` on insufficient funds.
+        //    Cost of 0 is a no-op (ship already fully repaired); skip
+        //    the withdraw so we don't issue an UPDATE with a 0 delta.
+        if (input.cost > 0) {
+          const debited = await txDb
+            .update(pgSchema.players)
+            .set({ credits: sql`${pgSchema.players.credits} - ${input.cost}` })
+            .where(
+              and(
+                eq(pgSchema.players.id, input.playerId),
+                sql`${pgSchema.players.credits} >= ${input.cost}`,
+              ),
+            )
+            .returning({ id: pgSchema.players.id });
+          if (debited.length === 0) {
+            const after = await identity.findPlayerById(input.playerId);
+            throw new InsufficientCreditsError(input.playerId, after?.credits ?? 0, input.cost);
+          }
+        }
+
+        // 4. Restore hull + shields to class max.
+        const updated = await txDb
+          .update(pgSchema.ships)
+          .set({ hull: input.maxHull, shields: input.maxShields })
+          .where(eq(pgSchema.ships.id, input.shipId))
+          .returning();
+        const first = updated[0];
+        if (!first) {
+          throw new Error(`repairShip: row vanished after update id=${input.shipId}`);
+        }
         return mapShip(first);
       });
     },

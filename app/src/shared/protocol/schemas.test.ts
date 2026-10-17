@@ -114,11 +114,12 @@ const VALID_PAYLOADS: Record<MessageType, () => unknown> = {
     range: 12.3,
   }),
   combat_event: () => ({
-    kind: "hit",
-    attacker: "ship-1",
+    kind: "damaged",
     target: "ship-2",
-    weapon: "laser",
-    damage: 5.5,
+    source: { kind: "player", id: "ship-1" },
+    amount: 30,
+    shieldHit: 30,
+    hullHit: 0,
     tick: 42,
   }),
 };
@@ -200,11 +201,12 @@ const INVALID_PAYLOADS: Record<MessageType, () => unknown> = {
   }),
   target_update: () => ({ targetId: null, shields: NaN, hull: 0, bearing: 0, range: 0 }),
   combat_event: () => ({
-    kind: "destroy", // bad enum
-    attacker: "",
-    target: "ship-2",
-    weapon: "laser",
-    damage: -1,
+    kind: "damaged",
+    target: "",
+    source: { kind: "player", id: "" },
+    amount: -1, // negative damage is rejected
+    shieldHit: 0,
+    hullHit: 0,
     tick: 0,
   }),
 };

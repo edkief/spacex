@@ -220,6 +220,7 @@ export {
   PresenceSchema,
   TargetUpdateSchema,
   CombatEventSchema,
+  type ProtocolCombatEvent,
   // Inferred types
   type Vec3,
   type ProtocolShipClassId,

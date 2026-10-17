@@ -351,17 +351,90 @@ export const TargetUpdateSchema = z
   })
   .strict();
 
-/** `combat_event` — combat broadcast (TASK-42/46). */
-export const CombatEventSchema = z
-  .object({
-    kind: z.enum(["hit", "kill"]),
-    attacker: z.string().min(1),
-    target: z.string().min(1),
-    weapon: z.enum(["laser", "missile"]),
-    damage: z.number().finite().nonnegative(),
-    tick: z.number().int().nonnegative(),
-  })
-  .strict();
+/**
+ * `combat_event` — combat broadcast (TASK-23/42/46).
+ *
+ * Discriminated union of every event shape that flows through the
+ * combat pipeline. The `kind` tag decides which sub-schema applies
+ * so future combat events (e.g. weapon-specific damage, AI
+ * broadcast fire) extend the protocol without breaking older
+ * clients — old clients just see an unknown `kind` and ignore it.
+ *
+ *   - `hit`       (TASK-42) — a weapon impact that landed. Carries
+ *                the weapon id, damage, and the tick at which it
+ *                landed so the HUD can replay the impact animation.
+ *   - `kill`      (TASK-42) — the kill confirmation broadcast
+ *                after `hit` drives a target's hull to zero.
+ *   - `damaged`   (TASK-23) — shield-first damage breakdown from
+ *                `applyDamage`. `shieldHit` + `hullHit` sum to the
+ *                portion of `amount` that was absorbed. `target` is
+ *                the victim entity id; `source` is the attacker's
+ *                attribution (player callsign / AI roster id).
+ *   - `destroyed` (TASK-23) — fired exactly once per death (the
+ *                sim's double-destroy guard enforces this). The
+ *                renderer spawns a wreck impostor at the victim's
+ *                last known position (TASK-49 owns the impostor;
+ *                TASK-23 just sends the event).
+ */
+export const CombatEventSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("hit"),
+      attacker: z.string().min(1),
+      target: z.string().min(1),
+      weapon: z.enum(["laser", "missile"]),
+      damage: z.number().finite().nonnegative(),
+      tick: z.number().int().nonnegative(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("kill"),
+      attacker: z.string().min(1),
+      target: z.string().min(1),
+      tick: z.number().int().nonnegative(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("damaged"),
+      target: z.string().min(1),
+      source: z
+        .object({
+          kind: z.enum(["player", "ai"]),
+          id: z.string().min(1),
+        })
+        .strict(),
+      amount: z.number().finite().nonnegative(),
+      shieldHit: z.number().finite().nonnegative(),
+      hullHit: z.number().finite().nonnegative(),
+      tick: z.number().int().nonnegative(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("destroyed"),
+      target: z.string().min(1),
+      source: z
+        .object({
+          kind: z.enum(["player", "ai"]),
+          id: z.string().min(1),
+        })
+        .strict(),
+      tick: z.number().int().nonnegative(),
+    })
+    .strict(),
+]);
+
+// ---------------------------------------------------------------------------
+// Inferred types
+// ---------------------------------------------------------------------------
+
+/**
+ * Discriminated union of every combat event shape (TASK-23 + TASK-42/46).
+ * Use this for typed `combat_event` payloads across client + server.
+ */
+export type ProtocolCombatEvent = z.infer<typeof CombatEventSchema>;
 
 // ---------------------------------------------------------------------------
 // Type registry — single source of truth for `MessageType` and `parseMessage`

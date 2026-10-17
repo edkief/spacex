@@ -91,6 +91,13 @@ export function bindSqliteWorld(
     shields: number;
     livery: ShipLivery;
   }) => Promise<ShipRow>;
+  repairShip: (input: {
+    playerId: string;
+    shipId: string;
+    cost: number;
+    maxHull: number;
+    maxShields: number;
+  }) => Promise<ShipRow>;
   runInTransaction: <T>(fn: (tx: SqliteCreditHandle) => T) => Promise<T>;
 } {
   return {
@@ -313,6 +320,88 @@ export function bindSqliteWorld(
               input.livery,
             );
             return newShip;
+          });
+          resolve(result);
+        } catch (err) {
+          reject(err);
+        }
+      });
+    },
+
+    /**
+     * TASK-23 dock repair. Opens its own `BEGIN ... COMMIT` so the
+     * docked-state validation + credit withdraw + hull/shield restore
+     * is atomic. Mirrors `purchaseShip`'s shape: throw typed errors
+     * (`NotDockedError`, `InsufficientCreditsError`,
+     * `NotFoundError`) that the route maps to HTTP codes.
+     *
+     * The cost is computed by the route layer
+     * (`@shared/physics/damage.repairCost`) so this module stays free
+     * of any "what should repair cost?" policy. We just verify the
+     * withdrawal succeeded and the row was updated.
+     */
+    async repairShip(input: {
+      playerId: string;
+      shipId: string;
+      cost: number;
+      maxHull: number;
+      maxShields: number;
+    }): Promise<ShipRow> {
+      return new Promise<ShipRow>((resolve, reject) => {
+        try {
+          const result = db.transaction((txDb): ShipRow => {
+            // 1. Load the ship row and verify it belongs to the player.
+            const shipRows = txDb
+              .select()
+              .from(sqliteSchema.ships)
+              .where(eq(sqliteSchema.ships.id, input.shipId))
+              .limit(1)
+              .all();
+            if (shipRows.length === 0) {
+              throw new NotFoundError("Ship", input.shipId);
+            }
+            const existing = mapShip(shipRows[0]!);
+            if (existing.ownerId !== input.playerId) {
+              throw new NotFoundError("Ship", input.shipId);
+            }
+
+            // 2. Must be docked to repair (mid-flight repair would be
+            //    physically nonsensical; the dock is the only place
+            //    with a repair rig).
+            if (existing.state !== "docked") {
+              throw new NotDockedError(input.playerId);
+            }
+
+            // 3. Withdraw the repair cost. Throws
+            //    `InsufficientCreditsError` on insufficient funds;
+            //    Drizzle rolls back via the outer transaction.
+            //    Cost of 0 is a no-op (ship already fully repaired);
+            //    skip the withdraw so `assertPositiveInt` doesn't reject
+            //    the 0.
+            if (input.cost > 0) {
+              sqliteWithdrawSync(txDb, input.playerId, input.cost);
+            }
+
+            // 4. Restore hull + shields to class max.
+            txDb
+              .update(sqliteSchema.ships)
+              .set({ hull: input.maxHull, shields: input.maxShields })
+              .where(eq(sqliteSchema.ships.id, input.shipId))
+              .run();
+
+            // 5. Re-load the row so the caller sees the post-repair
+            //    snapshot.
+            const refreshedRows = txDb
+              .select()
+              .from(sqliteSchema.ships)
+              .where(eq(sqliteSchema.ships.id, input.shipId))
+              .limit(1)
+              .all();
+            const refreshedRow = refreshedRows[0];
+            if (!refreshedRow) {
+              throw new Error(`repairShip: row vanished after update id=${input.shipId}`);
+            }
+            return mapShip(refreshedRow);
           });
           resolve(result);
         } catch (err) {

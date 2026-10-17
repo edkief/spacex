@@ -60,6 +60,7 @@ import { integrateShip, type ShipInput, type ShipState } from "@shared/physics/f
 import type { ProtocolEntityState } from "@shared/protocol/index.js";
 import { SHIP_CLASSES } from "@shared/ships.js";
 
+import { cleanupExpiredWrecks } from "./combat.js";
 import { drainInput } from "./input-queue.js";
 import { TickHistogram } from "./histogram.js";
 import type {
@@ -310,6 +311,13 @@ export class SimLoop {
       }
       const entity = shard.entities.get(conn.entityId);
       if (entity === undefined || entity.kind !== "player") continue;
+      // TASK-23: a destroyed player entity stays in the registry (so
+      // reconnect can find the row), but the integration loop refuses
+      // to advance it. The double-destroy guard in
+      // `@shared/physics/damage` + the wreck spawn in `combat.ts`
+      // already published the `destroyed` event; we just stop
+      // touching the position / velocity here.
+      if (entity.hull <= 0) continue;
       integrateEntity(entity, input, shard.context);
       // Record the seq the server actually applied so the owning
       // client can drain its input queue on reconcile (TASK-14).
@@ -326,6 +334,11 @@ export class SimLoop {
     // 3. Run observer hooks so the shard can log timing or mark
     //    entities dirty for persistence.
     this.lastTickEntityCount = shard.entities.size;
+
+    // 4. Wreck cleanup (TASK-23). Remove entities whose
+    //    `wreckExpiresAt` has passed. Cheap O(n) walk — wrecks are
+    //    a tiny fraction of the registry at any moment.
+    cleanupExpiredWrecks(shard, Date.now());
     const tickDuration = (this.hooks.clock ?? performanceNow)() - tickStart;
     this.histogram.push(tickDuration);
 

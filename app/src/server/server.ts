@@ -10,6 +10,7 @@ import type { ServerConfig } from "./config.js";
 import { registerCallsignRoutes } from "./routes/callsigns.js";
 import { registerPlayersRoutes } from "./routes/players.js";
 import { registerShipsRoutes } from "./routes/ships.js";
+import { registerRepairRoute } from "./routes/repair.js";
 import type { Repository } from "./db/repo.js";
 
 export interface BuildAppOptions {
@@ -75,6 +76,14 @@ export async function buildApp(
     // purchase. Registered last so the order in the route map matches
     // the human-readable order in the README.
     registerShipsRoutes(app, {
+      repo: options.repo,
+      sessionSecret: options.sessionSecret,
+      nowMs: options.nowMs,
+    });
+    // TASK-23: dock repair endpoint. Same deps as the ships routes;
+    // registered alongside so the cost + atomic withdraw + restore
+    // is one cohesive endpoint family.
+    registerRepairRoute(app, {
       repo: options.repo,
       sessionSecret: options.sessionSecret,
       nowMs: options.nowMs,

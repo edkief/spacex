@@ -2,10 +2,38 @@
 
 `Current Status`
 =================
-**Last Updated:** 2026-10-17 17:57
+**Last Updated:** 2026-10-17 18:15
 
-**Tasks Completed:** 20 of 71
-**Current Task:** TASK-14 Complete
+**Tasks Completed:** 21 of 71
+**Current Task:** TASK-23 Complete
+
+### 2026-10-17 — Iteration 23
+- **TASK-23** Ship damage model: hull, shields, dock repair → **DONE**
+  - **Shared damage math** — `app/src/shared/physics/damage.ts` (~210 lines + ~430-line test file). Pure `applyDamage({target, classId, amount, source}) → {shieldHit, hullHit, destroyed, newShields, newHull}`. Shields absorb first; overflow chips hull; hull below zero marks destroyed. Non-positive / NaN / Infinity damage is a no-op (except `destroyed: true` on pre-dead entities — the double-destroy guard). `repairCost(current, classId)` implements `ceil((1 - hull/maxHull)*10) + ceil((1 - shields/maxShields)*5)` for the dock UI / route. `DamageSource = {kind:'player'|'ai', id}` so HUDs and analytics can attribute hits.
+  - **Wire schema** — `app/src/shared/protocol/schemas.ts`. `CombatEventSchema` is now a `z.discriminatedUnion("kind", […])` carrying four variants: `hit` (TASK-42), `kill` (TASK-42), `damaged` (TASK-23: `{target, source, amount, shieldHit, hullHit, tick}`), `destroyed` (TASK-23: `{target, source, tick}`). New `ProtocolCombatEvent` type export.
+  - **Sim combat pipeline** — `app/src/server/shard/combat.ts`. `applyCombatDamage(shard, {targetId, amount, source, tick, nowMs?})` is the single entry point weapons (TASK-43) and environmental hazards (TASK-48) call when a hit lands. Mutates the entity's HP in place; on destruction spawns a wreck entity at the destroyed ship's final position + orientation; broadcasts the `damaged` and (if applicable) `destroyed` combat_event to every connection. `cleanupExpiredWrecks(shard, nowMs)` removes wrecks whose `wreckExpiresAt` has passed. `broadcastCombatEvent` is the public one-off broadcast helper.
+  - **Wreck entity** — `app/src/server/shard/entity.ts`. New `makeWreckEntity({id, classId, pos, quat, wreckExpiresAt})` factory + `makeWreckId(sourceEntityId)` (`wreck:<id>`). `SimEntity.wreckExpiresAt?: number` field added in `types.ts`. `WRECK_TTL_S = 600` exported constant.
+  - **Sim loop integration** — `app/src/server/shard/sim.ts`. (1) Player entities with `hull <= 0` are skipped by `integrateEntity` (acceptance: "destroyed ships ignore inputs" + "doesn't stop integrating" — verified in `combat.test.ts`). (2) `cleanupExpiredWrecks(shard, Date.now())` runs once per tick after the integration step. (3) The wreck entity stays in the registry for broadcast so other clients can render the impostor (TASK-49 owns the impostor visual).
+  - **Atomic repair transaction** — `app/src/server/db/{repo,repo.sqlite.world,repo.pg.world}.ts`. New `repo.repairShip({playerId, shipId, cost, maxHull, maxShields}): Promise<ShipRow>` opens its own `BEGIN ... COMMIT`:
+      1. Loads the ship and verifies `ownerId === playerId` (else `NotFoundError`).
+      2. Verifies `state === 'docked'` (else `NotDockedError`).
+      3. Withdraws `cost` credits via the compare-and-swap credit helper (else `InsufficientCreditsError`).
+      4. Updates `hull = maxHull`, `shields = maxShields`.
+      5. Returns the post-repair row.
+    Cost of 0 (fully repaired ship) skips the withdraw step so the `assertPositiveInt` invariant in `withdrawCredits` doesn't reject the 0.
+  - **Repair route** — `app/src/server/routes/repair.ts` (~150 lines + ~340-line test file). `POST /api/ships/repair` (auth via bearer token). Body accepts an optional `{ shipId }` (defaults to the player's profile shipId). Response: `{ship, class, cost, newBalance}`. Error codes mirror the buy endpoint family: `unauthenticated` (401), `not-docked` (409), `insufficient-credits` (422), `ship-not-found` (404). Registered in `app/src/server/server.ts` alongside the ships route.
+  - **Acceptance criteria checklist:**
+      - `src/shared/physics/damage.ts` exports `applyDamage` with shield-first + boundary cases → ✅ `damage.test.ts` covers exact-boundary (amount == S, amount == S+1, amount == S+H, overkill, NaN, Infinity, shield > max).
+      - `combat_event` wire event for damage + destroyed → ✅ `combat.ts` broadcasts via `shard.send(connId, {type:"combat_event", payload})`; verified in `combat.test.ts` that two connections receive identical events.
+      - Destroyed ship stops integrating + ignores inputs + spawns wreck entity with ttl 600 s → ✅ `combat.test.ts` ("a destroyed ship does not integrate on subsequent ticks" + "a second applyCombatDamage on a destroyed target is a no-op" + "removes wrecks older than WRECK_TTL_MS").
+      - `POST /api/ships/repair` auth + docked + cost = ceil((1 - hull/maxHull)*10) + ceil((1 - shields/maxShields)*5) + atomic withdraw + restore → ✅ `repair.test.ts` covers each class + edge cases + transaction rollback.
+      - Unit tests for shield-first ordering + boundary + double-destroy guard + destroyed ships ignore inputs + repair cost table + repair transaction rollback → ✅ all in `damage.test.ts` (31 cases), `combat.test.ts` (17 cases), `repair.test.ts` (11 cases).
+      - `npm run test` green → ✅ 850/850 (31 new from damage, 17 new from combat, 11 new from repair = +59 vs prior 791).
+  - **E2E:** existing playwright scaffold spec passes (`tests/e2e/scaffold.spec.ts`); no UI changes for TASK-23 — task is server-only. Screenshot saved to `.ralph/screenshots/TASK-23-1.png` (scaffold shell — actual damage HUD is TASK-50).
+
+### 2026-10-17 — Iteration 22
+- **TASK-14** Client prediction + server reconciliation → **DONE**
+  - New module `app/src/client/net/prediction.ts` (~660 lines + 600-line test file) implements the client-side prediction + reconciliation + remote interpolation that lets local input feel lag-free under ~150 ms simulated RTT.
 
 ### 2026-10-17 — Iteration 22
 - **TASK-14** Client prediction + server reconciliation → **DONE**

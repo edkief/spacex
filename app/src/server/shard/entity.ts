@@ -114,6 +114,46 @@ export function makeAiEntity(args: {
 }
 
 /**
+ * Mint a wreck entity (TASK-23 / TASK-49). The wreck inherits the
+ * destroyed ship's final position and last-known class id so the
+ * renderer can pick the right impostor model. Velocity is zeroed
+ * (wrecks drift, but the sim doesn't integrate them), shields and
+ * hull are 0 (the renderer can show a "dead" wireframe), and the
+ * `wreckExpiresAt` field carries the wall-clock ms timestamp at
+ * which the sim loop should remove the entry (no persistent wreck
+ * registry — see spec technical note).
+ *
+ * `wreckExpiresAt` is set in ms-from-epoch so the cleanup loop
+ * can use a single `Date.now()` comparison rather than tracking
+ * ticks.
+ */
+export function makeWreckEntity(args: {
+  id: string;
+  classId: ProtocolShipClassId;
+  pos: { x: number; y: number; z: number };
+  quat?: { x: number; y: number; z: number; w: number };
+  wreckExpiresAt: number;
+}): SimEntity {
+  return {
+    id: args.id,
+    kind: "wreck",
+    playerId: null,
+    callsign: null,
+    classId: args.classId,
+    hull: 0,
+    shields: 0,
+    targetId: null,
+    pos: { ...args.pos },
+    vel: { x: 0, y: 0, z: 0 },
+    quat: args.quat ? { ...args.quat } : { x: 0, y: 0, z: 0, w: 1 },
+    regime: "space",
+    originPlanetId: null,
+    onPad: null,
+    wreckExpiresAt: args.wreckExpiresAt,
+  };
+}
+
+/**
  * Convert a `SimEntity` to the wire `EntityState` shape used by
  * `entity_update`. Centralised so the broadcast loop and the tests
  * share the same serializer and the wire contract is impossible to
@@ -140,4 +180,14 @@ export function entityToWire(e: SimEntity): ProtocolEntityState {
     callsign: e.callsign,
     livery: null,
   };
+}
+
+/**
+ * Generate a stable wreck entity id (TASK-23). Stable per destroyed
+ * ship so reconnect + presence code can dedupe by id. Format:
+ * `wreck:<sourceEntityId>`. Bumping this convention requires a
+ * migration; the v1 shape is committed to TASK-23.
+ */
+export function makeWreckId(sourceEntityId: string): string {
+  return `wreck:${sourceEntityId}`;
 }

@@ -198,6 +198,37 @@ export interface Repository {
     shields: number;
     livery: ShipLivery;
   }): Promise<ShipRow>;
+
+  // Ship repair (TASK-23)
+  /**
+   * Atomic dock repair. Validates preconditions (the player's ship
+   * state is `"docked"`), withdraws `cost` credits via the
+   * compare-and-swap credit helper, and restores `hull` + `shields`
+   * to the class maxes, all inside a single `BEGIN ... COMMIT`. The
+   * returned row is the post-repair ship so the caller can broadcast
+   * `entity_update`.
+   *
+   * Cost calculation (`ceil((1 - hull/maxHull)*10) +
+   * ceil((1 - shields/maxShields)*5)`) lives in the route layer
+   * (`@shared/physics/damage.ts`). The repo enforces the
+   * preconditions + the credit withdraw so a half-applied repair
+   * (credits withdrawn but hull not restored, or hull restored but
+   * credits not withdrawn) is impossible.
+   *
+   * Throws:
+   *   - `NotDockedError`            — the ship is mid-flight
+   *   - `InsufficientCreditsError`  — `cost > balance`
+   *   - `NotFoundError`             — unknown shipId or playerId
+   *
+   * `@see ./errors.ts` for the typed error classes.
+   */
+  repairShip(input: {
+    playerId: string;
+    shipId: string;
+    cost: number;
+    maxHull: number;
+    maxShields: number;
+  }): Promise<ShipRow>;
 }
 
 /** Typed error thrown by `purchaseShip` when the player is mid-flight. */

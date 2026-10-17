@@ -162,6 +162,13 @@ export interface SimEntity {
   originPlanetId: string | null;
   /** Optional pad id when landed (consumed by TASK-29). */
   onPad: string | null;
+  /**
+   * Wall-clock ms timestamp when this wreck should be cleaned up
+   * (TASK-23). Set on entities with `kind === 'wreck'` only;
+   * `undefined` on player/AI entities. The sim loop checks once per
+   * tick and removes expired wrecks so the registry stays bounded.
+   */
+  wreckExpiresAt?: number;
 }
 
 /**
