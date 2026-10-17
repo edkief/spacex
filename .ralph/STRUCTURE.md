@@ -1,6 +1,6 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-17 after **TASK-21** (Persistent ship livery customization).
+Snapshot taken 2026-10-17 after **TASK-13** (Server sim: 20 Hz tick with 10 Hz snapshots).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.
@@ -134,6 +134,16 @@ PROJECT_ROOT
 │   │           ├── token.test.ts # 16 cases: round-trip, expiry (fake clock), MAC tamper, payload tamper, length-tolerance (TASK-10) + 162-case exhaustive codec matrix (TASK-66)
 │   │           ├── resolver.test.ts # 19 cases: schema validation, claim happy path, duplicate, resume, profile, WS resolver adapter (TASK-10) + revokeSession + buildLogoutResolver + concurrent-use (TASK-66)
 │   │           └── log-leak.test.ts # Log-leak guard: Fastify capture-stream logger scan for SESSION_SECRET/raw token/tokenHash across full claim/logout cycle (TASK-66)
+│   │       └── shards/          # Authoritative sim runtime per system (TASK-13; future TASK-11 consumers)
+│   │       │   └── event-bus.ts # ShipSwapEvent + LiveryChangedEvent + ShardsBus singleton (EventEmitter + process.nextTick)
+│   │       └── shard/           # Per-system authoritative sim (TASK-13)
+│   │       │   ├── types.ts     # Shard + ShardConnection + PlayerInput + SimEntity + ShardSystemContext contracts (TASK-13)
+│   │       │   ├── entity.ts    # Player/AI/Wreck entity factory + entity → EntityState wire serializer (TASK-13)
+│   │       │   ├── input-queue.ts # Per-connection seq-protected slot, latest-wins, stale-seq drop + counters (TASK-13)
+│   │       │   ├── histogram.ts # Ring-buffer histogram (p50/p95/p99) for per-tick duration (TASK-13)
+│   │       │   ├── sim.ts       # SimLoop class: 20 Hz tick, accumulator + 5-step catch-up ceiling, 10 Hz snapshot every 2nd tick, integrateShip() + heightAt3x3 cache, ship persisted-state plumbing (TASK-13)
+│   │       │   ├── index.ts     # createShard() factory + spawnShip/spawnAiShip + pushPlayerInput + simulateNTicks (TASK-13)
+│   │       │   └── sim.test.ts  # 16 cases: accumulator math (1000 ticks no drift), 5-step catch-up ceiling, 10 Hz cadence, latest-input-wins, stale-seq drops, broadcast payload shape, entity kind mapping, 32 KB warning gate, histogram p50/p95/p99, 16-ship 60s benchmark p95 < 30 ms (TASK-13)
 │   │       └── db/              # Drift persistence layer (TASK-62 / TASK-63 / TASK-41)
 │   │           ├── types.ts     # PlayerRow / ShipRow / etc. + zod shapes for JSON columns
 │   │           ├── errors.ts    # CallsignTakenError / InsufficientCreditsError / NotFoundError

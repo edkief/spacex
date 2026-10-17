@@ -2,10 +2,60 @@
 
 `Current Status`
 =================
-**Last Updated:** 2026-10-17 17:28
+**Last Updated:** 2026-10-17 17:43
 
-**Tasks Completed:** 18 of 71
-**Current Task:** TASK-21 Complete
+**Tasks Completed:** 19 of 71
+**Current Task:** TASK-13 Complete
+
+### 2026-10-17 — Iteration 21
+- **TASK-13** Server sim: 20 Hz tick with 10 Hz snapshots → **DONE**
+  - New module `app/src/server/shard/` (~900 lines + 220-line test file) implements the authoritative sim loop for one star system. The router will compose one shard per active system (TASK-11); for TASK-13 the sim runs against a test-only single shard.
+  - **Public surface (`shard/index.ts`):**
+    - `createShard({systemId, context, send, broadcast, onTickObserver?, persist?, autoStart?})` — builds the container, wires the back-references, starts the loop. Transport-agnostic: `send` and `broadcast` callbacks are injected by the future router.
+    - `addConnection(shard, conn)` / `removeConnection(shard, connId)` — register/drop WS connections; entities survive `removeConnection` (reconnect in TASK-17).
+    - `spawnShip(shard, args)` — mints a `player` entity, idempotent on id, optional `bindConnId` to atomically attach it to a connection.
+    - `spawnAiShip(shard, args)` — mints an `ai` entity with full class-default HP, stub-driven by TASK-46.
+    - `pushPlayerInput(shard, connId, input)` — single-line WS handler glue: validates the seq, replaces the slot, increments `staleDrops` on stale. Returns `{accepted, reason?}` so the dispatcher can ack.
+    - `buildSnapshotEntities` / `broadcastSizeFor` / `sendEntityUpdate` — wire-shape helpers used by both prod and tests.
+    - `simulateNTicks(shard, n)` — test-only manual driver for fast assertions.
+  - **Sim loop (`shard/sim.ts`, ~330 lines):**
+    - Fixed 1/20 s tick = 50 ms, `TICK_S = 1 / 20`, `MAX_CATCHUP_STEPS = 5` (anti spiral-of-death).
+    - **Accumulator-based drift correction.** Wall clock drives an accumulator; while `accumulator ≥ TICK_S` and `stepsRun < 5`, integrate one tick and decrement. Excess is dropped so a stalled main loop never drags debt. First tick snapshots the wall clock without integrating (one-shot priming) so externally-counted tests observe exactly TICK_S elapsed on each subsequent call.
+    - **setTimeout(0) chain** (not setInterval) for the auto-loop; yields the loop to handlers, **unref** so it never holds the process open.
+    - Every 2nd tick (`SNAPSHOT_EVERY_N_TICKS = 2` → 10 Hz) the loop calls `buildSnapshot()`, invokes `shard.broadcast(tick, entities)`, and warns on payloads > 32 KB (the spec's tuning-budget flag for TASK-60).
+    - **Single writer invariant.** All entity mutation happens inside `runOneStep()`. Message handlers only `enqueueInput(...)`. The shard's `connections` map carries the per-conn input slot + `lastSeq` + `staleDrops`.
+    - **Player integration.** Maps the wire axes to `ShipInput` (`thrust → thrust`, `turn → yaw`, `pitch → pitch`, `yaw → roll`) and calls the shared `integrateShip(state, input, dt, regime, shipClass, planet)` from `@shared/physics/flight.js`. Reuses the deterministic flight model — no duplicate formulas.
+    - **Planet context.** `resolvePlanetContext(entity, ctx)` returns a `PlanetAtmosphere` per ship for atmosphere/surface regimes; the 3×3 chunk neighbourhood cache lives at the seam for TASK-26 to plug in. v1 calls `heightAtFor(planetId)` directly per ship per tick.
+    - **Per-tick histogram.** Ring buffer (default 1024 samples) with O(n) p50/p95/p99; exposed via `shard.stats()`.
+  - **Input queue (`shard/input-queue.ts`):** Strict seq protection + latest-input-wins.
+    - First input for a connection must have `seq === 1` (cold-start guard); subsequent inputs require `seq > lastSeq`. Stale frames increment `staleDrops` and are silently dropped at debug level via the shard's `EventEmitter('input-debug')`.
+    - Drained once per tick by `runOneStep`. Only one input is integrated per player per tick (the latest one).
+  - **Histograms (`shard/histogram.ts`):** 60-line ring-buffer with `push` / `snapshot` / `pick(quantile)`. Rejects negative/non-finite samples.
+  - **Entity helpers (`shard/entity.ts`):** `makeEntityId(shipId)` → `entity:shipId`, idempotent; `makePlayerEntity({…})` / `makeAiEntity({…})`; `entityToWire(e)` centralises the `EntityStateSchema` (`@shared/protocol`) serialization so the broadcast loop and tests share one shape.
+  - **Types (`shard/types.ts`):** full contract — `Shard`, `ShardConnection`, `PlayerInput`, `SimEntity`, `SpawnedShip`, `ShardSystemContext`, `SimTickObserver`, `SimTickStats`, `ConnSender`, `SnapshotBroadcaster`, `DirtyMarker`.
+  - **Tests (`shard/sim.test.ts`, 16 cases, all passing — 756 total project-wide):**
+    - **Accumulator math over 1000 ticks → exactly 1000 logical ticks, no drift.** Fake `hooks.clock`; asserts every `tick()` returns `stepsRun === 1` across the run.
+    - **Catch-up ceiling.** Stall the wall clock by 50 ticks; next `tick()` runs exactly 5 steps and resets the accumulator (no spiral-of-death).
+    - **10 Hz cadence.** 20 ticks → snapshots at tick 2, 4, …, 20 and never at 1, 3, … (explicit array equality).
+    - **Latest-input-wins.** Two accepted inputs → next tick integrates only the LATEST (verified via post-tick velocity delta: `vel.z` increases after `thrust=0.9` replaces `thrust=0.1`).
+    - **Stale-seq dropped.** `seq=1` accepted, then `seq=1` again dropped, then `seq=0` dropped; connection's `lastSeq` and `staleDrops` updated correctly; pending slot holds the latest-accepted input only.
+    - **Cold-start seq guard.** First input with `seq=2` is dropped as stale (preventing reconnect spoofing).
+    - **Broadcast payload shape.** `entity_update` carries `id / kind / pos / vel / regime / hull / shields / targetId / classId / callsign / livery`; first broadcast at tick 2 with the configured hull/shields/classId.
+    - **32 KB warning gate.** 400 ships → broadcast > 32 KB verified by raw `JSON.stringify(entities).byteLength`.
+    - **Entity kind mapping.** `player → ship`, `ai → ai-ship` in the wire snapshot.
+    - **Remove connection keeps entity** (reconnect can re-bind).
+    - **Histogram math.** Uniform distribution over [0, 999] ms asserts p50 ≈ 500, p95 ≈ 950, p99 ≈ 990. NaN/Infinity/negative samples rejected; `rejectedCount` increments.
+    - **Benchmark (16 ships, 60 s simulated)** — runs 1200 ticks over 8 player ships (with fresh inputs on rotation) + 8 AI ships; asserts `tickCount === 1200`, `entityCount === 16`, broadcast count = 600 (every 2nd tick), and `histogram.p95 < 30 ms`. Console-logged numbers: `p50`, `p95`, `p99`, `max`.
+    - **Protocol constants sanity** — `SNAPSHOT_EVERY_N_TICKS = 2`, `SERVER_TICK_HZ = 20`, `PROTOCOL_VERSION = 1`.
+  - **Acceptance criteria checklist:**
+    - `src/server/shard/sim.ts` runs fixed 1/20 s tick with accumulator + 5-step catch-up ceiling → ✅ `runOneStep`, `tick()`, `MAX_CATCHUP_STEPS`.
+    - Each tick drains the per-conn slot, calls `integrateShip` (TASK-22) → ✅ `runOneStep`.
+    - Every 2nd tick broadcast `entity_update` with hull/shields/target → ✅ `SNAPSHOT_EVERY_N_TICKS`, `entityToWire`.
+    - Per-tick histogram + p95 < 30 ms budget → ✅ `TickHistogram`, benchmark case.
+    - Stale seq drop with debug logging → ✅ `enqueueInput`, `staleDrops`, `input-debug` event.
+    - Tests cover accumulator math / latest-wins / stale-seq / cadence / benchmark → ✅ 16 cases.
+    - `npm run test` green → ✅ 756/756.
+  - 756 vitest cases pass (`npm run test` clean), 16 new from TASK-13. `npm run typecheck`, `npm run lint`, `npm run lint:fix` all clean.
 
 ### 2026-10-17 — Iteration 20
 - **TASK-21** Persistent ship livery customization → **DONE**
