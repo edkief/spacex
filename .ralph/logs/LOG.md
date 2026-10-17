@@ -2,13 +2,30 @@
 
 `Current Status`
 =================
-**Last Updated:** 2026-10-17 12:40
-**Tasks Completed:** 4 of 71
-**Current Task:** TASK-3 Complete
+**Last Updated:** 2026-10-17 12:55
+**Tasks Completed:** 5 of 71
+**Current Task:** TASK-4 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-10-17 — Iteration 5
+- **TASK-4** System generator (planets, docks, deposits, AI roster) → **DONE**
+  - New `app/src/shared/galaxy/{system,planet,config-system}.ts` module trio:
+    - `config-system.ts` (138 lines) — `PLANET_COUNT_MIN/MAX = 2..6`, `PLANET_RADIUS_*` (gas 20k..60k km, others 2k..8k), `PLANET_CLASS_WEIGHTS` (rocky 28% / terran 18% / ocean 14% / gas 20% / ice 20%, sum-to-1.0), `ATMOSPHERE_PROBABILITY` (gas/terran/ocean always yes; rocky 0.5; ice 0.3), `DOCK_COUNT_MIN/MAX = 1..3`, `AI_ROSTER_MIN/MAX = 2..5`, `RESOURCE_PICKS_MIN/MAX = 1..3`, `SYSTEM_NAME_SUFFIX = " system"`.
+    - `planet.ts` (220 lines) — `generatePlanet(parentStarId, systemSeed, orbitIndex)` builds one Planet independently from its own sub-Rng keyed by `hash2(systemSeed, BigInt(orbitIndex))`. Class/radius/atmosphere/landability/dock/resource/roster all flow through the planet's Rng so sibling planets are decorrelated.
+    - `system.ts` (175 lines) — `generateSystem(seed, star)` and the `Star | starId` overload produce `SystemGen = { systemId, name, star, planets }`. `systemId = hex(hash2(masterSeed, seedFromString(star.id)))`; `name = "{star.name}{SYSTEM_NAME_SUFFIX}"`. Planet ordering is orbit-index ascending (asserted); gas giants are never landable (hard invariant).
+  - New types in `app/src/shared/galaxy/types.ts`: `PlanetClass`, `ResourceType`, `ShipClassId`, `AIRoster`, `Planet` (full body matching spec), `SystemGen` (the deterministic output envelope), updated `SystemSummary` (lightweight pointer). `PLANET_CLASSES`, `RESOURCE_TYPES`, `SHIP_CLASS_IDS` canonical lists alongside.
+  - Roman-numeral planet naming (`Planet`, `Planet I`, `Planet II`, …) — deterministic, unique within the system, no extra word list.
+  - One-off regenerator `scripts/gen-system-fixture.ts` — writes `__fixtures__/system-dev-seed-star0.json` (seed `drift-dev-seed-001`, star index 0, 4 planets: rocky/terran/terran/ice with full SystemGen envelope).
+  - Test files (5 new):
+    - `config-system.test.ts` (85 lines, 7 cases) — weight sum-to-1.0, bounds (2..6, 2k..8k/20k..60k, 1..3, 2..5, 1..3), atmosphere probability range, landable probability range.
+    - `planet.test.ts` (67 lines, 5 cases) — id derivation (id == hex(hash2(systemSeed, orbitIndex))), orbitIndex passthrough, roster bound, deterministic-replay, distinct-orbit→distinct-id.
+    - `system.test.ts` (274 lines, 18 cases) — generateSystem invariants: 2..6 planets, systemId 16-hex, name == "{star} system", planet id uniqueness, orbit ordering, class validity, all-spec'd-fields-populated, gas-never-landable, dockCount bounds for landable/non-landable/gas, radius range per class, atmosphere class conditional, resource uniqueness, AI roster validity, two-call determinism, (Star object) vs (starId) parity, statistical ≥80% landable+atmosphere over 200 systems, divergent seeds, systemId formula correctness.
+    - `system.parity.test.ts` (85 lines, 4 cases) — golden fixture well-formed, regenerates identically under happy-dom, byte-stable systemId, source purity (no Math.random/Date.now/globalThis/crypto/performance).
+    - `system.helpers.ts` (77 lines, non-test) — shared `DEV_SEED`, `TEST_SEEDS`, `STAR_INDEX`, `VALID_PLANET_CLASSES/SHIP_CLASSES/RESOURCE_TYPES`, `sampleStar()`, `bigintToHex()`, `loadSystemFixture()`.
+  - 110 vitest cases pass (71 new from TASK-4 + 39 pre-existing). `npm run typecheck`, `npm run lint`, `npm run lint:fix`, `npm test` all clean. TASK-4 is `functional` (no UI surface) → no Playwright smoke needed. No screenshot (no UI).
 
 ### 2026-10-17 — Iteration 4
 - **TASK-3** Star generator (seeded galaxy layout) → **DONE**

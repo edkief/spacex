@@ -1,0 +1,80 @@
+{
+  "seed": "drift-dev-seed-001",
+  "starIndex": 0,
+  "starId": "c9bf989ddefc021f",
+  "system": {
+    "systemId": "f547e725b2113184",
+    "name": "Ilmamnya system",
+    "star": {
+      "id": "c9bf989ddefc021f",
+      "name": "Ilmamnya",
+      "class": "M",
+      "x": -24.646233,
+      "y": -17.104479,
+      "z": -0.177505,
+      "systemCount": 5
+    },
+    "planets": [
+      {
+        "id": "ed21fa467a706293",
+        "name": "Planet",
+        "orbitIndex": 0,
+        "class": "rocky",
+        "radiusKm": 7417,
+        "hasAtmosphere": false,
+        "landable": true,
+        "dockCount": 1,
+        "resourceTypes": ["iron"],
+        "aiRoster": {
+          "count": 4,
+          "classes": ["freighter", "scout", "freighter", "interceptor"]
+        }
+      },
+      {
+        "id": "509157dfe7d9af0d",
+        "name": "Planet I",
+        "orbitIndex": 1,
+        "class": "terran",
+        "radiusKm": 2716,
+        "hasAtmosphere": true,
+        "landable": true,
+        "dockCount": 3,
+        "resourceTypes": ["gas-compounds", "silicon", "iron"],
+        "aiRoster": {
+          "count": 4,
+          "classes": ["scout", "scout", "freighter", "freighter"]
+        }
+      },
+      {
+        "id": "18f38697fb337887",
+        "name": "Planet II",
+        "orbitIndex": 2,
+        "class": "terran",
+        "radiusKm": 2800,
+        "hasAtmosphere": true,
+        "landable": true,
+        "dockCount": 1,
+        "resourceTypes": ["gas-compounds", "rare-earths", "iron"],
+        "aiRoster": {
+          "count": 5,
+          "classes": ["interceptor", "freighter", "freighter", "interceptor", "freighter"]
+        }
+      },
+      {
+        "id": "8befb8066232c8cb",
+        "name": "Planet III",
+        "orbitIndex": 3,
+        "class": "ice",
+        "radiusKm": 6860,
+        "hasAtmosphere": false,
+        "landable": true,
+        "dockCount": 2,
+        "resourceTypes": ["rare-earths", "copper"],
+        "aiRoster": {
+          "count": 3,
+          "classes": ["scout", "interceptor", "freighter"]
+        }
+      }
+    ]
+  }
+}

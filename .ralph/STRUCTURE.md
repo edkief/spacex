@@ -1,6 +1,6 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-17 after **TASK-3** (star generator).
+Snapshot taken 2026-10-17 after **TASK-4** (system generator).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.
@@ -26,15 +26,24 @@ PROJECT_ROOT
 │   ├── prereqs.test.ts          # TASK-1 prerequisite guard tests
 │   ├── src/
 │   │   ├── shared/              # Wire types/utilities shared client+server
-│   │   │   ├── galaxy/          # Seed-derived galaxy geometry (TASK-3+)
-│   │   │   │   ├── types.ts     # Star, SpectralClass, SystemSummary, Planet, SurfaceChunk
-│   │   │   │   ├── config.ts    # GALAXY_STAR_COUNT, spectral weights, name lists
-│   │   │   │   ├── stars.ts     # generateStars(seed, count?) — keystone of SC-2
-│   │   │   │   ├── canonical.ts # canonicalJson + starListChecksum (Node + browser)
-│   │   │   │   ├── stars.test.ts          # Determinism / uniqueness / golden
-│   │   │   │   ├── stars.parity.test.ts   # Same output under happy-dom
+│   │   │   ├── galaxy/          # Seed-derived galaxy geometry (TASK-3+4)
+│   │   │   │   ├── types.ts          # Star, SpectralClass, SystemSummary, Planet, SystemGen, ResourceType, ShipClassId, AIRoster
+│   │   │   │   ├── config.ts         # GALAXY_STAR_COUNT, spectral weights, name lists (TASK-3)
+│   │   │   │   ├── config-system.ts  # Planet count, radius, AI roster, dock, resource, atmosphere bounds (TASK-4)
+│   │   │   │   ├── stars.ts          # generateStars(seed, count?) — keystone of SC-2
+│   │   │   │   ├── system.ts         # generateSystem(seed, star | starId) — TASK-4 entry point
+│   │   │   │   ├── planet.ts         # generatePlanet per orbit slot
+│   │   │   │   ├── canonical.ts      # canonicalJson + starListChecksum (Node + browser)
+│   │   │   │   ├── system.helpers.ts # DEV_SEED, sampleStar, bigintToHex, fixture loader (shared by test files)
+│   │   │   │   ├── config-system.test.ts  # Integer-bound and weight-sum assertions (TASK-4)
+│   │   │   │   ├── planet.test.ts         # generatePlanet direct-slot probe (TASK-4)
+│   │   │   │   ├── system.test.ts         # generateSystem invariants + determinism + stats (TASK-4)
+│   │   │   │   ├── system.parity.test.ts  # Same golden fixture under happy-dom + source purity (TASK-4)
+│   │   │   │   ├── stars.test.ts          # Determinism / uniqueness / golden (TASK-3)
+│   │   │   │   ├── stars.parity.test.ts   # Same output under happy-dom (TASK-3)
 │   │   │   │   └── __fixtures__/
-│   │   │   │       └── stars-dev-seed.json # Committed golden snapshot
+│   │   │   │       ├── stars-dev-seed.json          # Committed golden snapshot (TASK-3)
+│   │   │   │       └── system-dev-seed-star0.json   # Committed golden snapshot (TASK-4)
 │   │   │   ├── health.ts        # HealthPayload interface + factory
 │   │   │   ├── health.test.ts   # Trivial vitest (TASK-68 acceptance)
 │   │   │   ├── random.ts        # seedFromString + Rng (xoshiro128**) + hash2 (TASK-2)
@@ -56,7 +65,8 @@ PROJECT_ROOT
 │   │   └── e2e/
 │   │       └── scaffold.spec.ts # Playwright smoke (canvas + /api/health)
 │   ├── scripts/
-│   │   └── gen-stars-fixture.ts # Regenerate __fixtures__/stars-dev-seed.json
+│   │   ├── gen-stars-fixture.ts     # Regenerate __fixtures__/stars-dev-seed.json (TASK-3)
+│   │   └── gen-system-fixture.ts    # Regenerate __fixtures__/system-dev-seed-star0.json (TASK-4)
 │   ├── tsconfig.json            # Strict TS, path aliases @shared/@client/@server
 │   ├── vite.config.ts           # Vite root, proxy /api + /ws → server :API_PORT
 │   └── vitest.config.ts         # Vitest mirrors vite aliases

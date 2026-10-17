@@ -99,10 +99,30 @@ export interface Star {
 // ---------------------------------------------------------------------------
 
 /**
- * A star system orbiting a `Star`. The full definition (planets, AI
- * roster, faction ownership) is owned by TASK-4. We declare the field
- * shape here so `Star` and `SystemSummary` can reference each other
- * without a cyclic-import dance once TASK-4 lands.
+ * The full deterministic output of `generateSystem(seed, starId)`.
+ *
+ * This is what the star chart UI displays (planet count per system),
+ * what the AI roster code consumes (placement), what the surface
+ * generator downstream consumes (per-planet RNG), and what the
+ * persistence layer records in `system_registry` (`id` and `name`).
+ *
+ * `star` is a *snapshot* of the input `Star`, not a reference — this
+ * makes the type self-contained and serialisable without a join.
+ */
+export interface SystemGen {
+  /** Stable 16-hex-char system id (hex of `hash2(seedFromString(seed), starId)`). */
+  systemId: string;
+  /** Display name (e.g. `Ilmamnya system` or `DR-042`). */
+  name: string;
+  /** Parent star snapshot — handy for the UI without re-deriving. */
+  star: Star;
+  /** Planet list, ordered by `orbitIndex` ascending (innermost first). */
+  planets: readonly Planet[];
+}
+
+/**
+ * Lightweight pointer that the galaxy chart uses to look up full
+ * system data via the runtime registry. Equal to `SystemGen.starId`.
  */
 export interface SystemSummary {
   /** Stable system id; equal to its parent star's `id`. */
@@ -111,14 +131,79 @@ export interface SystemSummary {
   star: Star;
 }
 
-/** A single planet. Placeholder; TASK-4 fills in the body. */
+/**
+ * A single planet orbiting a star.
+ *
+ * Filled in by TASK-4. The shape is the canonical contract between the
+ * system generator, the eventual surface generator (TASK-5), the AI
+ * roster code (TASK-45), and the UI (TASK-7). Once committed, treat the
+ * field set as a stable wire type — TASK-71 will snapshot it.
+ */
 export interface Planet {
-  /** Stable planet id (hex of star-id + orbit-index). */
+  /** Stable planet id (hex of (starId, orbitIndex)). */
   id: string;
   /** Display name, unique within the parent system. */
   name: string;
   /** Orbit slot index (0 = innermost). */
   orbitIndex: number;
+  /** Planet class — drives radius range, atmosphere probability, landability. */
+  class: PlanetClass;
+  /** Equatorial radius in kilometres. Gas giants: 20_000..60_000; others: 2_000..8_000. */
+  radiusKm: number;
+  /** Whether the planet retains a meaningful atmosphere. */
+  hasAtmosphere: boolean;
+  /** Whether the player can land on the surface. Gas giants are never landable. */
+  landable: boolean;
+  /** Number of docks on the planet; 0 for non-landable, 1..3 for landable. */
+  dockCount: number;
+  /** Which resource *fields* exist on the planet (1..3 picks from the canonical resource list). */
+  resourceTypes: readonly ResourceType[];
+  /** Rogue-AI roster stationed at this planet (TASK-45 populates behaviour; here we just place counts). */
+  aiRoster: AIRoster;
+}
+
+/** Allowed planet classes. Ordered roughly by density / formation order. */
+export type PlanetClass = "rocky" | "terran" | "ocean" | "gas" | "ice";
+
+/** Canonical list of planet classes in display order. */
+export const PLANET_CLASSES: readonly PlanetClass[] = [
+  "rocky",
+  "terran",
+  "ocean",
+  "gas",
+  "ice",
+] as const;
+
+/** Resource type strings — also the wire identifiers used by TASK-37+. */
+export type ResourceType =
+  "iron" | "copper" | "silicon" | "rare-earths" | "water" | "gas-compounds";
+
+/** Canonical list of resource types (kept here so every consumer agrees). */
+export const RESOURCE_TYPES: readonly ResourceType[] = [
+  "iron",
+  "copper",
+  "silicon",
+  "rare-earths",
+  "water",
+  "gas-compounds",
+] as const;
+
+/** Ship class ids. Must match TASK-19 ('scout'|'freighter'|'interceptor'). */
+export type ShipClassId = "scout" | "freighter" | "interceptor";
+
+/** Allowed ship class ids in display order. */
+export const SHIP_CLASS_IDS: readonly ShipClassId[] = [
+  "scout",
+  "freighter",
+  "interceptor",
+] as const;
+
+/** Distribution of rogue-AI ships per planet (TASK-45 turns the count into behaviour). */
+export interface AIRoster {
+  /** Number of AI ships (2..5). */
+  count: number;
+  /** Class ids of the ships; length === count. Stable per (seed, starId, orbitIndex). */
+  classes: readonly ShipClassId[];
 }
 
 /**
