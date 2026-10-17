@@ -1,6 +1,6 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-17 after **TASK-10** (Callsign-only auth with signed session tokens).
+Snapshot taken 2026-10-17 after **TASK-66** (Session token integrity: signing, expiry, revocation).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.
@@ -101,14 +101,17 @@ PROJECT_ROOT
 │   │       ├── validation-fuzz.test.ts # 6 cases: 20-payload burst + 1 MB size cap + health hammered + threshold pin (TASK-64)
 │   │       ├── ws.auth.test.ts # WS auth via real callsign/token resolver: claim, resume, duplicate, out-of-order (TASK-10)
 │   │       ├── ws.test.ts       # Real Fastify+ws boot: handshake, errors, unknown-type, keepalive (TASK-9)
+│   │       ├── ws.logout.test.ts # 7 cases: WS `logout` → `logout_ok` + 1000 close + concurrent-use + unauthenticated path (TASK-66)
 │   │       ├── routes/          # REST route registrations
-│   │       │   └── callsigns.ts # POST /api/callsigns + GET /api/session (TASK-10)
-│   │       │   └── callsigns.test.ts # 11 cases: POST /api/callsigns + GET /api/session (REST integration via fastify.inject) (TASK-10)
+│   │       │   ├── callsigns.ts # POST /api/callsigns + GET /api/session + POST /api/session/logout (TASK-10 + TASK-66)
+│   │       │   ├── callsigns.test.ts # 11 cases: POST /api/callsigns + GET /api/session (REST integration via fastify.inject) (TASK-10)
+│   │       │   └── logout.test.ts # 12 cases: POST /api/session/logout revoke + double-logout + tampered/garbage tokens (TASK-66)
 │   │       └── auth/            # Token codec + WS auth resolver (TASK-10)
 │   │           ├── token.ts     # HMAC-SHA256 session-token codec: sign/verify/hashToken + clock-skew tolerance (TASK-10)
-│   │           ├── resolver.ts  # claimCallsign + resumeSession + buildAuthResolver + pickHomeSystemId (TASK-10)
-│   │           ├── token.test.ts # 16 cases: round-trip, expiry (fake clock), MAC tamper, payload tamper, length-tolerance (TASK-10)
-│   │           └── resolver.test.ts # 19 cases: schema validation, claim happy path, duplicate, resume, profile, WS resolver adapter (TASK-10)
+│   │           ├── resolver.ts  # claimCallsign + resumeSession + revokeSession + buildAuthResolver + buildLogoutResolver + pickHomeSystemId (TASK-10 + TASK-66)
+│   │           ├── token.test.ts # 16 cases: round-trip, expiry (fake clock), MAC tamper, payload tamper, length-tolerance (TASK-10) + 162-case exhaustive codec matrix (TASK-66)
+│   │           ├── resolver.test.ts # 19 cases: schema validation, claim happy path, duplicate, resume, profile, WS resolver adapter (TASK-10) + revokeSession + buildLogoutResolver + concurrent-use (TASK-66)
+│   │           └── log-leak.test.ts # Log-leak guard: Fastify capture-stream logger scan for SESSION_SECRET/raw token/tokenHash across full claim/logout cycle (TASK-66)
 │   │       └── db/              # Drift persistence layer (TASK-62 / TASK-63)
 │   │           ├── types.ts     # PlayerRow / ShipRow / etc. + zod shapes for JSON columns
 │   │           ├── errors.ts    # CallsignTakenError / InsufficientCreditsError / NotFoundError
