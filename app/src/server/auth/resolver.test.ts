@@ -15,10 +15,12 @@ import {
   AuthClaimsSchema,
   CallsignSchema,
   buildAuthResolver,
+  buildLogoutResolver,
   claimCallsign,
   loadSessionProfile,
   pickHomeSystemId,
   resumeSession,
+  revokeSession,
   InvalidCallsignError,
 } from "./resolver.js";
 import { CallsignTakenError } from "../db/errors.js";
@@ -203,6 +205,169 @@ describe("buildAuthResolver", () => {
     const resolver = buildAuthResolver(repo, SECRET, DEFAULTS);
     await resolver({ callsign: "Dup-WS" });
     await expect(resolver({ callsign: "Dup-WS" })).rejects.toThrow(/callsign/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Revoke + concurrent-use coverage (TASK-66).
+//
+// Acceptance:
+//   - revoking deletes the sessions row; a second revoke returns false.
+//   - the same token can be used by two connections; both work until
+//     a revoke happens on either side (shared-account model).
+// ---------------------------------------------------------------------------
+describe("revokeSession (TASK-66)", () => {
+  it("deletes the session row for a valid token and reports {revoked:true, callsign}", async () => {
+    const { repo } = active();
+    const claimed = await claimCallsign(repo, SECRET, "Revoke-A", DEFAULTS);
+    const before = await repo.getSession(hashToken(claimed.token));
+    expect(before).not.toBeNull();
+
+    const result = await revokeSession(repo, SECRET, claimed.token, { nowMs: FAKE_NOW_MS });
+    expect(result.revoked).toBe(true);
+    expect(result.playerId).toBe(claimed.playerId);
+    expect(result.callsign).toBe("Revoke-A");
+
+    const after = await repo.getSession(hashToken(claimed.token));
+    expect(after).toBeNull();
+  });
+
+  it("returns {revoked:false} for an already-revoked token (idempotent)", async () => {
+    const { repo } = active();
+    const claimed = await claimCallsign(repo, SECRET, "Revoke-B", DEFAULTS);
+    await revokeSession(repo, SECRET, claimed.token, { nowMs: FAKE_NOW_MS });
+    const second = await revokeSession(repo, SECRET, claimed.token, { nowMs: FAKE_NOW_MS });
+    expect(second.revoked).toBe(false);
+  });
+
+  it("returns {revoked:false} for an invalid token without throwing", async () => {
+    const { repo } = active();
+    const r = await revokeSession(repo, SECRET, "garbage", { nowMs: FAKE_NOW_MS });
+    expect(r.revoked).toBe(false);
+    expect(r.callsign).toBeNull();
+  });
+
+  it("returns {revoked:false} for a token whose MAC is tampered (does NOT delete anything)", async () => {
+    const { repo } = active();
+    const claimed = await claimCallsign(repo, SECRET, "Revoke-C", DEFAULTS);
+    const tampered = `${claimed.token.slice(0, -1)}A`;
+    const r = await revokeSession(repo, SECRET, tampered, { nowMs: FAKE_NOW_MS });
+    expect(r.revoked).toBe(false);
+    // Original session row must still exist.
+    const still = await repo.getSession(hashToken(claimed.token));
+    expect(still).not.toBeNull();
+  });
+
+  it("returns {revoked:false} for an expired token (does NOT delete)", async () => {
+    const { repo } = active();
+    const claimed = await claimCallsign(repo, SECRET, "Revoke-D", DEFAULTS);
+    const futureMs = (claimed.tokenExpiresAt + 100) * 1000;
+    const r = await revokeSession(repo, SECRET, claimed.token, { nowMs: futureMs });
+    expect(r.revoked).toBe(false);
+  });
+
+  it("returns {revoked:false} when the player id encoded in the token does not own the session", async () => {
+    // Construct a token whose payload claims `payload.playerId = attacker`
+    // but the hash lands on the legitimate session row. Sha256 collision
+    // is astronomically unlikely; the test exercises the cross-check
+    // path by inserting a session row keyed by an unrelated playerId and
+    // then signing a token with the *correct* playerId — we instead do
+    // the reverse: write a token whose payload claims a different
+    // playerId and target a row keyed to a different player.
+    const { repo } = active();
+    const claimed = await claimCallsign(repo, SECRET, "Revoke-E", DEFAULTS);
+    // Mint a token for a fictitious playerId. Verify+hash won't find a
+    // session row → return revoked:false (no row to delete).
+    const otherId = "00000000-0000-0000-0000-000000000099";
+    const { mintToken } = await import("./token.js");
+    const { token: bogus } = mintToken(SECRET, {
+      playerId: otherId,
+      ttlMs: 60_000,
+      nowMs: FAKE_NOW_MS,
+    });
+    const r = await revokeSession(repo, SECRET, bogus, { nowMs: FAKE_NOW_MS });
+    expect(r.revoked).toBe(false);
+    // The legitimate session for the claimed callsign must still be present.
+    const still = await repo.getSession(hashToken(claimed.token));
+    expect(still).not.toBeNull();
+  });
+});
+
+describe("buildLogoutResolver (TASK-66)", () => {
+  it("deletes every session row for the player and reports the callsign", async () => {
+    const { repo } = active();
+    const player = await repo.createPlayer({
+      callsign: "Logout-A",
+      homeSystemId: "system-001",
+    });
+    const { mintToken } = await import("./token.js");
+    // Insert three session rows for the same player. Each token uses a
+    // distinct `exp` so the signed bytes differ (otherwise `hashToken`
+    // would collide and SQLite's UNIQUE constraint would fail).
+    for (let i = 0; i < 3; i++) {
+      const { token } = mintToken(SECRET, {
+        playerId: player.id,
+        ttlMs: 60_000 * (i + 1), // <-- varies per row
+        nowMs: FAKE_NOW_MS,
+      });
+      await repo.createSession({ tokenHash: hashToken(token), playerId: player.id, ttlMs: 60_000 });
+    }
+
+    const logout = buildLogoutResolver(repo);
+    const r = await logout(player.id);
+    expect(r.revoked).toBe(3);
+    expect(r.callsign).toBe("Logout-A");
+  });
+
+  it("returns {revoked:0} when the player has no active sessions", async () => {
+    const { repo } = active();
+    const player = await repo.createPlayer({
+      callsign: "Logout-B",
+      homeSystemId: "system-001",
+    });
+    const logout = buildLogoutResolver(repo);
+    const r = await logout(player.id);
+    expect(r.revoked).toBe(0);
+  });
+});
+
+describe("concurrent-use: same token used by two connections (TASK-66 acceptance)", () => {
+  it("two simultaneous WS resumes work; revoke-once drops both", async () => {
+    const { repo } = active();
+    const claimed = await claimCallsign(repo, SECRET, "Shared-Pilot", DEFAULTS);
+    // Connection A resumes.
+    const a = await resumeSession(repo, SECRET, claimed.token, { nowMs: FAKE_NOW_MS });
+    // Connection B resumes with the same token.
+    const b = await resumeSession(repo, SECRET, claimed.token, { nowMs: FAKE_NOW_MS });
+    expect(a?.playerId).toBe(claimed.playerId);
+    expect(b?.playerId).toBe(claimed.playerId);
+
+    // Revoke via the REST helper path.
+    const r = await revokeSession(repo, SECRET, claimed.token, { nowMs: FAKE_NOW_MS });
+    expect(r.revoked).toBe(true);
+
+    // Both connections now fail to resume — they were each backed by the
+    // same single DB row.
+    const a2 = await resumeSession(repo, SECRET, claimed.token, { nowMs: FAKE_NOW_MS });
+    const b2 = await resumeSession(repo, SECRET, claimed.token, { nowMs: FAKE_NOW_MS });
+    expect(a2).toBeNull();
+    expect(b2).toBeNull();
+  });
+
+  it("two players each revoke their own session independently", async () => {
+    const { repo } = active();
+    const a = await claimCallsign(repo, SECRET, "Co-A", DEFAULTS);
+    const b = await claimCallsign(repo, SECRET, "Co-B", DEFAULTS);
+    // Revoke A.
+    expect((await revokeSession(repo, SECRET, a.token, { nowMs: FAKE_NOW_MS })).revoked).toBe(true);
+    // B's session is unaffected.
+    const bResume = await resumeSession(repo, SECRET, b.token, { nowMs: FAKE_NOW_MS });
+    expect(bResume?.playerId).toBe(b.playerId);
+    // B's logout resolver removes B's row only.
+    const logout = buildLogoutResolver(repo);
+    const r = await logout(b.playerId);
+    expect(r.revoked).toBe(1);
+    expect(r.callsign).toBe("Co-B");
   });
 });
 

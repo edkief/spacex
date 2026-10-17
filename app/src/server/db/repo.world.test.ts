@@ -97,6 +97,53 @@ describe("sessions", () => {
       5_000 - 1_000,
     ); // allow clock slack
   });
+
+  it("deleteSessionsByPlayerId removes every row for the player (TASK-66)", async () => {
+    const { repo } = active();
+    const player = await repo.createPlayer({
+      callsign: "PILOT-RM",
+      homeSystemId: "system-001",
+    });
+    const other = await repo.createPlayer({
+      callsign: "OTHER-RM",
+      homeSystemId: "system-001",
+    });
+    // Three sessions for `player`, two for `other`.
+    for (let i = 0; i < 3; i++) {
+      await repo.createSession({
+        tokenHash: `hash-${player.id}-${i}`,
+        playerId: player.id,
+        ttlMs: 60_000,
+      });
+    }
+    for (let i = 0; i < 2; i++) {
+      await repo.createSession({
+        tokenHash: `hash-${other.id}-${i}`,
+        playerId: other.id,
+        ttlMs: 60_000,
+      });
+    }
+    const removed = await repo.deleteSessionsByPlayerId(player.id);
+    expect(removed).toBe(3);
+    // `other`'s rows survive.
+    expect(await repo.getSession(`hash-${other.id}-0`)).not.toBeNull();
+    expect(await repo.getSession(`hash-${other.id}-1`)).not.toBeNull();
+    // `player`'s rows are all gone.
+    for (let i = 0; i < 3; i++) {
+      expect(await repo.getSession(`hash-${player.id}-${i}`)).toBeNull();
+    }
+    // Calling again returns 0 (idempotent).
+    expect(await repo.deleteSessionsByPlayerId(player.id)).toBe(0);
+  });
+
+  it("deleteSessionsByPlayerId returns 0 when the player has no rows", async () => {
+    const { repo } = active();
+    const phantom = await repo.createPlayer({
+      callsign: "PHANTOM",
+      homeSystemId: "system-001",
+    });
+    expect(await repo.deleteSessionsByPlayerId(phantom.id)).toBe(0);
+  });
 });
 
 describe("system registry", () => {

@@ -57,9 +57,9 @@ import {
 } from "@shared/protocol/index.js";
 
 import type { Connection, ConnectionRegistry } from "./ws.connection.js";
-import type { AuthResolver, JoinResolver, WsHandleOptions } from "./ws.js";
+import type { AuthResolver, JoinResolver, LogoutResolver, WsHandleOptions } from "./ws.js";
 import { closeFloodedConnection, sendError, sendFrame } from "./ws.dispatch.helpers.js";
-import { onAuth, onChat, onHello, onJoinSystem } from "./ws.handlers.js";
+import { onAuth, onChat, onHello, onJoinSystem, onLogout } from "./ws.handlers.js";
 
 // ---------------------------------------------------------------------------
 // Constants — exported so tests can reference them without hard-coding
@@ -185,6 +185,7 @@ export async function processRawFrame(
   registry: ConnectionRegistry,
   authResolver: AuthResolver,
   joinResolver: JoinResolver,
+  logoutResolver: LogoutResolver,
   options: WsHandleOptions,
   raw: string,
 ): Promise<void> {
@@ -250,7 +251,16 @@ export async function processRawFrame(
   }
 
   // Step 4: dispatch.
-  await dispatch(conn, registry, authResolver, joinResolver, options, parsed.type, parsed.payload);
+  await dispatch(
+    conn,
+    registry,
+    authResolver,
+    joinResolver,
+    logoutResolver,
+    options,
+    parsed.type,
+    parsed.payload,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -277,6 +287,7 @@ async function dispatch(
   registry: ConnectionRegistry,
   authResolver: AuthResolver,
   joinResolver: JoinResolver,
+  logoutResolver: LogoutResolver,
   options: WsHandleOptions,
   type: MessageType,
   payload: unknown,
@@ -321,6 +332,11 @@ async function dispatch(
         // Subsequent join_system frames (e.g. after a warp, future TASK-8)
         // are accepted and treated as re-join of the given system.
         await onJoinSystem(conn, joinResolver, options, payload);
+        return;
+      }
+      if (type === "logout") {
+        // TASK-66: revoke every session row for this player and close.
+        await onLogout(conn, registry, logoutResolver, options, payload);
         return;
       }
       if (type === "chat") {

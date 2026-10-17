@@ -54,7 +54,7 @@ import {
   MAX_MESSAGE_BYTES,
   PROTOCOL_VERSION,
 } from "./ws.dispatch.js";
-import { defaultAuthResolver, defaultJoinResolver } from "./ws.resolvers.js";
+import { defaultAuthResolver, defaultJoinResolver, defaultLogoutResolver } from "./ws.resolvers.js";
 import {
   ChatLimiter,
   FloodTracker,
@@ -107,6 +107,14 @@ export type AuthResolver = (
   payload: unknown,
 ) => Promise<{ playerId: string; callsign: string; tokenExpiresAt: number }>;
 
+/**
+ * Logout resolver — TASK-66. Deletes *all* session rows for the player
+ * identified by `playerId`, returning the count so callers can confirm
+ * the revoke actually landed. The default implementation wires to the
+ * live repository; production has its own.
+ */
+export type LogoutResolver = (playerId: string) => Promise<{ revoked: number; callsign: string }>;
+
 /** Mutable handle returned by `attachWs`. */
 export interface WsHandle {
   /** Underlying `ws.Server`; exposed for tests and graceful shutdown. */
@@ -131,6 +139,12 @@ export interface WsHandleOptions {
   authResolver?: AuthResolver;
   /** Resolve `join_system` frames to a snapshot. Defaults to a stub. */
   joinResolver?: JoinResolver;
+  /**
+   * Resolve `logout` frames (TASK-66). Default rejects every logout with
+   * `unauthenticated`. Production wires this to `buildLogoutResolver(...)`
+   * so the WS `logout` message revokes all of the player's sessions.
+   */
+  logoutResolver?: LogoutResolver;
   /** Keepalive tunables. Tests usually override these. */
   keepalive?: Partial<WsKeepaliveConfig>;
   /**
@@ -193,6 +207,7 @@ export function attachWs(
 
   const authResolver = options.authResolver ?? defaultAuthResolver;
   const joinResolver = options.joinResolver ?? defaultJoinResolver;
+  const logoutResolver = options.logoutResolver ?? defaultLogoutResolver;
   const pingIntervalMs = options.keepalive?.pingIntervalMs ?? DEFAULT_PING_INTERVAL_MS;
   const pongTimeoutMs = options.keepalive?.pongTimeoutMs ?? DEFAULT_PONG_TIMEOUT_MS;
   const maxMessageBytes = options.maxMessageBytes ?? MAX_MESSAGE_BYTES;
@@ -272,7 +287,7 @@ export function attachWs(
       }
       c.lastSeenAt = now();
       const text = buf.toString("utf8");
-      void processRawFrame(c, registry, authResolver, joinResolver, options, text);
+      void processRawFrame(c, registry, authResolver, joinResolver, logoutResolver, options, text);
     });
   });
 

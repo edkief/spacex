@@ -96,6 +96,8 @@ const VALID_PAYLOADS: Record<MessageType, () => unknown> = {
   exit_ship: () => ({}),
   enter_ship: () => ({}),
   repair: () => ({}),
+  logout: () => ({}),
+  logout_ok: () => ({ callsign: "TEST-ALPHA" }),
   error: () => ({ code: "system-full", message: "16 players already in system" }),
   ping: () => ({ t: 12345.678 }),
   pong: () => ({ t: 12345.678 }),
@@ -186,6 +188,8 @@ const INVALID_PAYLOADS: Record<MessageType, () => unknown> = {
   exit_ship: () => ({ extra: true }), // strict forbids extra keys
   enter_ship: () => ({ extra: true }),
   repair: () => ({ shipId: "" }),
+  logout: () => ({ extra: true }), // strict forbids extra keys
+  logout_ok: () => ({ callsign: "" }), // empty string rejected
   error: () => ({ code: "panic", message: "" }), // bad code + empty message
   ping: () => ({ t: NaN }),
   pong: () => ({ t: NaN }),

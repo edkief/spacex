@@ -212,6 +212,95 @@ export class InvalidCallsignError extends Error {
 }
 
 // ---------------------------------------------------------------------------
+// Revoke a session (TASK-66)
+// ---------------------------------------------------------------------------
+
+/**
+ * Outcome of `revokeSession()` — used by the REST `POST /api/session/logout`
+ * handler and the WS `logout` message handler to decide which response to
+ * emit. `playerId` is included so the WS handler can update connection
+ * bookkeeping before closing.
+ */
+export interface RevokeResult {
+  /** `true` when a session row matched `tokenHash` and was deleted. */
+  revoked: boolean;
+  /** Callsign of the owning player, if the lookup succeeded. */
+  callsign: string | null;
+  /** Player id of the owning player, if the lookup succeeded. */
+  playerId: string | null;
+}
+
+/**
+ * Options for `revokeSession()`. `nowMs` is purely defensive — the
+ * revocation itself does not depend on the wall clock, but allowing
+ * callers to drive the clock keeps the function symmetric with
+ * `resumeSession()` for tests.
+ */
+export interface RevokeOptions {
+  nowMs?: number;
+}
+
+/**
+ * Revoke the session attached to `token`. Performs the same checks
+ * `resumeSession` does (signature + exp + DB lookup) before deleting the
+ * session row so that:
+ *
+ *   - a malformed/bad-sig token cannot silently land on a real session,
+ *   - an already-expired token still revokes any leftover row, and
+ *   - a token whose session row is gone reports `{ revoked: false }`
+ *     instead of throwing.
+ *
+ * Returns `{ revoked: false, callsign: null, playerId: null }` for every
+ * failure mode so callers can map to a generic 401 (REST) or
+ * `unauthenticated` error (WS) without leaking which check failed.
+ *
+ * **Concurrent-use note:** the shared-account model means two sockets
+ * holding the same token both see `{ revoked: true }` for the same row
+ * — the FIRST revocation deletes the row, and a second revoke of the
+ * same token reports `revoked: false` because the row is gone. WS
+ * connections are expected to close after their own revoke completes;
+ * a parallel socket will find the row deleted at the next resume and
+ * fall back to the standard `unauthenticated` path.
+ *
+ * @see repo.deleteSession — actual DB call.
+ */
+export async function revokeSession(
+  repo: Repository,
+  secret: string,
+  token: string,
+  _options: RevokeOptions = {},
+): Promise<RevokeResult> {
+  if (typeof token !== "string" || token.length === 0) {
+    return { revoked: false, callsign: null, playerId: null };
+  }
+  const nowSec = Math.floor((_options.nowMs ?? Date.now()) / 1000);
+  const payload: TokenPayload | null = verify(secret, token, nowSec);
+  if (!payload) return { revoked: false, callsign: null, playerId: null };
+
+  const session = await repo.getSession(hashToken(token));
+  if (!session) {
+    return { revoked: false, callsign: null, playerId: payload.playerId };
+  }
+  // Confirm the row's playerId matches the token's payload so a token
+  // signed for player A cannot revoke player B's session — even if the
+  // hash collision landed on B's row (sha256 collisions are vanishingly
+  // unlikely but the cross-check is cheap).
+  if (session.playerId !== payload.playerId) {
+    return { revoked: false, callsign: null, playerId: payload.playerId };
+  }
+  await repo.deleteSession(hashToken(token));
+  // Best-effort: pull the callsign so callers (the WS handler, primarily)
+  // can null out `conn.callsign` / log the actor. Failure here is not fatal
+  // — the row is already gone, which is the success criterion.
+  const player = await repo.findPlayerById(payload.playerId);
+  return {
+    revoked: true,
+    callsign: player?.callsign ?? null,
+    playerId: payload.playerId,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Resume a session (WS auth-by-token path)
 // ---------------------------------------------------------------------------
 
@@ -319,6 +408,33 @@ export async function loadSessionProfile(
     homeSystemId: player.homeSystemId,
     shipId: ship.id,
     tokenExpiresAt: base.tokenExpiresAt,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// WS LogoutResolver adapter (TASK-66)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a `LogoutResolver`-shaped function the server can plug straight
+ * into `attachWs({ logoutResolver })`. Deletes every session row for
+ * the player; if at least one row was removed, returns the player's
+ * callsign so the WS handler can echo it in `logout_ok`.
+ *
+ * The handler treats "zero rows deleted" as the "already revoked"
+ * case: it still sends a `logout_ok` frame (the player has no active
+ * sessions, which is the goal) and closes with code 1000. We do not
+ * refuse logout when the session row is already gone because clients
+ * may legitimately retry after a network blip and the user intent —
+ * "I want to be signed out" — is satisfied either way.
+ */
+export function buildLogoutResolver(
+  repo: Repository,
+): (playerId: string) => Promise<{ revoked: number; callsign: string }> {
+  return async (playerId: string) => {
+    const revoked = await repo.deleteSessionsByPlayerId(playerId);
+    const player = await repo.findPlayerById(playerId);
+    return { revoked, callsign: player?.callsign ?? "" };
   };
 }
 

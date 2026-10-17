@@ -51,6 +51,7 @@ export function bindSqliteWorld(
   createSession: (input: CreateSessionInput) => Promise<SessionRow>;
   getSession: (tokenHash: string) => Promise<SessionRow | null>;
   deleteSession: (tokenHash: string) => Promise<void>;
+  deleteSessionsByPlayerId: (playerId: string) => Promise<number>;
   upsertSystemRegistry: (row: CreateSystemRegistryInput) => Promise<SystemRegistryRow>;
   listActiveShards: () => Promise<SystemRegistryRow[]>;
 } {
@@ -172,6 +173,15 @@ export function bindSqliteWorld(
         .delete(sqliteSchema.sessions)
         .where(eq(sqliteSchema.sessions.tokenHash, tokenHash))
         .run();
+    },
+
+    async deleteSessionsByPlayerId(playerId: string): Promise<number> {
+      // `run()` returns the count of affected rows on better-sqlite3.
+      const result = await db
+        .delete(sqliteSchema.sessions)
+        .where(eq(sqliteSchema.sessions.playerId, playerId))
+        .run();
+      return result.changes ?? 0;
     },
 
     async upsertSystemRegistry(row: CreateSystemRegistryInput): Promise<SystemRegistryRow> {

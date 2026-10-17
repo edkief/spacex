@@ -1,5 +1,5 @@
 /**
- * Default auth + join resolvers for the Drift WebSocket server (TASK-9).
+ * Default auth + join resolvers for the Drift WebSocket server (TASK-9 / TASK-66).
  *
  * These are deliberately stub implementations: TASK-9 establishes the
  * protocol + state machine, and the stubs return deterministic enough
@@ -10,11 +10,13 @@
  *     + HMAC session-token flow.
  *   - TASK-11 — `joinResolver` is replaced with the in-process system
  *     router + 16-player occupancy check.
+ *   - TASK-66 — `logoutResolver` is replaced with the real
+ *     session-revocation path.
  *
  * Keeping the stubs in their own module makes that swap a one-line
  * change in `attachWs` without churning the rest of the protocol.
  */
-import type { AuthResolver, JoinResolver, JoinResolverResult } from "./ws.js";
+import type { AuthResolver, JoinResolver, JoinResolverResult, LogoutResolver } from "./ws.js";
 
 /**
  * Default auth resolver. Accepts any well-formed `auth` payload and
@@ -40,6 +42,20 @@ export function defaultAuthResolver(payload: unknown): ReturnType<AuthResolver> 
     callsign,
     tokenExpiresAt: Date.now() + 60 * 60 * 1000,
   });
+}
+
+/**
+ * Default logout resolver (TASK-66). Used by `attachWs` only when no
+ * real resolver is supplied (TASK-9 smoke mode). Refuses to revoke so
+ * the protocol state machine can still be exercised without a repository.
+ * Production wires `buildLogoutResolver(repo)` instead.
+ */
+export function defaultLogoutResolver(playerId: string): ReturnType<LogoutResolver> {
+  // Returning a non-revoked result is cleaner than rejecting: the
+  // dispatch handler treats "no revoke happened" identically to a
+  // missing session (already-revoked) and surfaces unauthenticated.
+  void playerId;
+  return Promise.resolve({ revoked: 0, callsign: "" });
 }
 
 /**

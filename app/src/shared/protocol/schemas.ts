@@ -277,6 +277,26 @@ export const RepairSchema = z
   })
   .strict();
 
+/**
+ * `logout` — client-initiated revocation (TASK-66). The server
+ * deletes the presenting player's `sessions` row and closes the WS
+ * connection with code 1000 (`normal-closure`). Idempotent: a second
+ * logout on the same connection is rejected with an `unauthenticated`
+ * error because the session row is already gone.
+ */
+export const LogoutSchema = z.object({}).strict();
+
+/**
+ * `logout_ok` — server-only ack for `logout`. Carries the callsign so
+ * the client can surface a "see you next time, <callsign>" toast
+ * without re-querying `/api/session`.
+ */
+export const LogoutOkSchema = z
+  .object({
+    callsign: z.string().min(1),
+  })
+  .strict();
+
 /** `error` — server-only structured error frame. */
 export const ErrorSchema = z
   .object({
@@ -363,6 +383,8 @@ export const PAYLOAD_SCHEMAS = {
   exit_ship: ExitShipSchema,
   enter_ship: EnterShipSchema,
   repair: RepairSchema,
+  logout: LogoutSchema,
+  logout_ok: LogoutOkSchema,
   error: ErrorSchema,
   ping: PingSchema,
   pong: PongSchema,

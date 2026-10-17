@@ -12,6 +12,11 @@
  *     200:  { playerId, callsign, credits, homeSystemId, shipId, tokenExpiresAt }
  *     401:  { code: "unauthenticated", message }
  *
+ *   POST /api/session/logout                       (TASK-66)
+ *     header: Authorization: Bearer <token>
+ *     204:  (no body) on a successful revocation
+ *     401:  { code: "unauthenticated", message }  — token missing / bad / already revoked
+ *
  * Sessions are stored by `sha256(token)` so we never touch the raw
  * token past the response. Tests can inject an in-memory repo via the
  * shared harness builder.
@@ -20,7 +25,12 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 
 import type { Repository } from "../db/repo.js";
 import { CallsignTakenError } from "../db/errors.js";
-import { claimCallsign, loadSessionProfile, type ClaimOptions } from "../auth/resolver.js";
+import {
+  claimCallsign,
+  loadSessionProfile,
+  revokeSession,
+  type ClaimOptions,
+} from "../auth/resolver.js";
 
 /** Public deps shared by tests and the live server. */
 export interface CallsignsDeps {
@@ -101,5 +111,24 @@ export function registerCallsignRoutes(app: FastifyInstance, deps: CallsignsDeps
       shipId: profile.shipId,
       tokenExpiresAt: profile.tokenExpiresAt,
     });
+  });
+
+  // TASK-66: explicit revocation endpoint. Idempotent on already-revoked
+  // tokens (returns 401), so a client that retries after a network blip
+  // learns the session is gone without an error succeeding twice.
+  app.post("/api/session/logout", async (req: FastifyRequest, reply: FastifyReply) => {
+    const token = readBearer(req);
+    if (token === null) {
+      return reply.code(401).send(errBody("unauthenticated", "Missing bearer token"));
+    }
+    const result = await revokeSession(deps.repo, deps.sessionSecret, token, {
+      nowMs: deps.claimDefaults.nowMs,
+    });
+    if (!result.revoked) {
+      return reply.code(401).send(errBody("unauthenticated", "Token invalid or already revoked"));
+    }
+    // 204 No Content per REST semantics for a successful DELETE-ish op.
+    reply.code(204);
+    return reply.send();
   });
 }

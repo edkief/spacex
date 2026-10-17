@@ -21,7 +21,7 @@ import { type sqliteSchema } from "./db/schema.sqlite.js";
 import { type pgSchema } from "./db/schema.pg.js";
 import { createRepository } from "./db/repo.js";
 import { assertValidSecret } from "./auth/token.js";
-import { buildAuthResolver } from "./auth/resolver.js";
+import { buildAuthResolver, buildLogoutResolver } from "./auth/resolver.js";
 
 async function main(): Promise<void> {
   // The token codec requires a real SESSION_SECRET. Refuse to boot if
@@ -53,7 +53,10 @@ async function main(): Promise<void> {
     galaxySeed: serverConfig.galaxySeed,
     galaxyStarCount: 32,
   });
-  const ws = attachWs(app, serverConfig.wsPath, { authResolver });
+  // TASK-66: real logout resolver — deletes every session row for the
+  // player. Wired through so the WS `logout` message actually revokes.
+  const logoutResolver = buildLogoutResolver(repo);
+  const ws = attachWs(app, serverConfig.wsPath, { authResolver, logoutResolver });
 
   await app.listen({ port: serverConfig.apiPort, host: "0.0.0.0" });
   app.log.info(

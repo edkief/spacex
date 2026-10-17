@@ -2,8 +2,26 @@
 
 `Current Status`
 =================
-**Last Updated:** 2026-10-17 15:10
+**Last Updated:** 2026-10-17 15:27
 
+**Tasks Completed:** 13 of 71
+**Current Task:** TASK-66 Complete
+
+### 2026-10-17 — Iteration 14
+- **TASK-66** Session token integrity (signing, expiry, revocation) → **DONE**
+  - REST `POST /api/session/logout` (`app/src/server/routes/callsigns.ts`) — verifies the presenting token, deletes the matching `sessions` row, returns `204` on success, `401 {code:'unauthenticated'}` on every failure mode (missing header, bad signature, already revoked, etc.). Idempotent: a second logout of the same token returns 401 rather than throwing.
+  - WS `logout` + `logout_ok` message types (`app/src/shared/protocol/schemas.ts`) — new `LogoutSchema` (empty payload, strict) and `LogoutOkSchema` (`{callsign}`). Registered in `PAYLOAD_SCHEMAS` and re-exported from `protocol/index.ts`. Schema-test fixtures updated (4 new canonical/invalid cases).
+  - WS handler `onLogout` (`app/src/server/ws.handlers.ts`) — caller's `LogoutResolver` revokes *every* session row for the playerId (shared-account model), the server then sends `logout_ok` and closes with code `1000 normal-closure`. Missing playerId yields `unauthenticated` and stays connected. Dispatch routing added in `ws.dispatch.ts` (`type === 'logout'` in the `joined` branch).
+  - `LogoutResolver` interface + default (`app/src/server/ws.ts` + `app/src/server/ws.resolvers.ts`) — production wires `buildLogoutResolver(repo)`; tests can substitute a stub. Server boot (`app/src/server/index.ts`) now threads `logoutResolver` into `attachWs(...)`.
+  - Repo extension `deleteSessionsByPlayerId(playerId): Promise<number>` (`repo.ts` interface + `repo.sqlite.world.ts` + `repo.pg.world.ts` + `repo.world.test.ts` coverage). Returns the count of deleted rows for the WS handler.
+  - Auth resolver `revokeSession(repo, secret, token, opts)` (`app/src/server/auth/resolver.ts`) — signature/exp/lookup check before deleting, returns `{revoked, callsign, playerId}`. Cross-checks `session.playerId === payload.playerId` so a token signed for player A cannot delete player B's row.
+  - `buildLogoutResolver(repo)` factory — deletes every session row for the playerId, fetches the callsign for the `logout_ok` ack.
+  - Table-driven exhaustive codec matrix (`app/src/server/auth/token.test.ts`, +162 cases) — every body byte mutated, every sig byte mutated, every truncation pattern, expiry/skew boundary table (incl. `exp beyond 32-bit Unix max`), garbage inputs (null, undefined, only-dots, unicode, binary, JSON masquerade, length-padding), and payload-shape attacks (empty playerId, non-integer exp, negative exp). All routes through production `verify()`.
+  - Log-leak guard test (`app/src/server/auth/log-leak.test.ts`) — boots a real Fastify app with `logger: true` and a capture-stream `Writable`, runs the full claim→session→logout cycle plus three failure variants, then scans captured log lines for the test `SECRET_UNDER_TEST`, the issued raw token, and the `sha256(token)`. Fails the test on any match. The capture-stream fixture is reusable for future log-leak guards.
+  - Concurrent-use coverage in `resolver.test.ts` — two `resumeSession` calls share the same session row; both work; revoking once drops both. Two independent players have independent revoke paths. Documented as shared-account model.
+  - No live UI surface (TASK-66 is server-side only) → no Playwright smoke, no screenshot.
+  - **`npm run typecheck` + `npm run lint` + `npm test` all green** (39 test files / 569 cases; was 36 / 371 after iteration 13). New files: `routes/logout.test.ts` (12), `auth/log-leak.test.ts` (4), `ws.logout.test.ts` (7) + token.test.ts (+162) + resolver.test.ts (+10) + repo.world.test.ts (+2) + schemas.test.ts (+4) = +201 new cases.
+  - **Live smoke test** with `dev:server`: full claim → `GET /api/session` → `POST /api/session/logout` → second logout (401) → `GET /api/session` (401) cycle. Server logs scanned for the callsign, token, or token-hash → none present.
 ### 2026-10-17 — Iteration 13
 - **TASK-10** Callsign-only auth with signed session tokens → **DONE**
   - New `app/src/server/auth/token.ts` (~285 lines) — HMAC-SHA256 session-token codec:

@@ -212,6 +212,8 @@ export {
   ExitShipSchema,
   EnterShipSchema,
   RepairSchema,
+  LogoutSchema,
+  LogoutOkSchema,
   ErrorSchema,
   PingSchema,
   PongSchema,

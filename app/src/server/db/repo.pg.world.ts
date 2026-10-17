@@ -51,6 +51,7 @@ export function bindPgWorld(
   createSession: (input: CreateSessionInput) => Promise<SessionRow>;
   getSession: (tokenHash: string) => Promise<SessionRow | null>;
   deleteSession: (tokenHash: string) => Promise<void>;
+  deleteSessionsByPlayerId: (playerId: string) => Promise<number>;
   upsertSystemRegistry: (row: CreateSystemRegistryInput) => Promise<SystemRegistryRow>;
   listActiveShards: () => Promise<SystemRegistryRow[]>;
 } {
@@ -152,6 +153,14 @@ export function bindPgWorld(
 
     async deleteSession(tokenHash: string): Promise<void> {
       await db.delete(pgSchema.sessions).where(eq(pgSchema.sessions.tokenHash, tokenHash));
+    },
+
+    async deleteSessionsByPlayerId(playerId: string): Promise<number> {
+      const rows = await db
+        .delete(pgSchema.sessions)
+        .where(eq(pgSchema.sessions.playerId, playerId))
+        .returning({ tokenHash: pgSchema.sessions.tokenHash });
+      return rows.length;
     },
 
     async upsertSystemRegistry(row: CreateSystemRegistryInput): Promise<SystemRegistryRow> {

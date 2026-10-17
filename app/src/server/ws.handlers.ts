@@ -14,7 +14,7 @@ import { PROTOCOL_VERSION } from "@shared/protocol/index.js";
 
 import type { Connection, ConnectionRegistry, WsConnectionState } from "./ws.connection.js";
 import { snapshotConnection } from "./ws.connection.js";
-import type { AuthResolver, JoinResolver, WsHandleOptions } from "./ws.js";
+import type { AuthResolver, JoinResolver, LogoutResolver, WsHandleOptions } from "./ws.js";
 import { chatLimitMessage } from "./ratelimit.js";
 import { closeFloodedConnection, sendError, sendFrame } from "./ws.dispatch.helpers.js";
 
@@ -143,6 +143,69 @@ export async function onJoinSystem(
     sendError(conn, code, (err as Error).message ?? "join failed");
     // Connection stays alive so the client can try a different system.
   }
+}
+
+// ---------------------------------------------------------------------------
+// onLogout — TASK-66 client-initiated sign-out
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle a `logout` frame from a `joined`-state connection. Calls the
+ * logout resolver to revoke *all* of this player's session rows (the
+ * shared-account model: one logout = sign out everywhere), then closes
+ * the WS connection with code 1000 (`normal-closure`).
+ *
+ * Success path:
+ *   1. Server sends `{type:'logout_ok', payload:{callsign}}` so the
+ *      client can show a personalised sign-out toast.
+ *   2. Server closes with `1000 normal-closure`.
+ *
+ * Failure paths:
+ *   - No `playerId` set (callset bypass) → `unauthenticated` error +
+ *     stay connected. An unauthenticated client cannot meaningfully
+ *     sign out.
+ *   - Resolver rejects → `unauthenticated` error + close 1008. The
+ *     client should not retry because the session state is broken.
+ *
+ * Concurrent connections holding the same token will lose access the
+ * next time they hit any auth-gated route, but are NOT proactively
+ * disconnected. A future task can wire a presence-broadcast push
+ * (TASK-15) to actively close sibling sockets if desired; this
+ * baseline satisfies the TASK-66 acceptance criterion (the WS that
+ * sent the logout is closed with 1000).
+ */
+export async function onLogout(
+  conn: Connection,
+  registry: ConnectionRegistry,
+  logoutResolver: LogoutResolver,
+  options: WsHandleOptions,
+  _payload: unknown,
+): Promise<void> {
+  if (conn.playerId === null) {
+    sendError(conn, "unauthenticated", "logout requires prior auth");
+    return;
+  }
+  try {
+    const result = await logoutResolver(conn.playerId);
+    sendFrame(conn, "logout_ok", { callsign: result.callsign ?? conn.callsign ?? "" });
+    try {
+      conn.ws.close(1000, "logged-out");
+    } catch {
+      // socket already torn down; the close handler cleans up.
+    }
+    conn.state = "closed";
+    registry.remove(conn.ws);
+  } catch (err) {
+    sendError(conn, "unauthenticated", (err as Error).message ?? "logout failed");
+    try {
+      conn.ws.close(1008, "logout-failed");
+    } catch {
+      // ignore
+    }
+    conn.state = "closed";
+    registry.remove(conn.ws);
+  }
+  void options; // (silence unused-param; options reserved for future hooks)
 }
 
 // ---------------------------------------------------------------------------

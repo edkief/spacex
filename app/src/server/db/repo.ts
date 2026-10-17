@@ -110,6 +110,14 @@ export interface Repository {
   createSession(input: CreateSessionInput): Promise<SessionRow>;
   getSession(tokenHash: string): Promise<SessionRow | null>;
   deleteSession(tokenHash: string): Promise<void>;
+  /**
+   * Delete every session row whose `playerId` matches. Used by the WS
+   * `logout` handler (TASK-66) for full sign-out semantics: a player
+   * logging out via WS revokes *all* of their active sessions, not just
+   * one, so concurrent connections on the same account all see the
+   * revoke. Returns the number of rows deleted.
+   */
+  deleteSessionsByPlayerId(playerId: string): Promise<number>;
 
   // System registry
   upsertSystemRegistry(row: CreateSystemRegistryInput): Promise<SystemRegistryRow>;
