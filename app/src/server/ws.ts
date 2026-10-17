@@ -42,6 +42,7 @@ import type { FastifyInstance } from "fastify";
 
 import {
   ConnectionRegistry,
+  snapshotConnection,
   type Connection,
   type WsConnectionRecord,
   type WsConnectionState,
@@ -54,6 +55,19 @@ import {
   PROTOCOL_VERSION,
 } from "./ws.dispatch.js";
 import { defaultAuthResolver, defaultJoinResolver } from "./ws.resolvers.js";
+import {
+  ChatLimiter,
+  FloodTracker,
+  TokenBucket,
+  CHAT_MAX_LEN,
+  CHAT_MIN_GAP_MS,
+  CHAT_WINDOW_MAX,
+  CHAT_WINDOW_MS,
+  FLOOD_VIOLATION_THRESHOLD,
+  FLOOD_WINDOW_MS,
+  GENERAL_BURST,
+  GENERAL_RATE_LIMIT,
+} from "./ratelimit.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -205,6 +219,18 @@ export function attachWs(
       invalidCount: 0,
       lastSeenAt: now(),
       lastPingedAt: 0,
+      // TASK-65: per-connection rate-limit state. Each subclass uses the
+      // shared `now` clock so unit tests can advance time deterministically
+      // and observe bucket / tracker / limiter behavior.
+      bucket: new TokenBucket(GENERAL_RATE_LIMIT, GENERAL_BURST, now),
+      floodTracker: new FloodTracker(FLOOD_WINDOW_MS, FLOOD_VIOLATION_THRESHOLD, now),
+      chatLimiter: new ChatLimiter(
+        CHAT_MIN_GAP_MS,
+        CHAT_WINDOW_MS,
+        CHAT_WINDOW_MAX,
+        CHAT_MAX_LEN,
+        now,
+      ),
     };
     registry.add(ws, conn);
 
@@ -294,15 +320,7 @@ export function attachWs(
         }
         wss.close(() => resolve());
       }),
-    connections: () =>
-      Array.from(registry.values()).map((c) => ({
-        state: c.state,
-        playerId: c.playerId,
-        callsign: c.callsign,
-        systemId: c.systemId,
-        invalidCount: c.invalidCount,
-        lastSeenAt: c.lastSeenAt,
-      })),
+    connections: () => Array.from(registry.values()).map((c) => snapshotConnection(c)),
   };
 }
 

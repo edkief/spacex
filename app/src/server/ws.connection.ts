@@ -24,6 +24,8 @@
  */
 import type { WebSocket } from "ws";
 
+import type { ChatLimiter, FloodTracker, TokenBucket } from "./ratelimit.js";
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -33,7 +35,10 @@ export type WsConnectionState = "hello" | "authed" | "joined" | "closed";
 
 /**
  * A snapshot of a connection's mutable state, suitable for tests/diagnostics
- * and for the `onStateChange` lifecycle hook.
+ * and for the `onStateChange` lifecycle hook. Rate-limit state is
+ * reported via counts (not the full classes) so the snapshot stays
+ * JSON-serialisable and the test surface doesn't expose internal
+ * references.
  */
 export interface WsConnectionRecord {
   state: WsConnectionState;
@@ -42,6 +47,10 @@ export interface WsConnectionRecord {
   systemId: string | null;
   invalidCount: number;
   lastSeenAt: number;
+  /** TASK-65: current token count in the general message bucket. */
+  bucketTokens: number;
+  /** TASK-65: count of rate-limit violations in the last 10 s. */
+  floodViolations: number;
 }
 
 /** Internal: the live connection handle + metadata. */
@@ -54,6 +63,12 @@ export interface Connection {
   invalidCount: number;
   lastSeenAt: number;
   lastPingedAt: number;
+  /** TASK-65: per-connection general message token bucket (20/s, burst 40). */
+  bucket: TokenBucket;
+  /** TASK-65: sliding-window violation counter (3 in 10 s → drop). */
+  floodTracker: FloodTracker;
+  /** TASK-65: chat-specific gate (2 s gap / 280 chars / 10 per 30 s). */
+  chatLimiter: ChatLimiter;
 }
 
 /**
@@ -82,6 +97,7 @@ export class ConnectionRegistry {
 
 /** Convert a live `Connection` into the diagnostic record snapshot. */
 export function snapshotConnection(c: Connection): WsConnectionRecord {
+  const now = Date.now();
   return {
     state: c.state,
     playerId: c.playerId,
@@ -89,5 +105,7 @@ export function snapshotConnection(c: Connection): WsConnectionRecord {
     systemId: c.systemId,
     invalidCount: c.invalidCount,
     lastSeenAt: c.lastSeenAt,
+    bucketTokens: c.bucket.tokensForTesting,
+    floodViolations: c.floodTracker.sizeForTesting(now),
   };
 }

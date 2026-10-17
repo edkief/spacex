@@ -1,29 +1,36 @@
 /**
- * Per-frame message routing for the Drift WebSocket server (TASK-9 + TASK-64).
+ * Per-frame message routing for the Drift WebSocket server (TASK-9 + 64 + 65).
  *
  * Extracted from `ws.ts` so the state machine + per-handler logic can
  * be exercised by tests with a stubbed `Connection`. The `ws.ts` module
  * owns the WebSocket lifecycle; this module owns what happens once a
  * frame has been read off the wire.
  *
+ * The per-state handlers (`onHello`, `onAuth`, `onJoinSystem`,
+ * `onChat`) live in `./ws.handlers.ts` and the outbound helpers
+ * (`sendFrame`, `sendError`, `closeFloodedConnection`) in
+ * `./ws.dispatch.helpers.ts`. This file is the orchestrator: pipeline +
+ * state-machine dispatch + the two centralised strike helpers.
+ *
  * Public API (kept stable so tests can drive it directly):
  *   - `processRawFrame(conn, registry, authResolver, joinResolver, options, raw)`
- *   - `noteInvalidInput(conn, registry, code, message)` — exported so the
- *     size-cap check in `ws.ts` can route through the same strike logic
- *     without duplicating it.
- *   - the per-state handlers (`onHello`, `onAuth`, `onJoinSystem`) are
- *     only used internally; the entry point is `processRawFrame`.
+ *   - `noteInvalidInput(conn, registry, code, message)` — centralised
+ *     handler for any malformed frame (TASK-64).
+ *   - `noteRateViolation(conn, registry, options, now, code, message)` —
+ *     centralised handler for any rate-limit violation (TASK-65).
+ *   - `INVALID_DROP_THRESHOLD`, `MAX_MESSAGE_BYTES`, `PROTOCOL_VERSION`
  *
  * State machine:
  *   hello  ──hello──▶  authed  ──auth──▶  joined
- *                                            │
- *                                       ──join_system──▶  joined (with systemId)
+ *                                           │
+ *                                      ──join_system──▶  joined (with systemId)
  *
- * Validation policy (TASK-64):
+ * Validation policy (TASK-64 + TASK-65):
+ *   0. Rate-limit gate (TASK-65): bucket exhaustion → `rate-limited`.
  *   1. Envelope decode (`decodeEnvelope`) uses `z.safeParse` and returns
  *      a `ProtocolError("invalid-envelope")` on shape mismatch / non-JSON.
  *      We forward these as `invalid-message` (per the spec: clients only
- *      see one invalid-input code) and bump the strike counter.
+ *      see one invalid-input code) and bump the validation-strike counter.
  *   2. `parseMessage` validates the per-type payload with `z.safeParse`
  *      and throws `ProtocolError` on failure. Unknown types throw
  *      `ProtocolError("unknown-type")`, schema mismatches throw
@@ -35,20 +42,24 @@
  *   4. The size cap (64 KB) is enforced in `ws.ts` *before* `processRawFrame`
  *      runs, so an oversized envelope never enters JSON.parse territory.
  *      That path also routes through `noteInvalidInput` for symmetry.
+ *   5. Rate-limit violations (general bucket exhaustion OR chat-limiter
+ *      rejection) feed `noteRateViolation`, which manages a separate
+ *      sliding-window flood tracker. Three violations within 10 seconds
+ *      drop the connection with code 4009.
  */
 import {
   PROTOCOL_VERSION,
   decodeEnvelope,
-  encodeEnvelope,
   parseMessage,
   ProtocolError,
   type Envelope,
   type MessageType,
 } from "@shared/protocol/index.js";
 
-import type { Connection, ConnectionRegistry, WsConnectionState } from "./ws.connection.js";
-import { snapshotConnection } from "./ws.connection.js";
+import type { Connection, ConnectionRegistry } from "./ws.connection.js";
 import type { AuthResolver, JoinResolver, WsHandleOptions } from "./ws.js";
+import { closeFloodedConnection, sendError, sendFrame } from "./ws.dispatch.helpers.js";
+import { onAuth, onChat, onHello, onJoinSystem } from "./ws.handlers.js";
 
 // ---------------------------------------------------------------------------
 // Constants — exported so tests can reference them without hard-coding
@@ -115,6 +126,42 @@ export function noteInvalidInput(
 }
 
 // ---------------------------------------------------------------------------
+// noteRateViolation — TASK-65 escalation helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Route for *any* rate-limit violation: general bucket exhaustion OR
+ * chat-limiter rejection. Independent of `noteInvalidInput`'s
+ * validation-strike counter so a flooding client doesn't get bucketed
+ * with a client sending malformed JSON.
+ *
+ * Behaviour:
+ *   1. Send a single structured `error` frame with `{ code, message }`.
+ *   2. Push `now` into the per-connection `FloodTracker` sliding window.
+ *   3. When the window reaches `FLOOD_VIOLATION_THRESHOLD`, force-close
+ *      the socket with WS code 4009 + reason `flooded` and remove the
+ *      connection from the registry via `closeFloodedConnection`.
+ *
+ * Returns `true` if the connection was dropped during this call so the
+ * caller can short-circuit further processing.
+ */
+export function noteRateViolation(
+  conn: Connection,
+  _registry: ConnectionRegistry,
+  _options: WsHandleOptions,
+  now: number,
+  code: string,
+  message: string,
+): boolean {
+  sendError(conn, code, message);
+  if (conn.floodTracker.noteViolation(now)) {
+    closeFloodedConnection(conn, _registry);
+    return true;
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // processRawFrame — the single entry point for an inbound text frame
 // ---------------------------------------------------------------------------
 
@@ -122,9 +169,16 @@ export function noteInvalidInput(
  * Process one inbound frame. Public for unit testing; not part of the
  * stable server API. `raw` is the JSON string the client sent.
  *
- * All three failure paths (bad envelope, version mismatch, bad payload)
- * feed into `noteInvalidInput` (or, for version mismatch, an immediate
- * disconnect) so the strike accounting has a single source of truth.
+ * Failure paths feed into a unified error channel:
+ *   - Rate-limit violations → `noteRateViolation` (sliding-window
+ *     counter, 3 in 10 s → close 4009).
+ *   - Validation/envelope failures → `noteInvalidInput` (lifetime
+ *     counter, 50 → close 1008).
+ *   - Version mismatch → immediate close 1002 (no counter; it's a
+ *     different protocol, not a malformed-input attack).
+ *
+ * The rate-limit gate runs first so excess frames are dropped as
+ * cheaply as possible — they never reach `JSON.parse`.
  */
 export async function processRawFrame(
   conn: Connection,
@@ -134,6 +188,19 @@ export async function processRawFrame(
   options: WsHandleOptions,
   raw: string,
 ): Promise<void> {
+  const now = (options.now ?? Date.now)();
+
+  // Step 0: per-connection token-bucket gate (TASK-65). An empty bucket
+  // turns into a structured `rate-limited` error followed by no further
+  // processing. Excess frames cost only one cheap arithmetic op; we
+  // don't get to JSON.parse.
+  if (!conn.bucket.take(now)) {
+    if (noteRateViolation(conn, registry, options, now, "rate-limited", "Message rate exceeded")) {
+      return;
+    }
+    return;
+  }
+
   // Step 1: envelope decode.
   let envelope: Envelope;
   try {
@@ -256,123 +323,24 @@ async function dispatch(
         await onJoinSystem(conn, joinResolver, options, payload);
         return;
       }
-      // Future tasks route `chat`, `input`, `warp`, etc. to the system
-      // shard. TASK-9 accepts them silently — the connection stays alive.
+      if (type === "chat") {
+        // TASK-65: chat-specific rate limit (2 s gap, 280 chars,
+        // 10 / 30 s window). On accept the message is silently consumed;
+        // TASK-16 wires up broadcast + history. On rejection the chat
+        // limiter's reason is surfaced as a `rate-limited` error frame
+        // and the violation is counted toward `FloodTracker` so chat
+        // spam escalation behaves identically to general flooding.
+        onChat(conn, registry, options, payload);
+        return;
+      }
+      // Future tasks route `input`, `warp`, `interact`, etc. to the system
+      // shard. TASK-9 / TASK-65 accept them silently — the connection stays alive.
       return;
 
     case "closed":
       return;
   }
   void registry; // (silence unused-param if the switch above is exhaustive)
-}
-
-// ---------------------------------------------------------------------------
-// Per-state handlers
-// ---------------------------------------------------------------------------
-
-async function onHello(
-  conn: Connection,
-  registry: ConnectionRegistry,
-  options: WsHandleOptions,
-  payload: unknown,
-): Promise<void> {
-  // Type already validated by parseMessage; payload is `Hello`.
-  const hello = payload as { version: number; client?: string };
-  if (hello.version !== PROTOCOL_VERSION) {
-    sendError(
-      conn,
-      "version-mismatch",
-      `Client sent version ${hello.version}; server is ${PROTOCOL_VERSION}`,
-    );
-    conn.ws.close(1002, "version-mismatch");
-    conn.state = "closed";
-    registry.remove(conn.ws);
-    return;
-  }
-  sendFrame(conn, "hello", { version: PROTOCOL_VERSION, serverTickHz: 20 });
-  transition(conn, options, "authed");
-}
-
-async function onAuth(
-  conn: Connection,
-  registry: ConnectionRegistry,
-  authResolver: AuthResolver,
-  options: WsHandleOptions,
-  payload: unknown,
-): Promise<void> {
-  try {
-    const result = await authResolver(payload);
-    conn.playerId = result.playerId;
-    conn.callsign = result.callsign;
-    sendFrame(conn, "auth_ok", {
-      playerId: result.playerId,
-      callsign: result.callsign,
-      tokenExpiresAt: result.tokenExpiresAt,
-    });
-    transition(conn, options, "joined");
-  } catch (err) {
-    sendError(conn, "unauthenticated", (err as Error).message ?? "auth failed");
-    conn.ws.close(1008, "unauthenticated");
-    conn.state = "closed";
-    registry.remove(conn.ws);
-  }
-}
-
-async function onJoinSystem(
-  conn: Connection,
-  joinResolver: JoinResolver,
-  options: WsHandleOptions,
-  payload: unknown,
-): Promise<void> {
-  if (conn.callsign === null) {
-    sendError(conn, "unauthenticated", "join_system requires prior auth");
-    return;
-  }
-  const join = payload as { systemId: string };
-  try {
-    const result = await joinResolver(join.systemId, conn.callsign);
-    conn.systemId = result.systemId;
-    sendFrame(conn, "enter_system", {
-      systemId: result.systemId,
-      entities: result.entities,
-      nodes: result.nodes,
-      chat: result.chat,
-      players: result.players,
-      serverTickHz: result.serverTickHz,
-      snapshotTick: result.snapshotTick,
-    });
-    void options; // state already 'joined' by the time we reach here
-  } catch (err) {
-    // Resolvers throw tagged errors so we can pick the right code.
-    const code = (err as { code?: string }).code ?? "system-not-found";
-    sendError(conn, code, (err as Error).message ?? "join failed");
-    // Connection stays alive so the client can try a different system.
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Server-only outbound helpers
-// ---------------------------------------------------------------------------
-
-function sendFrame(conn: Connection, type: MessageType, payload: unknown): void {
-  if (conn.ws.readyState !== conn.ws.OPEN) return;
-  conn.ws.send(encodeEnvelope(type, payload));
-}
-
-function sendError(conn: Connection, code: string, message: string): void {
-  if (conn.ws.readyState !== conn.ws.OPEN) return;
-  conn.ws.send(encodeEnvelope("error", { code, message }));
-}
-
-/**
- * Apply a state transition and notify any registered observer. Centralised
- * so tests can hook the lifecycle in a single place.
- */
-function transition(conn: Connection, options: WsHandleOptions, next: WsConnectionState): void {
-  const previous = conn.state;
-  if (previous === next) return;
-  conn.state = next;
-  options.onStateChange?.(snapshotConnection(conn), previous);
 }
 
 // ---------------------------------------------------------------------------

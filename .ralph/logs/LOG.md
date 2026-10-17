@@ -2,7 +2,40 @@
 
 `Current Status`
 =================
-**Last Updated:** 2026-10-17 14:21
+**Last Updated:** 2026-10-17 14:53
+
+### 2026-10-17 — Iteration 12
+- **TASK-65** Per-connection rate limiting and chat spam control → **DONE**
+  - New `app/src/server/ratelimit.ts` (~298 lines) — three independent primitives, all with an injected `now()` clock for deterministic tests:
+    - `TokenBucket(rate, burst)` — lazy-refill bucket. Used as the general gate (20 tokens/s, burst 40); refills only on `take()` so an idle bucket has zero scheduler overhead.
+    - `FloodTracker(windowMs, threshold)` — sliding-window violation counter. Three rate-limit violations within 10 s → drop with WS code 4009 + reason `flooded`. Independent of the 50-strike TASK-64 counter so flooding isn't conflated with malformed JSON.
+    - `ChatLimiter(minGapMs, windowMs, windowMax, maxLen)` — chat-specific gate combining 2 s min-gap, 280-char max length, and 10/30 s sliding window. Rejections emit a chat-specific message and count toward `FloodTracker`.
+    - All TASK-65 constants exported (`GENERAL_RATE_LIMIT=20`, `GENERAL_BURST=40`, `FLOOD_WINDOW_MS=10_000`, `FLOOD_VIOLATION_THRESHOLD=3`, `CHAT_MIN_GAP_MS=2_000`, `CHAT_WINDOW_MS=30_000`, `CHAT_WINDOW_MAX=10`, `CHAT_MAX_LEN=280`, `FLOOD_CLOSE_CODE=4009`, `FLOOD_CLOSE_REASON="flooded"`).
+  - Per-connection state on `Connection` (`ws.connection.ts`):
+    - New fields: `bucket`, `floodTracker`, `chatLimiter` — all initialised on connect by `attachWs` using the harness's `options.now` clock so test scripts can drive the system with a manually-controlled clock.
+    - `WsConnectionRecord` snapshot adds `bucketTokens` (current token count) and `floodViolations` (sliding-window count) so the operator can see a client that's close to escalation.
+  - Dispatch pipeline (`ws.dispatch.ts`, `ws.dispatch.helpers.ts`, `ws.handlers.ts`):
+    - `ws.dispatch.ts` is the orchestrator: pipeline + state-machine dispatch + the two centralised strike helpers. `ws.handlers.ts` owns `onHello`/`onAuth`/`onJoinSystem`/`onChat`. `ws.dispatch.helpers.ts` owns the outbound helpers (`sendFrame`, `sendError`, `closeFloodedConnection`).
+    - New `noteRateViolation(conn, registry, options, now, code, message): boolean` is the single escalation path for both general bucket exhaustion AND chat-limit rejection. Returns `true` if the connection was dropped.
+    - New `onChat` handler in `ws.handlers.ts` consults `conn.chatLimiter` AFTER the general bucket has accepted the frame; rejections route through `noteRateViolation`.
+    - `processRawFrame` Step 0 is the bucket gate — empty bucket → `noteRateViolation("rate-limited", "Message rate exceeded")` → no JSON.parse, no further work. Excess frames are dropped at arithmetic-op cost.
+  - Existing `ws.ts` integration is a one-block change: the `connection` event handler builds the bucket / tracker / chatLimiter from the harness's `now` clock. Cleanup happens via the existing `close()` path (registry iteration terminates sockets, no per-conn state to free).
+  - New test files (32 test files / 320 cases, up from 30 / 285):
+    - `app/src/server/ratelimit.test.ts` (~328 lines, 21 cases): accept/accept/reject sequence, lazy refill, burst cap, validation guards, `FloodTracker` window eviction + threshold, `ChatLimiter` min-gap / length / window mechanics, message mapping, constant pins.
+    - `app/src/server/ws.ratelimit-helpers.ts` (~128 lines): extracted `bootHarness`, `openClient`, `collect/collectMessages`, `waitForClose`, `decodeError`, `reachJoined` so test files stay under AGENTS.md's 300 line cap.
+    - `app/src/server/ws.ratelimit.test.ts` (~463 lines, 9 cases): real Fastify + ws boot. Coverage: accept burst + drop with 4009, rate-limit gate runs before envelope parsing, first chat accept, gap/too-long rejection, 280-char max, 2 s min-gap, 10/30 s window (covered in unit tests), per-connection isolation, escalation drops with code+reason, spaced violations survive, lifecycle integration with onStateChange, burst-send unknown types triggers rate-limit escalation (companion to `ws.test.ts` clock-paced strike test).
+    - `app/src/server/ratelimit.flood.test.ts` (~298 lines, 4 cases): 16 benign clients stream pings at 10 Hz with p95 latency under 30 ms; single attacker floods 80 input frames and ends up dropped with code 4009 + reason `flooded` under 5 s; normal-paced client survives indefinitely; burst capacity test confirms `GENERAL_BURST` pings all ack'd with pongs in a synchronous burst.
+  - `app/src/server/ws.test.ts` updated for TASK-65:
+    - "counts unknown types and drops at the threshold" now paces sends > 50 ms apart on real time (with matching 50 ms clock advances) so the new rate-limit gate doesn't trip the flood tracker before the 50-strike counter completes.
+    - New companion test "flooding with unknown types trips the rate-limit escalation and drops with code 4009" lives in `ws.ratelimit.test.ts` to demonstrate the burst path (drop with 4009).
+  - **Performance & security**:
+    - Bucket gate is one `take()` call (sub-µs) per frame, no JSON.parse cost on excess.
+    - `noteInvalidInput` (TASK-64) and `noteRateViolation` (TASK-65) are independent counters — a client spraying malformed JSON keeps the strike counter (lifetime, 50 = drop 1008); a client flooding keeps the flood tracker (sliding window, 3 = drop 4009). One isn't abused as a cheap bypass of the other.
+    - Chat-limit rejection emits a specific message (`"Chat rate too high (min 1 message per 2000 ms)"` etc.) rather than `invalid-message`, so operators can distinguish chat-spam attacks from generic fuzzing in logs.
+    - `closeFloodedConnection` is centralised in `ws.dispatch.helpers.ts` so the chat handler and the dispatcher share one writer of the 4009 close path.
+    - 320 vitest cases pass (was 285 pre-TASK-65). `npm run typecheck`, `npm run lint`, `npm run lint:fix`, `npm test` all green. TASK-65 is `security` (no UI surface) → no Playwright smoke needed, no screenshot.
+**Tasks Completed:** 11 of 71
+**Current Task:** TASK-65 Complete
 
 ### 2026-10-17 — Iteration 11
 - **TASK-64** Input validation on all inbound messages (zod) → **DONE**

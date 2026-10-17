@@ -221,28 +221,49 @@ describe("server/ws handshake", () => {
   });
 
   it("counts unknown types and drops at the threshold", async () => {
-    const client = await openClient(harness.url);
+    // Re-boot a harness with an injected clock. We yield ~10 ms between
+    // sends so the server processes each frame separately (a synchronous
+    // send-loop would drain the TASK-65 rate-limit bucket and trigger
+    // the flood-tracker drop before the 50-strike invalid-count path
+    // completes). Each clock advance of 100 ms refills the bucket by
+    // 2 tokens; together with the 10 ms yield we never empty it.
+    let clock = 1_000_000;
+    const local = await bootHarness({ now: () => clock });
     try {
-      client.send(encodeEnvelope("hello", { version: PROTOCOL_VERSION }));
-      await collectMessages(client, 1); // hello ack
-      // Send `INVALID_DROP_THRESHOLD` unknown-type frames.
-      const errors = collectMessages(client, INVALID_DROP_THRESHOLD);
-      for (let i = 0; i < INVALID_DROP_THRESHOLD; i++) {
-        client.send(
-          JSON.stringify({ v: PROTOCOL_VERSION, type: "definitely-not-a-type", payload: { i } }),
-        );
+      const client = await openClient(local.url);
+      try {
+        client.send(encodeEnvelope("hello", { version: PROTOCOL_VERSION }));
+        await collectMessages(client, 1); // hello ack
+        const errors = collectMessages(client, INVALID_DROP_THRESHOLD);
+        for (let i = 0; i < INVALID_DROP_THRESHOLD; i++) {
+          // Advance the fake clock BEFORE the send so the rate-limit
+          // bucket — which uses this same clock — earns a token before
+          // the server processes this frame. The real-time yield lets
+          // the server actually drain the socket buffer between sends
+          // (otherwise 50 sends all land in one tick and the
+          // rate-limit gate trips with code 4009 before the
+          // 50-strike validation counter can fire).
+          clock += 50;
+          client.send(
+            JSON.stringify({ v: PROTOCOL_VERSION, type: "definitely-not-a-type", payload: { i } }),
+          );
+          await collectMessages(client, 1);
+        }
+        const errs = await errors;
+        for (const raw of errs) {
+          const e = JSON.parse(raw) as { type: string; payload: { code: string } };
+          expect(e.type).toBe("error");
+          expect(e.payload.code).toBe("unknown-type");
+        }
+        // The server should have closed the socket after the threshold strike.
+        const close = await waitForClose(client, 3_000);
+        expect(close.code).toBe(1008);
+      } finally {
+        if (client.readyState === client.OPEN) client.close();
       }
-      const errs = await errors;
-      for (const raw of errs) {
-        const e = JSON.parse(raw) as { type: string; payload: { code: string } };
-        expect(e.type).toBe("error");
-        expect(e.payload.code).toBe("unknown-type");
-      }
-      // The server should have closed the socket after the threshold strike.
-      const close = await waitForClose(client);
-      expect(close.code).toBe(1008);
     } finally {
-      if (client.readyState === client.OPEN) client.close();
+      await local.handle.close();
+      await local.app.close();
     }
   });
 
