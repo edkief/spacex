@@ -206,16 +206,105 @@ export interface AIRoster {
   classes: readonly ShipClassId[];
 }
 
+// ---------------------------------------------------------------------------
+// Surface chunk (TASK-5)
+// ---------------------------------------------------------------------------
+
 /**
- * A surface chunk of a planet. Placeholder; TASK-5 owns the full schema
- * (terrain tiles, resource nodes, landing pads, biome). The interface
- * exists here so `Planet` can carry an optional list of chunks without
- * forward-reference gymnastics.
+ * Biome categories a chunk can classify as. A single chunk has exactly one
+ * biome; the assignment is determined from the chunk's average elevation,
+ * gradient, moisture, and "latitude" (a low-frequency noise channel that
+ * biases cold biomes toward the poles of a planet's coordinate frame).
+ *
+ *   plains  — low elevation, low moisture. The default; most chunks.
+ *   rock    — high elevation, low moisture. Mountains above the tree line.
+ *   canyon  — high gradient + moderate elevation. Carved terrain.
+ *   frozen  — high latitude (or ice-class planet). Permafrost / ice fields.
+ *   wetland — low elevation + high moisture. Marshes and shallow seas.
+ *
+ * Gameplay hooks (TASK-37+): biomes gate which `ResourceType`s may spawn,
+ * frozen biomes hide water-ice nodes, etc.
+ */
+export type Biome = "plains" | "rock" | "canyon" | "frozen" | "wetland";
+
+/** Canonical list of biomes in display order. */
+export const BIOMES: readonly Biome[] = ["plains", "rock", "canyon", "frozen", "wetland"] as const;
+
+/**
+ * A single resource node embedded in a chunk. `nodeId` is the stable key
+ * used by the runtime `resource_node_state` table (TASK-63); it is derived
+ * from `(seed, planetId, chunkX, chunkZ, nodeIndex)` so two clients
+ * regenerate identical ids and can refer to the same node across sessions.
+ *
+ * `type` is a `ResourceType` string (typed as `string` to match the spec's
+ * wire shape — JSON serialises the same either way). Placement never
+ * produces a type outside `planet.resourceTypes`.
+ *
+ * `x` / `z` are chunk-local coordinates in metres (0..63) — the renderer's
+ * job to transform to world space.
+ *
+ * `baseQuantity` is the seed-time amount, before any depletion from
+ * mining (TASK-37).
+ */
+export interface ResourceNode {
+  /** Stable id, hex of (seed, planetId, chunkX, chunkZ, nodeIndex). */
+  nodeId: string;
+  /** One of `ResourceType`; constrained to `planet.resourceTypes`. */
+  type: string;
+  /** Chunk-local x in metres (0..63). */
+  x: number;
+  /** Chunk-local z in metres (0..63). */
+  z: number;
+  /** Seed-time quantity (50..200). Depleted by mining (TASK-37). */
+  baseQuantity: number;
+}
+
+/**
+ * A landing pad placed in a chunk. Each landable chunk has 0..1 pads;
+ * the first chunk (0, 0) of every landable planet is *forced* to have
+ * exactly one so the player always has somewhere to dock after entry.
+ *
+ * `id` is the stable key — derived from `(seed, planetId, chunkX, chunkZ)`
+ * — used by the persistence layer for pad ownership / repair queues.
+ */
+export interface LandingPad {
+  /** Stable pad id. */
+  id: string;
+  /** Chunk-local x in metres (0..63). */
+  x: number;
+  /** Chunk-local z in metres (0..63). */
+  z: number;
+}
+
+/**
+ * The deterministic output of `generateSurfaceChunk(seed, planet, chunkX, chunkZ)`.
+ *
+ * `heightmap` is a flat `number[]` of length `64 * 64 = 4096`, row-major
+ * (i.e. `heightmap[z * 64 + x]`). Values are metres; the renderer
+ * converts to `Float32Array` on the fly. The plain-array form keeps the
+ * golden fixture JSON-serialisable and matches the spec's `number[]` wire
+ * type.
+ *
+ * `biome` is a single per-chunk classification (not per-cell) — keeps
+ * the chunk-level narrative simple ("you're entering a frozen biome")
+ * while leaving the actual cell heights to vary continuously.
+ *
+ * `resourceNodes` and `landingPads` are arrays with bounds (1..4 and
+ * 0..1 respectively, with the chunk-(0,0) landable override). Length is
+ * well-defined so downstream code never has to special-case "no nodes"
+ * (it just iterates an empty array).
  */
 export interface SurfaceChunk {
-  /** Stable chunk id (hex of planet-id + chunk-index). */
-  id: string;
-  /** Chunk coordinates in the planet's local grid. */
-  cx: number;
-  cy: number;
+  /** Chunk x coordinate in the planet's local grid. */
+  chunkX: number;
+  /** Chunk z coordinate in the planet's local grid. */
+  chunkZ: number;
+  /** 64x64 row-major heightmap (metres). Length is always 4096. */
+  heightmap: number[];
+  /** Per-chunk biome classification. */
+  biome: Biome;
+  /** Resource nodes embedded in this chunk (1..4 typical, 0 for wetlands with no solid resources). */
+  resourceNodes: readonly ResourceNode[];
+  /** Landing pads in this chunk (0 or 1). */
+  landingPads: readonly LandingPad[];
 }

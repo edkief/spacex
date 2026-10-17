@@ -2,13 +2,31 @@
 
 `Current Status`
 =================
-**Last Updated:** 2026-10-17 12:55
-**Tasks Completed:** 5 of 71
-**Current Task:** TASK-4 Complete
+**Last Updated:** 2026-10-17 13:10
+**Tasks Completed:** 6 of 71
+**Current Task:** TASK-5 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-10-17 — Iteration 6
+- **TASK-5** Surface chunk generator (terrain, nodes, landing pads) → **DONE**
+  - New `app/src/shared/galaxy/{surface,surface-noise,surface-placement,config-surface}.ts` module quartet (172+322+248+207 lines):
+    - `config-surface.ts` — `CHUNK_SIZE_CELLS=64`, `PEAK_HEIGHT_M=2000`, `FBM_BASE_LATTICE_SPACING_M=64` (1 lattice per chunk for boundary continuity), `FBM_OCTAVES=3`/`FBM_GAIN=0.5`, biome thresholds (frozen/canyon/wetland/rock), `MIN/MAX_NODES_PER_CHUNK=1..4`, `NODE_MIN_SPACING_M=4`, `PAD_PROBABILITY=0.25`, `PAD_BLOCK_SIZE_CELLS=4`.
+    - `surface-noise.ts` — value noise + smoothstep interp, fBm sum, `generateHeightmap(terrainSeed, cx, cz)` (64x64 row-major metres, world-space sampling), `sampleMoisture`/`sampleLatitude` (decorrelated fBm channels), `classifyBiome` (5-way ordered classifier). MurmurHash3-style `latticeValue` uses Number+Math.imul arithmetic (~25x faster than BigInt hash2 for the 32k calls/celletash hot path).
+    - `surface-placement.ts` — `placeResourceNodes` (1..4 seeded nodes via rejection sampling, restricted to planet.resourceTypes, empty for wetlands), `placeLandingPads` (0..1 pad per chunk, forced on chunk (0,0) of landable planets, flattest spot via 4x4 block gradient scan), `nodeId`/`padId` (16-hex stable keys from chunkSeed + nodeIndex/padIndex).
+    - `surface.ts` — public `generateSurfaceChunk(seed, planet, chunkX, chunkZ)`. Derives two seeds: `placementSeed` (per-chunk, drives RNG for nodes/pads) and `terrainSeed` (per-planet, drives the noise field — this is what guarantees boundary continuity).
+  - Updated `app/src/shared/galaxy/types.ts`: expanded `SurfaceChunk` to the full schema; added `Biome`, `ResourceNode`, `LandingPad`, `BIOMES` canonical list. The ResourceNode.type stays `string` in the wire shape but is always a `ResourceType` value at runtime.
+  - One-off regenerator `scripts/gen-surface-fixture.ts` — writes `__fixtures__/surface-dev-seed-star0-planet0-chunk00.json` (dev seed, star 0's first landable planet — orbit 0 rocky with iron resources, 4 nodes, 1 pad, biome=canyon).
+  - Test files (3 new + 1 new fixture, 30 new cases → 142 total):
+    - `surface.test.ts` (345 lines) — shape (chunk coords, 64x64 heightmap, valid biome, 0..1 pads, non-integer coord rejection); resource nodes (1..4 bound, types ⊆ planet.resourceTypes, 16-hex ids unique within chunk, baseQuantity ∈ [50, 200], positions in [0..63), wetland chunks empty); landing pads (chunk (0,0) forced to 1 pad, 16-hex ids, positions in chunk, non-landable planets have no pads, other chunks ≤1 by PAD_PROBABILITY); determinism (deep equal across calls, different chunks different, 30 random chunks across 3 planets stable across two runs); helpers (16-sample fingerprint).
+    - `surface.boundary.test.ts` (160 lines) — chunks (0,0) and (1,0) share a small delta at their shared column (max ≤ 25m, median ≤ 10m; empirically ≤ 5m/2m across 4 seeds × 5 stars), chunks (0,0) and (0,1) share a small delta at their shared row (max ≤ 25m); biome distribution (≥ 2 distinct biomes across 100 chunks); heightmap stats (computeHeightmapStats agrees with the actual heightmap contents); node id stability across calls.
+    - `surface.parity.test.ts` (129 lines) — committed fixture exists + well-formed; regenerating chunk (0,0) from the fixture's inputs reproduces heightmap16 + heightmapStats + biome + resourceNodes + landingPads exactly under happy-dom; `sampleLandablePlanet()` matches the fixture's planet; regeneration idempotent within the same process; parametric source purity check across `surface.ts`, `surface-noise.ts`, `surface-placement.ts` (no Math.random, Date.now, globalThis, crypto, performance.now).
+    - `surface.helpers.ts` (158 lines) — `DEV_SEED`, `STAR_INDEX`, `FIXTURE_CHUNK_X/Z`, `sampleLandablePlanet()`, `loadSurfaceFixture()`, `sampleHeightmap16()`, `computeHeightmapStats()`, `generateFixtureChunk()`, `SurfaceFixture` type.
+  - **Performance**: ~5ms per chunk; 30 chunks stability test runs in well under a second. The MurmurHash3 finalizer + Number arithmetic for lattice values gives ~25x speedup vs. the BigInt hash2 chain; combined with the 3-octave fBm (vs. 5), chunk generation went from 63ms to ~5ms.
+  - **Boundary continuity fix**: originally the heightmap used the per-chunk `placementSeed`, which broke the noise field continuity at chunk borders (max delta ~1277m at 2000m peak). Switched to a planet-scoped `terrainSeed` (= `hash2(galaxySeed, planetIdSeed)`); empirically max delta across 4 seeds × 5 stars is ≤ 5m, median ≤ 2m — well inside the 25m/10m test thresholds.
+  - 142 vitest cases pass (30 new from TASK-5 + 112 pre-existing). `npm run typecheck`, `npm run lint`, `npm run lint:fix`, `npm test` all clean. TASK-5 is `functional` (no UI surface) → no Playwright smoke needed. No screenshot (no UI).
 
 ### 2026-10-17 — Iteration 5
 - **TASK-4** System generator (planets, docks, deposits, AI roster) → **DONE**

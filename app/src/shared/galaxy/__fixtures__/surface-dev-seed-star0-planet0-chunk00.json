@@ -1,0 +1,66 @@
+{
+  "seed": "drift-dev-seed-001",
+  "star": {
+    "id": "c9bf989ddefc021f",
+    "name": "Ilmamnya"
+  },
+  "planet": {
+    "id": "ed21fa467a706293",
+    "name": "Planet",
+    "orbitIndex": 0,
+    "class": "rocky",
+    "radiusKm": 7417,
+    "hasAtmosphere": false,
+    "landable": true,
+    "resourceTypes": ["iron"]
+  },
+  "chunkX": 0,
+  "chunkZ": 0,
+  "heightmap16": [
+    746, 688, 740, 897, 749, 893, 855, 760, 689, 856, 1029, 1106, 649, 826, 919, 1200
+  ],
+  "heightmapStats": {
+    "avg": 897.51806640625,
+    "min": 645,
+    "max": 1284,
+    "gradient": 639
+  },
+  "biome": "canyon",
+  "resourceNodes": [
+    {
+      "nodeId": "76dc79056a867374",
+      "type": "iron",
+      "x": 44,
+      "z": 58,
+      "baseQuantity": 147
+    },
+    {
+      "nodeId": "ce844bc9b6f4f9d3",
+      "type": "iron",
+      "x": 36,
+      "z": 52,
+      "baseQuantity": 135
+    },
+    {
+      "nodeId": "c181a263d11274de",
+      "type": "iron",
+      "x": 50,
+      "z": 4,
+      "baseQuantity": 118
+    },
+    {
+      "nodeId": "2b489cb759858a83",
+      "type": "iron",
+      "x": 12,
+      "z": 60,
+      "baseQuantity": 89
+    }
+  ],
+  "landingPads": [
+    {
+      "id": "a6ec9a95f2bcb193",
+      "x": 2,
+      "z": 3
+    }
+  ]
+}
