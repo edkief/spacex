@@ -1,6 +1,6 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-17 after **TASK-68** (TS monorepo scaffold).
+Snapshot taken 2026-10-17 after **TASK-2** (shared PRNG + hash library).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.
@@ -27,7 +27,10 @@ PROJECT_ROOT
 │   ├── src/
 │   │   ├── shared/              # Wire types/utilities shared client+server
 │   │   │   ├── health.ts        # HealthPayload interface + factory
-│   │   │   └── health.test.ts   # Trivial vitest (TASK-68 acceptance)
+│   │   │   ├── health.test.ts   # Trivial vitest (TASK-68 acceptance)
+│   │   │   ├── random.ts        # seedFromString + Rng (xoshiro128**) + hash2 (TASK-2)
+│   │   │   ├── random.test.ts   # Golden / distribution / purity suite (node)
+│   │   │   └── random.parity.test.ts # Same golden values under happy-dom
 │   │   ├── client/              # React + three.js frontend (Vite)
 │   │   │   ├── App.tsx          # Top-level shell
 │   │   │   ├── components/      # UI sub-components (CanvasStage.tsx)

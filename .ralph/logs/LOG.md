@@ -2,13 +2,33 @@
 
 `Current Status`
 =================
-**Last Updated:** 2026-10-17 12:30
-**Tasks Completed:** 2 of 71
-**Current Task:** TASK-68 Complete
+**Last Updated:** 2026-10-17 12:35
+**Tasks Completed:** 3 of 71
+**Current Task:** TASK-2 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-10-17 — Iteration 3
+- **TASK-2** Shared deterministic PRNG + hash library → **DONE**
+  - New module `app/src/shared/random.ts` (280 lines) — pure TypeScript, zero imports.
+    Exports:
+      - `seedFromString(s: string): bigint` (FNV-1a 64-bit over UTF-8 bytes via `TextEncoder`).
+      - `Rng` class (xoshiro128** over a 4×U32 state seeded from any `bigint` via 4× splitmix64 rounds) with `nextU32()`, `nextF64()`, `nextRange(min, max)`, `nextInt(n)`, `pick(arr)`, `nextGauss(mean, sd)`.
+      - `hash2(a, b): bigint` (XOR-multiply mix + splitmix64 finalizer) for per-entity sub-seeds.
+  - Two test files: `random.test.ts` (node env) and `random.parity.test.ts` (happy-dom env via per-file `// @vitest-environment` pragma). The Vitest 4 default is to use the per-file pragma; `environmentMatchGlobs` was removed in v4 so the existing `vitest.config.ts` was updated to document the per-file pattern.
+  - 36 vitest cases pass (21 new + 15 pre-existing). Coverage:
+      - Golden values for `seedFromString` on 4 known strings (incl. FNV offset basis check on `""`).
+      - Golden `nextU32()` and `nextF64()` sequences for `drift-dev-seed-001` (8 each).
+      - Rng construction determinism + cross-seed divergence.
+      - `hash2` stability and order-sensitivity.
+      - `nextRange`, `nextInt` (incl. distribution), `pick`, `nextGauss` (mean/sd check).
+      - 100k-sample chi-square-lite uniformity test (per-bin dev < 20%, chi² < 21.7 at 9 d.o.f.).
+      - Source purity: reads `random.ts`, strips comments, asserts no `Math.random`, `Date.now`, `Date.constructor`, `crypto`, `globalThis.*`, or `performance.now`.
+      - Happy-dom parity: same digest/U32/F64/hash2 values under `// @vitest-environment happy-dom`.
+  - Added `happy-dom` to `app/devDependencies` (lighter than jsdom; we only need `TextEncoder` / `Uint8Array` shape).
+  - `npm run typecheck`, `npm run lint`, `npm run lint:fix`, `npm run test` all clean. No UI surface → no Playwright smoke needed for this task (TASK-2 is `functional` not `ui-ux`).
 
 ### 2026-10-17 — Iteration 2
 - **TASK-68** Scaffold TS monorepo (client/server/shared) with tooling → **DONE**
