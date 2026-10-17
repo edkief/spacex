@@ -2,13 +2,31 @@
 
 `Current Status`
 =================
-**Last Updated:** 2026-10-17 12:35
-**Tasks Completed:** 3 of 71
-**Current Task:** TASK-2 Complete
+**Last Updated:** 2026-10-17 12:40
+**Tasks Completed:** 4 of 71
+**Current Task:** TASK-3 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-10-17 — Iteration 4
+- **TASK-3** Star generator (seeded galaxy layout) → **DONE**
+  - New `app/src/shared/galaxy/` module with:
+    - `types.ts` — `Star`, `SpectralClass`, and placeholder interfaces (`SystemSummary`, `Planet`, `SurfaceChunk`) so future tasks can extend them without breaking the import graph.
+    - `config.ts` — `GALAXY_STAR_COUNT = 200`, `SYSTEM_COUNT_MIN/MAX = 2..8`, log-normal disk geometry, spectral class weights (O=0.5%, …, M=37.5%, sum = 1.0), and three **disjoint** name word lists (52/54/52 entries — capital prefixes, lowercase consonant-vowel-consonant roots, lowercase vowel-ending suffixes; enforced by the test suite).
+    - `stars.ts` — `generateStars(seed, count?)` using `Rng` (TASK-2) + `hash2(masterSeed, BigInt(i))` sub-seeds. Position: log-normal radius + uniform theta + thin Gaussian z (rounded to 6 decimals for cross-platform stability). Name: `prefix+root+suffix` with bounded retry loop for uniqueness. Class: weighted pick from the master RNG (so the *sequence* of classes is fixed). `id` is the zero-padded 16-char hex of the sub-seed.
+    - `canonical.ts` — `canonicalJson(value)` (sorted keys, locale-independent number rendering, rejects NaN/±Infinity/undefined) and `starListChecksum(stars)` (FNV-1a 64-bit folded twice with different offsets → 128-bit hex digest, Node + browser).
+  - Golden snapshot fixture committed: `app/src/shared/galaxy/__fixtures__/stars-dev-seed.json` (seed `drift-dev-seed-001`, count 200, first 25 stars + checksum `6d05a1f1075b13d70e10737e6cf0c9c0`).
+  - `scripts/gen-stars-fixture.ts` — one-off regenerator (`npx tsx scripts/gen-stars-fixture.ts`) for when the generator intentionally changes.
+  - Two test files: `stars.test.ts` (36 cases) and `stars.parity.test.ts` (happy-dom parity, 4 cases). Coverage:
+    - Config tunables: count, systemCount bounds, spectral weights sum-to-1.0, ordering O<B<A<F<G<K<M, list min length, no-overlap, alphabetic.
+    - Generator: default 200, custom count (incl. 0), input validation, determinism across 5 seeds, divergence on different seeds, unique ids, unique names, 16-hex id format, valid class, systemCount in range, name length ≤ 24.
+    - Position: |xy| ≤ 30, |z| < 2, star 0 id equals `hash2(master, 0n)` (sub-seed independence).
+    - Class distribution: roughly matches weights (single-seed loose + 5-seed cumulative ordering).
+    - Golden: fixture exists & well-formed, first-25 equality, count equality, checksum equality, mutation sensitivity.
+    - Canonical: sorted keys, nested, integer/float rendering, rejects NaN/Infinity/undefined, checksum order-independent.
+  - 75 vitest cases pass (39 new + 36 pre-existing). `npm run typecheck`, `npm run lint`, `npm run lint:fix` all clean. TASK-3 is `functional` (no UI surface) → no Playwright smoke needed.
 
 ### 2026-10-17 — Iteration 3
 - **TASK-2** Shared deterministic PRNG + hash library → **DONE**

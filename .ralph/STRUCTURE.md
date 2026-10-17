@@ -1,6 +1,6 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-17 after **TASK-2** (shared PRNG + hash library).
+Snapshot taken 2026-10-17 after **TASK-3** (star generator).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.
@@ -26,6 +26,15 @@ PROJECT_ROOT
 │   ├── prereqs.test.ts          # TASK-1 prerequisite guard tests
 │   ├── src/
 │   │   ├── shared/              # Wire types/utilities shared client+server
+│   │   │   ├── galaxy/          # Seed-derived galaxy geometry (TASK-3+)
+│   │   │   │   ├── types.ts     # Star, SpectralClass, SystemSummary, Planet, SurfaceChunk
+│   │   │   │   ├── config.ts    # GALAXY_STAR_COUNT, spectral weights, name lists
+│   │   │   │   ├── stars.ts     # generateStars(seed, count?) — keystone of SC-2
+│   │   │   │   ├── canonical.ts # canonicalJson + starListChecksum (Node + browser)
+│   │   │   │   ├── stars.test.ts          # Determinism / uniqueness / golden
+│   │   │   │   ├── stars.parity.test.ts   # Same output under happy-dom
+│   │   │   │   └── __fixtures__/
+│   │   │   │       └── stars-dev-seed.json # Committed golden snapshot
 │   │   │   ├── health.ts        # HealthPayload interface + factory
 │   │   │   ├── health.test.ts   # Trivial vitest (TASK-68 acceptance)
 │   │   │   ├── random.ts        # seedFromString + Rng (xoshiro128**) + hash2 (TASK-2)
@@ -46,14 +55,14 @@ PROJECT_ROOT
 │   ├── tests/
 │   │   └── e2e/
 │   │       └── scaffold.spec.ts # Playwright smoke (canvas + /api/health)
+│   ├── scripts/
+│   │   └── gen-stars-fixture.ts # Regenerate __fixtures__/stars-dev-seed.json
 │   ├── tsconfig.json            # Strict TS, path aliases @shared/@client/@server
 │   ├── vite.config.ts           # Vite root, proxy /api + /ws → server :API_PORT
 │   └── vitest.config.ts         # Vitest mirrors vite aliases
 ├── node_modules/                # Top-level runtime deps (gitignored)
 ├── opencode.json                # opencode provider/model registry (repo-local)
-├── ralph/                       # Vendored ralph runtime
-├── ralph.config.json            # Ralph loop config (timeouts, retries, etc.)
-└── scripts/                     # Auxiliary scripts (placeholder)
+└── ralph/                       # Vendored ralph runtime
 ```
 
 ## .ralph/ workspace (Ralph loop state)
