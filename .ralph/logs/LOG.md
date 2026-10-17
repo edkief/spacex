@@ -2,13 +2,31 @@
 
 `Current Status`
 =================
-**Last Updated:** 2026-10-17 13:57
-**Tasks Completed:** 9 of 71
-**Current Task:** TASK-63 Complete
+**Last Updated:** 2026-10-17 14:07
+**Tasks Completed:** 10 of 71
+**Current Task:** TASK-9 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-10-17 — Iteration 10
+- **TASK-9** WS protocol: typed versioned message schema + handshake → **DONE**
+  - New `app/src/shared/protocol/` module (229 + 381 lines):
+    - `index.ts` — `PROTOCOL_VERSION = 1`, `EnvelopeSchema` (strict `{v, type, payload}`), `encodeEnvelope`/`decodeEnvelope`, `parseMessage(type, payload)` (throws `ProtocolError("unknown-type" | "invalid-message" | "invalid-envelope" | "version-mismatch")`), `isMessageType` guard, full re-export of the per-type zod schemas.
+    - `schemas.ts` — One zod schema per message type (24 total, exceeding the "at least 22" requirement): `hello`, `auth`, `auth_ok`, `join_system`, `enter_system`, `state_snapshot`, `entity_update`, `chat`, `input`, `warp`, `interact`, `mine`, `sell`, `buy_ship`, `set_livery`, `exit_ship`, `enter_ship`, `repair`, `error`, `ping`, `pong`, `presence`, `target_update`, `combat_event`. Shared sub-schemas: `Vec3Schema`, `ShipClassIdSchema`, `EntityKindSchema`, `RegimeSchema`, `PlayerActivitySchema`, `LiverySchema`, `EntityStateSchema`, `ChatEntrySchema`, `NodeSnapshotSchema`, `PresenceEntrySchema`, `ErrorCodeSchema`. All numeric fields `.finite()` so NaN/Infinity cannot sneak through the parse boundary; envelope and EntityState use `.strict()` to surface typos. `PAYLOAD_SCHEMAS` is the single source of truth — `MessageType = keyof typeof PAYLOAD_SCHEMAS` (auto-tracks additions).
+  - New `app/src/server/ws*.ts` quad (268 + 291 + 85 + 60 lines):
+    - `ws.ts` (public API) — `attachWs(app, wsPath, options?)` wires `ws.Server` to Fastify's HTTP server. Returns `WsHandle` with `close()` (clears keepalive timer + terminates sockets + resolves on `wss.close()`) and `connections()` snapshot. Default keepalive 15 s ping / 45 s pong timeout (matches TASK-9 acceptance criterion).
+    - `ws.connection.ts` — `Connection` struct (state, playerId, callsign, systemId, unknownTypeCount, lastSeenAt) + `ConnectionRegistry` (thin Map wrapper) + `WsConnectionState` discriminated union + `WsConnectionRecord` snapshot.
+    - `ws.dispatch.ts` — `processRawFrame(conn, registry, authResolver, joinResolver, options, raw)` is the single entry point for an inbound text frame. Pipeline: `decodeEnvelope` → envelope-version check (`version-mismatch` error + close 1002) → `parseMessage` (unknown-type counter increments + drops at 10) → state-machine dispatch. State machine `hello → authed → joined` enforces handshake order (sending `auth` before `hello` → `unauthenticated`). `ping`/`pong` legal at every state. Server silently ignores handshake-bootstrap types once `joined`.
+    - `ws.resolvers.ts` — `defaultAuthResolver` (deterministic stable `p-XXXXXXXX` playerId derived from callsign FNV-style hash, 1h expiry) + `defaultJoinResolver` (echoes empty snapshot). Both stubbed for TASK-9; TASK-10/11 will replace with real callsign-uniqueness + system router.
+  - Server public constants exported for tests: `PROTOCOL_VERSION`, `UNKNOWN_TYPE_DROP_THRESHOLD = 10`, `DEFAULT_PING_INTERVAL_MS = 15_000`, `DEFAULT_PONG_TIMEOUT_MS = 45_000`.
+  - Test files (2 new):
+    - `src/shared/protocol/schemas.test.ts` (312 lines, 56 cases) — parametrized over the 24 message types: every canonical valid payload parses, every canonical invalid payload is rejected; `parseMessage` dispatch tests (unknown-type → `ProtocolError("unknown-type")`, malformed → `ProtocolError("invalid-message")`); envelope encode/decode round-trip + rejects non-JSON + rejects wrong-shape + rejects extra-key envelope.
+    - `src/server/ws.test.ts` (466 lines, 12 cases) — real Fastify + `ws.Server` boot on ephemeral port, real `ws` client. Coverage: full happy path (hello → auth_ok → enter_system, asserts connection record reaches `joined` state with `playerId`/`systemId` set); version-mismatched hello rejected with `version-mismatch` + close code 1002; malformed payload rejected with `invalid-message`; 10-strike unknown-type counter drops with close code 1008; handshake-order enforcement (auth-before-hello, join-before-auth → `unauthenticated`); ping/pong echo with timestamp; non-JSON input rejected; custom `joinResolver` propagates full snapshot (including entities/nodes/players/snapshotTick); join resolver rejection mapped to `error{code:"system-full"}` while connection stays alive; keepalive silent > pong timeout → connection terminated and removed from registry.
+  - Smoke verified end-to-end: started `npm run dev`, ran a real `ws` client through hello → auth → join_system, observed hello ack with `serverTickHz=20`, `auth_ok` with deterministic playerId `p-d2b50650`, and `enter_system` snapshot with the stubbed empty system. Dev server shut down cleanly.
+  - **Performance**: `processRawFrame` is ~µs per frame; ws server's setInterval is `.unref()`'d so it doesn't block Node shutdown; close path terminates sockets before `wss.close()` to avoid hanging close events.
+  - 291 vitest cases pass (56 protocol schema + 12 ws integration + 223 pre-existing). `npm run typecheck`, `npm run lint`, `npm run lint:fix`, `npm test` all clean. TASK-9 is `api-endpoint` (not `ui-ux`) → no Playwright smoke required (the spec explicitly says UI tasks only).
 
 ### 2026-10-17 — Iteration 9
 - **TASK-63** Persistence service with save points and crash recovery → **DONE**

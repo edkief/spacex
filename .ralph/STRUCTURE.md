@@ -1,6 +1,6 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-17 after **TASK-63** (Persistence service with save points and crash recovery).
+Snapshot taken 2026-10-17 after **TASK-9** (WS protocol: typed versioned message schema + handshake).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.
@@ -63,6 +63,10 @@ PROJECT_ROOT
 │   │   │   │       └── surface-dev-seed-star0-planet0-chunk01.json  # Chunk (0,1) (TASK-6)
 │   │   │   ├── health.ts        # HealthPayload interface + factory
 │   │   │   ├── health.test.ts   # Trivial vitest (TASK-68 acceptance)
+│   │   │   ├── protocol/        # WS protocol: envelope + handshake + zod schemas (TASK-9)
+│   │   │   │   ├── index.ts          # PROTOCOL_VERSION, EnvelopeSchema, encode/decode, parseMessage, ProtocolError
+│   │   │   │   ├── schemas.ts        # One zod schema per message type + PAYLOAD_SCHEMAS registry
+│   │   │   │   └── schemas.test.ts   # Parametrized valid/invalid + envelope round-trip
 │   │   │   ├── random.ts        # seedFromString + Rng (xoshiro128**) + hash2 (TASK-2)
 │   │   │   ├── random.test.ts   # Golden / distribution / purity suite (node)
 │   │   │   └── random.parity.test.ts # Same golden values under happy-dom
@@ -81,7 +85,11 @@ PROJECT_ROOT
 │   │       ├── persist.test.ts          # 27 cases covering save points + dirty flag (TASK-63)
 │   │       ├── persist.crash.test.ts    # Child-process SIGKILL → loadSystemState round-trip (TASK-63)
 │   │       ├── persist.bench.test.ts    # 16-ship dirty-flush perf benchmark (TASK-63)
-│   │       └── ws.ts            # ws upgrade handler attached to Fastify
+│   │       ├── ws.ts            # ws upgrade handler attached to Fastify (TASK-9)
+│   │       ├── ws.connection.ts # Connection struct + ConnectionRegistry (TASK-9)
+│   │       ├── ws.dispatch.ts   # processRawFrame + state machine + per-state handlers (TASK-9)
+│   │       ├── ws.resolvers.ts  # defaultAuthResolver + defaultJoinResolver stubs (TASK-9)
+│   │       └── ws.test.ts       # Real Fastify+ws boot: handshake, errors, unknown-type, keepalive (TASK-9)
 │   │       └── db/              # Drift persistence layer (TASK-62 / TASK-63)
 │   │           ├── types.ts     # PlayerRow / ShipRow / etc. + zod shapes for JSON columns
 │   │           ├── errors.ts    # CallsignTakenError / InsufficientCreditsError / NotFoundError
