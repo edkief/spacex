@@ -1,0 +1,21 @@
+{
+  "runId": "20261017-121307",
+  "status": "waiting",
+  "startedAt": "2026-10-17T12:13:07.170Z",
+  "updatedAt": "2026-10-17T23:47:44.425Z",
+  "maxIterations": 100,
+  "iteration": 35,
+  "taskId": "TASK-16",
+  "iterationStartedAt": "2026-10-17T22:27:12.088Z",
+  "iterationMs": 2700000,
+  "lastStatus": "failed",
+  "tasksPassed": 26,
+  "tasksTotal": 71,
+  "split": null,
+  "escalation": null,
+  "pending": {
+    "id": "20261017-121307-2",
+    "kind": "stalled",
+    "taskId": "TASK-16"
+  }
+}
