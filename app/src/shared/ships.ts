@@ -47,6 +47,8 @@
  *      *not* depend on (it is intentionally pure-data).
  */
 
+import { z } from "zod";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -60,6 +62,9 @@ export const SHIP_CLASS_IDS: readonly ShipClassId[] = [
   "freighter",
   "interceptor",
 ] as const;
+
+/** Zod schema for inbound class ids (TASK-20 dock buy endpoint). */
+export const ShipClassIdSchema = z.enum(SHIP_CLASS_IDS);
 
 /**
  * Weapon mounts a ship class supports.

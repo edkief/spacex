@@ -9,6 +9,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import type { ServerConfig } from "./config.js";
 import { registerCallsignRoutes } from "./routes/callsigns.js";
 import { registerPlayersRoutes } from "./routes/players.js";
+import { registerShipsRoutes } from "./routes/ships.js";
 import type { Repository } from "./db/repo.js";
 
 export interface BuildAppOptions {
@@ -66,6 +67,14 @@ export async function buildApp(
     // own profile (callsign, credits, home system, starter ship). Same
     // deps as the callsign routes so we wire it alongside.
     registerPlayersRoutes(app, {
+      repo: options.repo,
+      sessionSecret: options.sessionSecret,
+      nowMs: options.nowMs,
+    });
+    // TASK-20: ship self-service endpoints — current ship + dock
+    // purchase. Registered last so the order in the route map matches
+    // the human-readable order in the README.
+    registerShipsRoutes(app, {
       repo: options.repo,
       sessionSecret: options.sessionSecret,
       nowMs: options.nowMs,

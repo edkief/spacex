@@ -1,6 +1,6 @@
 /**
  * SQLite repository — world-domain methods (credits + nodes + sessions +
- * registry).
+ * registry + ship purchase).
  *
  * Implementation methods for operations that operate on cross-player
  * state. The identity methods (players, ships, cargo) live in
@@ -9,7 +9,8 @@
  *
  * The credit helpers live in `./repo.sqlite.world.credits.ts` so this
  * file stays focused on the non-credit world surface (nodes,
- * sessions, registry) and on the `runInTransaction` plumbing.
+ * sessions, registry) and on the transaction plumbing used by
+ * `purchaseShip`.
  */
 import { eq, and } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
@@ -19,15 +20,26 @@ import type {
   PlayerRow,
   ResourceNodeStateRow,
   SessionRow,
+  ShipClassId,
+  ShipLivery,
+  ShipRow,
   SystemRegistryRow,
   UpsertNodeStateInput,
 } from "./types.js";
-import { NotFoundError } from "./errors.js";
+import { InsufficientCreditsError, NotFoundError } from "./errors.js";
 import { isoNow } from "./repo.helpers.js";
-import { mapNodeState, mapSession, mapSystemRegistry } from "./repo.sqlite.mappers.js";
-import type { CreateSystemRegistryInput } from "./repo.js";
+import { mapNodeState, mapSession, mapShip, mapSystemRegistry } from "./repo.sqlite.mappers.js";
+import {
+  AlreadyOwnedShipError,
+  DEFAULT_LIVERY,
+  NotDockedError,
+  STARTER_HULL,
+  STARTER_SHIELDS,
+  type CreateSystemRegistryInput,
+} from "./repo.js";
 import {
   sqliteAddSync,
+  sqliteReplaceShip,
   sqliteWithdrawSync,
   type SqliteCreditHandle,
 } from "./repo.sqlite.world.credits.js";
@@ -71,14 +83,14 @@ export function bindSqliteWorld(
   deleteSessionsByPlayerId: (playerId: string) => Promise<number>;
   upsertSystemRegistry: (row: CreateSystemRegistryInput) => Promise<SystemRegistryRow>;
   listActiveShards: () => Promise<SystemRegistryRow[]>;
-  /**
-   * Run a synchronous callback inside a single `BEGIN ... COMMIT`. If
-   * the callback throws, every write the callback issued is rolled
-   * back — that is the property TASK-41 AC #6 ("transaction rollback
-   * on mid-failure") relies on. The callback is sync by design:
-   * better-sqlite3 is sync, so all repo operations inside the open
-   * transaction complete before the callback returns.
-   */
+  purchaseShip: (input: {
+    playerId: string;
+    classId: ShipClassId;
+    price: number;
+    hull: number;
+    shields: number;
+    livery: ShipLivery;
+  }) => Promise<ShipRow>;
   runInTransaction: <T>(fn: (tx: SqliteCreditHandle) => T) => Promise<T>;
 } {
   return {
@@ -230,6 +242,85 @@ export function bindSqliteWorld(
       return rows.map(mapSystemRegistry);
     },
 
+    /**
+     * TASK-20 ship purchase. Opens its own `BEGIN ... COMMIT`
+     * transaction so the validation + credit + ship steps are
+     * atomic. The mid-flight validation that requires DB state
+     * reads (current ship row, docked state) happens inside the
+     * callback; if any check fails the transaction rolls back and
+     * the player keeps their old ship + cargo.
+     *
+     * The route layer (`@server/routes/ships.ts`) is responsible
+     * for parsing the inbound body, looking up the catalog price,
+     * and translating the typed errors into HTTP responses.
+     */
+    purchaseShip(input: {
+      playerId: string;
+      classId: ShipClassId;
+      price: number;
+      hull: number;
+      shields: number;
+      livery: ShipLivery;
+    }): Promise<ShipRow> {
+      // Wrap the synchronous drizzle transaction in a Promise so
+      // thrown errors (NotFoundError, NotDockedError,
+      // InsufficientCreditsError, AlreadyOwnedShipError) surface
+      // as rejections rather than escaping the function call. The
+      // inner `db.transaction(...)` rolls back on any throw.
+      return new Promise<ShipRow>((resolve, reject) => {
+        try {
+          const result = db.transaction((txDb): ShipRow => {
+            // 1. Verify the player currently owns a ship row.
+            const ownedRows = txDb
+              .select()
+              .from(sqliteSchema.ships)
+              .where(eq(sqliteSchema.ships.ownerId, input.playerId))
+              .limit(1)
+              .all();
+            if (ownedRows.length === 0) {
+              throw new NotFoundError("PlayerShip", input.playerId);
+            }
+            const existing = mapShip(ownedRows[0]!);
+
+            // 2. Already owns this exact class? Route maps to 409.
+            if (existing.classId === input.classId) {
+              throw new AlreadyOwnedShipError(input.playerId, input.classId);
+            }
+
+            // 3. Must be docked to buy (mid-flight purchase would be
+            //    physically nonsensical — see spec).
+            if (existing.state !== "docked") {
+              throw new NotDockedError(input.playerId);
+            }
+
+            // 4. Withdraw the price. Throws `InsufficientCreditsError`
+            //    on insufficient funds; Drizzle rolls back if it
+            //    propagates out of the callback.
+            try {
+              sqliteWithdrawSync(txDb, input.playerId, input.price);
+            } catch (err) {
+              if (err instanceof InsufficientCreditsError) throw err;
+              throw err;
+            }
+
+            // 5. Replace the ship row + cascade the cargo.
+            const newShip = sqliteReplaceShip(
+              txDb,
+              input.playerId,
+              input.classId,
+              input.hull,
+              input.shields,
+              input.livery,
+            );
+            return newShip;
+          });
+          resolve(result);
+        } catch (err) {
+          reject(err);
+        }
+      });
+    },
+
     async runInTransaction<T>(fn: (tx: SqliteCreditHandle) => T): Promise<T> {
       // Drizzle's `db.transaction()` wraps the callback in a real
       // SQLite transaction (BEGIN ... COMMIT). The callback receives a
@@ -245,6 +336,16 @@ export function bindSqliteWorld(
         const tx: SqliteCreditHandle = {
           addCredits: (pid, amount) => sqliteAddSync(txDb, pid, amount),
           withdrawCredits: (pid, amount) => sqliteWithdrawSync(txDb, pid, amount),
+          /**
+           * The transaction handle's `replaceOwnedShip` is a
+           * convenience for callers that already know the row data
+           * — typically used by tests. Public callers go through
+           * `purchaseShip` which opens its own BEGIN. Falls back to
+           * `STARTER_HULL/SHIELDS + DEFAULT_LIVERY` so the
+           * "replace with starter defaults" use case is simple.
+           */
+          replaceOwnedShip: (pid, classId) =>
+            sqliteReplaceShip(txDb, pid, classId, STARTER_HULL, STARTER_SHIELDS, DEFAULT_LIVERY),
         };
         return fn(tx);
       });

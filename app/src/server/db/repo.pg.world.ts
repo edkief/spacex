@@ -15,13 +15,24 @@ import type {
   PlayerRow,
   ResourceNodeStateRow,
   SessionRow,
+  ShipClassId,
+  ShipLivery,
+  ShipRow,
   SystemRegistryRow,
   UpsertNodeStateInput,
 } from "./types.js";
 import { InsufficientCreditsError, NotFoundError } from "./errors.js";
 import { assertPositiveInt } from "./repo.helpers.js";
-import { mapNodeState, mapPlayer, mapSession, mapSystemRegistry } from "./repo.pg.mappers.js";
-import type { CreateSystemRegistryInput } from "./repo.js";
+import {
+  mapNodeState,
+  mapPlayer,
+  mapShip,
+  mapSession,
+  mapSystemRegistry,
+} from "./repo.pg.mappers.js";
+import { AlreadyOwnedShipError, NotDockedError, type CreateSystemRegistryInput } from "./repo.js";
+import { ShipLiverySchema } from "./types.js";
+import { randomUUID } from "node:crypto";
 
 /**
  * Cross-player lookup callback used by world methods. Filled in by the
@@ -58,6 +69,14 @@ export function bindPgWorld(
   deleteSessionsByPlayerId: (playerId: string) => Promise<number>;
   upsertSystemRegistry: (row: CreateSystemRegistryInput) => Promise<SystemRegistryRow>;
   listActiveShards: () => Promise<SystemRegistryRow[]>;
+  purchaseShip: (input: {
+    playerId: string;
+    classId: ShipClassId;
+    price: number;
+    hull: number;
+    shields: number;
+    livery: ShipLivery;
+  }) => Promise<ShipRow>;
 } {
   return {
     async addCredits(playerId: string, amount: number): Promise<PlayerRow> {
@@ -203,6 +222,83 @@ export function bindPgWorld(
         .from(pgSchema.systemRegistry)
         .where(eq(pgSchema.systemRegistry.shardActive, true));
       return rows.map(mapSystemRegistry);
+    },
+
+    async purchaseShip(input: {
+      playerId: string;
+      classId: ShipClassId;
+      price: number;
+      hull: number;
+      shields: number;
+      livery: ShipLivery;
+    }): Promise<ShipRow> {
+      // Postgres uses `db.transaction()` to wrap the SQL flow —
+      // drizzle's pg driver issues `BEGIN` / `COMMIT` on the
+      // connection, atomically committing the credit withdraw +
+      // ship delete + ship insert. Any throw here rolls the whole
+      // batch back; the player keeps their old ship + cargo.
+      return db.transaction(async (txDb): Promise<ShipRow> => {
+        // 1. Verify the player currently owns a ship row.
+        const ownedRows = await txDb
+          .select()
+          .from(pgSchema.ships)
+          .where(eq(pgSchema.ships.ownerId, input.playerId))
+          .limit(1);
+        if (ownedRows.length === 0) {
+          throw new NotFoundError("PlayerShip", input.playerId);
+        }
+        const existing = mapShip(ownedRows[0]!);
+
+        // 2. Already owns this exact class? Route maps to 409.
+        if (existing.classId === input.classId) {
+          throw new AlreadyOwnedShipError(input.playerId, input.classId);
+        }
+
+        // 3. Must be docked.
+        if (existing.state !== "docked") {
+          throw new NotDockedError(input.playerId);
+        }
+
+        // 4. Withdraw the price (compare-and-swap on credits).
+        //    The credit helper throws `InsufficientCreditsError` on
+        //    failure; PG rolls back via the outer transaction.
+        const debited = await txDb
+          .update(pgSchema.players)
+          .set({ credits: sql`${pgSchema.players.credits} - ${input.price}` })
+          .where(
+            and(
+              eq(pgSchema.players.id, input.playerId),
+              sql`${pgSchema.players.credits} >= ${input.price}`,
+            ),
+          )
+          .returning({ id: pgSchema.players.id });
+        if (debited.length === 0) {
+          const after = await identity.findPlayerById(input.playerId);
+          throw new InsufficientCreditsError(input.playerId, after?.credits ?? 0, input.price);
+        }
+
+        // 5. Replace the ship (delete old + cascade cargo, then insert new).
+        await txDb.delete(pgSchema.ships).where(eq(pgSchema.ships.ownerId, input.playerId));
+        // Re-parse the livery through zod as a defence-in-depth step.
+        const safeLivery = ShipLiverySchema.parse(input.livery);
+        const inserted = await txDb
+          .insert(pgSchema.ships)
+          .values({
+            id: randomUUID(),
+            ownerId: input.playerId,
+            classId: input.classId,
+            livery: safeLivery,
+            hull: input.hull,
+            shields: input.shields,
+            position: { systemId: "", x: 0, y: 0, z: 0 },
+            velocity: { x: 0, y: 0, z: 0 },
+            state: "docked",
+          })
+          .returning();
+        const first = inserted[0];
+        if (!first) throw new Error("purchaseShip: insert returned no rows");
+        return mapShip(first);
+      });
     },
   };
 }

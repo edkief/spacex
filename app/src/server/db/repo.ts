@@ -42,7 +42,6 @@ import type {
 } from "./types.js";
 import { createSqliteRepository } from "./repo.sqlite.js";
 import { createPgRepository } from "./repo.pg.js";
-import type { SqliteCreditHandle } from "./repo.sqlite.world.credits.js";
 
 /** Re-export shared helpers so callers have a single import path. */
 export { CallsignTakenError, InsufficientCreditsError, NotFoundError } from "./errors.js";
@@ -75,10 +74,6 @@ export interface CreateSystemRegistryInput {
  * Slim "credit row" projection returned by transaction-bound helpers.
  * Avoids the cost of mapping a full `PlayerRow` when the callback only
  * needs `{ id, credits }` (e.g. the dock-sell flow in TASK-40).
- *
- * Defined here as a type re-export so callers can `import` it from
- * the same place they import the `Repository` shape. The canonical
- * implementation lives in `./repo.sqlite.world.credits.ts`.
  */
 export type PlayerCreditSlice = {
   id: string;
@@ -86,19 +81,35 @@ export type PlayerCreditSlice = {
 };
 
 /**
- * Synchronous credit helpers exposed to a `runInTransaction` callback.
+ * Driver-agnostic ship replacement handle (TASK-20).
  *
- * The callback is invoked inside a `BEGIN ... COMMIT` block; if it
- * throws, every credit write the callback issued is rolled back. The
- * two methods are intentionally limited to credit mutations because
- * the only TASK-41 use case is "withdraw + record an audit row"; a
- * future TASK (e.g. TASK-40 dock selling) extends this with cargo
- * + node-state helpers as needed.
- *
- * Re-exported from `./repo.sqlite.world.credits.ts` so the type can
- * be referenced without the SQLite-specific import path.
+ * Exposed to a `runInTransaction` callback by both the SQLite and the
+ * Postgres repository. Lets the caller delete the player's current
+ * ship (cascade-deleting cargo) and insert a fresh row for a new
+ * class, all atomically with the credit withdraw.
  */
-export type SqliteRepositoryTransaction = SqliteCreditHandle;
+export interface ShipReplacementHandle {
+  /**
+   * Replace the player's currently-owned ship. The old ship row is
+   * deleted (with its `cargo_items` via cascade) and a new row is
+   * inserted for the given class. The new ship is returned so the
+   * caller can emit follow-up broadcasts (TASK-20).
+   *
+   * The replacement is synchronous with respect to the open
+   * transaction; throwing here rolls back everything the callback did.
+   */
+  replaceOwnedShip: (playerId: string, classId: ShipClassId) => ShipRow;
+}
+
+/**
+ * Synchronous transaction-handle type used by the SQLite repository's
+ * `runInTransaction` helper. Composes the credit helpers (TASK-41)
+ * with the ship-replacement helper (TASK-20).
+ */
+export interface SqliteRepositoryTransaction extends ShipReplacementHandle {
+  addCredits: (playerId: string, amount: number) => PlayerCreditSlice;
+  withdrawCredits: (playerId: string, amount: number) => PlayerCreditSlice;
+}
 
 /**
  * Repository contract — both driver implementations satisfy this shape.
@@ -157,6 +168,57 @@ export interface Repository {
   // System registry
   upsertSystemRegistry(row: CreateSystemRegistryInput): Promise<SystemRegistryRow>;
   listActiveShards(): Promise<SystemRegistryRow[]>;
+
+  // Ship purchase (TASK-20)
+  /**
+   * Atomic ship purchase. Validates preconditions (`currentShip.state
+   * === 'docked'`, no duplicate-class purchase), withdraws the dock
+   * price via the compare-and-swap credit helper, deletes the old
+   * ship (cascading to cargo) and inserts a fresh ship row all
+   * inside a single `BEGIN ... COMMIT`. The returned row is the new
+   * ship so the caller can broadcast `entity_update`.
+   *
+   * Initial hull + shields + price + livery are passed in by the
+   * caller (the route layer reads them off the `@shared/ships`
+   * catalog). Both driver implementations throw the same typed
+   * errors so the route can map them to HTTP codes:
+   *
+   *   - `InsufficientCreditsError` — price > current balance
+   *   - `NotDockedError`            — player is mid-flight, not docked
+   *   - `AlreadyOwnedShipError`     — currentShip.classId === classId
+   *   - `NotFoundError`             — unknown playerId
+   *
+   * `@see ./errors.ts` for the typed error classes.
+   */
+  purchaseShip(input: {
+    playerId: string;
+    classId: ShipClassId;
+    price: number;
+    hull: number;
+    shields: number;
+    livery: ShipLivery;
+  }): Promise<ShipRow>;
+}
+
+/** Typed error thrown by `purchaseShip` when the player is mid-flight. */
+export class NotDockedError extends Error {
+  readonly kind = "not_docked" as const;
+  constructor(public readonly playerId: string) {
+    super(`Player ${playerId} is not docked; cannot purchase a ship`);
+    this.name = "NotDockedError";
+  }
+}
+
+/** Typed error thrown by `purchaseShip` when the player already owns that class. */
+export class AlreadyOwnedShipError extends Error {
+  readonly kind = "already_owned_ship" as const;
+  constructor(
+    public readonly playerId: string,
+    public readonly classId: ShipClassId,
+  ) {
+    super(`Player ${playerId} already owns a ship of class ${classId}`);
+    this.name = "AlreadyOwnedShipError";
+  }
 }
 
 /** Canonical default livery — used by `getOrCreateStarterShip`. */
@@ -174,7 +236,7 @@ export function defaultPosition(homeSystemId: string): ShipPosition {
 /** Canonical zero-velocity starting point. */
 export const ZERO_VELOCITY: ShipVelocity = { x: 0, y: 0, z: 0 };
 
-/** Default starter hull and shields (TASK-22 flight + TASK-23 damage tuning). */
+/** Default starter hull and shields for the starter scout (TASK-19 ships.ts). */
 export const STARTER_HULL = 100;
 export const STARTER_SHIELDS = 100;
 

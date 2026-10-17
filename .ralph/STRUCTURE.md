@@ -1,6 +1,6 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-17 after **TASK-22** (Shared flight model: space, atmosphere, VTOL (deterministic)).
+Snapshot taken 2026-10-17 after **TASK-20** (Ship acquisition: starter ship + dock purchase).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.
@@ -119,7 +119,11 @@ PROJECT_ROOT
 │   │       │   ├── callsigns.test.ts # 11 cases: POST /api/callsigns + GET /api/session (REST integration via fastify.inject) (TASK-10)
 │   │       │   ├── logout.test.ts # 12 cases: POST /api/session/logout revoke + double-logout + tampered/garbage tokens (TASK-66)
 │   │       │   ├── players.ts # GET /api/players/me — callsign/credits/home/ship (TASK-41)
-│   │       │   └── players.test.ts # 8 cases: happy-path, reflected mutations, 401 paths, per-player isolation (TASK-41)
+│   │       │   ├── players.test.ts # 8 cases: happy-path, reflected mutations, 401 paths, per-player isolation (TASK-41)
+│   │       │   ├── ships.ts # GET /api/ships + POST /api/ships/buy — current ship + dock purchase (TASK-20)
+│   │       │   └── ships.test.ts # 16 cases: starter on claim, happy-path buy for each class, all error paths, event-bus broadcast (TASK-20)
+│   │       ├── shards/          # In-process shard event bus (TASK-20; future TASK-11/15 consumers)
+│   │       │   └── event-bus.ts # ShipSwapEvent + ShardsBus singleton (EventEmitter + process.nextTick)
 │   │       └── auth/            # Token codec + WS auth resolver (TASK-10)
 │   │           ├── token.ts     # HMAC-SHA256 session-token codec: sign/verify/hashToken + clock-skew tolerance (TASK-10)
 │   │           ├── resolver.ts  # claimCallsign + resumeSession + revokeSession + buildAuthResolver + buildLogoutResolver + pickHomeSystemId (TASK-10 + TASK-66)
@@ -147,6 +151,7 @@ PROJECT_ROOT
 │   │           ├── repo.pg.world.ts          # credits / nodes / sessions / registry (Postgres)
 │   │           ├── repo.pg.mappers.ts        # native-Date + jsonb coercion for Postgres
 │   │           ├── migrate.test.ts            # migrateSqlite() idempotency + table sanity (TASK-62)
+│   │           ├── repo.purchase.test.ts      # 9 cases: purchaseShip happy/error/atomicity (TASK-20)
 │   │           ├── pg.parity.test.ts          # drizzle-kit generate parity (no live PG required)
 │   │           ├── repo.test.shared.ts        # per-test harness factory (`installRepoHooks()`)
 │   │           ├── repo.players.test.ts       # createPlayer / findPlayer* / CallsignTakenError
