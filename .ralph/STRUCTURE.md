@@ -1,6 +1,6 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-17 after **TASK-64** (Input validation on all inbound messages).
+Snapshot taken 2026-10-17 after **TASK-10** (Callsign-only auth with signed session tokens).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.
@@ -99,7 +99,16 @@ PROJECT_ROOT
 │   │       ├── ws.fuzz-helpers.ts # bootFuzzHarness + openFuzzClient + collectFuzzMessages (TASK-64)
 │   │       ├── ws.fuzz-payloads.ts # 20 crafted malformed payloads + REQUIRED_FUZZ_NAMES + nestedObject/byteString builders (TASK-64)
 │   │       ├── validation-fuzz.test.ts # 6 cases: 20-payload burst + 1 MB size cap + health hammered + threshold pin (TASK-64)
-│   │       └── ws.test.ts       # Real Fastify+ws boot: handshake, errors, unknown-type, keepalive (TASK-9)
+│   │       ├── ws.auth.test.ts # WS auth via real callsign/token resolver: claim, resume, duplicate, out-of-order (TASK-10)
+│   │       ├── ws.test.ts       # Real Fastify+ws boot: handshake, errors, unknown-type, keepalive (TASK-9)
+│   │       ├── routes/          # REST route registrations
+│   │       │   └── callsigns.ts # POST /api/callsigns + GET /api/session (TASK-10)
+│   │       │   └── callsigns.test.ts # 11 cases: POST /api/callsigns + GET /api/session (REST integration via fastify.inject) (TASK-10)
+│   │       └── auth/            # Token codec + WS auth resolver (TASK-10)
+│   │           ├── token.ts     # HMAC-SHA256 session-token codec: sign/verify/hashToken + clock-skew tolerance (TASK-10)
+│   │           ├── resolver.ts  # claimCallsign + resumeSession + buildAuthResolver + pickHomeSystemId (TASK-10)
+│   │           ├── token.test.ts # 16 cases: round-trip, expiry (fake clock), MAC tamper, payload tamper, length-tolerance (TASK-10)
+│   │           └── resolver.test.ts # 19 cases: schema validation, claim happy path, duplicate, resume, profile, WS resolver adapter (TASK-10)
 │   │       └── db/              # Drift persistence layer (TASK-62 / TASK-63)
 │   │           ├── types.ts     # PlayerRow / ShipRow / etc. + zod shapes for JSON columns
 │   │           ├── errors.ts    # CallsignTakenError / InsufficientCreditsError / NotFoundError

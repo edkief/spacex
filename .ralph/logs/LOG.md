@@ -2,7 +2,49 @@
 
 `Current Status`
 =================
-**Last Updated:** 2026-10-17 14:53
+**Last Updated:** 2026-10-17 15:10
+
+### 2026-10-17 — Iteration 13
+- **TASK-10** Callsign-only auth with signed session tokens → **DONE**
+  - New `app/src/server/auth/token.ts` (~285 lines) — HMAC-SHA256 session-token codec:
+    - `sign(secret, payload)` / `verify(secret, token, nowSec?)` — base64url `<payload>.<sig>` format, constant-time MAC compare (`timingSafeEqual`) with length-mismatch dummy so rejection timing does not encode attacker payload size.
+    - `mintToken({ playerId, systemId?, ttlMs?, nowMs? })` stamps `exp` to `nowSec + ttlMs/1000`; defaults to 7-day TTL (`DEFAULT_TTL_MS`).
+    - `hashToken(token)` returns `sha256(token)` for the `sessions.tokenHash` storage key. Raw tokens never persisted.
+    - `assertValidSecret(secret)` — refuses secrets shorter than 32 bytes at server boot (`SECRET_MIN_BYTES`). Server boot fails loudly if `SESSION_SECRET` is missing/short.
+    - `TokenVerificationError` discriminated error (`malformed | bad-signature | expired | invalid-payload`) for callers that want to branch on failure mode.
+    - `CLOCK_SKEW_TOLERANCE_SEC=30` accepts tokens up to 30 s past `exp` to handle a slow client clock.
+  - New `app/src/server/auth/resolver.ts` (~373 lines) — callsign claim + session resume:
+    - `CallsignSchema` (zod): 3-16 chars, `[A-Za-z0-9-]+` after trim.
+    - `pickHomeSystemId(callsign, starCount, seed)` — FNV-1a hash of lowercase callsign → `stars[hash % count]`. Pure: same callsign always lands at same system; different callsigns may collide (acceptable; spec says "chosen from the galaxy").
+    - `claimCallsign(repo, secret, callsign, options)` — validates, picks home, creates player + starter ship (`scout` class, per spec), mints token, inserts `sessions` row by hash, returns `{ playerId, callsign, homeSystemId, shipId, token, tokenExpiresAt }`.
+    - `resumeSession(repo, secret, token)` — verifies sig + exp, looks up `tokenHash` in `sessions`, confirms player row exists, returns the profile. `null` for every failure mode.
+    - `loadSessionProfile(repo, secret, token)` — `GET /api/session` data: `{ playerId, callsign, credits, homeSystemId, shipId, tokenExpiresAt }`.
+    - `buildAuthResolver(repo, secret, defaults)` returns an `AuthResolver` shape that handles BOTH `{callsign}` and `{token}` WS payload branches per the existing TASK-9 `AuthSchema` union. Callsign-taken is mapped to a generic Error so the wire is opaque about which check failed; the REST path returns the typed `409` instead.
+  - New `app/src/server/routes/callsigns.ts` (~95 lines) — Fastify REST routes:
+    - `POST /api/callsigns` — `200 { callsign, token, playerId, homeSystemId, shipId, tokenExpiresAt }`; `409 {code:'callsign-taken'}`; `422 {code:'invalid-callsign'}`.
+    - `GET /api/session` — `Authorization: Bearer <token>` → `200 { playerId, callsign, credits, homeSystemId, shipId, tokenExpiresAt }`; `401 {code:'unauthenticated'}` for missing / bad MAC / unknown session.
+  - Server boot wiring (`app/src/server/index.ts`):
+    - `assertValidSecret(serverConfig.sessionSecret)` runs before `app.listen()` — process exits if the secret is missing/short.
+    - Real DB client + repository created on boot; `migrate()` applied.
+    - `registerCallsignRoutes(app, { repo, sessionSecret, claimDefaults })` wired in.
+    - `attachWs({ authResolver: buildAuthResolver(...) })` replaces the TASK-9 stub with the real callsign/token resolver — WS handshake now goes through the full repo path.
+    - Graceful shutdown closes the WS handle, Fastify, AND the SQLite handle (TASK-10 fixed a leak from the original entry point).
+  - Acceptance criteria coverage:
+    - ✅ Claim success returns player profile + token + starter ship.
+    - ✅ Duplicate claim → `409 {code:'callsign-taken'}` (REST) / `unauthenticated` + close 1008 (WS).
+    - ✅ HMAC-SHA256 token signed with `SESSION_SECRET`; storage hash = `sha256(token)`; raw token never persisted or logged.
+    - ✅ `GET /api/session` profile; missing/bad/expired → 401.
+    - ✅ WS `auth{token}` resumes sessions; `auth{callsign}` claims new players.
+    - ✅ Expired-token test (fake clock past skew tolerance) rejects.
+    - ✅ Invalid signature test rejects.
+    - ✅ WS auth path integration test (real Fastify+ws boot).
+    - ✅ Out-of-order handshake frames (e.g. chat-before-hello) get `unauthenticated` error WITHOUT incrementing the strike counter (TASK-64 contract preserved).
+  - Test count: 36 test files / 371 cases (was 32 / 320). New: `token.test.ts` (16), `resolver.test.ts` (19), `callsigns.test.ts` (11), `ws.auth.test.ts` (5) = +51 new cases.
+  - Smoke tested live: `npm run dev` boots cleanly with the new auth path; `POST /api/callsigns {callsign: TestAlpha1}` returns the expected payload; a duplicate returns `409 {code:'callsign-taken'}`; `GET /api/session` with the issued token returns the profile; an unauthenticated `GET` returns `401 {code:'unauthenticated'}`; bad/short callsign returns `422 {code:'invalid-callsign'}`; a real `ws` client drives the full handshake and receives an `auth_ok` frame with `playerId`/`callsign`/`tokenExpiresAt`.
+  - **`npm run typecheck` + `npm run lint` + `npm test` all green** (371/371). TASK-10 is `security` (server-side only, no UI surface) → no Playwright smoke needed, no screenshot. WS handshake continues to use the TASK-9 state machine; only the resolver closure has been swapped.
+
+**Tasks Completed:** 12 of 71
+**Current Task:** TASK-10 Complete
 
 ### 2026-10-17 — Iteration 12
 - **TASK-65** Per-connection rate limiting and chat spam control → **DONE**
