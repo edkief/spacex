@@ -1,6 +1,6 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-17 after **TASK-41** (Credits balance with persistence and spend rules).
+Snapshot taken 2026-10-17 after **TASK-22** (Shared flight model: space, atmosphere, VTOL (deterministic)).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.
@@ -71,7 +71,17 @@ PROJECT_ROOT
 │   │   │   ├── random.test.ts   # Golden / distribution / purity suite (node)
 │   │   │   ├── random.parity.test.ts # Same golden values under happy-dom
 │   │   │   ├── ships.ts         # SHIP_CLASSES + shipStats/compareShips/totalWeaponCount/shipPrice (TASK-19)
-│   │   │   └── ships.test.ts    # 32 cases: shape, stat validity, balance, helpers, throw on unknown
+│   │   │   ├── ships.test.ts    # 32 cases: shape, stat validity, balance, helpers, throw on unknown
+│   │   │   ├── physics/         # Deterministic ship flight model (TASK-22)
+│   │   │   │   ├── vec.ts          # Vec3 + Quat math (plain objects, zero deps)
+│   │   │   │   ├── vec.test.ts     # 21 cases: ops + rotations + orthonormal mat3
+│   │   │   │   ├── atmosphere.ts   # PlanetAtmosphere + boundaryFactor + dragCoefficient (shared with TASK-28)
+│   │   │   │   ├── atmosphere.test.ts # 19 cases: ramp continuity + density scaling
+│   │   │   │   ├── flight.ts       # integrateShip(state, input, dt, regime, shipClass, planet?) + helpers
+│   │   │   │   ├── flight.test.ts  # 33 cases: space/atmo/VTOL/pad/speed cap/determinism/golden
+│   │   │   │   └── __fixtures__/
+│   │   │   │       ├── README.md            # Regeneration rules for committed fixtures (TASK-22)
+│   │   │   │       └── trajectories.ts      # Golden 60s space + 30s atmo final states (TASK-22)
 │   │   ├── client/              # React + three.js frontend (Vite)
 │   │   │   ├── App.tsx          # Top-level shell
 │   │   │   ├── components/      # UI sub-components (CanvasStage.tsx)
@@ -155,7 +165,8 @@ PROJECT_ROOT
 │   │   ├── gen-system-star1-fixture.ts  # Regenerate __fixtures__/system-dev-seed-star1.json (TASK-6)
 │   │   ├── gen-surface-fixture.ts       # Regenerate chunk00 fixture (TASK-5)
 │   │   ├── gen-surface-chunk10-fixture.ts # Regenerate chunk10 fixture (TASK-6)
-│   │   └── gen-surface-chunk01-fixture.ts # Regenerate chunk01 fixture (TASK-6)
+│   │   ├── gen-surface-chunk01-fixture.ts # Regenerate chunk01 fixture (TASK-6)
+│   │   ├── gen-flight-trajectories.ts   # Regenerate flight golden fixtures (TASK-22)
 │   ├── tsconfig.json            # Strict TS, path aliases @shared/@client/@server
 │   ├── vite.config.ts           # Vite root, proxy /api + /ws → server :API_PORT
 │   └── vitest.config.ts         # Vitest mirrors vite aliases

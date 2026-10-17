@@ -2,10 +2,53 @@
 
 `Current Status`
 =================
-**Last Updated:** 2026-10-17 16:50
+**Last Updated:** 2026-10-17 16:58
 
-**Tasks Completed:** 15 of 71
-**Current Task:** TASK-41 Complete
+**Tasks Completed:** 16 of 71
+**Current Task:** TASK-22 Complete
+
+### 2026-10-17 — Iteration 18
+- **TASK-22** Shared flight model: space, atmosphere, VTOL (deterministic) → **DONE**
+  - New `app/src/shared/physics/vec.ts` (~270 lines, zero deps):
+    - `Vec3` and `Quat` plain-object types with frozen `ZERO / X_AXIS / Y_AXIS / Z_AXIS / IDENTITY` constants.
+    - Vec3 ops: `vecAdd / vecSub / vecScale / vecDot / vecCross / vecLength / vecLengthSq / vecNormalize / vecLerp / vecEquals / vecMin / vecMax / vecClamp`. All pure, no mutation.
+    - Quat ops: `quatFromAxisAngle / quatFromEuler / quatMul / quatNormalize / quatRotateVector / quatToMat3 / quatLength / quatLengthSq`. The optimised `quatRotateVector` uses the `v + 2 q_w (q_v × v) + 2 (q_v × (q_v × v))` form (one quaternion-vector multiply equivalent).
+    - Convention: yaw (world +Y) → pitch (body +X) → roll (body +Z), intrinsic; `quatFromEuler` returns the normalised result so compound rotations don't drift.
+  - New `app/src/shared/physics/atmosphere.ts` (~150 lines, zero deps):
+    - `PlanetAtmosphere` interface (id, radius, atmosphereHeight, atmosphereDensity, hasAtmosphere, heightAt callback, optional pads).
+    - `boundaryFactor(altitude, planet)` returns the continuous 0..1 ramp over `BOUNDARY_RAMP_WIDTH_M = 1000 m` (1 km band) per spec; 0 above the band, 1 at the surface, linear in between. Same function reused by TASK-28.
+    - `dragCoefficient(altitude, planet, mass, area = 1)` returns `planet.atmosphereDensity * (mass / area) * boundaryFactor(altitude)` per spec AC.
+    - `altitudeFromPlanet(pos, planet)` convenience for `pos.y - planet.radius` (clamped at 0).
+    - `makeFlatPlanet({...})` test factory (returns a planet with a flat heightAt).
+  - New `app/src/shared/physics/flight.ts` (~440 lines):
+    - `FlightRegime = "space" | "atmosphere" | "surface"`.
+    - `ShipState { pos, vel, quat, regime, onPad? }` — input state is read-only, output is a fresh object.
+    - `ShipInput { thrust ∈ [0,1], yaw ∈ [-1,1], pitch ∈ [-1,1], roll ∈ [-1,1], up ∈ [0,1] }`. Sanitised (clamp + NaN→0) at the top of the integration.
+    - `FlightOptions` tuning knobs (`vtolThrust`, `dragArea`, `softCapDecay`, `substepMaxTravel`, `padRadius`) with documented defaults.
+    - `FlightPad { id, x, z, height, radius }` for VTOL docking.
+    - `integrateShip(state, input, dt, regime, shipClass, planet?, options?)`:
+      - Pure function, no `Math.random` / `Date.now` / I/O.
+      - Throws on unknown regime, on negative `dt`, on malformed `state`/`shipClass`, and when an atmosphere/surface regime is called without a `planet` (caller's bug).
+      - Body-frame rotation via right-multiply (`quat * dRot`) — yields `forward = quatRotateVector(quat, Z_AXIS)`.
+      - Space regime: thrust along forward scaled by `input.thrust * shipClass.acceleration`; no drag; soft speed cap decays the excess above `maxVelocity` per step.
+      - Atmosphere regime: quadratic drag `a = -k * |v| * v` with `k = dragCoefficient(altitude, planet, mass, area) * boundaryFactor`. Soft speed cap still applies.
+      - VTOL: when `input.up > 0` AND `|vel_horizontal| < 5 u/s`, apply `vel.y += input.up * vtolThrust * dt` (independent of heading per spec).
+      - Ground collision: `terrainY = planet.radius + planet.heightAt(pos.x, pos.z)`. If `nextPos.y <= terrainY` clamp to terrain and zero `vel.y`. Substep when `|vel| * dt > substepMaxTravel` (default 2 m) to prevent tunneling. Pad detection: within the largest `padRadius`, on the ground, `|vel.y| < 2 u/s` → `state.onPad = pad.id`.
+      - Re-exports the `vec.ts` and `atmosphere.ts` helpers + a `integrateShipByClassId` convenience wrapper that does the `SHIP_CLASSES` lookup and throws on unknown class ids.
+  - New `app/src/shared/physics/__fixtures__/trajectories.ts` (~100 lines, AUTO-GENERATED):
+    - Two golden trajectories: 60 s space flight (scout, full thrust, no rotation) + 30 s atmosphere descent (3 km up, gentle downward velocity, light VTOL + partial thrust, pad present).
+    - Recorded final state + start + input + planet configuration; tests re-run the same integration and assert the result matches to within `1e-9` per axis (determinism tolerance).
+    - Plus `README.md` documenting the regeneration command: `npx tsx scripts/gen-flight-trajectories.ts`.
+  - New `app/scripts/gen-flight-trajectories.ts` (~210 lines): the one-off fixture generator.
+  - Tests (70 new cases, all green + 610 prior → 680 total):
+    - `vec.test.ts` (21 cases): vec ops are pure; quaternion from axis-angle rotates X/Y/Z correctly; Euler formula rotates yaw → pitch → roll; `quatToMat3` is orthonormal; round-trip quaternion rotation is identity; `quatNormalize` keeps the unit length.
+    - `atmosphere.test.ts` (19 cases): `boundaryFactor` returns 0/1 at the band extremes, ramps linearly, is continuous; `dragCoefficient` is 0 above the band, full at the surface, scales with density and mass/area; altitude helper; determinism (bit-identical across calls).
+    - `flight.test.ts` (33 cases): returns a fresh ShipState (does not mutate input); zero-input/zero-dt is identity; space straight-line accelerates forward to ~40 u/s in 1 s (Euler tolerance); yaw rotates in place (no translation); soft speed cap converges below maxVelocity; space ignores input.up and ignores planet; atmosphere throws without planet; terminal velocity under full thrust (scout at density 0.01 → ~14 u/s); a moving ship decays to rest; drag ramps continuously over the boundary band (no step); ground collision clamps + zeroes vertical velocity; substepping prevents tunneling at 5 m/tick on a no-atmo planet; VTOL applies vertical thrust when stationary; VTOL suppressed when horizontal speed > threshold; pad detection within radius with low vertical speed; pad cleared on liftoff above vertical-speed threshold; input sanitisation (clamp + NaN); unknown regime throws; negative dt throws; malformed state throws; determinism (bit-equal across re-runs); same inputs → close state across 10 Hz / 20 Hz chunking (loose tolerance because quadratic terms drift with integration order); golden trajectories for both space and atmosphere re-run to within `1e-9` per axis; `integrateShipByClassId` forwards + throws on unknown class.
+  - **Stable across 3/3 consecutive `npm test` runs** (680 / 680 each time).
+  - `npm run lint` / `npm run lint:fix` / `npm run typecheck` / `npm run test` all green.
+  - TASK-22 is `functional` (pure shared module) → no Playwright smoke (no UI surface yet); TASK-14 client prediction will exercise it later.
+  - Files added: `app/src/shared/physics/vec.ts` (271), `app/src/shared/physics/atmosphere.ts` (152), `app/src/shared/physics/flight.ts` (445), `app/src/shared/physics/vec.test.ts` (218), `app/src/shared/physics/atmosphere.test.ts` (130), `app/src/shared/physics/flight.test.ts` (520), `app/src/shared/physics/__fixtures__/README.md` (29), `app/src/shared/physics/__fixtures__/trajectories.ts` (~100, generated), `app/scripts/gen-flight-trajectories.ts` (212).
+  - Modified: `.ralph/STRUCTURE.md`, `.ralph/logs/LOG.md`, `.ralph/tasks.json` (TASK-22 → `passes: true`).
 
 ### 2026-10-17 — Iteration 17
 - **TASK-41** Credits balance with persistence and spend rules → **DONE**
