@@ -37,6 +37,11 @@ Then install the Playwright browser: `npx playwright install chromium`
 
 Start the dev server and take a screenshot. Save it to the `.ralph/screenshots` directory.
 
+## Persistent Storage
+
+You're running on a container, your storage is ephemeral, except for the /workspace directory which is bound to a PVC. If you need data to persist beyond a pod restart, always write it
+within the /workspace folder hierarchy
+
 ---
 
 After you finish this work, exit with message `Steering complete` and clear this file with the mention "_No critical work to do_"
