@@ -8,6 +8,7 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import type { ServerConfig } from "./config.js";
 import { registerCallsignRoutes } from "./routes/callsigns.js";
+import { registerPlayersRoutes } from "./routes/players.js";
 import type { Repository } from "./db/repo.js";
 
 export interface BuildAppOptions {
@@ -60,6 +61,14 @@ export async function buildApp(
         galaxyStarCount: options.galaxyStarCount ?? 32,
         nowMs: options.nowMs,
       },
+    });
+    // TASK-41: authenticated self-service endpoint for the caller's
+    // own profile (callsign, credits, home system, starter ship). Same
+    // deps as the callsign routes so we wire it alongside.
+    registerPlayersRoutes(app, {
+      repo: options.repo,
+      sessionSecret: options.sessionSecret,
+      nowMs: options.nowMs,
     });
   }
 

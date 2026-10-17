@@ -42,6 +42,7 @@ import type {
 } from "./types.js";
 import { createSqliteRepository } from "./repo.sqlite.js";
 import { createPgRepository } from "./repo.pg.js";
+import type { SqliteCreditHandle } from "./repo.sqlite.world.credits.js";
 
 /** Re-export shared helpers so callers have a single import path. */
 export { CallsignTakenError, InsufficientCreditsError, NotFoundError } from "./errors.js";
@@ -69,6 +70,35 @@ export interface CreateSystemRegistryInput {
   name: string;
   shardActive: boolean;
 }
+
+/**
+ * Slim "credit row" projection returned by transaction-bound helpers.
+ * Avoids the cost of mapping a full `PlayerRow` when the callback only
+ * needs `{ id, credits }` (e.g. the dock-sell flow in TASK-40).
+ *
+ * Defined here as a type re-export so callers can `import` it from
+ * the same place they import the `Repository` shape. The canonical
+ * implementation lives in `./repo.sqlite.world.credits.ts`.
+ */
+export type PlayerCreditSlice = {
+  id: string;
+  credits: number;
+};
+
+/**
+ * Synchronous credit helpers exposed to a `runInTransaction` callback.
+ *
+ * The callback is invoked inside a `BEGIN ... COMMIT` block; if it
+ * throws, every credit write the callback issued is rolled back. The
+ * two methods are intentionally limited to credit mutations because
+ * the only TASK-41 use case is "withdraw + record an audit row"; a
+ * future TASK (e.g. TASK-40 dock selling) extends this with cargo
+ * + node-state helpers as needed.
+ *
+ * Re-exported from `./repo.sqlite.world.credits.ts` so the type can
+ * be referenced without the SQLite-specific import path.
+ */
+export type SqliteRepositoryTransaction = SqliteCreditHandle;
 
 /**
  * Repository contract — both driver implementations satisfy this shape.
@@ -100,7 +130,12 @@ export interface Repository {
   // Credits
   addCredits(playerId: string, amount: number): Promise<PlayerRow>;
   withdrawCredits(playerId: string, amount: number): Promise<PlayerRow>;
-  getCredits(playerId: string): Promise<number>;
+  /**
+   * Read the integer credit balance. Throws `NotFoundError` if the
+   * player does not exist. No default — callers should branch on the
+   * explicit error instead of treating missing as zero.
+   */
+  getBalance(playerId: string): Promise<number>;
 
   // Resource node state
   upsertNodeState(input: UpsertNodeStateInput): Promise<ResourceNodeStateRow>;

@@ -7,7 +7,7 @@
  * `./repo.pg.identity.ts`. The top-level factory (`repo.pg.ts`)
  * composes the two.
  */
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { pgSchema } from "./schema.pg.js";
 import type {
@@ -38,6 +38,10 @@ export interface PgIdentityCallbacks {
  * `identity` exposes the player-lookup methods the world implementation
  * needs (`addCredits`, `withdrawCredits`, etc.). The factory wires the
  * two callbacks together so each side stays independently testable.
+ *
+ * The credit UPDATE statements use SQL-level atomic expressions
+ * (`credits = credits + ?` / `credits = credits - ? WHERE credits >= ?`)
+ * to match the SQLite implementation's compare-and-swap semantics.
  */
 export function bindPgWorld(
   db: NodePgDatabase<typeof pgSchema>,
@@ -45,7 +49,7 @@ export function bindPgWorld(
 ): {
   addCredits: (playerId: string, amount: number) => Promise<PlayerRow>;
   withdrawCredits: (playerId: string, amount: number) => Promise<PlayerRow>;
-  getCredits: (playerId: string) => Promise<number>;
+  getBalance: (playerId: string) => Promise<number>;
   upsertNodeState: (input: UpsertNodeStateInput) => Promise<ResourceNodeStateRow>;
   listNodeStates: (systemId: string) => Promise<ResourceNodeStateRow[]>;
   createSession: (input: CreateSessionInput) => Promise<SessionRow>;
@@ -58,14 +62,14 @@ export function bindPgWorld(
   return {
     async addCredits(playerId: string, amount: number): Promise<PlayerRow> {
       assertPositiveInt(amount, "addCredits");
-      const existing = await identity.findPlayerById(playerId);
-      if (!existing) throw new NotFoundError("Player", playerId);
-      const next = existing.credits + amount;
       const rows = await db
         .update(pgSchema.players)
-        .set({ credits: next })
+        .set({ credits: sql`${pgSchema.players.credits} + ${amount}` })
         .where(eq(pgSchema.players.id, playerId))
         .returning();
+      if (rows.length === 0) {
+        throw new NotFoundError("Player", playerId);
+      }
       const first = rows[0];
       if (!first) throw new Error("update returned no rows");
       return mapPlayer(first);
@@ -73,23 +77,29 @@ export function bindPgWorld(
 
     async withdrawCredits(playerId: string, amount: number): Promise<PlayerRow> {
       assertPositiveInt(amount, "withdrawCredits");
-      const existing = await identity.findPlayerById(playerId);
-      if (!existing) throw new NotFoundError("Player", playerId);
-      if (existing.credits < amount) {
-        throw new InsufficientCreditsError(playerId, existing.credits, amount);
-      }
-      const next = existing.credits - amount;
+      // Compare-and-swap debit, atomic at the SQL level. Postgres
+      // serializes concurrent UPDATE statements via row-level locks,
+      // so the `credits >= ?` guard prevents over-withdraw when two
+      // callers race for the last funds.
       const rows = await db
         .update(pgSchema.players)
-        .set({ credits: next })
-        .where(eq(pgSchema.players.id, playerId))
+        .set({ credits: sql`${pgSchema.players.credits} - ${amount}` })
+        .where(
+          and(eq(pgSchema.players.id, playerId), sql`${pgSchema.players.credits} >= ${amount}`),
+        )
         .returning();
+      if (rows.length === 0) {
+        // Either the player doesn't exist or they don't have the funds.
+        const existing = await identity.findPlayerById(playerId);
+        if (!existing) throw new NotFoundError("Player", playerId);
+        throw new InsufficientCreditsError(playerId, existing.credits, amount);
+      }
       const first = rows[0];
       if (!first) throw new Error("update returned no rows");
       return mapPlayer(first);
     },
 
-    async getCredits(playerId: string): Promise<number> {
+    async getBalance(playerId: string): Promise<number> {
       const row = await identity.findPlayerById(playerId);
       if (!row) throw new NotFoundError("Player", playerId);
       return row.credits;

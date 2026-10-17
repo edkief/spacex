@@ -178,7 +178,7 @@ export class PersistService {
     const credits = await Promise.all(
       [...playerIds].map(async (pid) => {
         try {
-          const value = await this.repo.getCredits(pid);
+          const value = await this.repo.getBalance(pid);
           return { playerId: pid, credits: value };
         } catch {
           // Player row may have been deleted (test cleanup). Skip silently;
