@@ -69,8 +69,14 @@ const fixture = {
   },
   chunkX: chunk.chunkX,
   chunkZ: chunk.chunkZ,
+  // Sampled fields — kept for back-compat with the parity test
+  // (`surface.parity.test.ts`) which uses `heightmap16` + stats as a
+  // lightweight fingerprint. The TASK-6 snapshot suite uses the full
+  // `heightmap` below for deep-equal.
   heightmap16: sampleHeightmap16(chunk.heightmap),
   heightmapStats: computeHeightmapStats(chunk.heightmap),
+  // Full 4096-cell heightmap — supports the TASK-6 deep-equal snapshot.
+  heightmap: chunk.heightmap,
   biome: chunk.biome,
   resourceNodes: chunk.resourceNodes,
   landingPads: chunk.landingPads,

@@ -1,0 +1,50 @@
+{
+  "seed": "drift-dev-seed-001",
+  "starIndex": 1,
+  "starId": "ab2fb7b46d13974f",
+  "system": {
+    "systemId": "0c38f5eebc9653aa",
+    "name": "Perexnius system",
+    "star": {
+      "id": "ab2fb7b46d13974f",
+      "name": "Perexnius",
+      "class": "K",
+      "x": 26.231501,
+      "y": -14.557073,
+      "z": 0.320505,
+      "systemCount": 2
+    },
+    "planets": [
+      {
+        "id": "887bd3081615e377",
+        "name": "Planet",
+        "orbitIndex": 0,
+        "class": "gas",
+        "radiusKm": 46695,
+        "hasAtmosphere": true,
+        "landable": false,
+        "dockCount": 0,
+        "resourceTypes": ["silicon", "copper", "water"],
+        "aiRoster": {
+          "count": 2,
+          "classes": ["interceptor", "freighter"]
+        }
+      },
+      {
+        "id": "26c24030714a5479",
+        "name": "Planet I",
+        "orbitIndex": 1,
+        "class": "ice",
+        "radiusKm": 5989,
+        "hasAtmosphere": true,
+        "landable": true,
+        "dockCount": 2,
+        "resourceTypes": ["iron"],
+        "aiRoster": {
+          "count": 4,
+          "classes": ["scout", "freighter", "interceptor", "interceptor"]
+        }
+      }
+    ]
+  }
+}

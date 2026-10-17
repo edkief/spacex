@@ -1,6 +1,6 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-17 after **TASK-5** (surface chunk generator).
+Snapshot taken 2026-10-17 after **TASK-6** (galaxy determinism verification).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.
@@ -21,7 +21,7 @@ PROJECT_ROOT
 │   ├── eslint.config.js         # Flat ESLint config + prettier integration
 │   ├── node_modules/            # Installed deps (gitignored)
 │   ├── package-lock.json
-│   ├── package.json             # Scripts: dev, build, test, typecheck, lint
+│   ├── package.json             # Scripts: dev, build, test, typecheck, lint, snapshot:update
 │   ├── playwright.config.ts     # Playwright e2e config (base URL :3000)
 │   ├── prereqs.test.ts          # TASK-1 prerequisite guard tests
 │   ├── src/
@@ -49,10 +49,18 @@ PROJECT_ROOT
 │   │   │   │   ├── surface.test.ts        # Shape / nodes / pads / determinism (TASK-5)
 │   │   │   │   ├── surface.boundary.test.ts # Boundary continuity + biome distribution + stats (TASK-5)
 │   │   │   │   ├── surface.parity.test.ts # Golden snapshot + source purity (TASK-5)
+│   │   │   │   ├── snapshots.test.ts      # Full galaxy / system / surface deep-equal suite (TASK-6)
+│   │   │   │   ├── snapshots.mutation.test.ts # Mutation-detection suite (TASK-6)
+│   │   │   │   ├── snapshots.helpers.ts   # Snapshot suite helpers + mutated generator (TASK-6)
 │   │   │   │   └── __fixtures__/
-│   │   │   │       ├── stars-dev-seed.json          # Committed golden snapshot (TASK-3)
-│   │   │   │       ├── system-dev-seed-star0.json   # Committed golden snapshot (TASK-4)
-│   │   │   │       └── surface-dev-seed-star0-planet0-chunk00.json  # Committed golden snapshot (TASK-5)
+│   │   │   │       ├── README.md          # Regeneration rules for committed fixtures (TASK-6)
+│   │   │   │       ├── stars-dev-seed.json          # First-25 + checksum parity fixture (TASK-3)
+│   │   │   │       ├── stars-dev-seed-full.json     # Full 200-star chart deep-equal fixture (TASK-6)
+│   │   │   │       ├── system-dev-seed-star0.json   # System of star #0 (TASK-4 + TASK-6)
+│   │   │   │       ├── system-dev-seed-star1.json   # System of star #1 (TASK-6)
+│   │   │   │       ├── surface-dev-seed-star0-planet0-chunk00.json  # Chunk (0,0) (TASK-5 + TASK-6)
+│   │   │   │       ├── surface-dev-seed-star0-planet0-chunk10.json  # Chunk (1,0) (TASK-6)
+│   │   │   │       └── surface-dev-seed-star0-planet0-chunk01.json  # Chunk (0,1) (TASK-6)
 │   │   │   ├── health.ts        # HealthPayload interface + factory
 │   │   │   ├── health.test.ts   # Trivial vitest (TASK-68 acceptance)
 │   │   │   ├── random.ts        # seedFromString + Rng (xoshiro128**) + hash2 (TASK-2)
@@ -75,8 +83,12 @@ PROJECT_ROOT
 │   │       └── scaffold.spec.ts # Playwright smoke (canvas + /api/health)
 │   ├── scripts/
 │   │   ├── gen-stars-fixture.ts         # Regenerate __fixtures__/stars-dev-seed.json (TASK-3)
+│   │   ├── gen-stars-full-fixture.ts    # Regenerate __fixtures__/stars-dev-seed-full.json (TASK-6)
 │   │   ├── gen-system-fixture.ts        # Regenerate __fixtures__/system-dev-seed-star0.json (TASK-4)
-│   │   └── gen-surface-fixture.ts       # Regenerate __fixtures__/surface-dev-seed-star0-planet0-chunk00.json (TASK-5)
+│   │   ├── gen-system-star1-fixture.ts  # Regenerate __fixtures__/system-dev-seed-star1.json (TASK-6)
+│   │   ├── gen-surface-fixture.ts       # Regenerate chunk00 fixture (TASK-5)
+│   │   ├── gen-surface-chunk10-fixture.ts # Regenerate chunk10 fixture (TASK-6)
+│   │   └── gen-surface-chunk01-fixture.ts # Regenerate chunk01 fixture (TASK-6)
 │   ├── tsconfig.json            # Strict TS, path aliases @shared/@client/@server
 │   ├── vite.config.ts           # Vite root, proxy /api + /ws → server :API_PORT
 │   └── vitest.config.ts         # Vitest mirrors vite aliases

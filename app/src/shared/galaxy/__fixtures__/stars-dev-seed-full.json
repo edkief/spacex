@@ -1,0 +1,1807 @@
+{
+  "seed": "drift-dev-seed-001",
+  "count": 200,
+  "checksum": "6d05a1f1075b13d70e10737e6cf0c9c0",
+  "stars": [
+    {
+      "id": "c9bf989ddefc021f",
+      "name": "Ilmamnya",
+      "class": "M",
+      "x": -24.646233,
+      "y": -17.104479,
+      "z": -0.177505,
+      "systemCount": 5
+    },
+    {
+      "id": "ab2fb7b46d13974f",
+      "name": "Perexnius",
+      "class": "K",
+      "x": 26.231501,
+      "y": -14.557073,
+      "z": 0.320505,
+      "systemCount": 2
+    },
+    {
+      "id": "043d10aad3d1bc11",
+      "name": "Elomnux",
+      "class": "A",
+      "x": -12.879803,
+      "y": -27.094477,
+      "z": 0.06323,
+      "systemCount": 3
+    },
+    {
+      "id": "2468594eb82e0ac1",
+      "name": "Belebrphi",
+      "class": "K",
+      "x": -21.713999,
+      "y": -20.700296,
+      "z": -0.060659,
+      "systemCount": 3
+    },
+    {
+      "id": "d93d6601250375d1",
+      "name": "Rosebrzo",
+      "class": "M",
+      "x": 21.333036,
+      "y": 21.09269,
+      "z": -0.454508,
+      "systemCount": 5
+    },
+    {
+      "id": "f32ccafca3a8814e",
+      "name": "Gaeebrso",
+      "class": "K",
+      "x": 19.115309,
+      "y": 23.121526,
+      "z": -0.3129,
+      "systemCount": 6
+    },
+    {
+      "id": "cd56202ef35f36e2",
+      "name": "Heseldrao",
+      "class": "G",
+      "x": -21.54742,
+      "y": 20.873637,
+      "z": -0.209918,
+      "systemCount": 7
+    },
+    {
+      "id": "4c0874cd2642b5cf",
+      "name": "Wyraldea",
+      "class": "M",
+      "x": -7.663714,
+      "y": 29.004611,
+      "z": -0.410992,
+      "systemCount": 8
+    },
+    {
+      "id": "7c6d40b8ad42ca2c",
+      "name": "Thauldia",
+      "class": "M",
+      "x": -27.381147,
+      "y": 12.258579,
+      "z": -0.221485,
+      "systemCount": 7
+    },
+    {
+      "id": "44e7ae2601e85af1",
+      "name": "Sololdthi",
+      "class": "M",
+      "x": 29.890339,
+      "y": -2.562743,
+      "z": 0.071549,
+      "systemCount": 5
+    },
+    {
+      "id": "59308013f1e786cf",
+      "name": "Zinibrzo",
+      "class": "M",
+      "x": 29.287848,
+      "y": -6.497843,
+      "z": 0.112677,
+      "systemCount": 5
+    },
+    {
+      "id": "9e0fb9cf01925133",
+      "name": "Yseantjo",
+      "class": "F",
+      "x": 13.33522,
+      "y": 26.873256,
+      "z": 0.246233,
+      "systemCount": 4
+    },
+    {
+      "id": "4d3cecb87f29ae60",
+      "name": "Yorelmion",
+      "class": "M",
+      "x": 29.166142,
+      "y": -7.023969,
+      "z": 0.575092,
+      "systemCount": 2
+    },
+    {
+      "id": "05bf490b36f5c0bf",
+      "name": "Helixnax",
+      "class": "G",
+      "x": 19.810604,
+      "y": -22.528648,
+      "z": -0.569835,
+      "systemCount": 3
+    },
+    {
+      "id": "33f84b17d00fddcc",
+      "name": "Yorumnchi",
+      "class": "M",
+      "x": 29.914823,
+      "y": -2.259061,
+      "z": 0.013971,
+      "systemCount": 2
+    },
+    {
+      "id": "e2ce0da95624117c",
+      "name": "Auranteum",
+      "class": "M",
+      "x": -29.899285,
+      "y": 2.45617,
+      "z": 0.530856,
+      "systemCount": 7
+    },
+    {
+      "id": "d3b9b413f0c9af3a",
+      "name": "Heleldrex",
+      "class": "M",
+      "x": 27.242074,
+      "y": 12.56461,
+      "z": -0.555908,
+      "systemCount": 3
+    },
+    {
+      "id": "02899585e9cbf01f",
+      "name": "Nyxaldroo",
+      "class": "M",
+      "x": -5.593366,
+      "y": -29.473959,
+      "z": -0.130437,
+      "systemCount": 3
+    },
+    {
+      "id": "06914fe58d5c4640",
+      "name": "Elontous",
+      "class": "O",
+      "x": -19.154215,
+      "y": 23.089306,
+      "z": -0.764797,
+      "systemCount": 4
+    },
+    {
+      "id": "8c8fb120b96ebbb8",
+      "name": "Silechlo",
+      "class": "K",
+      "x": 29.902406,
+      "y": -2.417879,
+      "z": -0.493568,
+      "systemCount": 6
+    },
+    {
+      "id": "9e89a98ae09b4809",
+      "name": "Xanostbim",
+      "class": "K",
+      "x": -26.91695,
+      "y": 13.246803,
+      "z": -0.104871,
+      "systemCount": 3
+    },
+    {
+      "id": "45650048be9c13a0",
+      "name": "Thaeldex",
+      "class": "M",
+      "x": 21.954051,
+      "y": -20.445528,
+      "z": -0.573267,
+      "systemCount": 4
+    },
+    {
+      "id": "1986f8c0d2c3ec98",
+      "name": "Aluntro",
+      "class": "M",
+      "x": -22.845203,
+      "y": -19.444709,
+      "z": 0.679084,
+      "systemCount": 2
+    },
+    {
+      "id": "4b5fc59f4e03954b",
+      "name": "Rosildrea",
+      "class": "K",
+      "x": -27.853138,
+      "y": -11.144628,
+      "z": 0.417193,
+      "systemCount": 2
+    },
+    {
+      "id": "9017b4c3926342b6",
+      "name": "Briuldlo",
+      "class": "M",
+      "x": 28.22045,
+      "y": 10.178714,
+      "z": 0.074571,
+      "systemCount": 3
+    },
+    {
+      "id": "b25dca0fd0d5f653",
+      "name": "Olomnthi",
+      "class": "A",
+      "x": 5.766373,
+      "y": 29.4406,
+      "z": -0.285788,
+      "systemCount": 4
+    },
+    {
+      "id": "b82fc25600150edd",
+      "name": "Urolmpha",
+      "class": "K",
+      "x": -29.469052,
+      "y": 5.61916,
+      "z": 0.290711,
+      "systemCount": 5
+    },
+    {
+      "id": "77d11b0ba5a42c8b",
+      "name": "Melumnuon",
+      "class": "M",
+      "x": -29.493997,
+      "y": -5.486725,
+      "z": 0.2579,
+      "systemCount": 8
+    },
+    {
+      "id": "6dcba4541fa09d78",
+      "name": "Altoxnia",
+      "class": "F",
+      "x": 20.657498,
+      "y": 21.754719,
+      "z": -0.170219,
+      "systemCount": 5
+    },
+    {
+      "id": "99550ee1d459ef29",
+      "name": "Morarnuon",
+      "class": "M",
+      "x": -20.770885,
+      "y": 21.646485,
+      "z": 0.449051,
+      "systemCount": 6
+    },
+    {
+      "id": "4aad34b0d0397a92",
+      "name": "Nyxichya",
+      "class": "K",
+      "x": 25.663068,
+      "y": -15.537276,
+      "z": -0.0887,
+      "systemCount": 6
+    },
+    {
+      "id": "9274978e050f9727",
+      "name": "Yoralkux",
+      "class": "M",
+      "x": 5.529345,
+      "y": 29.486036,
+      "z": 0.167479,
+      "systemCount": 7
+    },
+    {
+      "id": "3543522f1687dc02",
+      "name": "Rheentrim",
+      "class": "K",
+      "x": -16.741079,
+      "y": -24.894503,
+      "z": 0.154009,
+      "systemCount": 6
+    },
+    {
+      "id": "f25d22ac0f935ccc",
+      "name": "Ilmastdo",
+      "class": "M",
+      "x": -23.330619,
+      "y": -18.85954,
+      "z": 0.258973,
+      "systemCount": 3
+    },
+    {
+      "id": "96a7bf6f25082dcb",
+      "name": "Cynemnuus",
+      "class": "G",
+      "x": 20.622013,
+      "y": 21.788359,
+      "z": -0.690447,
+      "systemCount": 4
+    },
+    {
+      "id": "c35ae47131844ffd",
+      "name": "Polildrvo",
+      "class": "G",
+      "x": 6.960537,
+      "y": -29.181345,
+      "z": 0.167101,
+      "systemCount": 3
+    },
+    {
+      "id": "6b747ed57539236d",
+      "name": "Carelkjo",
+      "class": "K",
+      "x": -27.324561,
+      "y": 12.384199,
+      "z": 0.661516,
+      "systemCount": 6
+    },
+    {
+      "id": "8d4b15a990f6b1fa",
+      "name": "Ophamnia",
+      "class": "F",
+      "x": 27.926858,
+      "y": -10.958585,
+      "z": 0.443944,
+      "systemCount": 3
+    },
+    {
+      "id": "b48633947a4da6e1",
+      "name": "Ophelkaus",
+      "class": "M",
+      "x": 29.00536,
+      "y": 7.660879,
+      "z": 0.60033,
+      "systemCount": 6
+    },
+    {
+      "id": "02dfe8805f67d718",
+      "name": "Zinilmlo",
+      "class": "M",
+      "x": 24.40769,
+      "y": 17.443184,
+      "z": 0.184643,
+      "systemCount": 6
+    },
+    {
+      "id": "21ccaa8e5af9d519",
+      "name": "Gaeeldria",
+      "class": "K",
+      "x": 7.858406,
+      "y": 28.952469,
+      "z": 0.040986,
+      "systemCount": 6
+    },
+    {
+      "id": "d4b4d43c4669d5ef",
+      "name": "Briastuon",
+      "class": "M",
+      "x": 22.973028,
+      "y": 19.293521,
+      "z": -0.34834,
+      "systemCount": 5
+    },
+    {
+      "id": "81494e348f929813",
+      "name": "Ophurnya",
+      "class": "G",
+      "x": -26.266235,
+      "y": -14.494305,
+      "z": 0.626487,
+      "systemCount": 4
+    },
+    {
+      "id": "93ccd6bd665b6692",
+      "name": "Rosochius",
+      "class": "M",
+      "x": 28.209408,
+      "y": -10.209277,
+      "z": -0.152421,
+      "systemCount": 3
+    },
+    {
+      "id": "6e45de0507b53594",
+      "name": "Zenilkeo",
+      "class": "M",
+      "x": 10.293077,
+      "y": -28.178938,
+      "z": -0.233256,
+      "systemCount": 3
+    },
+    {
+      "id": "52c20980f420b88b",
+      "name": "Ophaldlim",
+      "class": "M",
+      "x": 27.228006,
+      "y": -12.595067,
+      "z": 0.377097,
+      "systemCount": 5
+    },
+    {
+      "id": "e68f96c86d4c51ab",
+      "name": "Daeaxnlo",
+      "class": "F",
+      "x": -17.627142,
+      "y": 24.27517,
+      "z": 0.191762,
+      "systemCount": 5
+    },
+    {
+      "id": "5885ef75c07472c2",
+      "name": "Torobrpo",
+      "class": "M",
+      "x": -14.44426,
+      "y": 26.293789,
+      "z": 0.607619,
+      "systemCount": 4
+    },
+    {
+      "id": "c20a3992e25068fa",
+      "name": "Olildrcha",
+      "class": "K",
+      "x": -21.465589,
+      "y": -20.957778,
+      "z": -0.342798,
+      "systemCount": 8
+    },
+    {
+      "id": "db23f347db1e925a",
+      "name": "Garilkcha",
+      "class": "G",
+      "x": -5.631723,
+      "y": -29.466654,
+      "z": 0.254747,
+      "systemCount": 3
+    },
+    {
+      "id": "1f0aa69fae469513",
+      "name": "Noreldra",
+      "class": "G",
+      "x": 5.364777,
+      "y": 29.516422,
+      "z": -0.077984,
+      "systemCount": 7
+    },
+    {
+      "id": "f8094bc70e7bfd5a",
+      "name": "Valeldruon",
+      "class": "M",
+      "x": -12.026975,
+      "y": -27.483665,
+      "z": 0.375914,
+      "systemCount": 7
+    },
+    {
+      "id": "058097b1aa1df2b6",
+      "name": "Polexnex",
+      "class": "M",
+      "x": 29.811845,
+      "y": 3.354682,
+      "z": -0.311245,
+      "systemCount": 7
+    },
+    {
+      "id": "e8d61f6fd54c7d0a",
+      "name": "Melulmlo",
+      "class": "M",
+      "x": 28.937393,
+      "y": -7.91374,
+      "z": 0.058419,
+      "systemCount": 8
+    },
+    {
+      "id": "65f2080a8b3121c1",
+      "name": "Polontra",
+      "class": "M",
+      "x": 23.49172,
+      "y": -18.658486,
+      "z": -0.142365,
+      "systemCount": 3
+    },
+    {
+      "id": "e72d49b8af20377a",
+      "name": "Faeirnbim",
+      "class": "G",
+      "x": -0.923102,
+      "y": -29.985795,
+      "z": 0.37728,
+      "systemCount": 7
+    },
+    {
+      "id": "4694d3b5a892d234",
+      "name": "Beluchra",
+      "class": "F",
+      "x": -25.157001,
+      "y": 16.343968,
+      "z": -0.253109,
+      "systemCount": 7
+    },
+    {
+      "id": "7dfabd2de956a717",
+      "name": "Elimnnim",
+      "class": "F",
+      "x": -28.164439,
+      "y": -10.332684,
+      "z": -0.177789,
+      "systemCount": 6
+    },
+    {
+      "id": "dc2b5e303e51320d",
+      "name": "Zinichdo",
+      "class": "G",
+      "x": -29.385124,
+      "y": -6.042723,
+      "z": -0.002628,
+      "systemCount": 2
+    },
+    {
+      "id": "b3d1255059067132",
+      "name": "Meleldbim",
+      "class": "M",
+      "x": 28.746272,
+      "y": -8.582066,
+      "z": -0.026035,
+      "systemCount": 6
+    },
+    {
+      "id": "804f79480773ab57",
+      "name": "Loristrim",
+      "class": "G",
+      "x": -26.697673,
+      "y": -13.683358,
+      "z": -0.482261,
+      "systemCount": 2
+    },
+    {
+      "id": "198b292ee6319fe4",
+      "name": "Carirnso",
+      "class": "G",
+      "x": -12.665474,
+      "y": -27.195326,
+      "z": 0.25407,
+      "systemCount": 6
+    },
+    {
+      "id": "8a5b2eceffce10eb",
+      "name": "Norostphi",
+      "class": "G",
+      "x": 20.665812,
+      "y": -21.746821,
+      "z": 0.27482,
+      "systemCount": 8
+    },
+    {
+      "id": "61a373f000010154",
+      "name": "Borichous",
+      "class": "M",
+      "x": -28.453359,
+      "y": 9.508225,
+      "z": -0.439694,
+      "systemCount": 5
+    },
+    {
+      "id": "4afd57088db037b0",
+      "name": "Yorilkex",
+      "class": "M",
+      "x": -20.444837,
+      "y": -21.954695,
+      "z": -0.157446,
+      "systemCount": 3
+    },
+    {
+      "id": "f18ec949521ee85e",
+      "name": "Vasoldria",
+      "class": "M",
+      "x": -14.314517,
+      "y": -26.364647,
+      "z": 0.09227,
+      "systemCount": 2
+    },
+    {
+      "id": "065c1abed7df8f06",
+      "name": "Valixnkha",
+      "class": "M",
+      "x": -26.16601,
+      "y": 14.674464,
+      "z": 0.657653,
+      "systemCount": 8
+    },
+    {
+      "id": "b5f02375b01477f4",
+      "name": "Dorulkto",
+      "class": "M",
+      "x": -0.460437,
+      "y": -29.996466,
+      "z": -0.588903,
+      "systemCount": 3
+    },
+    {
+      "id": "a71cd72979a4eb76",
+      "name": "Norichra",
+      "class": "G",
+      "x": 27.72337,
+      "y": 11.463626,
+      "z": -0.318154,
+      "systemCount": 8
+    },
+    {
+      "id": "927de1fb9402deca",
+      "name": "Doraldix",
+      "class": "G",
+      "x": -29.63706,
+      "y": -4.652386,
+      "z": -0.224837,
+      "systemCount": 6
+    },
+    {
+      "id": "394ca37c922af1da",
+      "name": "Altornya",
+      "class": "K",
+      "x": 28.055097,
+      "y": -10.625983,
+      "z": -0.357649,
+      "systemCount": 4
+    },
+    {
+      "id": "66743ce653d5a1f8",
+      "name": "Faeemnya",
+      "class": "M",
+      "x": -13.288295,
+      "y": -26.896491,
+      "z": -0.360151,
+      "systemCount": 6
+    },
+    {
+      "id": "ed87e88f65822bae",
+      "name": "Coruchio",
+      "class": "F",
+      "x": 19.234546,
+      "y": -23.022429,
+      "z": 0.145458,
+      "systemCount": 3
+    },
+    {
+      "id": "586a82fad63cfba0",
+      "name": "Falimndo",
+      "class": "G",
+      "x": 25.980016,
+      "y": -15.001293,
+      "z": -0.052815,
+      "systemCount": 8
+    },
+    {
+      "id": "cb4e25de77e09794",
+      "name": "Lorostua",
+      "class": "M",
+      "x": -28.736702,
+      "y": -8.614056,
+      "z": -0.279186,
+      "systemCount": 5
+    },
+    {
+      "id": "b87b676cf6361f39",
+      "name": "Nyxomnphi",
+      "class": "G",
+      "x": -29.931042,
+      "y": -2.032914,
+      "z": 0.369414,
+      "systemCount": 2
+    },
+    {
+      "id": "f19631dc9d1e0d6c",
+      "name": "Gaearneum",
+      "class": "K",
+      "x": -18.353722,
+      "y": -23.73059,
+      "z": -0.106044,
+      "systemCount": 6
+    },
+    {
+      "id": "e8ba4c02dd7f0321",
+      "name": "Yseadrax",
+      "class": "K",
+      "x": 12.188358,
+      "y": -27.412477,
+      "z": -0.256306,
+      "systemCount": 3
+    },
+    {
+      "id": "8956c5d7001afb5d",
+      "name": "Falimnex",
+      "class": "M",
+      "x": 29.547104,
+      "y": -5.193134,
+      "z": 0.182914,
+      "systemCount": 8
+    },
+    {
+      "id": "6e921be92a507968",
+      "name": "Coroxnvo",
+      "class": "K",
+      "x": -28.729441,
+      "y": 8.638241,
+      "z": 0.094287,
+      "systemCount": 4
+    },
+    {
+      "id": "ac5225360814d138",
+      "name": "Uruxnaus",
+      "class": "M",
+      "x": -29.295613,
+      "y": 6.462744,
+      "z": -0.087239,
+      "systemCount": 7
+    },
+    {
+      "id": "3b5eafc8a3cc5a10",
+      "name": "Cynoxngo",
+      "class": "M",
+      "x": -16.892472,
+      "y": 24.792023,
+      "z": -0.39187,
+      "systemCount": 7
+    },
+    {
+      "id": "19b96a18f662f41d",
+      "name": "Elornfo",
+      "class": "F",
+      "x": 28.002636,
+      "y": -10.763474,
+      "z": 0.001067,
+      "systemCount": 2
+    },
+    {
+      "id": "89c98f8aaff58b03",
+      "name": "Altoldao",
+      "class": "B",
+      "x": -11.402198,
+      "y": -27.748692,
+      "z": 0.010436,
+      "systemCount": 7
+    },
+    {
+      "id": "40a473f53e7a6cc8",
+      "name": "Altechzo",
+      "class": "M",
+      "x": 19.375111,
+      "y": -22.904259,
+      "z": 0.032256,
+      "systemCount": 7
+    },
+    {
+      "id": "811db690d05e4f75",
+      "name": "Valarnuon",
+      "class": "G",
+      "x": -29.981114,
+      "y": -1.064332,
+      "z": 0.030983,
+      "systemCount": 7
+    },
+    {
+      "id": "85ae5370fae5620a",
+      "name": "Vasalmcha",
+      "class": "M",
+      "x": 26.831586,
+      "y": -13.418867,
+      "z": -0.587117,
+      "systemCount": 4
+    },
+    {
+      "id": "3c395a918bcdda3b",
+      "name": "Kalulkchi",
+      "class": "K",
+      "x": -17.925606,
+      "y": 24.055615,
+      "z": 0.574964,
+      "systemCount": 5
+    },
+    {
+      "id": "43075488e2ac6db3",
+      "name": "Ereilkex",
+      "class": "K",
+      "x": 13.129467,
+      "y": 26.974378,
+      "z": -0.152966,
+      "systemCount": 2
+    },
+    {
+      "id": "7a45b5a1c304689c",
+      "name": "Zinibreon",
+      "class": "K",
+      "x": -26.707961,
+      "y": 13.663264,
+      "z": -0.436995,
+      "systemCount": 8
+    },
+    {
+      "id": "62491a66ce7e97c8",
+      "name": "Zenorneum",
+      "class": "K",
+      "x": -27.238043,
+      "y": 12.573346,
+      "z": 0.595444,
+      "systemCount": 8
+    },
+    {
+      "id": "7177110da2b8b730",
+      "name": "Falentux",
+      "class": "K",
+      "x": -14.095225,
+      "y": -26.482535,
+      "z": 0.389961,
+      "systemCount": 7
+    },
+    {
+      "id": "4816f6f4e9ab12e6",
+      "name": "Silildrea",
+      "class": "M",
+      "x": -27.614168,
+      "y": -11.724237,
+      "z": -0.702414,
+      "systemCount": 3
+    },
+    {
+      "id": "ce2a54902c43ac68",
+      "name": "Hesulmwa",
+      "class": "K",
+      "x": 13.186654,
+      "y": 26.946469,
+      "z": -0.418755,
+      "systemCount": 5
+    },
+    {
+      "id": "222ab76c4265b1db",
+      "name": "Zineldao",
+      "class": "K",
+      "x": -0.102255,
+      "y": -29.999826,
+      "z": -0.282889,
+      "systemCount": 4
+    },
+    {
+      "id": "051e1c68c58fe4e2",
+      "name": "Aladrio",
+      "class": "K",
+      "x": 19.999754,
+      "y": 22.3609,
+      "z": 0.032365,
+      "systemCount": 8
+    },
+    {
+      "id": "68b70615292073a1",
+      "name": "Kalanteus",
+      "class": "G",
+      "x": -0.086216,
+      "y": 29.999876,
+      "z": 0.422242,
+      "systemCount": 3
+    },
+    {
+      "id": "4b25d55f4968e15b",
+      "name": "Fenoldrso",
+      "class": "F",
+      "x": -1.720786,
+      "y": -29.950608,
+      "z": 0.26844,
+      "systemCount": 6
+    },
+    {
+      "id": "27dd92956889c758",
+      "name": "Thaurnnim",
+      "class": "M",
+      "x": 20.297399,
+      "y": 22.091075,
+      "z": 0.153203,
+      "systemCount": 8
+    },
+    {
+      "id": "7a20a3dcf2f777b0",
+      "name": "Norildrrim",
+      "class": "M",
+      "x": 8.254302,
+      "y": 28.842096,
+      "z": 0.142496,
+      "systemCount": 3
+    },
+    {
+      "id": "a56f8572553a4f70",
+      "name": "Rheernio",
+      "class": "K",
+      "x": -6.72875,
+      "y": -29.235662,
+      "z": 0.091672,
+      "systemCount": 2
+    },
+    {
+      "id": "ceee1cdac3e8ae52",
+      "name": "Garesttha",
+      "class": "K",
+      "x": -29.0362,
+      "y": -7.543148,
+      "z": -0.00482,
+      "systemCount": 3
+    },
+    {
+      "id": "6d9a270abff190fa",
+      "name": "Helubria",
+      "class": "A",
+      "x": -29.974521,
+      "y": 1.236151,
+      "z": -0.36278,
+      "systemCount": 5
+    },
+    {
+      "id": "7cce3b3cb163a16b",
+      "name": "Wyrexnnim",
+      "class": "M",
+      "x": 17.04621,
+      "y": 24.68657,
+      "z": -0.265922,
+      "systemCount": 4
+    },
+    {
+      "id": "9883b85230e09a08",
+      "name": "Esentpo",
+      "class": "M",
+      "x": -6.919203,
+      "y": 29.191174,
+      "z": 0.140646,
+      "systemCount": 4
+    },
+    {
+      "id": "b1ff9b2190c429e9",
+      "name": "Zenalkex",
+      "class": "G",
+      "x": -9.535723,
+      "y": 28.444156,
+      "z": 0.052886,
+      "systemCount": 6
+    },
+    {
+      "id": "5d72e48eb5300f48",
+      "name": "Morilkux",
+      "class": "A",
+      "x": -26.468085,
+      "y": -14.122339,
+      "z": 0.224318,
+      "systemCount": 7
+    },
+    {
+      "id": "cbe096c0838ddd26",
+      "name": "Garechfo",
+      "class": "G",
+      "x": 11.957738,
+      "y": 27.51386,
+      "z": 0.453112,
+      "systemCount": 6
+    },
+    {
+      "id": "85b706e3b4d8b2fd",
+      "name": "Noralkchi",
+      "class": "F",
+      "x": -25.765227,
+      "y": 15.367273,
+      "z": 0.037535,
+      "systemCount": 4
+    },
+    {
+      "id": "4ef8bec4e075f709",
+      "name": "Falolkto",
+      "class": "O",
+      "x": 18.420702,
+      "y": -23.678634,
+      "z": -0.879594,
+      "systemCount": 2
+    },
+    {
+      "id": "076ca64de55bc46b",
+      "name": "Thaelmea",
+      "class": "G",
+      "x": -22.837765,
+      "y": 19.453444,
+      "z": -0.497302,
+      "systemCount": 7
+    },
+    {
+      "id": "ff69d9b29a5354ca",
+      "name": "Falochpha",
+      "class": "M",
+      "x": -25.352363,
+      "y": -16.039254,
+      "z": -0.199762,
+      "systemCount": 3
+    },
+    {
+      "id": "fd384c1983119500",
+      "name": "Xanuxnio",
+      "class": "G",
+      "x": -4.059721,
+      "y": -29.724042,
+      "z": -0.391136,
+      "systemCount": 5
+    },
+    {
+      "id": "619e397d79a0841b",
+      "name": "Ysealmoo",
+      "class": "M",
+      "x": -25.633978,
+      "y": 15.585223,
+      "z": 0.002041,
+      "systemCount": 4
+    },
+    {
+      "id": "1acd7f3a10685a7d",
+      "name": "Kalentpo",
+      "class": "K",
+      "x": 27.500717,
+      "y": -11.987933,
+      "z": 0.062237,
+      "systemCount": 6
+    },
+    {
+      "id": "915c49e1419bbcd5",
+      "name": "Nyxoxnbo",
+      "class": "B",
+      "x": -23.064828,
+      "y": 19.183683,
+      "z": 0.12371,
+      "systemCount": 3
+    },
+    {
+      "id": "33b95d2c82ef31ad",
+      "name": "Briantium",
+      "class": "M",
+      "x": 12.546014,
+      "y": -27.250643,
+      "z": -0.028566,
+      "systemCount": 3
+    },
+    {
+      "id": "e5402d2c5f6e235d",
+      "name": "Urelkko",
+      "class": "G",
+      "x": 29.979707,
+      "y": 1.103262,
+      "z": 0.246853,
+      "systemCount": 3
+    },
+    {
+      "id": "b4e54d9d86516908",
+      "name": "Aluntlim",
+      "class": "M",
+      "x": 0.924832,
+      "y": -29.985741,
+      "z": -0.177669,
+      "systemCount": 5
+    },
+    {
+      "id": "97815bdf5ae0e04d",
+      "name": "Kalildrim",
+      "class": "K",
+      "x": 25.960146,
+      "y": -15.035652,
+      "z": 0.186384,
+      "systemCount": 8
+    },
+    {
+      "id": "3ca2c088b12a5cb5",
+      "name": "Joradrix",
+      "class": "G",
+      "x": 11.941819,
+      "y": 27.520773,
+      "z": 0.014538,
+      "systemCount": 5
+    },
+    {
+      "id": "eb7f4dd86578f433",
+      "name": "Nyxaxnoo",
+      "class": "K",
+      "x": -22.808635,
+      "y": 19.487591,
+      "z": -0.535732,
+      "systemCount": 5
+    },
+    {
+      "id": "a5d390fd6dde7503",
+      "name": "Faluntax",
+      "class": "K",
+      "x": -8.826091,
+      "y": 28.672288,
+      "z": -0.166911,
+      "systemCount": 8
+    },
+    {
+      "id": "d35a98245cc5dc83",
+      "name": "Yseulkaus",
+      "class": "A",
+      "x": 12.912302,
+      "y": 27.079004,
+      "z": 0.198781,
+      "systemCount": 2
+    },
+    {
+      "id": "a7f37f1536c01d6c",
+      "name": "Lysebrfo",
+      "class": "G",
+      "x": 29.545433,
+      "y": 5.202632,
+      "z": 0.287199,
+      "systemCount": 6
+    },
+    {
+      "id": "0ebea532824371b8",
+      "name": "Olamneum",
+      "class": "M",
+      "x": 26.569482,
+      "y": 13.930637,
+      "z": -0.247487,
+      "systemCount": 3
+    },
+    {
+      "id": "9fd78d0e4f52d810",
+      "name": "Zenenteo",
+      "class": "K",
+      "x": 17.780128,
+      "y": -24.163341,
+      "z": -0.302808,
+      "systemCount": 5
+    },
+    {
+      "id": "dd06178110bdf838",
+      "name": "Rheoldrpo",
+      "class": "F",
+      "x": -25.608076,
+      "y": 15.627746,
+      "z": -0.08963,
+      "systemCount": 2
+    },
+    {
+      "id": "5fb1ee18e14a9021",
+      "name": "Xanildrex",
+      "class": "B",
+      "x": 4.232038,
+      "y": -29.699998,
+      "z": 0.081048,
+      "systemCount": 2
+    },
+    {
+      "id": "3cb631cda4f83393",
+      "name": "Faeanteo",
+      "class": "K",
+      "x": 23.723252,
+      "y": 18.363206,
+      "z": -0.149136,
+      "systemCount": 2
+    },
+    {
+      "id": "153289d17aec318e",
+      "name": "Ilmildko",
+      "class": "G",
+      "x": 28.187251,
+      "y": -10.27029,
+      "z": -0.203008,
+      "systemCount": 8
+    },
+    {
+      "id": "9f96f89228bb0861",
+      "name": "Zinimneus",
+      "class": "G",
+      "x": -22.849705,
+      "y": -19.439418,
+      "z": -0.424874,
+      "systemCount": 8
+    },
+    {
+      "id": "c22460f781eadcbb",
+      "name": "Aurarnpha",
+      "class": "M",
+      "x": 20.349479,
+      "y": -22.04311,
+      "z": 0.07319,
+      "systemCount": 3
+    },
+    {
+      "id": "eb941944c3ecfb2e",
+      "name": "Iriuntex",
+      "class": "F",
+      "x": 25.037151,
+      "y": 16.526981,
+      "z": 0.363286,
+      "systemCount": 6
+    },
+    {
+      "id": "e196a89abf2dd0b1",
+      "name": "Joribrrim",
+      "class": "K",
+      "x": -23.356942,
+      "y": 18.826929,
+      "z": 0.220934,
+      "systemCount": 2
+    },
+    {
+      "id": "07e2b9c8ec5a0487",
+      "name": "Toralmbo",
+      "class": "G",
+      "x": -23.304275,
+      "y": -18.892082,
+      "z": -0.552968,
+      "systemCount": 5
+    },
+    {
+      "id": "f770856c87246b1b",
+      "name": "Kalexnio",
+      "class": "K",
+      "x": -29.092423,
+      "y": 7.323313,
+      "z": -0.038333,
+      "systemCount": 2
+    },
+    {
+      "id": "9fbf60d08325b8c8",
+      "name": "Ololmux",
+      "class": "M",
+      "x": 26.815792,
+      "y": 13.450401,
+      "z": -0.336696,
+      "systemCount": 3
+    },
+    {
+      "id": "0c1974eb51e64964",
+      "name": "Toromnkha",
+      "class": "K",
+      "x": 29.961075,
+      "y": 1.527733,
+      "z": 0.1043,
+      "systemCount": 7
+    },
+    {
+      "id": "f56a58c40a61e3c5",
+      "name": "Nyxuchlim",
+      "class": "B",
+      "x": -17.156214,
+      "y": -24.610248,
+      "z": 0.636285,
+      "systemCount": 4
+    },
+    {
+      "id": "c3d26d92eb8447e2",
+      "name": "Perustux",
+      "class": "F",
+      "x": 29.991782,
+      "y": 0.702161,
+      "z": 0.425891,
+      "systemCount": 3
+    },
+    {
+      "id": "cd86956445001ff0",
+      "name": "Fenirnua",
+      "class": "G",
+      "x": 10.322003,
+      "y": 28.168355,
+      "z": -0.11453,
+      "systemCount": 4
+    },
+    {
+      "id": "da4af0b18d2eb10a",
+      "name": "Vasichto",
+      "class": "M",
+      "x": -10.19073,
+      "y": 28.216113,
+      "z": 0.180315,
+      "systemCount": 8
+    },
+    {
+      "id": "53634b8e6414e7f4",
+      "name": "Iriantax",
+      "class": "M",
+      "x": 10.502573,
+      "y": 28.10153,
+      "z": 0.16608,
+      "systemCount": 6
+    },
+    {
+      "id": "30c30486fc5126ce",
+      "name": "Draoldzo",
+      "class": "F",
+      "x": 11.593073,
+      "y": 27.66949,
+      "z": 0.284178,
+      "systemCount": 2
+    },
+    {
+      "id": "b6121287166863aa",
+      "name": "Iriirnua",
+      "class": "M",
+      "x": -29.611314,
+      "y": -4.813532,
+      "z": 0.184654,
+      "systemCount": 8
+    },
+    {
+      "id": "6d717dd2b6b54a59",
+      "name": "Caruldlo",
+      "class": "K",
+      "x": -10.360571,
+      "y": 28.154193,
+      "z": -0.231075,
+      "systemCount": 3
+    },
+    {
+      "id": "c6d5e507c228fe96",
+      "name": "Kalildzo",
+      "class": "M",
+      "x": 29.697767,
+      "y": 4.247659,
+      "z": 0.009403,
+      "systemCount": 7
+    },
+    {
+      "id": "2fee98d141abb236",
+      "name": "Coristrim",
+      "class": "M",
+      "x": 28.800432,
+      "y": 8.398519,
+      "z": -0.367139,
+      "systemCount": 8
+    },
+    {
+      "id": "b9dc8a4d2e030823",
+      "name": "Corolkro",
+      "class": "M",
+      "x": -26.885737,
+      "y": 13.310039,
+      "z": -0.521861,
+      "systemCount": 4
+    },
+    {
+      "id": "d9facb3188c37696",
+      "name": "Ereulkea",
+      "class": "F",
+      "x": 28.62646,
+      "y": 8.973616,
+      "z": -0.102672,
+      "systemCount": 5
+    },
+    {
+      "id": "0a00030671ff7513",
+      "name": "Rheurnex",
+      "class": "G",
+      "x": 29.799991,
+      "y": -3.458398,
+      "z": -0.738805,
+      "systemCount": 7
+    },
+    {
+      "id": "cb84d8f3dab16bd1",
+      "name": "Urubrra",
+      "class": "K",
+      "x": -10.161196,
+      "y": -28.226762,
+      "z": 0.065995,
+      "systemCount": 6
+    },
+    {
+      "id": "f4ccd1113d1aa24b",
+      "name": "Lorulktha",
+      "class": "K",
+      "x": 25.661898,
+      "y": 15.539208,
+      "z": -0.024392,
+      "systemCount": 2
+    },
+    {
+      "id": "ff205ae51218a3cc",
+      "name": "Ophubrlo",
+      "class": "G",
+      "x": 11.226154,
+      "y": -27.820379,
+      "z": 0.033112,
+      "systemCount": 4
+    },
+    {
+      "id": "92c26df7e362057f",
+      "name": "Nyxulklo",
+      "class": "K",
+      "x": 22.691821,
+      "y": 19.623488,
+      "z": -0.618795,
+      "systemCount": 2
+    },
+    {
+      "id": "60f3c178d664b03d",
+      "name": "Opharnix",
+      "class": "G",
+      "x": 29.941917,
+      "y": 1.865905,
+      "z": 0.095661,
+      "systemCount": 7
+    },
+    {
+      "id": "7711c41a81023f4f",
+      "name": "Polemnix",
+      "class": "A",
+      "x": -17.736376,
+      "y": -24.195474,
+      "z": 0.345427,
+      "systemCount": 8
+    },
+    {
+      "id": "32b7f836d0a06a4c",
+      "name": "Xanoxneus",
+      "class": "M",
+      "x": -23.323075,
+      "y": 18.868867,
+      "z": -0.062007,
+      "systemCount": 8
+    },
+    {
+      "id": "ff498d5bd75eeb09",
+      "name": "Kalamnfo",
+      "class": "G",
+      "x": -17.086869,
+      "y": 24.658445,
+      "z": 0.171511,
+      "systemCount": 2
+    },
+    {
+      "id": "84e2369c2631f2b9",
+      "name": "Belaldya",
+      "class": "M",
+      "x": -10.913824,
+      "y": 27.944381,
+      "z": -0.387568,
+      "systemCount": 2
+    },
+    {
+      "id": "06af1728f3c72cfd",
+      "name": "Valustdo",
+      "class": "F",
+      "x": -29.876555,
+      "y": 2.718722,
+      "z": 0.357995,
+      "systemCount": 3
+    },
+    {
+      "id": "d0baad9c98753020",
+      "name": "Zinarnnim",
+      "class": "M",
+      "x": 29.581347,
+      "y": -4.99439,
+      "z": 0.667767,
+      "systemCount": 6
+    },
+    {
+      "id": "5945c67e757cbc79",
+      "name": "Draeldzo",
+      "class": "G",
+      "x": 29.677955,
+      "y": 4.383944,
+      "z": 0.356672,
+      "systemCount": 5
+    },
+    {
+      "id": "953a1c0bdf04d275",
+      "name": "Toreldzo",
+      "class": "K",
+      "x": -19.129145,
+      "y": -23.11008,
+      "z": 0.274836,
+      "systemCount": 7
+    },
+    {
+      "id": "40343b9de82b18d3",
+      "name": "Cynimnjo",
+      "class": "M",
+      "x": -3.384257,
+      "y": -29.808502,
+      "z": 0.113814,
+      "systemCount": 2
+    },
+    {
+      "id": "3183863e5c1b3a0d",
+      "name": "Solulmaus",
+      "class": "G",
+      "x": 4.998562,
+      "y": 29.580642,
+      "z": 0.360798,
+      "systemCount": 2
+    },
+    {
+      "id": "76d842f2b461821d",
+      "name": "Borolkix",
+      "class": "F",
+      "x": -21.291655,
+      "y": -21.134461,
+      "z": -0.155643,
+      "systemCount": 7
+    },
+    {
+      "id": "38051906d576ff95",
+      "name": "Gaeulkion",
+      "class": "F",
+      "x": 20.468183,
+      "y": -21.932932,
+      "z": -0.407148,
+      "systemCount": 3
+    },
+    {
+      "id": "96f3a98673b7b386",
+      "name": "Olildaus",
+      "class": "M",
+      "x": -22.183994,
+      "y": -20.195802,
+      "z": 0.203278,
+      "systemCount": 3
+    },
+    {
+      "id": "8a9141a5a23e6a8f",
+      "name": "Nyxachion",
+      "class": "M",
+      "x": 26.193793,
+      "y": -14.624815,
+      "z": -0.660832,
+      "systemCount": 2
+    },
+    {
+      "id": "ff0461a1782979ff",
+      "name": "Esontcha",
+      "class": "K",
+      "x": 25.373976,
+      "y": 16.005041,
+      "z": 0.160245,
+      "systemCount": 7
+    },
+    {
+      "id": "3173e8dab2d68b19",
+      "name": "Polemnua",
+      "class": "A",
+      "x": -27.173326,
+      "y": 12.712606,
+      "z": 0.275135,
+      "systemCount": 3
+    },
+    {
+      "id": "5dab5c1168f86a80",
+      "name": "Torontjo",
+      "class": "G",
+      "x": -10.262465,
+      "y": -28.190101,
+      "z": -0.578274,
+      "systemCount": 4
+    },
+    {
+      "id": "80bc2e7f206fef01",
+      "name": "Carulmeum",
+      "class": "G",
+      "x": 25.11422,
+      "y": 16.409629,
+      "z": 0.152627,
+      "systemCount": 8
+    },
+    {
+      "id": "19c02f83313d523a",
+      "name": "Joraldtha",
+      "class": "G",
+      "x": -1.41858,
+      "y": -29.966442,
+      "z": 0.127157,
+      "systemCount": 6
+    },
+    {
+      "id": "6e5735dcd9722f09",
+      "name": "Garulmuus",
+      "class": "A",
+      "x": -3.445203,
+      "y": 29.80152,
+      "z": -0.485824,
+      "systemCount": 8
+    },
+    {
+      "id": "930709bf317e472e",
+      "name": "Ereadrcha",
+      "class": "M",
+      "x": 28.845828,
+      "y": -8.24125,
+      "z": -0.258362,
+      "systemCount": 3
+    },
+    {
+      "id": "3564aa3bb9132c95",
+      "name": "Esistrim",
+      "class": "M",
+      "x": 28.092317,
+      "y": 10.527191,
+      "z": 0.277882,
+      "systemCount": 4
+    },
+    {
+      "id": "7e18524a9568d520",
+      "name": "Lysernfo",
+      "class": "F",
+      "x": 6.341951,
+      "y": -29.322,
+      "z": 0.054955,
+      "systemCount": 8
+    },
+    {
+      "id": "254678a2a2013df5",
+      "name": "Lysintax",
+      "class": "F",
+      "x": -28.518769,
+      "y": 9.3102,
+      "z": -0.310347,
+      "systemCount": 3
+    },
+    {
+      "id": "8436780fa91e257e",
+      "name": "Esemnmo",
+      "class": "M",
+      "x": -6.815318,
+      "y": -29.215603,
+      "z": -0.122345,
+      "systemCount": 2
+    },
+    {
+      "id": "f3f8ba22886690f0",
+      "name": "Melaldria",
+      "class": "M",
+      "x": 12.460879,
+      "y": 27.289678,
+      "z": -0.67655,
+      "systemCount": 7
+    },
+    {
+      "id": "136b480d2c08b2ef",
+      "name": "Gaeildzo",
+      "class": "F",
+      "x": -29.571989,
+      "y": -5.049503,
+      "z": -0.086809,
+      "systemCount": 7
+    },
+    {
+      "id": "348531c73a754ed1",
+      "name": "Falustlo",
+      "class": "A",
+      "x": -24.460642,
+      "y": -17.368851,
+      "z": -0.387848,
+      "systemCount": 8
+    },
+    {
+      "id": "e021e73550b78ff4",
+      "name": "Corasttha",
+      "class": "B",
+      "x": -29.828621,
+      "y": 3.202087,
+      "z": -0.538118,
+      "systemCount": 2
+    },
+    {
+      "id": "09f81fa57656d3ad",
+      "name": "Feneldria",
+      "class": "M",
+      "x": -2.101587,
+      "y": -29.926298,
+      "z": 0.046758,
+      "systemCount": 5
+    },
+    {
+      "id": "8d898753f9ddef1b",
+      "name": "Vasulmdo",
+      "class": "M",
+      "x": 0.879162,
+      "y": 29.987115,
+      "z": 0.068243,
+      "systemCount": 8
+    },
+    {
+      "id": "bed44240b21c0b94",
+      "name": "Garichno",
+      "class": "K",
+      "x": 28.579889,
+      "y": 9.120853,
+      "z": 0.369022,
+      "systemCount": 2
+    },
+    {
+      "id": "dc6c129f67965b2f",
+      "name": "Zenelkix",
+      "class": "M",
+      "x": 16.893921,
+      "y": 24.791035,
+      "z": -0.24698,
+      "systemCount": 4
+    },
+    {
+      "id": "d73a7ec0759cb9d1",
+      "name": "Altimnso",
+      "class": "M",
+      "x": 8.166714,
+      "y": 28.867019,
+      "z": -0.006995,
+      "systemCount": 6
+    },
+    {
+      "id": "1411690fa8a1370c",
+      "name": "Helimndo",
+      "class": "K",
+      "x": -5.742286,
+      "y": -29.445308,
+      "z": -0.101232,
+      "systemCount": 2
+    },
+    {
+      "id": "5ba2f3ad95b6c733",
+      "name": "Daeaxnea",
+      "class": "K",
+      "x": -25.040471,
+      "y": -16.521949,
+      "z": 0.077061,
+      "systemCount": 8
+    },
+    {
+      "id": "7d83f1b289a8f10b",
+      "name": "Esuchfo",
+      "class": "K",
+      "x": 29.889516,
+      "y": 2.572326,
+      "z": -0.410464,
+      "systemCount": 8
+    },
+    {
+      "id": "a7005a60f6c1496a",
+      "name": "Zenobraus",
+      "class": "M",
+      "x": -25.681999,
+      "y": 15.505964,
+      "z": -0.157208,
+      "systemCount": 4
+    },
+    {
+      "id": "9ed7d4caf5e0f572",
+      "name": "Briilkix",
+      "class": "K",
+      "x": -18.522979,
+      "y": 23.598713,
+      "z": 0.059804,
+      "systemCount": 7
+    },
+    {
+      "id": "462ab3f7d7bd928e",
+      "name": "Belelkpha",
+      "class": "K",
+      "x": -28.133465,
+      "y": 10.416724,
+      "z": -0.172781,
+      "systemCount": 7
+    },
+    {
+      "id": "3664dc5536f6181d",
+      "name": "Kalimnmo",
+      "class": "F",
+      "x": 29.156854,
+      "y": 7.062427,
+      "z": 0.193373,
+      "systemCount": 7
+    },
+    {
+      "id": "660d521c4e9be734",
+      "name": "Belexnius",
+      "class": "K",
+      "x": -16.20774,
+      "y": -25.244983,
+      "z": 0.073275,
+      "systemCount": 2
+    },
+    {
+      "id": "ac18517cc400d74d",
+      "name": "Daeurneo",
+      "class": "K",
+      "x": 7.888051,
+      "y": 28.944406,
+      "z": 0.276842,
+      "systemCount": 4
+    }
+  ]
+}
