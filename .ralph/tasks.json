@@ -7,7 +7,7 @@
   { "id": "TASK-5", "title": "Surface chunk generator (terrain, nodes, landing pads)", "category": "functional", "specFilePath": ".ralph/tasks/TASK-5.json", "passes": true },
   { "id": "TASK-6", "title": "Galaxy determinism verification (snapshot fixtures)", "category": "functional", "specFilePath": ".ralph/tasks/TASK-6.json", "passes": true },
   { "id": "TASK-62", "title": "Drizzle data layer: dual-driver schema (SQLite/Postgres)", "category": "data-model", "specFilePath": ".ralph/tasks/TASK-62.json", "passes": true },
-  { "id": "TASK-63", "title": "Persistence service with save points and crash recovery", "category": "data-model", "specFilePath": ".ralph/tasks/TASK-63.json", "passes": false },
+  { "id": "TASK-63", "title": "Persistence service with save points and crash recovery", "category": "data-model", "specFilePath": ".ralph/tasks/TASK-63.json", "passes": true },
   { "id": "TASK-9", "title": "WS protocol: typed versioned message schema + handshake", "category": "api-endpoint", "specFilePath": ".ralph/tasks/TASK-9.json", "passes": false },
   { "id": "TASK-64", "title": "Input validation on all inbound messages (zod)", "category": "security", "specFilePath": ".ralph/tasks/TASK-64.json", "passes": false },
   { "id": "TASK-65", "title": "Per-connection rate limiting and chat spam control", "category": "security", "specFilePath": ".ralph/tasks/TASK-65.json", "passes": false },

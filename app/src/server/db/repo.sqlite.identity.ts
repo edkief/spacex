@@ -6,7 +6,7 @@
  * live in `./repo.sqlite.world.ts`. The top-level factory
  * (`repo.sqlite.ts`) composes the two.
  */
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { sqliteSchema } from "./schema.sqlite.js";
@@ -47,7 +47,9 @@ export function bindSqliteIdentity(db: BetterSQLite3Database<typeof sqliteSchema
   findShipById: (id: string) => Promise<ShipRow | null>;
   saveShipState: (id: string, patch: SaveShipStateInput) => Promise<ShipRow>;
   listShipsByOwner: (ownerId: string) => Promise<ShipRow[]>;
+  listShipsBySystem: (systemId: string) => Promise<ShipRow[]>;
   saveCargo: (shipId: string, items: CargoItemInput[]) => Promise<CargoItemRow[]>;
+  listCargoByShip: (shipId: string) => Promise<CargoItemRow[]>;
 } {
   return {
     async createPlayer(input: CreatePlayerInput): Promise<PlayerRow> {
@@ -170,6 +172,17 @@ export function bindSqliteIdentity(db: BetterSQLite3Database<typeof sqliteSchema
       return rows.map(mapShip);
     },
 
+    async listShipsBySystem(systemId: string): Promise<ShipRow[]> {
+      // json_extract is the cheapest deterministic way to filter on a JSON
+      // field stored as TEXT; avoids scanning the whole table when the
+      // systemId matches the persisted position.systemId.
+      const rows = await db
+        .select()
+        .from(sqliteSchema.ships)
+        .where(sql`json_extract(${sqliteSchema.ships.position}, '$.systemId') = ${systemId}`);
+      return rows.map(mapShip);
+    },
+
     async saveCargo(shipId: string, items: CargoItemInput[]): Promise<CargoItemRow[]> {
       const existing = await this.findShipById(shipId);
       if (!existing) {
@@ -177,28 +190,53 @@ export function bindSqliteIdentity(db: BetterSQLite3Database<typeof sqliteSchema
       }
       // Wipe-and-replace semantics. A differential variant can layer on top
       // later if the manifest grows large.
-      await db.delete(sqliteSchema.cargoItems).where(eq(sqliteSchema.cargoItems.shipId, shipId));
-      const rows: CargoItemRow[] = [];
-      for (const item of items) {
-        if (item.quantity <= 0) continue;
-        const id = randomUUID();
-        await db
-          .insert(sqliteSchema.cargoItems)
-          .values({
+      //
+      // Wrap the DELETE + N INSERTs in `db.transaction(...)` so the manifest
+      // update is one logical write — TASK-63 AC4 ("one transaction per save
+      // point, not per field") demands atomicity for multi-row cargo updates.
+      const valid = items.filter((it) => it.quantity > 0);
+      const inserted: Array<{ id: string; resourceType: string; quantity: number }> = [];
+      // Drizzle's transaction helper returns the callback's value. better-sqlite3
+      // is sync, so the async signature here is a Promise-wrapped surface; we
+      // resolve with the rows we collected inside the txn.
+      db.transaction((tx) => {
+        tx.delete(sqliteSchema.cargoItems).where(eq(sqliteSchema.cargoItems.shipId, shipId)).run();
+        for (const item of valid) {
+          const id = randomUUID();
+          tx.insert(sqliteSchema.cargoItems)
+            .values({
+              id,
+              shipId,
+              resourceType: item.resourceType,
+              quantity: item.quantity,
+            })
+            .run();
+          inserted.push({
             id,
-            shipId,
             resourceType: item.resourceType,
             quantity: item.quantity,
-          })
-          .run();
-        rows.push({
-          id,
-          shipId,
-          resourceType: item.resourceType,
-          quantity: item.quantity,
-        });
-      }
-      return rows;
+          });
+        }
+      });
+      return inserted.map((r) => ({
+        id: r.id,
+        shipId,
+        resourceType: r.resourceType,
+        quantity: r.quantity,
+      }));
+    },
+
+    async listCargoByShip(shipId: string): Promise<CargoItemRow[]> {
+      const rows = await db
+        .select()
+        .from(sqliteSchema.cargoItems)
+        .where(eq(sqliteSchema.cargoItems.shipId, shipId));
+      return rows.map((r) => ({
+        id: String(r.id),
+        shipId: String(r.shipId),
+        resourceType: String(r.resourceType),
+        quantity: Number(r.quantity),
+      }));
     },
   };
 }

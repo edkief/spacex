@@ -9,7 +9,7 @@
  * registry) live in `./repo.pg.world.ts`. The top-level factory
  * (`repo.pg.ts`) composes the two.
  */
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { pgSchema } from "./schema.pg.js";
 import { ShipLiverySchema, ShipPositionSchema, ShipVelocitySchema } from "./types.js";
@@ -47,7 +47,9 @@ export function bindPgIdentity(db: NodePgDatabase<typeof pgSchema>): {
   findShipById: (id: string) => Promise<ShipRow | null>;
   saveShipState: (id: string, patch: SaveShipStateInput) => Promise<ShipRow>;
   listShipsByOwner: (ownerId: string) => Promise<ShipRow[]>;
+  listShipsBySystem: (systemId: string) => Promise<ShipRow[]>;
   saveCargo: (shipId: string, items: CargoItemInput[]) => Promise<CargoItemRow[]>;
+  listCargoByShip: (shipId: string) => Promise<CargoItemRow[]>;
 } {
   return {
     async createPlayer(input: CreatePlayerInput): Promise<PlayerRow> {
@@ -156,6 +158,15 @@ export function bindPgIdentity(db: NodePgDatabase<typeof pgSchema>): {
       return rows.map(mapShip);
     },
 
+    async listShipsBySystem(systemId: string): Promise<ShipRow[]> {
+      // jsonb `->>'systemId'` lookup — equivalent to SQLite's json_extract.
+      const rows = await db
+        .select()
+        .from(pgSchema.ships)
+        .where(sql`${pgSchema.ships.position}->>'systemId' = ${systemId}`);
+      return rows.map(mapShip);
+    },
+
     async saveCargo(shipId: string, items: CargoItemInput[]): Promise<CargoItemRow[]> {
       const existing = await this.findShipById(shipId);
       if (!existing) throw new NotFoundError("Ship", shipId);
@@ -181,6 +192,19 @@ export function bindPgIdentity(db: NodePgDatabase<typeof pgSchema>): {
         });
       }
       return rows;
+    },
+
+    async listCargoByShip(shipId: string): Promise<CargoItemRow[]> {
+      const rows = await db
+        .select()
+        .from(pgSchema.cargoItems)
+        .where(eq(pgSchema.cargoItems.shipId, shipId));
+      return rows.map((r) => ({
+        id: String(r.id),
+        shipId: String(r.shipId),
+        resourceType: String(r.resourceType),
+        quantity: Number(r.quantity),
+      }));
     },
   };
 }

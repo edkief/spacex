@@ -1,6 +1,6 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-17 after **TASK-62** (Drizzle data layer: dual-driver schema).
+Snapshot taken 2026-10-17 after **TASK-63** (Persistence service with save points and crash recovery).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.
@@ -77,8 +77,12 @@ PROJECT_ROOT
 │   │       ├── index.ts         # Entry: listen + graceful shutdown
 │   │       ├── server.ts        # buildApp() factory (testable via inject)
 │   │       ├── server.test.ts   # Fastify inject() smoke for /api/health
+│   │       ├── persist.ts       # PersistService: save points + dirty-set + interval (TASK-63)
+│   │       ├── persist.test.ts          # 27 cases covering save points + dirty flag (TASK-63)
+│   │       ├── persist.crash.test.ts    # Child-process SIGKILL → loadSystemState round-trip (TASK-63)
+│   │       ├── persist.bench.test.ts    # 16-ship dirty-flush perf benchmark (TASK-63)
 │   │       └── ws.ts            # ws upgrade handler attached to Fastify
-│   │       └── db/              # Drift persistence layer (TASK-62)
+│   │       └── db/              # Drift persistence layer (TASK-62 / TASK-63)
 │   │           ├── types.ts     # PlayerRow / ShipRow / etc. + zod shapes for JSON columns
 │   │           ├── errors.ts    # CallsignTakenError / InsufficientCreditsError / NotFoundError
 │   │           ├── schema.ts    # selectSchemaFor(driver) re-exports both bundles

@@ -89,9 +89,13 @@ export interface Repository {
   findShipById(id: string): Promise<ShipRow | null>;
   saveShipState(id: string, patch: SaveShipStateInput): Promise<ShipRow>;
   listShipsByOwner(ownerId: string): Promise<ShipRow[]>;
+  /** Ships whose persisted position.systemId matches the given system. */
+  listShipsBySystem(systemId: string): Promise<ShipRow[]>;
 
   // Cargo
   saveCargo(shipId: string, items: CargoItemInput[]): Promise<CargoItemRow[]>;
+  /** All cargo rows for a single ship, in insertion order. */
+  listCargoByShip(shipId: string): Promise<CargoItemRow[]>;
 
   // Credits
   addCredits(playerId: string, amount: number): Promise<PlayerRow>;
