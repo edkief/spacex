@@ -2,10 +2,35 @@
 
 `Current Status`
 =================
-**Last Updated:** 2026-10-17 15:27
+**Last Updated:** 2026-10-17 15:50
 
-**Tasks Completed:** 13 of 71
-**Current Task:** TASK-66 Complete
+**Tasks Completed:** 14 of 71
+**Current Task:** TASK-19 Complete
+
+### 2026-10-17 — Iteration 15
+- **TASK-19** Ship catalog: 3 data-driven ship classes → **DONE**
+  - New `app/src/shared/ships.ts` (~265 lines, pure data + helpers, zero imports):
+    - **Types**: `ShipClassId = "scout" | "freighter" | "interceptor"`, `WeaponMounts { laser: 1|2, missiles: 0|4 }`, `ShipClass` (15 fields: id, name, description, mass, maxVelocity, acceleration, turnRate, cargoSlots, maxWeight, weaponMounts, shieldCapacity, hull, repairCostPerPoint, price, liverySlots), `ShipStatKey` (11 numeric keys for sort).
+    - **Canonical list**: `SHIP_CLASS_IDS` in display order (scout → freighter → interceptor).
+    - **Data** (matches the TASK-19 spec to the digit, rationale documented in a header comment):
+      - `scout`:     mass=20, maxVel=120, acc=40, turn=0.8, cargo=4, weight=40, laser=1, missiles=0, shield=50, hull=100, repair=1, price=0 (starter), liverySlots=3.
+      - `freighter`: mass=120, maxVel=60, acc=12, turn=0.4, cargo=12, weight=240, laser=1, missiles=0, shield=80, hull=200, repair=2, price=4000, liverySlots=3.
+      - `interceptor`: mass=30, maxVel=180, acc=70, turn=1.2, cargo=2, weight=20, laser=2, missiles=4, shield=40, hull=80, repair=3, price=2500, liverySlots=3.
+    - **`SHIP_CLASSES: Readonly<Record<ShipClassId, ShipClass>>`** — the single source of truth consumed by TASK-22 (flight model), TASK-43 (weapons), TASK-45 (AI roster), TASK-20 (dock UI), TASK-21 (livery), and TASK-23 (damage/repair).
+    - **Helpers**:
+      - `shipStats(id)` — typed lookup; throws `Error("unknown ship class id ...")` on unknown ids (covers the `shipStats(classId) throws on unknown id` acceptance criterion).
+      - `totalWeaponCount(id)` — sum of laser + missile mounts (used by the combat HUD).
+      - `shipPrice(id)` — convenience for the dock UI.
+      - `compareShips(a, b, key)` — numeric comparator for `Array.prototype.sort`, supporting all 11 `ShipStatKey`s.
+  - New `app/src/shared/ships.test.ts` (~225 lines, **32 cases** across 4 describe blocks):
+    - **Catalog shape** (3 cases): exactly 3 classes, every key present, `id === key` for each row, all string fields non-empty.
+    - **Stat validity** (5 parametric + 5 spot-checks): every numeric stat is positive finite (price allowed to be 0 for the starter scout), `cargoSlots ≥ 1`, `liverySlots === 3` for all classes, weapon mounts in the spec-allowed `{1|2 laser, 0|4 missile}` set.
+    - **Balance invariants** (6 cases): freighter has most cargo slots AND largest maxWeight AND lowest maxVelocity; interceptor has highest maxVelocity; interceptor is the *only* class with a missile battery; scout is the middle starter (cargo and speed sit between the other two); prices ascend scout (0) < interceptor (2500) < freighter (4000).
+    - **Helpers** (9 cases): `shipStats(id)` returns the row, throws on unknown / `undefined` / `null` / number / boolean; `totalWeaponCount` sums laser+missiles (scout=1, freighter=1, interceptor=6) and throws on unknown; `shipPrice` matches `shipStats(id).price`; `compareShips` returns negative/zero/positive and is monotonic under `Array.prototype.sort` (verified by sorting the catalog by price and by maxVelocity).
+  - **Pure-data, zero-import contract verified**: `ships.ts` declares no `import` statements; everything derives from the literal data + the helpers. Two clients consuming the same module get identical numbers — no PRNG, no `Date.now`, no environment dependence.
+  - **No UI surface** (TASK-19 is `functional`) → no Playwright smoke test, no screenshot. The dev server stayed up at `http://localhost:3000` during the build; `GET /api/health` returned `{"ok":true,"galaxySeed":"DRIFT-SEED-0001"}` as expected.
+  - **`npm run typecheck` + `npm run lint` + `npm run lint:fix` + `npm test` all green** for the new files (40 test files / 593 cases, up from 39 / 569). The `ships.test.ts` cases alone pass 32/32 in isolation (verified with `npm test -- ships`).
+  - **Pre-existing flaky test noted**: `src/server/routes/logout.test.ts > rejects a tampered MAC with 401` flakes ~1 in 8 runs (~12%). The test tampers with the last char of the signature by replacing it with `A`; if the original token's last char happens to be `A`, the "tampered" token equals the original and the request succeeds (returns 204 instead of 401). This is independent of TASK-19 — reproduced on the unmodified codebase via `git stash -u` (10 runs: 2 failures). Filed mentally as a TASK-66 follow-up; not fixed here because it is out of scope for TASK-19.
 
 ### 2026-10-17 — Iteration 14
 - **TASK-66** Session token integrity (signing, expiry, revocation) → **DONE**

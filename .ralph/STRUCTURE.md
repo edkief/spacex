@@ -1,6 +1,6 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-17 after **TASK-66** (Session token integrity: signing, expiry, revocation).
+Snapshot taken 2026-10-17 after **TASK-19** (Ship catalog: 3 data-driven ship classes).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.
@@ -69,7 +69,9 @@ PROJECT_ROOT
 │   │   │   │   └── schemas.test.ts   # Parametrized valid/invalid + envelope round-trip
 │   │   │   ├── random.ts        # seedFromString + Rng (xoshiro128**) + hash2 (TASK-2)
 │   │   │   ├── random.test.ts   # Golden / distribution / purity suite (node)
-│   │   │   └── random.parity.test.ts # Same golden values under happy-dom
+│   │   │   ├── random.parity.test.ts # Same golden values under happy-dom
+│   │   │   ├── ships.ts         # SHIP_CLASSES + shipStats/compareShips/totalWeaponCount/shipPrice (TASK-19)
+│   │   │   └── ships.test.ts    # 32 cases: shape, stat validity, balance, helpers, throw on unknown
 │   │   ├── client/              # React + three.js frontend (Vite)
 │   │   │   ├── App.tsx          # Top-level shell
 │   │   │   ├── components/      # UI sub-components (CanvasStage.tsx)
