@@ -1,11 +1,12 @@
 /**
- * WebSocket upgrade handler for the Drift server (TASK-9).
+ * WebSocket upgrade handler for the Drift server (TASK-9 + TASK-64).
  *
  * Public surface:
  *   - `attachWs(app, wsPath, options)` — wires a `ws.Server` to a Fastify
  *     HTTP server on the configured path. Returns a `WsHandle` whose
  *     `close()` resolves once every socket has been terminated.
- *   - `WsHandle`, `WsHandleOptions` — types referenced by the live server.
+ *   - `WsHandle`, `WsHandleOptions`, `WsKeepaliveConfig` — types
+ *     referenced by the live server.
  *   - `JoinResolver`, `AuthResolver` — pluggable interfaces for future
  *     tasks to swap in real callsign-uniqueness (TASK-10) and system
  *     routing (TASK-11) implementations.
@@ -13,7 +14,8 @@
  * The handshake state machine, per-type handlers and default resolvers
  * live in sibling modules:
  *   - `./ws.connection.ts` — `Connection` + `ConnectionRegistry`
- *   - `./ws.dispatch.ts`   — `processRawFrame`, dispatch, handlers
+ *   - `./ws.dispatch.ts`   — `processRawFrame`, dispatch, handlers,
+ *                              `noteInvalidInput` (the size-cap gate)
  *   - `./ws.resolvers.ts`  — `defaultAuthResolver`, `defaultJoinResolver`
  *
  * State machine:
@@ -25,8 +27,15 @@
  *   - `ws.ping()` is sent every `pingIntervalMs` (default 15s).
  *   - Connections silent for longer than `pongTimeoutMs` (default 45s)
  *     are terminated on the next keepalive tick.
- *   - Unknown message types are counted; the 11th strike drops the
- *     connection (TASK-9 acceptance criterion).
+ *
+ * Inbound validation (TASK-64):
+ *   - Every inbound text frame is checked against `maxMessageBytes`
+ *     (default 64 KB) before JSON.parse is called. Over-sized frames
+ *     route through `noteInvalidInput` for unified strike accounting
+ *     and 1008 close-on-threshold behaviour.
+ *   - `ws.Server`'s native `maxPayload` option is left at the library
+ *     default (100 MB) so our own checker can emit a structured
+ *     `invalid-message` error rather than a silent 1009 close.
  */
 import { WebSocketServer, type WebSocket } from "ws";
 import type { FastifyInstance } from "fastify";
@@ -37,7 +46,13 @@ import {
   type WsConnectionRecord,
   type WsConnectionState,
 } from "./ws.connection.js";
-import { processRawFrame, UNKNOWN_TYPE_DROP_THRESHOLD, PROTOCOL_VERSION } from "./ws.dispatch.js";
+import {
+  processRawFrame,
+  noteInvalidInput,
+  INVALID_DROP_THRESHOLD,
+  MAX_MESSAGE_BYTES,
+  PROTOCOL_VERSION,
+} from "./ws.dispatch.js";
 import { defaultAuthResolver, defaultJoinResolver } from "./ws.resolvers.js";
 
 // ---------------------------------------------------------------------------
@@ -104,6 +119,14 @@ export interface WsHandleOptions {
   joinResolver?: JoinResolver;
   /** Keepalive tunables. Tests usually override these. */
   keepalive?: Partial<WsKeepaliveConfig>;
+  /**
+   * Cap on inbound message *bytes* (TASK-64 acceptance criteria).
+   * Frames exceeding this size are rejected with `invalid-message` and
+   * counted toward the strike threshold without ever reaching
+   * `JSON.parse`. Defaults to 64 KB. Set this to a very large value in
+   * tests that intentionally exercise oversize behaviour.
+   */
+  maxMessageBytes?: number;
   /** Clock for `Date.now()` — tests inject a fake clock. */
   now?: () => number;
   /** Hook fired when a connection transitions to a new state. */
@@ -120,8 +143,11 @@ export const DEFAULT_PING_INTERVAL_MS = 15_000;
 /** Default pong timeout (ms) — matches the TASK-9 acceptance criterion. */
 export const DEFAULT_PONG_TIMEOUT_MS = 45_000;
 
-// Re-export from dispatch.ts so callers can pull all the constants from one place.
-export { UNKNOWN_TYPE_DROP_THRESHOLD, PROTOCOL_VERSION };
+/**
+ * Re-export from `ws.dispatch.ts` so callers can pull every protocol-level
+ * constant from this module's barrel.
+ */
+export { INVALID_DROP_THRESHOLD, MAX_MESSAGE_BYTES, PROTOCOL_VERSION };
 
 // ---------------------------------------------------------------------------
 // attachWs
@@ -145,6 +171,9 @@ export function attachWs(
   if (!app.server) {
     throw new Error("Fastify app is not listening; cannot attach WebSocket server.");
   }
+  // We deliberately leave the underlying `ws.Server.maxPayload` at its
+  // 100 MB library default so we can emit our own structured
+  // `invalid-message` error below instead of a silent 1009 close.
   const wss = new WebSocketServer({ noServer: true });
   const registry = new ConnectionRegistry();
 
@@ -152,6 +181,7 @@ export function attachWs(
   const joinResolver = options.joinResolver ?? defaultJoinResolver;
   const pingIntervalMs = options.keepalive?.pingIntervalMs ?? DEFAULT_PING_INTERVAL_MS;
   const pongTimeoutMs = options.keepalive?.pongTimeoutMs ?? DEFAULT_PONG_TIMEOUT_MS;
+  const maxMessageBytes = options.maxMessageBytes ?? MAX_MESSAGE_BYTES;
   const now = options.now ?? Date.now;
 
   app.server.on("upgrade", (request, socket, head) => {
@@ -172,7 +202,7 @@ export function attachWs(
       playerId: null,
       callsign: null,
       systemId: null,
-      unknownTypeCount: 0,
+      invalidCount: 0,
       lastSeenAt: now(),
       lastPingedAt: 0,
     };
@@ -199,15 +229,23 @@ export function attachWs(
     ws.on("message", (raw: Buffer | ArrayBuffer | Buffer[]) => {
       const c = registry.get(ws);
       if (!c || c.state === "closed") return;
+      const buf = rawToBuffer(raw);
+      // Size cap (TASK-64 acceptance): reject oversize frames with a
+      // structured `invalid-message` and route through `noteInvalidInput`
+      // so the strike counter increments toward INVALID_DROP_THRESHOLD.
+      // We measure *bytes*, not characters, so a UTF-8 multi-byte payload
+      // can't sneak past the gate.
+      if (buf.byteLength > maxMessageBytes) {
+        noteInvalidInput(
+          c,
+          registry,
+          "invalid-message",
+          `Message exceeds ${maxMessageBytes}-byte limit`,
+        );
+        return;
+      }
       c.lastSeenAt = now();
-      const text =
-        typeof raw === "string"
-          ? raw
-          : Array.isArray(raw)
-            ? Buffer.concat(raw).toString("utf8")
-            : raw instanceof ArrayBuffer
-              ? Buffer.from(raw).toString("utf8")
-              : raw.toString("utf8");
+      const text = buf.toString("utf8");
       void processRawFrame(c, registry, authResolver, joinResolver, options, text);
     });
   });
@@ -262,8 +300,24 @@ export function attachWs(
         playerId: c.playerId,
         callsign: c.callsign,
         systemId: c.systemId,
-        unknownTypeCount: c.unknownTypeCount,
+        invalidCount: c.invalidCount,
         lastSeenAt: c.lastSeenAt,
       })),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Coerce the various shapes `ws` can deliver for a message into a single
+ * `Buffer`. The WebSocket library hands us `Buffer | ArrayBuffer | Buffer[]`
+ * depending on whether the frame was binary/text and whether the message
+ * arrived in chunks. All three are valid; we just normalise.
+ */
+function rawToBuffer(raw: Buffer | ArrayBuffer | Buffer[]): Buffer {
+  if (Array.isArray(raw)) return Buffer.concat(raw);
+  if (raw instanceof ArrayBuffer) return Buffer.from(raw);
+  return raw;
 }

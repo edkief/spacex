@@ -21,7 +21,7 @@ import { WebSocket as WsClient } from "ws";
 
 import {
   attachWs,
-  UNKNOWN_TYPE_DROP_THRESHOLD,
+  INVALID_DROP_THRESHOLD,
   DEFAULT_PING_INTERVAL_MS,
   DEFAULT_PONG_TIMEOUT_MS,
   type WsHandle,
@@ -225,9 +225,9 @@ describe("server/ws handshake", () => {
     try {
       client.send(encodeEnvelope("hello", { version: PROTOCOL_VERSION }));
       await collectMessages(client, 1); // hello ack
-      // Send `UNKNOWN_TYPE_DROP_THRESHOLD` unknown-type frames.
-      const errors = collectMessages(client, UNKNOWN_TYPE_DROP_THRESHOLD);
-      for (let i = 0; i < UNKNOWN_TYPE_DROP_THRESHOLD; i++) {
+      // Send `INVALID_DROP_THRESHOLD` unknown-type frames.
+      const errors = collectMessages(client, INVALID_DROP_THRESHOLD);
+      for (let i = 0; i < INVALID_DROP_THRESHOLD; i++) {
         client.send(
           JSON.stringify({ v: PROTOCOL_VERSION, type: "definitely-not-a-type", payload: { i } }),
         );
@@ -238,7 +238,7 @@ describe("server/ws handshake", () => {
         expect(e.type).toBe("error");
         expect(e.payload.code).toBe("unknown-type");
       }
-      // The server should have closed the socket after the 10th strike.
+      // The server should have closed the socket after the threshold strike.
       const close = await waitForClose(client);
       expect(close.code).toBe(1008);
     } finally {

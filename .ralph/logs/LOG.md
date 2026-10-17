@@ -2,7 +2,22 @@
 
 `Current Status`
 =================
-**Last Updated:** 2026-10-17 14:07
+**Last Updated:** 2026-10-17 14:21
+
+### 2026-10-17 — Iteration 11
+- **TASK-64** Input validation on all inbound messages (zod) → **DONE**
+  - Hardened `app/src/server/ws.dispatch.ts` + `ws.ts` + `ws.connection.ts`:
+    - New `INVALID_DROP_THRESHOLD = 50` (replaces TASK-9's 10-strike drop on unknown-type only). Every malformed input — bad envelope, bad payload, unknown type — now increments `Connection.invalidCount` (renamed from `unknownTypeCount`) and drops with WS close 1008 at the threshold. Version mismatch stays a one-shot disconnect (it's a different protocol, not a malformed-input attack).
+    - New `MAX_MESSAGE_BYTES = 64 * 1024` constant; the `attachWs()` `'message'` handler now refuses oversize frames *before* `JSON.parse` and routes them through `noteInvalidInput()`. The native `ws.Server.maxPayload` is left at its library default so the server emits our own structured `invalid-message` rather than a silent 1009 close.
+    - New exported helper `noteInvalidInput(conn, registry, code, message)` centralises the strike-accounting + send-error + drop-on-threshold logic so the size-cap check in `ws.ts` and the parse-failure paths in `processRawFrame` share a single code path. The helper forwards the underlying `ProtocolError.code` (`unknown-type` vs `invalid-message`) without echoing the raw payload.
+    - All per-type schemas (`EnvelopeSchema`, `LiverySchema`, `EntityStateSchema`, `ErrorSchema`, the per-message schemas in `@shared/protocol/schemas.ts`) already use `.strict()`, so unknown-key probes already fail at the parse boundary. Acceptance criterion verified by the dedicated fuzz case `envelope with unknown top-level key (strict forbids)` + `set_livery payload with unknown key`.
+    - Out-of-order handshake frames (`unauthenticated`) deliberately do NOT count toward the strike counter so operators can distinguish "fuzzing" from "skipping handshake".
+  - Three new files (split to stay within the 200-300 line ceiling):
+    - `app/src/server/ws.fuzz-payloads.ts` (256 lines) — the 20-payload catalogue + `nestedObject(n)`/`byteString(n)` builders + `REQUIRED_FUZZ_NAMES` pin list. Targeted families: non-JSON, empty body, missing/extra envelope fields, wrong types, NaN/Infinity, empty/oversize strings, negative seq, unknown enums, strict-mode unknown keys, depth-30 nesting.
+    - `app/src/server/ws.fuzz-helpers.ts` (106 lines) — `bootFuzzHarness()` (Fastify `/api/health` + ws on ephemeral port) + `openFuzzClient()` + `collectFuzzMessages()`.
+    - `app/src/server/validation-fuzz.test.ts` (185 lines) — 6 cases. Boots the in-process server, fires all 20 fuzz frames on a single connection, asserts each gets the expected `invalid-message`/`unknown-type` error code with message length < 500 and no verbatim-echo of the raw payload, then drives a valid `hello` → `auth_ok` flow on the same socket to prove the connection survived; verifies the 1 MB payload hits the 64 KB gate; hammers `/api/health` 5× to confirm the REST route is untouched; pins `INVALID_DROP_THRESHOLD = 50` and asserts every required payload family is present.
+  - Existing `app/src/server/ws.test.ts` updated to import `INVALID_DROP_THRESHOLD` (renamed from `UNKNOWN_TYPE_DROP_THRESHOLD`) and use the 50-count loop in the strike-drop test. All 12 existing ws tests still green.
+  - 285 vitest cases pass (6 new from TASK-64 + 279 pre-existing). `npm run typecheck`, `npm run lint`, `npm run lint:fix` all clean. TASK-64 is `security` (no UI surface) → no Playwright smoke needed. No screenshot (no UI).
 **Tasks Completed:** 10 of 71
 **Current Task:** TASK-9 Complete
 

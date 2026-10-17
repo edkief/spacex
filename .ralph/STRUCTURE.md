@@ -1,6 +1,6 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-17 after **TASK-9** (WS protocol: typed versioned message schema + handshake).
+Snapshot taken 2026-10-17 after **TASK-64** (Input validation on all inbound messages).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.
@@ -86,9 +86,12 @@ PROJECT_ROOT
 │   │       ├── persist.crash.test.ts    # Child-process SIGKILL → loadSystemState round-trip (TASK-63)
 │   │       ├── persist.bench.test.ts    # 16-ship dirty-flush perf benchmark (TASK-63)
 │   │       ├── ws.ts            # ws upgrade handler attached to Fastify (TASK-9)
-│   │       ├── ws.connection.ts # Connection struct + ConnectionRegistry (TASK-9)
-│   │       ├── ws.dispatch.ts   # processRawFrame + state machine + per-state handlers (TASK-9)
+│   │       ├── ws.connection.ts # Connection struct + ConnectionRegistry (TASK-9, renamed invalidCount in TASK-64)
+│   │       ├── ws.dispatch.ts   # processRawFrame + state machine + per-state handlers + noteInvalidInput + INVALID_DROP_THRESHOLD=50 + MAX_MESSAGE_BYTES=64KB (TASK-9, hardened in TASK-64)
 │   │       ├── ws.resolvers.ts  # defaultAuthResolver + defaultJoinResolver stubs (TASK-9)
+│   │       ├── ws.fuzz-helpers.ts # bootFuzzHarness + openFuzzClient + collectFuzzMessages (TASK-64)
+│   │       ├── ws.fuzz-payloads.ts # 20 crafted malformed payloads + REQUIRED_FUZZ_NAMES + nestedObject/byteString builders (TASK-64)
+│   │       ├── validation-fuzz.test.ts # 6 cases: 20-payload burst + 1 MB size cap + health hammered + threshold pin (TASK-64)
 │   │       └── ws.test.ts       # Real Fastify+ws boot: handshake, errors, unknown-type, keepalive (TASK-9)
 │   │       └── db/              # Drift persistence layer (TASK-62 / TASK-63)
 │   │           ├── types.ts     # PlayerRow / ShipRow / etc. + zod shapes for JSON columns

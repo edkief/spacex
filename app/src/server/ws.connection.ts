@@ -1,5 +1,5 @@
 /**
- * Per-connection bookkeeping for the Drift WebSocket server (TASK-9).
+ * Per-connection bookkeeping for the Drift WebSocket server (TASK-9 + TASK-64).
  *
  * Kept in its own module so `ws.ts` (the public API) stays focused on
  * lifecycle, and `ws.dispatch.ts` (the message router) can stay focused
@@ -10,6 +10,13 @@
  * to accept a frame: the per-connection state machine position, identity
  * fields populated by the handshake resolvers, and the timestamp needed
  * for the keepalive timeout.
+ *
+ * `invalidCount` is the per-connection strike counter (TASK-64): every
+ * inbound frame that fails envelope/parse/validation increments it, and
+ * the connection is dropped when it reaches `INVALID_DROP_THRESHOLD`
+ * (see `./ws.dispatch.ts`). Renamed from the TASK-9 `unknownTypeCount`
+ * because the counter now tracks *all* malformed inputs, not only
+ * unknown message types.
  *
  * `ConnectionRegistry` is a thin `Map<WebSocket, Connection>` wrapper
  * because we want metadata alongside each socket — `ws.Server.clients`
@@ -33,7 +40,7 @@ export interface WsConnectionRecord {
   playerId: string | null;
   callsign: string | null;
   systemId: string | null;
-  unknownTypeCount: number;
+  invalidCount: number;
   lastSeenAt: number;
 }
 
@@ -44,7 +51,7 @@ export interface Connection {
   playerId: string | null;
   callsign: string | null;
   systemId: string | null;
-  unknownTypeCount: number;
+  invalidCount: number;
   lastSeenAt: number;
   lastPingedAt: number;
 }
@@ -80,7 +87,7 @@ export function snapshotConnection(c: Connection): WsConnectionRecord {
     playerId: c.playerId,
     callsign: c.callsign,
     systemId: c.systemId,
-    unknownTypeCount: c.unknownTypeCount,
+    invalidCount: c.invalidCount,
     lastSeenAt: c.lastSeenAt,
   };
 }
