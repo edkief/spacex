@@ -1,5 +1,6 @@
 /**
- * REST routes for the player's owned ship (TASK-20).
+ * REST routes for the player's owned ship (TASK-20) and livery
+ * customization (TASK-21).
  *
  *   GET  /api/ships
  *     header: Authorization: Bearer <token>
@@ -16,19 +17,32 @@
  *     422:   { code: "insufficient-credits", message } — credits < price.
  *     401:   { code: "unauthenticated", message }  — bad / missing token.
  *
- * Both routes share the same response shape: the full ship row +
- * the catalog entry (`@shared/ships`) for client-side rendering.
- * The `class` payload exposes every stat the dock UI / ship HUD might
- * need in one round-trip — keeps the client from re-fetching the
- * static catalog separately.
+ *   POST /api/ships/livery                          (TASK-21)
+ *     header: Authorization: Bearer <token>
+ *     body:  { colors: { primary, secondary, accent } }
+ *             each: /^#[0-9a-fA-F]{6}$/ (six-digit hex)
+ *     200:   { ship, class } — updated ship + catalog stats.
+ *     400:   { code: "invalid-livery", message }    — bad/missing color slot.
+ *     400:   { code: "invalid-payload", message }   — empty / wrong body.
+ *     401:   { code: "unauthenticated", message }   — bad / missing token.
+ *     422:   { code: "must-be-docked", message }    — mid-flight.
  *
  * The buy endpoint delegates persistence to `repo.purchaseShip` which
  * wraps validation + credit withdraw + ship replacement in a single
  * transaction. On success it publishes a `ship-swapped` event on the
  * in-process shards bus so an active system shard (future TASK-11)
  * can replace the live entity and broadcast `entity_update`.
+ *
+ * The livery endpoint delegates persistence to `repo.saveShipState`,
+ * which validates the color triple with the same zod schema as the
+ * protocol `LiverySchema` (`@shared/protocol`). On success it
+ * publishes `livery-changed` on the shards bus so an active system
+ * shard can broadcast `entity_update` with the new livery — clients
+ * subscribed to that shard apply the new colors in place (TASK-21
+ * client side: `applyLivery`).
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import { z } from "zod";
 
 import {
   AlreadyOwnedShipError,
@@ -46,6 +60,7 @@ import {
   shipPrice,
   shipStats,
 } from "@shared/ships.js";
+import { LiverySchema } from "@shared/protocol/index.js";
 import { getShardsBus } from "../shards/event-bus.js";
 
 /** Public deps shared by tests and the live server. */
@@ -239,6 +254,119 @@ export function registerShipsRoutes(app: FastifyInstance, deps: ShipsRouteDeps):
     return reply.code(200).send({
       ship: serializeShipForWire(newShip),
       class: klass,
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // POST /api/ships/livery — persistent per-ship paint customization (TASK-21).
+  //
+  // Body shape: `{ colors: { primary, secondary, accent } }`. Each color
+  // must be a six-digit hex string (`^#[0-9a-fA-F]{6}$`). Validation is
+  // done by `LiverySchema` from the wire-protocol module so the
+  // REST handler and the WS `set_livery` envelope agree on what a
+  // valid livery looks like.
+  //
+  // Persisted via `repo.saveShipState`, which round-trips the JSON
+  // through `ShipLiverySchema` and re-validates — a bad payload is
+  // caught at the boundary regardless of which side reached it first.
+  //
+  // On success we publish `livery-changed` on the shards bus. An active
+  // system shard (future TASK-11) listens for that event and emits
+  // `entity_update` with the new livery so other clients in-system can
+  // re-paint the owning player's ship without a full snapshot.
+  // -------------------------------------------------------------------------
+  app.post("/api/ships/livery", async (req: FastifyRequest, reply: FastifyReply) => {
+    const token = readBearer(req);
+    if (token === null) {
+      return reply.code(401).send(errBody("unauthenticated", "Missing bearer token"));
+    }
+    const profile = await loadSessionProfile(deps.repo, deps.sessionSecret, token, {
+      nowMs: deps.nowMs,
+    });
+    if (profile === null) {
+      return reply.code(401).send(errBody("unauthenticated", "Token invalid or expired"));
+    }
+
+    // Parse the body — must have a `colors` object whose shape matches
+    // `LiverySchema`. We use a `safeParse` on the outer envelope (no
+    // extra keys allowed) so a typo (e.g. `{colours: ...}`) fails
+    // loudly with `invalid-payload` instead of being silently dropped.
+    const LiveryRequestSchema = z
+      .object({
+        colors: LiverySchema,
+      })
+      .strict();
+    const parsed = LiveryRequestSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      // Distinguish "the colors object is malformed" from "the whole
+      // request is wrong". We try to extract a more useful error code
+      // by re-parsing just the `colors` field — if `colors` exists
+      // but is invalid hex, surface `invalid-livery`; otherwise it's
+      // the body shape that's broken.
+      const body = req.body as { colors?: unknown } | null | undefined;
+      const colorsOnly = LiverySchema.safeParse(body?.colors);
+      if (body === null || body === undefined || typeof body !== "object" || !("colors" in body)) {
+        return reply
+          .code(400)
+          .send(
+            errBody("invalid-payload", "Body must be { colors: { primary, secondary, accent } }"),
+          );
+      }
+      if (!colorsOnly.success) {
+        const issue = colorsOnly.error.issues[0]?.message ?? "invalid color";
+        return reply.code(400).send(errBody("invalid-livery", issue));
+      }
+      return reply
+        .code(400)
+        .send(
+          errBody("invalid-payload", "Body must be { colors: { primary, secondary, accent } }"),
+        );
+    }
+    const colors: ShipLivery = parsed.data.colors;
+
+    // Look up the live ship row. The owner is guaranteed by the
+    // `loadSessionProfile` check above (a session implies a player).
+    const owned = await deps.repo.listShipsByOwner(profile.playerId);
+    const ship = owned[0];
+    if (!ship) {
+      return reply
+        .code(500)
+        .send(errBody("no-ship", "Player has no ship (callsign claim was incomplete)"));
+    }
+
+    // Players can re-paint from any dock (spec). Mid-flight painting
+    // would race with active snapshots; reject with 422 to mirror the
+    // "must be docked to buy" semantics of the buy endpoint.
+    if (ship.state !== "docked") {
+      return reply
+        .code(422)
+        .send(errBody("must-be-docked", "Must be docked at a station to change livery"));
+    }
+
+    // Persist the new livery. `saveShipState` re-validates with
+    // `ShipLiverySchema` — by construction we already have a valid
+    // payload, so the parse inside saveShipState is a no-op.
+    const updated = await deps.repo.saveShipState(ship.id, { livery: colors });
+
+    // Publish on the shards bus so an active system shard can
+    // broadcast `entity_update` with the new livery. The publish
+    // path mirrors `ship-swapped`: async (nextTick), listener errors
+    // are isolated, and we never fail the response on a bus glitch.
+    try {
+      getShardsBus().publishLiveryChanged({
+        playerId: profile.playerId,
+        shipId: updated.id,
+        livery: updated.livery,
+        systemId: updated.position.systemId,
+      });
+    } catch {
+      // Bus failures must not break the response — the DB write
+      // already committed.
+    }
+
+    return reply.code(200).send({
+      ship: serializeShipForWire(updated),
+      class: classFor(updated.classId),
     });
   });
 }

@@ -25,9 +25,9 @@ import { EventEmitter } from "node:events";
 import type { ShipRow } from "../db/types.js";
 
 /**
- * Payload of every bus event. Today: only `shipSwapped`. Future events
- * (player joined shard, AI spawned, etc.) extend this union without
- * changing the listener signature.
+ * Payload of every bus event. Today: `shipSwapped` + `liveryChanged`.
+ * Future events (player joined shard, AI spawned, etc.) extend this
+ * union without changing the listener signature.
  */
 export interface ShipSwapEvent {
   /** Canonical id of the player whose ship was replaced. */
@@ -40,12 +40,31 @@ export interface ShipSwapEvent {
 }
 
 /**
+ * Payload of `livery-changed` events (TASK-21). Published whenever a
+ * player updates their ship's paint at a dock; an active system shard
+ * (future TASK-11) consumes this and broadcasts `entity_update` so
+ * remote clients can re-paint the owning player's ship in place.
+ *
+ * The payload deliberately carries the ship id, system id, and the
+ * full `ShipLivery` so the consumer does not have to re-read the DB —
+ * saves a round-trip on every paint.
+ */
+export interface LiveryChangedEvent {
+  playerId: string;
+  shipId: string;
+  livery: ShipRow["livery"];
+  systemId: string;
+}
+
+/**
  * Static event-name registry so producers and consumers reference a
  * single literal per event. Adding an event is a one-line change.
  */
 export const ShardEvents = {
   /** A player completed a ship purchase at a dock (TASK-20). */
   ShipSwapped: "ship-swapped",
+  /** A player updated their ship's livery at a dock (TASK-21). */
+  LiveryChanged: "livery-changed",
 } as const;
 
 export type ShardEventName = (typeof ShardEvents)[keyof typeof ShardEvents];
@@ -57,13 +76,23 @@ export type ShardEventName = (typeof ShardEvents)[keyof typeof ShardEvents];
  */
 export type ShipSwapListener = (event: ShipSwapEvent) => void | Promise<void>;
 
+/** Listener for `livery-changed` (TASK-21). Same shape as `ShipSwapListener`. */
+export type LiveryChangedListener = (event: LiveryChangedEvent) => void | Promise<void>;
+
 export interface ShardsBus {
   /** Subscribe to `ship-swapped` events (TASK-20). */
   on(eventName: typeof ShardEvents.ShipSwapped, listener: ShipSwapListener): this;
   off(eventName: typeof ShardEvents.ShipSwapped, listener: ShipSwapListener): this;
-  removeAllListeners(eventName?: typeof ShardEvents.ShipSwapped): this;
+  /** Subscribe to `livery-changed` events (TASK-21). */
+  on(eventName: typeof ShardEvents.LiveryChanged, listener: LiveryChangedListener): this;
+  off(eventName: typeof ShardEvents.LiveryChanged, listener: LiveryChangedListener): this;
+  removeAllListeners(
+    eventName?: typeof ShardEvents.ShipSwapped | typeof ShardEvents.LiveryChanged,
+  ): this;
   /** Publish a ship-swap event. Fire-and-forget from the route. */
   publishShipSwap(event: ShipSwapEvent): void;
+  /** Publish a livery-changed event. Fire-and-forget from the route. */
+  publishLiveryChanged(event: LiveryChangedEvent): void;
 }
 
 /**
@@ -78,10 +107,18 @@ export function createShardsBus(): ShardsBus {
   return {
     on(eventName, listener): ShardsBus {
       emitter.on(eventName, (...args: unknown[]) => {
-        const payload = args[0] as ShipSwapEvent;
-        void Promise.resolve(listener(payload)).catch((err: unknown) => {
-          emitter.emit("error", err);
-        });
+        // The `on` overload types narrow per-event-name, but at the
+        // emitter level we only have `unknown[]`. Cast to the union
+        // so the listener can decide based on its own type signature.
+        const payload = args[0] as ShipSwapEvent | LiveryChangedEvent;
+        // The listener signature is either type; the union is the
+        // narrowest shape that satisfies both. Cast through `unknown`
+        // so TS does not try to enforce the intersection.
+        void Promise.resolve((listener as (e: unknown) => unknown)(payload)).catch(
+          (err: unknown) => {
+            emitter.emit("error", err);
+          },
+        );
       });
       return this;
     },
@@ -105,6 +142,18 @@ export function createShardsBus(): ShardsBus {
           // A misbehaving subscriber cannot break the publisher.
           // Re-emit through the standard `error` channel so a logger
           // attached via `bus.on('error', ...)` still sees it.
+          emitter.emit("error", err);
+        }
+      });
+    },
+    publishLiveryChanged(event: LiveryChangedEvent): void {
+      // Symmetric with `publishShipSwap` — TASK-21 mirrors the
+      // buy-endpoint broadcast semantics: async dispatch, isolated
+      // listener errors, never fails the publisher.
+      process.nextTick(() => {
+        try {
+          emitter.emit(ShardEvents.LiveryChanged, event);
+        } catch (err) {
           emitter.emit("error", err);
         }
       });

@@ -1,6 +1,6 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-17 after **TASK-20** (Ship acquisition: starter ship + dock purchase).
+Snapshot taken 2026-10-17 after **TASK-21** (Persistent ship livery customization).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.
@@ -85,6 +85,10 @@ PROJECT_ROOT
 │   │   ├── client/              # React + three.js frontend (Vite)
 │   │   │   ├── App.tsx          # Top-level shell
 │   │   │   ├── components/      # UI sub-components (CanvasStage.tsx)
+│   │   │   ├── ships/           # Paint-zone + mesh-registry logic (TASK-21)
+│   │   │   │   ├── ShipMeshBuilder.ts      # PaintZone enum + ShipPaintRegistry + MaterialAdapter interface + defaultLiveryFor + in-memory test adapter
+│   │   │   │   ├── threeAdapter.ts          # three.js-backed MaterialAdapter factory (mutates Color in place)
+│   │   │   │   └── ShipMeshBuilder.test.ts  # 24 cases: zone enumeration, defaults, idempotent build, in-place applyLivery, disposeShip/disposeAll
 │   │   │   ├── index.html       # Vite HTML entry
 │   │   │   ├── main.tsx         # React DOM bootstrap
 │   │   │   └── public/          # Static assets served by Vite (favicon.ico)
@@ -120,10 +124,10 @@ PROJECT_ROOT
 │   │       │   ├── logout.test.ts # 12 cases: POST /api/session/logout revoke + double-logout + tampered/garbage tokens (TASK-66)
 │   │       │   ├── players.ts # GET /api/players/me — callsign/credits/home/ship (TASK-41)
 │   │       │   ├── players.test.ts # 8 cases: happy-path, reflected mutations, 401 paths, per-player isolation (TASK-41)
-│   │       │   ├── ships.ts # GET /api/ships + POST /api/ships/buy — current ship + dock purchase (TASK-20)
-│   │       │   └── ships.test.ts # 16 cases: starter on claim, happy-path buy for each class, all error paths, event-bus broadcast (TASK-20)
+│   │       │   ├── ships.ts # GET /api/ships + POST /api/ships/buy (TASK-20) + POST /api/ships/livery (TASK-21) — current ship + dock purchase + persistent paint customization
+│   │       │   └── ships.test.ts # 27 cases: starter on claim + happy-path buy for each class + all error paths + event-bus broadcast (TASK-20) + 11 livery endpoint cases: valid/invalid/partial hex, mid-flight rejection, livery-changed bus event, persistence round-trip (TASK-21)
 │   │       ├── shards/          # In-process shard event bus (TASK-20; future TASK-11/15 consumers)
-│   │       │   └── event-bus.ts # ShipSwapEvent + ShardsBus singleton (EventEmitter + process.nextTick)
+│   │       │   └── event-bus.ts # ShipSwapEvent + LiveryChangedEvent + ShardsBus singleton (EventEmitter + process.nextTick)
 │   │       └── auth/            # Token codec + WS auth resolver (TASK-10)
 │   │           ├── token.ts     # HMAC-SHA256 session-token codec: sign/verify/hashToken + clock-skew tolerance (TASK-10)
 │   │           ├── resolver.ts  # claimCallsign + resumeSession + revokeSession + buildAuthResolver + buildLogoutResolver + pickHomeSystemId (TASK-10 + TASK-66)
@@ -162,6 +166,7 @@ PROJECT_ROOT
 │   ├── drizzle.config.ts         # drizzle-kit config for operator-driven PG migrations
 │   ├── tests/
 │   │   └── e2e/
+│   │       ├── livery.spec.ts   # Playwright smoke (claim → set livery → re-read + invalid-hex rejection, screenshot) (TASK-21)
 │   │       └── scaffold.spec.ts # Playwright smoke (canvas + /api/health)
 │   ├── scripts/
 │   │   ├── gen-stars-fixture.ts         # Regenerate __fixtures__/stars-dev-seed.json (TASK-3)
