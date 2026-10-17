@@ -1,13 +1,12 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-17, immediately after **TASK-1** (prerequisites verified).
-The application code itself is not yet scaffolded — that lands in **TASK-68** —
-so this file lists the supporting files and the empty `app/` skeleton.
+Snapshot taken 2026-10-17 after **TASK-68** (TS monorepo scaffold).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.
-- Test files (`*.test.ts(x)`) are excluded.
-- Configuration/build output (`dist/`, `node_modules/`) is excluded.
+- Test files (`*.test.ts(x)`) are excluded from the tree listing.
+- Configuration/build output (`dist/`, `node_modules/`, `playwright-report/`,
+  `test-results/`) is excluded.
 - Generated artefacts under `.ralph/history` and `.ralph/screenshots/*.png`
   are excluded by `.gitignore`.
 
@@ -16,14 +15,37 @@ so this file lists the supporting files and the empty `app/` skeleton.
 PROJECT_ROOT
 ├── AGENTS.md                    # Agent conventions (read first)
 ├── CLAUDE.md                    # Stub pointer to AGENTS.md
-├── app/                         # TS monorepo (scaffolded in TASK-68)
+├── app/                         # Drift TS monorepo (TASK-68)
 │   ├── data/                    # Runtime SQLite DB lives here (gitignored)
-│   ├── dist/                    # Build output (gitignored)
+│   ├── dist/                    # Vite build output (gitignored)
+│   ├── eslint.config.js         # Flat ESLint config + prettier integration
 │   ├── node_modules/            # Installed deps (gitignored)
 │   ├── package-lock.json
-│   ├── package.json             # Tooling: vite, vitest, playwright, react plugin
+│   ├── package.json             # Scripts: dev, build, test, typecheck, lint
 │   ├── playwright.config.ts     # Playwright e2e config (base URL :3000)
-│   └── vitest.config.ts         # Vitest config (includes app/**/*.test.ts)
+│   ├── prereqs.test.ts          # TASK-1 prerequisite guard tests
+│   ├── src/
+│   │   ├── shared/              # Wire types/utilities shared client+server
+│   │   │   ├── health.ts        # HealthPayload interface + factory
+│   │   │   └── health.test.ts   # Trivial vitest (TASK-68 acceptance)
+│   │   ├── client/              # React + three.js frontend (Vite)
+│   │   │   ├── App.tsx          # Top-level shell
+│   │   │   ├── components/      # UI sub-components (CanvasStage.tsx)
+│   │   │   ├── index.html       # Vite HTML entry
+│   │   │   ├── main.tsx         # React DOM bootstrap
+│   │   │   └── public/          # Static assets served by Vite (favicon.ico)
+│   │   └── server/              # Fastify + ws backend (tsx)
+│   │       ├── config.ts        # dotenv loader + typed ServerConfig
+│   │       ├── index.ts         # Entry: listen + graceful shutdown
+│   │       ├── server.ts        # buildApp() factory (testable via inject)
+│   │       ├── server.test.ts   # Fastify inject() smoke for /api/health
+│   │       └── ws.ts            # ws upgrade handler attached to Fastify
+│   ├── tests/
+│   │   └── e2e/
+│   │       └── scaffold.spec.ts # Playwright smoke (canvas + /api/health)
+│   ├── tsconfig.json            # Strict TS, path aliases @shared/@client/@server
+│   ├── vite.config.ts           # Vite root, proxy /api + /ws → server :API_PORT
+│   └── vitest.config.ts         # Vitest mirrors vite aliases
 ├── node_modules/                # Top-level runtime deps (gitignored)
 ├── opencode.json                # opencode provider/model registry (repo-local)
 ├── ralph/                       # Vendored ralph runtime
@@ -54,3 +76,9 @@ PROJECT_ROOT
 - `PROJECT_ROOT/.env.local` declares all eight env vars from PRD §7.
 - `.mcp.json` declares `playwright`, `context7`, `sequential-thinking`.
 - No secret values are committed (verified: `git ls-files | xargs grep`).
+
+## Dev port allocation (TASK-68)
+- `PORT` (default 3000) → Vite dev server (browser URL: `http://localhost:${PORT}`)
+- `API_PORT` (default `PORT + 1`, i.e. 3001) → Fastify + ws server.
+- Vite proxies `/api/*` and `/ws` to `API_PORT`, so the browser stays on
+  a single origin.

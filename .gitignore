@@ -1,10 +1,19 @@
 node_modules/
 dist/
 *.tsbuildinfo
+.pi/
 
 # Local environment and secrets
 .env
 .env.*.local
+
+# Runtime SQLite DB and any local app data
+app/data/
+data/
+
+# Playwright artefacts
+test-results/
+playwright-report/
 
 # Ralph run artefacts
 .ralph/history/

@@ -2,13 +2,26 @@
 
 `Current Status`
 =================
-**Last Updated:** 2026-10-17 12:16
-**Tasks Completed:** 1 of 71
-**Current Task:** TASK-1 Complete
+**Last Updated:** 2026-10-17 12:30
+**Tasks Completed:** 2 of 71
+**Current Task:** TASK-68 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-10-17 — Iteration 2
+- **TASK-68** Scaffold TS monorepo (client/server/shared) with tooling → **DONE**
+  - Created `app/src/{shared,client,server}` trees with strict TypeScript (`tsconfig.json`, target ES2022, module ESNext, moduleResolution bundler, `strict: true`).
+  - Path aliases wired in `tsconfig.json`, `vite.config.ts`, and `vitest.config.ts`: `@shared/*`, `@client/*`, `@server/*`.
+  - Server (`src/server/`): `config.ts` loads `PROJECT_ROOT/.env.local` via dotenv with defaults; `server.ts` exposes `buildApp()` (testable via Fastify `inject()`); `ws.ts` attaches a `ws.Server` at `config.wsPath`; `index.ts` listens on `apiPort = PORT + 1` (default 3001) so Vite (PORT=3000) and Fastify don't collide.
+  - Client (`src/client/`): `main.tsx` mounts a React shell, `App.tsx` lays out a stable `<canvas>` placeholder (`data-testid="drift-canvas"`) for the three.js renderer, plus a "DRIFT — SCAFFOLD" HUD label; Vite proxies `/api` and `/ws` to the Fastify server.
+  - Tooling: `npm run dev` (concurrently vite + tsx), `npm run build` (vite build), `npm run test` (vitest), `npm run typecheck` (tsc --noEmit), `npm run lint` (eslint + prettier --check), `npm run start` (tsx server). Plus `eslint.config.js` (flat config, typescript-eslint + prettier) and `.prettierignore`.
+  - Tests: 15 vitest cases pass (3 files: prereqs, shared/health, server/server). One Playwright e2e (`tests/e2e/scaffold.spec.ts`) renders the React shell, asserts the canvas is visible, hits `/api/health` through the Vite proxy, and fails on any console error.
+  - Smoke verified end-to-end: `curl http://localhost:3000/api/health` (proxied) and `curl http://localhost:3001/api/health` (direct) both return `{"ok":true,"galaxySeed":"DRIFT-SEED-0001"}`; `ws://localhost:3001/ws` upgrades and replies `{"type":"hello",...}`.
+  - Screenshot: `.ralph/screenshots/TASK-68-1.png` — shows the dark canvas with the "DRIFT — SCAFFOLD" header (no console errors).
+  - `.gitignore` updated to exclude `app/data/`, `data/`, `playwright-report/`, `test-results/`, and `.pi/`.
+  - `.ralph/STRUCTURE.md` refreshed to reflect the new `app/src/**` layout.
 
 ### 2026-10-17 — Iteration 1
 - **TASK-1** Verify project prerequisites and access → **DONE**

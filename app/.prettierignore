@@ -1,0 +1,10 @@
+node_modules
+dist
+data
+playwright-report
+test-results
+.ralph
+package-lock.json
+# TASK-1 file — not part of the TASK-68 scaffold; leave its pre-existing
+# formatting untouched until a dedicated cleanup task is opened.
+prereqs.test.ts
