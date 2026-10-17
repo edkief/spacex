@@ -1,6 +1,6 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-17 after **TASK-12** (Shard lifecycle: spawn, join/leave, save, reap).
+Snapshot taken 2026-10-17 after **TASK-15** (Presence: in-system player list and toasts).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.
@@ -87,11 +87,16 @@ PROJECT_ROOT
 │   │   │   │       ├── README.md            # Regeneration rules for committed fixtures (TASK-22)
 │   │   │   │       └── trajectories.ts      # Golden 60s space + 30s atmo final states (TASK-22)
 │   │   ├── client/              # React + three.js frontend (Vite)
-│   │   │   ├── App.tsx          # Top-level shell
-│   │   │   ├── components/      # UI sub-components (CanvasStage.tsx)
-│   │   │   ├── net/             # Client prediction + reconciliation (TASK-14)
+│   │   │   ├── App.tsx          # Top-level shell — mounts CanvasStage + PlayerList + ToastStack + DriftClient (TASK-15 wired up)
+│   │   │   ├── components/      # UI sub-components (CanvasStage.tsx + PlayerList + ToastStack for TASK-15)
+│   │   │   │   ├── PlayerList.tsx           # Bottom-left roster HUD — monospace + status dots + "(you)" marker (TASK-15)
+│   │   │   │   └── ToastStack.tsx           # Top-right toast column — 3-visible cap + 8-deep queue + 3 s lifetime + 0.4 s fade (TASK-15)
+│   │   │   ├── net/             # Client prediction + reconciliation (TASK-14) + WS glue + presence store (TASK-15)
 │   │   │   │   ├── prediction.ts          # ClientShipPredictor (local input → integrate → reconcile) + RemoteEntityBuffer (200 ms interp ring) + applyEntityUpdateToBuffer + simEntityFromWire + tuning constants
-│   │   │   │   └── prediction.test.ts     # 28 cases: input stamping, bit-equality with server integrator, blend/rewind/force-snap thresholds, queue cap + age overflow, 150 ms RTT acceptance, jittery 10 Hz remote interp
+│   │   │   │   ├── prediction.test.ts     # 28 cases: input stamping, bit-equality with server integrator, blend/rewind/force-snap thresholds, queue cap + age overflow, 150 ms RTT acceptance, jittery 10 Hz remote interp
+│   │   │   │   ├── presence.ts            # PresenceStore — in-system player roster Map<playerId, PresencePlayer> built from presence frames, join/leave diff events, cached snapshot for useSyncExternalStore, setOwnCallsign for "(you)" marker, toastTextFor + statusDotColor helpers (TASK-15)
+│   │   │   │   ├── presence.test.ts       # 14 cases: apply/diff/leave/leaveAll, isYou stamping, listener dedupe, unsubscribe, faulty-listener tolerance, snapshot identity (TASK-15)
+│   │   │   │   ├── wsClient.ts            # DriftClient — WebSocket glue wrapping the Drift handshake (claim → hello → auth → join_system) + presence frame routing + post-boot joinSystem() for warp UI (TASK-15)
 │   │   │   ├── ships/           # Paint-zone + mesh-registry logic (TASK-21)
 │   │   │   │   ├── ShipMeshBuilder.ts      # PaintZone enum + ShipPaintRegistry + MaterialAdapter interface + defaultLiveryFor + in-memory test adapter
 │   │   │   │   ├── threeAdapter.ts          # three.js-backed MaterialAdapter factory (mutates Color in place)
@@ -163,6 +168,7 @@ PROJECT_ROOT
 │   │       │   ├── router.test.ts # 20 cases: construction invariants + lazy spawn + concurrent collapse + cap + grace reap (fake clock) + 10-client/3-system cross-system test + restart-with-position + force-reap + idempotent shutdown
 │   │       │   ├── router.presence.test.ts # 15 cases: presence on join/leave/reap + reconnect storm with generation counter + 100 join/leave cycles + idempotent shutdown (TASK-12)
 │   │       │   ├── router.ws-bridge.test.ts # 6 cases: real Fastify + ws round-trip verifying presence frame on join, drop on close, no-crash on never-joined, reconnect storm with same generation, presence payload shape, keepalive-terminate triggers onConnectionClose (TASK-12)
+│   │       │   ├── presence-integration.test.ts # 4 cases: 3-in-one-system vs round-trip verifying each client sees the other 2; one leaves → others update within 1 s; one joins a different system → not listed; roster updates within one snapshot of a same-system join (TASK-15)
 │   │       │   ├── system-data.ts # buildShardContext — derive SystemGen + per-planet closures from (seed, starId); GalaxySystemNotFoundError tagged error
 │   │       │   ├── join-resolver.ts # buildRouterJoinResolver — maps (systemId, callsign, connId) to router.joinSystem + repo.findPlayerByCallsign + repo.listShipsByOwner + tag errors with code field for the WS dispatcher
 │   │       │   ├── join-resolver.test.ts # 4 cases: success + cap-full + system-not-found + missing-callsign defensive path
@@ -226,6 +232,7 @@ PROJECT_ROOT
 │   ├── tests/
 │   │   └── e2e/
 │   │       ├── livery.spec.ts   # Playwright smoke (claim → set livery → re-read + invalid-hex rejection, screenshot) (TASK-21)
+│   │       ├── presence.spec.ts # Playwright smoke (two browser contexts → both see each other in the in-system player list, screenshot) (TASK-15)
 │   │       └── scaffold.spec.ts # Playwright smoke (canvas + /api/health)
 │   ├── scripts/
 │   │   ├── gen-stars-fixture.ts         # Regenerate __fixtures__/stars-dev-seed.json (TASK-3)

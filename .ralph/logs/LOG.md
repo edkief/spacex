@@ -2,7 +2,52 @@
 
 `Current Status`
 =================
-**Last Updated:** 2026-10-17 21:55
+**Last Updated:** 2026-10-17 22:13
+
+### 2026-10-17 — Iteration 31
+- **TASK-15** Presence: in-system player list and toasts → **DONE**
+  - **Client presence store** — new module `app/src/client/net/presence.ts` (~410 lines + 14 unit tests):
+    - `PresenceStore` — `Map<playerId, PresencePlayer>` keyed roster built from the `presence` frame; emits `join` / `leave` / `snapshot` events to subscribers.
+    - `applyPresenceFrame` diffs the incoming roster against the previous one and fires `join` for new players, `leave` for missing ones, then a single `snapshot` at the end so the HUD rebuilds in one render pass.
+    - `leaveAll()` fires a synthetic `leave` per remaining player + final empty `snapshot` (called by the WS client on system change / disconnect).
+    - `setOwnCallsign(callsign)` re-stamps `isYou` on every row so the local player's marker tracks the WS handshake result.
+    - `subscribe(listener)` returns an unsubscribe handle; the listener Set dedupes so React StrictMode's double-mount doesn't fire twice.
+    - Cached `snapshot()` returns a referentially-stable array between mutations — required so `useSyncExternalStore`'s `Object.is` comparison short-circuits no-ops; the cache is rebuilt only after the snapshot event fires so listeners that re-enter `snapshot()` mid-loop don't poison the final state.
+    - Exports `toastTextFor(event)` (centralised wording) and `statusDotColor(state)` (CSS colour per activity tag).
+  - **WS client** — new module `app/src/client/net/wsClient.ts` (~470 lines):
+    - `DriftClient` wraps `WebSocket` + the Drift handshake: claim → hello → auth → join_system, plus presence frame routing into the `PresenceStore`.
+    - `joinSystem(systemId)` is exposed so the test (and TASK-8's warp UI) can re-target a client post-boot; clears the local roster before the re-join.
+    - Persistent `message` + `close` listeners are attached BEFORE the handshake so presence frames that fire during the initial join aren't lost (the router broadcasts presence BEFORE `enter_system` resolves).
+    - Exposes `presenceStore` + `remoteEntityBuffer` (TASK-14) + lifecycle hooks (`onStatusChange`, `onErrorEvent`).
+    - `createDriftClient()` factory kept stable for future consumers.
+  - **HUD widgets** — `app/src/client/components/PlayerList.tsx` + `ToastStack.tsx` (~340 lines combined):
+    - `PlayerList` — bottom-left, monospace (`ui-monospace`), 1 row per callsign with a small status dot (`#7ee787` mint for `flying`, `#8b949e` grey for `docked`, `#f0b76b` amber for `onfoot`). "(you)" marker on the local player's row. Shows `(alone)` placeholder when the roster is empty.
+    - `ToastStack` — top-right, 3-visible cap with an 8-deep overflow queue (drops oldest queued toast when the queue is full). Per-toast `setTimeout` for the 3 s lifetime + CSS keyframe for the 0.4 s fade-out. Uses a module-level monotonic id source so React StrictMode's double-mount doesn't produce duplicate React keys.
+    - Both subscribe to the store via `useSyncExternalStore` (the ToastStack listens for `join`/`leave`; the PlayerList listens for `snapshot`). Neither re-renders during steady state because the store's snapshot reference is stable between events.
+  - **App shell** — `app/src/client/App.tsx` (~135 lines) wired up:
+    - Instantiates one `DriftClient` per mount, kicks off `start()` on first render, and renders `<PlayerList>` + `<ToastStack>` alongside the existing `<CanvasStage>` + header pill (which now displays the callsign once `auth_ok` lands).
+    - Exposes the client on `globalThis.__driftClient` for the Playwright smoke test (debug seam; not a public API).
+    - Error banner rendered above the header when `onErrorEvent` fires.
+  - **WS integration test** — new `app/src/server/galaxy/presence-integration.test.ts` (~370 lines, 4 cases) booting a real Fastify + ws + GalaxyRouter stack:
+    - **3 clients in one system, each sees the other 2** — verifies the canonical roster reaches every connection on join.
+    - **One leaves, other two update within 1 s** — times the leave → broadcast latency end-to-end.
+    - **A client joining a different system is not listed in the first system** — verifies the broadcast is scoped by `systemId`.
+    - **Roster updates within one snapshot of a join in the same system** — verifies the broadcast fires synchronously with `joinSystem` (no missed frames).
+  - **Presence store unit tests** — `app/src/client/net/presence.test.ts` (14 cases): empty start, snapshot apply, leave diff, `(you)` flag, `setOwnCallsign` flip, `leaveAll` empty/non-empty paths, state updates without toast, listener Set dedupe, unsubscribe, faulty-listener tolerance, reset, toast wording, status-dot colour mapping.
+  - **Playwright smoke test** — `app/tests/e2e/presence.spec.ts` (~170 lines):
+    - Two isolated browser contexts boot the Drift shell, the auto-claim mints a unique `Drift-<random>` callsign per context.
+    - The test queries `/api/galaxy/health` for an empty shard, then drives both contexts into it via `window.__driftClient.joinSystem()`.
+    - Asserts each context's player list renders the OTHER context's callsign + count === 2 + the `(you)` marker.
+    - Screenshots to `.ralph/screenshots/TASK-15-1.png` for the task log.
+  - **Acceptance criteria checklist**:
+    - `Client maintains inSystemPlayers` — ✅ `PresenceStore.players: Map<playerId, PresencePlayer>` populated from `applyPresenceFrame`.
+    - `Player list HUD (bottom-left, callsigns + status dot)` — ✅ `PlayerList.tsx` + `statusDotColor` helper.
+    - `Toasts ('X joined' / 'X left') with 3-visible queue` — ✅ `ToastStack.tsx` + `toastTextFor` helper + `MAX_VISIBLE_TOASTS = 3` + `MAX_QUEUED_TOASTS = 8`.
+    - `Occupancy feeds the star chart (TASK-7)` — ✅ `/api/galaxy/health` already surfaces `shards: [{systemId, players}]` (TASK-11); TASK-7's chart UI will consume it.
+    - `WS integration test (3 clients)` — ✅ 4 cases in `presence-integration.test.ts`.
+    - `npm run test green` — ✅ 949/949 (was 931 — +14 presence store + 4 WS integration).
+    - `Playwright smoke (screenshot)` — ✅ `presence.spec.ts` + `TASK-15-1.png`.
+    - `npm run lint + typecheck clean` — ✅.
 
 ### 2026-10-17 — Iteration 30
 - **TASK-12** Shard lifecycle: spawn, join/leave, save, reap → **DONE**
