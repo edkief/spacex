@@ -82,6 +82,12 @@ export function createShard(args: {
   logger?: Pick<Console, "warn" | "debug" | "error">;
   /** When false, the loop is constructed but `start()` is deferred. */
   autoStart?: boolean;
+  /**
+   * TASK-12: initial generation counter (defaults to 1). The router
+   * bumps this on every respawn so reconnect-storm tests can prove
+   * that no DB reload happened mid-flight.
+   */
+  generation?: number;
 }): Shard {
   const events = args.events ?? new EventEmitter();
   const shard: Shard = {
@@ -96,6 +102,7 @@ export function createShard(args: {
     send: args.send,
     broadcast: args.broadcast,
     onTickObserver: args.onTickObserver ?? null,
+    generation: args.generation ?? 1,
     stats: () => {
       // The shape is sealed below; this stub is replaced once `sim`
       // is constructed.

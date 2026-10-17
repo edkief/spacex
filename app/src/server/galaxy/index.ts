@@ -1,5 +1,5 @@
 /**
- * Barrel re-export for the in-process galaxy router (TASK-11).
+ * Barrel re-export for the in-process galaxy router (TASK-11 + TASK-12).
  *
  * The router lives at `./router.ts`. Keep this file thin — just the
  * named exports — so the AGENTS.md file-size cap stays respected by
@@ -21,3 +21,13 @@ export {
   GalaxySystemNotFoundError,
   type BuildShardContextOptions,
 } from "./system-data.js";
+
+export {
+  buildPresencePayload,
+  firePresenceBroadcast,
+  type PresenceBroadcaster,
+} from "./presence.js";
+
+export { buildPresenceBroadcaster, createConnectionCloseHook } from "./ws-router-bridge.js";
+
+export { hydrateShardEntities, DEFAULT_REHYDRATE_WRECK_TTL_MS } from "./hydrate.js";

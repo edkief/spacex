@@ -125,6 +125,11 @@ export async function onJoinSystem(
   }
   const join = payload as { systemId: string };
   try {
+    // TASK-12: set the connection's systemId BEFORE invoking the
+    // resolver so the router's presence broadcaster (which runs
+    // inside `joinSystem`) can see this connection in the registry.
+    // On resolver failure we restore `null` below.
+    conn.systemId = join.systemId;
     const result = await joinResolver(join.systemId, conn.callsign, conn.connId);
     conn.systemId = result.systemId;
     sendFrame(conn, "enter_system", {
@@ -140,6 +145,9 @@ export async function onJoinSystem(
   } catch (err) {
     // Resolvers throw tagged errors so we can pick the right code.
     const code = (err as { code?: string }).code ?? "system-not-found";
+    // Restore systemId so the connection-close hook doesn't try to
+    // leaveSystem a system we never actually joined.
+    conn.systemId = null;
     sendError(conn, code, (err as Error).message ?? "join failed");
     // Connection stays alive so the client can try a different system.
   }

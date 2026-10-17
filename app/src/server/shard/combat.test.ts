@@ -119,6 +119,7 @@ function makeConnection(args: { connId: string; playerId?: string }): ShardConne
     connId: args.connId,
     callsign: `pilot-${args.connId}`,
     playerId: args.playerId ?? `player-${args.connId}`,
+    shipId: `ship-${args.connId}`,
     entityId: null,
     lastSeq: 0,
     pendingInput: null,

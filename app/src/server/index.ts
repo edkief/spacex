@@ -25,6 +25,8 @@ import { buildAuthResolver, buildLogoutResolver } from "./auth/resolver.js";
 import { ShardFlushService, DEFAULT_FLUSH_INTERVAL_MS } from "./shard/persist.js";
 import { GalaxyRouter } from "./galaxy/router.js";
 import { buildRouterJoinResolver } from "./galaxy/join-resolver.js";
+import { buildPresenceBroadcaster, createConnectionCloseHook } from "./galaxy/ws-router-bridge.js";
+import { DEFAULT_SHUTDOWN_WATCHDOG_MS } from "@shared/galaxy/constants.js";
 
 async function main(): Promise<void> {
   // The token codec requires a real SESSION_SECRET. Refuse to boot if
@@ -42,21 +44,14 @@ async function main(): Promise<void> {
         : (client as { db: NodePgDatabase<typeof pgSchema> }).db,
   });
 
-  // TASK-11: galaxy router — owns every in-process system shard. Built
-  // BEFORE `buildApp` so the `/api/galaxy/health` route can register
-  // against it during the Fastify build.
-  const router = new GalaxyRouter({
-    repo,
-    galaxySeed: serverConfig.galaxySeed,
-    galaxyStarCount: 32,
-  });
-
   const app = await buildApp(serverConfig, {
     repo,
     sessionSecret: serverConfig.sessionSecret,
     galaxySeed: serverConfig.galaxySeed,
     galaxyStarCount: 32,
-    router,
+    // router is registered AFTER buildApp returns so the
+    // `/api/galaxy/health` route sees a live router instance —
+    // see the post-build registration below.
   });
 
   // Real WS auth resolver — wire callsign + token resolution against
@@ -69,13 +64,52 @@ async function main(): Promise<void> {
   // TASK-66: real logout resolver — deletes every session row for the
   // player. Wired through so the WS `logout` message actually revokes.
   const logoutResolver = buildLogoutResolver(repo);
-  // TASK-11: router-aware join resolver so `join_system` produces a
-  // real shard + occupancy-check, not the TASK-9 stub snapshot.
-  const joinResolver = buildRouterJoinResolver({ repo, router });
+
+  // Attach the WS layer first so the live `ConnectionRegistry` is
+  // available when we build the router. The router's presence
+  // broadcaster iterates the registry to push `presence` frames; we
+  // can't construct the broadcaster before the registry exists.
   const ws = attachWs(app, serverConfig.wsPath, {
     authResolver,
     logoutResolver,
-    joinResolver,
+    // joinResolver + onConnectionClose are set below via the
+    // setters exposed on `WsHandle` (TASK-12) — they need a router
+    // instance, which we haven't built yet at this point.
+  });
+
+  // TASK-11: galaxy router — owns every in-process system shard.
+  // Built AFTER the WS layer is attached so the router's presence
+  // broadcaster can iterate the live `ConnectionRegistry` and push
+  // `presence` frames to the right sockets.
+  const router = new GalaxyRouter({
+    repo,
+    galaxySeed: serverConfig.galaxySeed,
+    galaxyStarCount: 32,
+    // TASK-12: real presence broadcaster wired into the live WS
+    // registry. `buildPresenceBroadcaster` returns a function that
+    // walks `registry.values()` and writes to sockets whose
+    // `systemId` matches the broadcast's system.
+    presenceBroadcaster: buildPresenceBroadcaster({ registry: ws.registry }),
+  });
+  // Wire the close hook so every socket close calls
+  // `router.leaveSystem(systemId, connId)`. The setters exposed on
+  // `WsHandle` keep the WS layer router-agnostic while the boot
+  // path resolves the dependency after both pieces exist.
+  ws.setOnConnectionClose(createConnectionCloseHook({ router }));
+  // Replace the stub joinResolver with the router-aware one. The
+  // resolver reads `router.joinSystem` so it sees the live shard
+  // map; pre-attaching the router first ensures no joinSystem call
+  // can race the broadcaster wiring.
+  ws.setJoinResolver(buildRouterJoinResolver({ repo, router }));
+  // Register the health route now that the router exists.
+  // (buildApp is intentionally not re-called; we register the route
+  // directly here to avoid the double-listener cost.)
+  // Import lazily to avoid the cycle.
+  const { registerGalaxyHealthRoute } = await import("./routes/galaxy-health.js");
+  registerGalaxyHealthRoute(app, {
+    repo,
+    sessionSecret: serverConfig.sessionSecret,
+    router,
   });
 
   // TASK-24: per-shard ship flush service. The interval cadence is
@@ -111,6 +145,19 @@ async function main(): Promise<void> {
 
   const shutdown = async (signal: string): Promise<void> => {
     app.log.info({ signal }, "shutting down");
+    // TASK-12: install a watchdog so a misbehaving flush can't
+    // hang the process forever. The Kubernetes default
+    // terminationGracePeriodSeconds is 30 s, but 10 s is plenty
+    // for a 16-shard flush (p95 ≈ 7 ms per shard) and a chance to
+    // log the offender before we force-exit.
+    const watchdog = setTimeout(() => {
+      app.log.error(
+        { signal, watchdogMs: DEFAULT_SHUTDOWN_WATCHDOG_MS },
+        "shutdown watchdog fired — force exiting with code 1",
+      );
+      process.exit(1);
+    }, DEFAULT_SHUTDOWN_WATCHDOG_MS);
+    if (typeof watchdog.unref === "function") watchdog.unref();
     try {
       // TASK-11 graceful-shutdown flush: reap every shard once more
       // (with `force: true`) so ship positions survive a subsequent
@@ -126,6 +173,7 @@ async function main(): Promise<void> {
         await (client as { close: () => Promise<void> }).close();
       }
     } finally {
+      clearTimeout(watchdog);
       process.exit(0);
     }
   };

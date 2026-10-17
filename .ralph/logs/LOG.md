@@ -2,47 +2,81 @@
 
 `Current Status`
 =================
-**Last Updated:** 2026-10-17 21:35
+**Last Updated:** 2026-10-17 21:55
 
-### 2026-10-17 — Iteration 29
-- **TASK-11** Galaxy router: in-process system shards, cap, dispatch → **DONE**
-  - New `MAX_PLAYERS_PER_SYSTEM = 16` + `DEFAULT_SHARD_REAP_GRACE_MS = 60_000` + `DEFAULT_ROUTER_REAP_INTERVAL_MS = 5_000` constants in `app/src/shared/galaxy/constants.ts`. Centralised in `shared/` so the chart UI (TASK-7) and the server router both consume them.
-  - New module `app/src/server/galaxy/` (~500 lines + ~430-line test file):
-    - `router.ts` — `GalaxyRouter` class with `Map<systemId, Shard>` + **pending-promise collapse** for concurrent spawns (a 10-client burst joining the same system sees *one* hydrate); `joinSystem(...)` enforces the 16-player cap (returns `system-full` if the shard is full, leaving `conn.systemId` untouched so the player stays in their previous system); `leaveSystem(...)` drops the connection + starts the reap grace timer; `reapEmpty({force?})` flushes ships + stops the shard; `shutdown()` reaps every shard + disposes the flush service + clears the map; `stats()` returns `{shardCount, totalPlayers, routerStartedAt, shards:[{systemId, name, players, uptimeMs}]}`; `forceReap(systemId)` stops a specific shard regardless of grace.
-    - `system-data.ts` — `buildShardContext({seed, starCount, systemId})` derives a `ShardSystemContext` from `generateStars` + `generateSystem`. Throws `GalaxySystemNotFoundError` for unknown ids.
-    - `join-resolver.ts` — `buildRouterJoinResolver({repo, router})` returns a TASK-9-shaped `JoinResolver` (now with a third `connId` arg) that calls `router.joinSystem`. Tag-flavoured errors (`{code, message}`) so the WS handler forwards `system-full` / `system-not-found` cleanly.
-    - `index.ts` — re-export barrel.
-  - `src/server/ws.connection.ts` — added `connId: string` to the `Connection` shape (randomUUID per socket); `WsConnectionRecord` mirrors it. The router uses the id to bind player entities to specific connections, so the leave path doesn't need to scan the registry to find which connection to drop.
-  - `src/server/ws.ts` — `JoinResolver` signature gained the `connId` parameter (backward-incompatible for tests injecting a stub; updated `defaultJoinResolver` to match). The connection-handshake path mints the id via `crypto.randomUUID()` on the connection event.
-  - `src/server/server.ts` — extended `BuildAppOptions` with `router?: GalaxyRouter`; registers `GET /api/galaxy/health` (bearer-gated) when supplied.
-  - New `app/src/server/routes/galaxy-health.ts` (~85 lines + ~140-line test file). `GET /api/galaxy/health` returns `{ok, galaxySeed, shards, shardCount, totalPlayers, routerStartedAt}`; mirrors `router.stats()` so the chart UI (TASK-7) can plot occupancy dots per star.
-  - `src/server/index.ts` — wires the router into the boot path: instantiated *before* `buildApp` so the `/api/galaxy/health` route can register; `flusher.start(...)` walks `router.stats().shards` and flushes each one (TASK-24); `router.start()` schedules the 5 s reap loop. `shutdown()` calls `router.shutdown()` (which force-reaps every shard + disposes the flush service) before closing WS/HTTP/DB.
-  - Acceptance criteria checklist:
-    - `Router.getShard(systemId)` returns active or creates one (loads system data via `generateSystem` + ships via `loadShipsForShard` with `includeDocked:true`) → ✅ verified by `creates a shard lazily on first call` + `returns the cached shard on subsequent calls` + `throws GalaxySystemNotFoundError for unknown systems`.
-    - Cap = 16, returns `{code:'system-full'}` on overflow, leaves `conn.systemId` untouched → ✅ `rejects the 17th concurrent join with system-full`.
-    - `/api/galaxy/health` (auth) lists active shards with `{systemId, players, uptimeMs}` → ✅ 4-case route test (`galaxy-health.test.ts`).
-    - Concurrent spawn: 10 clients / 3 systems in parallel, distinct per-system state → ✅ `10 clients joining 3 different systems see per-system, distinct shard state`.
-    - Reap test: 60 s grace, ships flushed → ✅ `reaps a shard once the grace timer elapses (fake clock)` + `reaps with force regardless of grace timer`.
-    - Restart test: ship positions survive teardown + re-join → ✅ `ship positions survive a router teardown + re-join`.
-    - `npm run test` green → ✅ 910/910 (882 prior + 28 new — 20 router + 4 join-resolver + 4 galaxy-health).
+### 2026-10-17 — Iteration 30
+- **TASK-12** Shard lifecycle: spawn, join/leave, save, reap → **DONE**
+  - **Presence wire path** — new module `app/src/server/galaxy/presence.ts` (~75 lines):
+    - `PresenceBroadcaster` hook type — `((systemId, payload) => void)` invoked by the router on every join + leave + reap.
+    - `buildPresencePayload(shard)` returns the canonical roster from the shard's `ShardConnection`s (one `PresenceEntry` per player: `playerId`, `callsign`, `shipId`, `state: 'flying'`).
+    - `firePresenceBroadcast(broadcaster, shard)` centralises the broadcaster invocation so the router has one line per event site.
+  - **`GalaxyRouter` extensions** (`app/src/server/galaxy/router.ts` + sibling modules):
+    - New `RouterOptions.presenceBroadcaster` — wired into the router's `presenceBroadcaster` field; defaults to silent (test convenience).
+    - `joinSystem` now invokes `firePresenceBroadcast` after registering the connection so every other socket in the system sees the join (TASK-15 consumes these frames).
+    - `leaveSystem` broadcasts after the connection is removed so the leaving player is no longer in the roster (their client shouldn't see themselves). The empty-roster case still fires via the reap path.
+    - `reapEmpty` emits a final empty-roster presence frame on every reaped system so any subscriber watching the bus can drop stale references. `reapEmpty` now delegates to `./router-reap.ts` to keep the router under the AGENTS.md line cap.
+    - New `Shard.generation` counter — bumps on every re-spawn from the DB; survives reaps so the reconnect-storm test can assert "no reload happened". Exposed via `router.generationFor(systemId)` + `shard.generation`.
+    - New `ShardConnection.shipId` field (TASK-12) — populated by `joinSystem` so the router can build the presence roster without re-querying the repo. Existing tests updated to include the new field.
+  - **`Shard` factory** — `app/src/server/shard/index.ts` + `types.ts`. `createShard` accepts an optional `generation` (defaults to 1). `Shard` interface gained `generation: number`. Existing test fixtures (`combat.test.ts`, `sim.test.ts`) updated with the new `shipId` field so TypeScript stays strict.
+  - **WS ↔ router bridge** — new module `app/src/server/galaxy/ws-router-bridge.ts` (~115 lines):
+    - `buildPresenceBroadcaster({registry})` returns a function that walks `registry.values()` and writes a `presence` frame to every connection whose `systemId` matches. Encodes once outside the loop so a 16-connection shard pays one `JSON.stringify` instead of 16.
+    - `createConnectionCloseHook({router})` returns the function the WS layer invokes on socket close; looks up `conn.systemId` and calls `router.leaveSystem(systemId, connId)`. Defensive: a `null` systemId (never-joined connection) is a no-op.
+  - **WS layer wiring** — `app/src/server/ws.ts`:
+    - `WsHandle` gained `readonly registry: ConnectionRegistry` + `setJoinResolver(...)` + `setOnConnectionClose(...)` setters. The boot path in `index.ts` constructs the WS handle first (to get the registry), builds the router with the registry-aware broadcaster, then wires the join resolver + close hook via the setters. The setters let the WS layer stay router-agnostic in unit tests while the production boot path can resolve the dependency after both pieces exist.
+    - `WsHandleOptions.onConnectionClose` callback — fired on every socket close + every keepalive-timeout terminate so the router drops the player from their shard. Errors from the hook are swallowed (router-side throws don't kill the WS layer).
+    - `ws.handlers.ts#onJoinSystem` now sets `conn.systemId` BEFORE invoking the resolver so the router's presence broadcaster (which fires inside `joinSystem`) sees the connection in the registry. On resolver failure the systemId is restored to null.
+  - **Boot path** — `app/src/server/index.ts`:
+    - Restructured so the WS server is attached first (gives us the `ConnectionRegistry`), then the router is constructed with `presenceBroadcaster: buildPresenceBroadcaster({registry})`. The `setJoinResolver` + `setOnConnectionClose` setters are called after the router is ready, and `/api/galaxy/health` is registered as a side-effect of the router's existence.
+    - Graceful shutdown now installs a 10 s watchdog timer (`DEFAULT_SHUTDOWN_WATCHDOG_MS = 10_000` in `app/src/shared/galaxy/constants.ts`). If the flush + close sequence exceeds 10 s the process force-exits with code 1 + an error log.
+  - **Router split** — `app/src/server/galaxy/router.ts` was over 800 lines after the TASK-12 additions; split into sibling modules so each file respects the AGENTS.md 200-300 line cap:
+    - `router-types.ts` (~130 lines) — `RouterConnectionContext`, `JoinResult`, `JoinRejection`, `RouterShardStats`, `RouterStats`, `RouterOptions`. Re-exported from `router.ts` so callers keep the same import surface.
+    - `router-load.ts` (~120 lines) — `loadAndRegister(systemId, deps)` spawns a new shard + hydrates entities. Holds the deterministic context build, DB hydrate, and `createShard` invocation.
+    - `router-connection.ts` (~75 lines) — `makeShardConnection(ctx)` + `bindConnectionToEntity(shard, conn, ctx)` for the per-join bookkeeping.
+    - `router-reap.ts` (~95 lines) — `reapEmpty(...)` sweep logic with flush + sim.stop + presence-broadcast.
+    - `router-lifecycle.ts` (~55 lines) — `routerStart(...)` + `routerShutdown(...)` for the timed reap loop + graceful close.
+    - `router-stats.ts` (~50 lines) — `buildRouterStats(...)` + `readGeneration(...)` for the `/api/galaxy/health` surface.
+    - `hydrate.ts` (~110 lines) — `hydrateShardEntities(shard, specs, {repo})` walks the loaded `SimEntitySpec[]` and mints one entity per row (was inline in the router).
+  - **Tests** (21 new cases, 931 total — was 910):
+    - `app/src/server/galaxy/router.presence.test.ts` (~555 lines, 15 cases):
+      - Presence frame fires on join with new roster.
+      - Presence frame fires on leave with shrunken roster.
+      - No broadcast when `leaveSystem` targets an unknown connId.
+      - Empty-roster frame on reap.
+      - No broadcast when the broadcaster hook is omitted.
+      - Generation=1 for a fresh shard.
+      - Reconnect storm: 16 join, all leave, 10 rejoin → same shard, generation still 1 (no DB reload).
+      - Generation bumps on reap → respawn.
+      - `generationFor` returns 0 for unknown systems.
+      - 100 join/leave cycles across 5 systems → 0 active shards after reap.
+      - 100 cycles with concurrent leave races → no orphaned connections.
+      - 100 single-system cycles with force-reap between → generation = 100, clean map.
+      - Shutdown fires an empty presence frame for each reaped system.
+      - Shutdown is idempotent.
+      - Presence broadcaster is the same one passed in (no swap).
+    - `app/src/server/galaxy/router.ws-bridge.test.ts` (~420 lines, 6 cases):
+      - Real Fastify + ws server: two clients → second sees presence frame with first.
+      - Socket close drops the connection from the shard (router size shrinks from 2 → 1).
+      - Connection closes before `join_system` → no router crash.
+      - Reconnect storm: 16 clients / all leave / 10 rejoin → same shard, generation stays at 1 (real WS round-trip, not stubbed).
+      - Presence frame includes the persisted `shipId` + `state: 'flying'`.
+      - Keepalive-timeout terminate fires `onConnectionClose` so the router drops the player.
+  - **Acceptance criteria checklist**:
+    - Join: hello → auth → join_system → `enter_system` with full snapshot in one round-trip → ✅ verified in `router.ws-bridge.test.ts` + smoke.
+    - Leave: disconnecting triggers presence_leave; ship's entity survives → ✅ `drops the connection from the shard when the socket closes` + the router never calls `removeEntity` so the row stays in the entity registry.
+    - Graceful shutdown: SIGTERM/SIGINT flushes every shard before exit → ✅ the watchdog-installed flush + `router.shutdown()` sequence in `index.ts` covers this; existing crash-restart test (TASK-24) covers the underlying flush.
+    - Leak test: 100 cycles leave 0 active shards → ✅ `100 join/leave cycles across 5 systems leave 0 active shards`.
+    - Reconnect storm: 16 join → leave → 10 rejoin → same shard (no reload) → ✅ `reconnect storm: 16 join, all leave, 10 rejoin — same shard, generation=1`.
+    - `npm run test` green → ✅ 931/931 (was 910 — +15 router.presence + 6 router.ws-bridge = +21 new).
     - `npm run lint` + `npm run typecheck` clean.
-    - Smoke verified end-to-end via `npm run dev` (Fastify on `:3001`, Vite on `:3000`):
-      - `POST /api/callsigns` → token, `GET /api/galaxy/health` with token → `{ok:true, shardCount:0, totalPlayers:0, …}`; bad/no token → `401 unauthenticated`.
-      - WS handshake + `join_system` round-trip returns `enter_system` with the player's entity bound to the shard; cap test: 17 simultaneous clients trying to join the same system → `Joined: 16, Cap-failed: 1` (verified via a Node `ws` script).
+  - **Smoke verified end-to-end** via `npm run dev` (Fastify on `:3001`):
+    - `POST /api/callsigns` × 2 → tokens for two clients (TASK12-SMOKE, TASK12-OTHER).
+    - WS handshake → join_system → first client receives `presence` (with just itself) before `enter_system`; second client connecting 200 ms later triggers a `presence` frame on the first client showing both callsigns.
+    - Confirmed the broadcast includes the persisted `shipId` (UUID) + `state: 'flying'` for every player.
 
-**Tasks Completed:** 22 of 71
-**Current Task:** TASK-24 Complete
+**Tasks Completed:** 23 of 71
+**Current Task:** TASK-12 Complete
 
-### 2026-10-17 — Iteration 24
-- **TASK-24** Ship state persistence across restarts → **DONE**
-  - **Schema columns** — `app/src/server/db/{schema.sqlite,schema.pg}.ts` + `migrations/sqlite/0002_ship_state.sql`. Added `quat` (JSON tuple), `regime` (enum|null), `on_pad` (text|null), `wreck_expires_at` (timestamp|null). All four nullable so pre-TASK-24 rows backfill cleanly to "in space at origin facing +Z".
-  - **Types** — `app/src/server/db/types.ts`. New `ShipQuaternionSchema` (zod tuple of 4 finite numbers), `ShipRegimeSchema` (zod enum `space`/`atmosphere`/`surface`), `IDENTITY_QUATERNION = [0,0,0,1]`. `ShipRow` gained `quat`, `regime`, `onPad`, `wreckExpiresAt`. `SaveShipStateInput` accepts all four as optional + nullable patches.
-  - **SQLite repo** — `app/src/server/db/repo.sqlite.identity.ts`. `saveShipState` writes all new columns via `JSON.stringify(ShipQuaternionSchema.parse(...))` + zod enum. `getOrCreateStarterShip` inserts with identity quat + null regime/pad/expiry. **Fast-path save** — single SELECT to validate + merge patch in-memory + single UPDATE (skips the prior post-update SELECT refresh). This brought the 16-ship flush p95 from 11ms → 7ms, inside the spec's 8ms budget.
-  - **SQLite mappers** — `app/src/server/db/repo.sqlite.mappers.ts`. `SqliteShipRaw` accepts nullable `quat`/`regime`/`onPad`/`wreckExpiresAt`. `mapShip` parses JSON tuple, defaults null quat to identity, null regime to null (then spec loader coerces to `"space"`).
-  - **PG repo + mappers** — `app/src/server/db/repo.pg.identity.ts` + `repo.pg.mappers.ts`. Mirrored support for jsonb `quat`, enum `regime`, nullable `on_pad`, timestamptz `wreck_expires_at`. `shipRegimePg` enum added to `schema.pg.ts`.
-  - **New repo methods (TASK-24 AC)** — `listLiveShipsBySystem(systemId, nowMs)` returns every ship whose `position.systemId` matches AND (`state != 'destroyed'` OR (`state == 'destroyed'` AND `wreck_expires_at > now`)). `deleteExpiredWrecks(systemId, nowMs)` deletes rows whose TTL is in the past and returns the count. Both implemented on SQLite (via `json_extract` + ISO comparison) and PG (via `jsonb->>'systemId'` + timestamptz).
-  - **Shard flush service** — `app/src/server/shard/persist.ts` (~340 lines + ~270-line test file). `flushShips(shard, repo)` walks every player/AI/wreck entity, derives a `SaveShipStateInput` patch via `entityToShipPatch(entity, systemId)`, awaits `saveShipState` per ship. `ShardFlushService` class owns a 30 s interval timer (`DEFAULT_FLUSH_INTERVAL_MS = 30_000`) with `start()` / `stopTimer()` / `flushNow()` / `dispose()`. Per-shard one-shot returns `{ships, durationMs}` with a logger warn at >8 ms p95.
-  - **Shard registry** — `app/src/server/shard/registry.ts` (~110 lines). `ShardRegistry` holds `Map<systemId, Shard>`, exposes `register`/`unregister`/`has`/`size`/`list`, and `flushAll()` walks every shard via `flushShips`. Errors are caught per-shard so one failing shard doesn't block shutdown.
+### 2026-10-17 — Iteration 29  - **Shard registry** — `app/src/server/shard/registry.ts` (~110 lines). `ShardRegistry` holds `Map<systemId, Shard>`, exposes `register`/`unregister`/`has`/`size`/`list`, and `flushAll()` walks every shard via `flushShips`. Errors are caught per-shard so one failing shard doesn't block shutdown.
   - **Shard load service** — `app/src/server/shard/load.ts` (~220 lines + ~280-line test file). `loadShipsForShard(systemId, repo, options)` GC's expired wrecks first (via `deleteExpiredWrecks`), then reads via `listLiveShipsBySystem`, then maps to `SimEntitySpec` records the caller hands to `spawnShip` / `spawnWreck`. Skips docked ships by default (spec: "docked ships load at dock coords" — forward-compat for TASK-29 landing-pad data); opt-in via `includeDocked: true`. `shipRowToEntitySpec` + `specToEntityFields` are the symmetric inverse of `entityToShipPatch`.
   - **Server boot wiring** — `app/src/server/index.ts`. Constructs `ShardRegistry` + `ShardFlushService` at boot, starts the interval timer, reads `SHARD_FLUSH_INTERVAL_MS` env var (default 30000) for test override. `shutdown()` calls `registry.flushAll()` before tearing down WS/HTTP/DB so SIGTERM guarantees one final flush.
   - **Crash-restart integration test** — `app/scripts/shard-crash-runner.ts` (~165 lines) + `app/src/server/shard/persist.crash.test.ts` (~190 lines). Spawns a real `tsx` child process that opens a file-backed SQLite DB, creates a player + ship, builds a shard with the entity, advances `pos.x` at 250 u/s for 2 s (total ~500 u), flushes every 200 ms, and exits. Parent test opens the same DB, calls `loadShipsForShard`, asserts loaded position is within 1 u of the runner's last-reported position. Also covers destruction persistence: marks a ship `destroyed` with an expired `wreckExpiresAt`, asserts `loadShipsForShard` returns 0 specs and `wrecksDeleted === 1`.

@@ -128,6 +128,28 @@ export interface WsHandle {
   close: () => Promise<void>;
   /** Snapshot of live connection state for tests/diagnostics. */
   connections: () => WsConnectionRecord[];
+  /**
+   * Read-only access to the live `ConnectionRegistry` so the router
+   * bridge (TASK-12) can iterate connections for the presence
+   * broadcaster. Exposed only after construction — the registry
+   * reference is owned by the handle and must not be mutated by
+   * callers.
+   */
+  readonly registry: ConnectionRegistry;
+  /**
+   * TASK-12: swap in the real join resolver after the router is
+   * constructed. Production wires a stub at boot, builds the router,
+   * then calls `setJoinResolver` so subsequent join_system frames
+   * route through the live router.
+   */
+  setJoinResolver: (resolver: JoinResolver) => void;
+  /**
+   * TASK-12: swap in the connection-close hook after the router is
+   * constructed. The default (no-op) leaves the router unaware of
+   * disconnects; production calls `setOnConnectionClose(...)` with
+   * `createConnectionCloseHook({ router })`.
+   */
+  setOnConnectionClose: (hook: (conn: Connection) => void) => void;
 }
 
 /** Tunable keepalive knobs. Tests override these to avoid real timers. */
@@ -164,6 +186,16 @@ export interface WsHandleOptions {
   now?: () => number;
   /** Hook fired when a connection transitions to a new state. */
   onStateChange?: (record: WsConnectionRecord, previous: WsConnectionState) => void;
+  /**
+   * TASK-12: hook fired when a connection is removed from the
+   * registry (socket close, keepalive-timeout, or graceful
+   * shutdown). Production wires this to
+   * `createConnectionCloseHook({ router })` so the router's
+   * `leaveSystem` is called for every connection that had joined
+   * a system before disconnecting. The default is a no-op so the
+   * WS layer remains router-agnostic in unit tests.
+   */
+  onConnectionClose?: (conn: Connection) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -210,8 +242,21 @@ export function attachWs(
   const wss = new WebSocketServer({ noServer: true });
   const registry = new ConnectionRegistry();
 
+  // Mutable resolver slots (TASK-12). Defaults come from the
+  // caller-supplied options, but the boot path in `index.ts` builds
+  // the router *after* `attachWs` returns, so the production wiring
+  // calls `setJoinResolver` once the router is ready. The
+  // TASK-9 default (`defaultJoinResolver`) remains the fallback so
+  // smoke tests don't need to wire the router explicitly.
+  let joinResolver: JoinResolver = options.joinResolver ?? defaultJoinResolver;
+  const setJoinResolver = (next: JoinResolver): void => {
+    joinResolver = next;
+  };
+  let onConnectionCloseHook: ((conn: Connection) => void) | undefined = options.onConnectionClose;
+  const setOnConnectionClose = (hook: (conn: Connection) => void): void => {
+    onConnectionCloseHook = hook;
+  };
   const authResolver = options.authResolver ?? defaultAuthResolver;
-  const joinResolver = options.joinResolver ?? defaultJoinResolver;
   const logoutResolver = options.logoutResolver ?? defaultLogoutResolver;
   const pingIntervalMs = options.keepalive?.pingIntervalMs ?? DEFAULT_PING_INTERVAL_MS;
   const pongTimeoutMs = options.keepalive?.pongTimeoutMs ?? DEFAULT_PONG_TIMEOUT_MS;
@@ -274,7 +319,17 @@ export function attachWs(
 
     ws.on("close", () => {
       const c = registry.get(ws);
-      if (c) c.state = "closed";
+      if (c) {
+        c.state = "closed";
+        // TASK-12: fire the connection-close hook so the router
+        // can drop the player from their shard (and broadcast
+        // presence_leave) before we lose the reference.
+        try {
+          onConnectionCloseHook?.(c);
+        } catch {
+          // Don't let a router-side throw kill the WS layer.
+        }
+      }
       registry.remove(ws);
     });
 
@@ -298,6 +353,10 @@ export function attachWs(
       }
       c.lastSeenAt = now();
       const text = buf.toString("utf8");
+      // Re-read the resolver on every frame so the boot path can
+      // swap in the real resolver after the router is constructed
+      // (TASK-12). The cost is one extra closure dereference per
+      // inbound message; that's negligible compared to JSON.parse.
       void processRawFrame(c, registry, authResolver, joinResolver, logoutResolver, options, text);
     });
   });
@@ -314,6 +373,14 @@ export function attachWs(
           c.ws.terminate();
         } catch {
           // already closed
+        }
+        // TASK-12: fire the close hook so the router still drops
+        // the player from their shard even when the keepalive
+        // loop is the one pulling the socket.
+        try {
+          onConnectionCloseHook?.(c);
+        } catch {
+          // Don't let a router-side throw kill the keepalive loop.
         }
         c.state = "closed";
         registry.remove(c.ws);
@@ -347,6 +414,9 @@ export function attachWs(
         wss.close(() => resolve());
       }),
     connections: () => Array.from(registry.values()).map((c) => snapshotConnection(c)),
+    registry,
+    setJoinResolver,
+    setOnConnectionClose,
   };
 }
 

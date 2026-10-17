@@ -1,6 +1,6 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-17 after **TASK-11** (Galaxy router: in-process system shards, cap, dispatch).
+Snapshot taken 2026-10-17 after **TASK-12** (Shard lifecycle: spawn, join/leave, save, reap).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.
@@ -149,9 +149,20 @@ PROJECT_ROOT
 │   │       │   └── ships.test.ts # 27 cases: starter on claim + happy-path buy for each class + all error paths + event-bus broadcast (TASK-20) + 11 livery endpoint cases: valid/invalid/partial hex, mid-flight rejection, livery-changed bus event, persistence round-trip (TASK-21)
 │   │       ├── shards/          # In-process shard event bus (TASK-20; future TASK-11/15 consumers)
 │   │       │   └── event-bus.ts # ShipSwapEvent + LiveryChangedEvent + ShardsBus singleton (EventEmitter + process.nextTick)
-│   │       ├── galaxy/          # Galaxy router (TASK-11)
-│   │       │   ├── router.ts    # GalaxyRouter class — Map<systemId, Shard> + pending-promise collapse for concurrent spawns + 16-player cap enforcement + reapEmpty() with 60s grace timer + flushShips-on-reap + stats() surface + forceReap
+│   │       ├── galaxy/          # Galaxy router (TASK-11 + TASK-12)
+│   │       │   ├── router.ts    # GalaxyRouter class — Map<systemId, Shard> + pending-promise collapse for concurrent spawns + 16-player cap enforcement + reapEmpty() with 60s grace timer + flushShips-on-reap + presence broadcasts on join/leave/reap + per-system generation counter + forceReap + stats() surface
+│   │       │   ├── router-types.ts # RouterConnectionContext + JoinResult + JoinRejection + RouterShardStats + RouterStats + RouterOptions (extracted from router.ts so the file stays under the AGENTS.md line cap)
+│   │       │   ├── router-load.ts # loadAndRegister — spawn a new shard + hydrate entities + bump generation; delegates to hydrateShardEntities
+│   │       │   ├── router-connection.ts # makeShardConnection + bindConnectionToEntity — per-join bookkeeping for router.joinSystem
+│   │       │   ├── router-reap.ts # reapEmpty — sweep shards that have been empty past the grace window; flushShips + sim.stop + emit empty presence frame
+│   │       │   ├── router-lifecycle.ts # routerStart + routerShutdown — start/stop the reap sweep timer; graceful close
+│   │       │   ├── router-stats.ts # buildRouterStats + readGeneration — stats snapshot + generation counter (used by /api/galaxy/health)
+│   │       │   ├── presence.ts # PresenceBroadcaster + buildPresencePayload + firePresenceBroadcast — TASK-12 wire-shape helpers for the presence frame
+│   │       │   ├── hydrate.ts # hydrateShardEntities — walk SimEntitySpec[] + mint one entity per row (TASK-11 path; extracted from router.ts in TASK-12)
+│   │       │   ├── ws-router-bridge.ts # buildPresenceBroadcaster + createConnectionCloseHook — WS layer ↔ router bridge; iterates ConnectionRegistry to push presence frames
 │   │       │   ├── router.test.ts # 20 cases: construction invariants + lazy spawn + concurrent collapse + cap + grace reap (fake clock) + 10-client/3-system cross-system test + restart-with-position + force-reap + idempotent shutdown
+│   │       │   ├── router.presence.test.ts # 15 cases: presence on join/leave/reap + reconnect storm with generation counter + 100 join/leave cycles + idempotent shutdown (TASK-12)
+│   │       │   ├── router.ws-bridge.test.ts # 6 cases: real Fastify + ws round-trip verifying presence frame on join, drop on close, no-crash on never-joined, reconnect storm with same generation, presence payload shape, keepalive-terminate triggers onConnectionClose (TASK-12)
 │   │       │   ├── system-data.ts # buildShardContext — derive SystemGen + per-planet closures from (seed, starId); GalaxySystemNotFoundError tagged error
 │   │       │   ├── join-resolver.ts # buildRouterJoinResolver — maps (systemId, callsign, connId) to router.joinSystem + repo.findPlayerByCallsign + repo.listShipsByOwner + tag errors with code field for the WS dispatcher
 │   │       │   ├── join-resolver.test.ts # 4 cases: success + cap-full + system-not-found + missing-callsign defensive path

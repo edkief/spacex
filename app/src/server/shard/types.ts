@@ -57,6 +57,13 @@ export interface ShardConnection {
   readonly callsign: string;
   /** Player id from the `players` table. */
   readonly playerId: string;
+  /**
+   * Ship id this connection controls (TASK-12). Used by the router to
+   * build the per-system presence roster on join / leave. Set by
+   * `GalaxyRouter.joinSystem` so every connection that joins a
+   * system contributes one entry to the broadcast.
+   */
+  readonly shipId: string;
   /** Ship entity id this connection controls (assigned on first input). */
   entityId: string | null;
   /** Highest input `seq` accepted so far. Older frames drop silently. */
@@ -320,6 +327,15 @@ export interface Shard {
   broadcast: SnapshotBroadcaster;
   /** Per-tick observer. Plugged by the router / tests. */
   onTickObserver: SimTickObserver | null;
+  /**
+   * TASK-12: monotonic shard generation counter. Increments every
+   * time the router (re)loads ships from the DB for this system, so
+   * the reconnect-storm test can assert that a rapid burst of
+   * joins+leaves+rejoins reuses the same in-memory shard (no DB
+   * reload mid-flight). Starts at 1 — a freshly-spawned shard is
+   * generation 1; each subsequent re-spawn bumps it.
+   */
+  generation: number;
   /** Read-only snapshot of sim loop health (p50/p95/p99 + tick count). */
   readonly stats: () => SimLoopStats;
   /** Detach every connection + stop the sim. Idempotent. */

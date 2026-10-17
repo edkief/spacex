@@ -41,3 +41,15 @@ export const DEFAULT_SHARD_REAP_GRACE_MS = 60_000;
  * `ROUTER_REAP_INTERVAL_MS` for tests.
  */
 export const DEFAULT_ROUTER_REAP_INTERVAL_MS = 5_000;
+
+/**
+ * Graceful shutdown watchdog (TASK-12).
+ *
+ * If the server's SIGTERM/SIGINT handler cannot finish flushing every
+ * shard + closing every socket within this window, the process is
+ * force-killed with exit code 1. 10 s is the standard Kubernetes
+ * `terminationGracePeriodSeconds` default and gives a 16-shard flush
+ * (p95 ~7 ms each = ~112 ms total) a 100x headroom for any single
+ * shard to misbehave.
+ */
+export const DEFAULT_SHUTDOWN_WATCHDOG_MS = 10_000;

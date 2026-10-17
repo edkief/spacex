@@ -77,113 +77,46 @@ import {
 } from "@shared/galaxy/constants.js";
 
 import type { Repository } from "../db/repo.js";
-import type { Shard, ShardConnection } from "../shard/types.js";
-import { createShard, spawnShip } from "../shard/index.js";
+import type { Shard } from "../shard/types.js";
 import { ShardFlushService } from "../shard/persist.js";
-import { loadShipsForShard, type shipRowToEntitySpec, specToEntityFields } from "../shard/load.js";
-import type { ShipClassId } from "@shared/ships.js";
 
-import { buildShardContext, GalaxySystemNotFoundError } from "./system-data.js";
+import { GalaxySystemNotFoundError } from "./system-data.js";
+import { firePresenceBroadcast, type PresenceBroadcaster } from "./presence.js";
+import { bindConnectionToEntity, makeShardConnection } from "./router-connection.js";
+import { routerShutdown, routerStart } from "./router-lifecycle.js";
+import { loadAndRegister, type RouterShardMaps } from "./router-load.js";
+import { reapEmpty } from "./router-reap.js";
+import { buildRouterStats, readGeneration } from "./router-stats.js";
+import type {
+  JoinRejection,
+  JoinResult,
+  RouterConnectionContext,
+  RouterOptions,
+  RouterStats,
+} from "./router-types.js";
 
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
-
-/**
- * One connection's view of the world as the router sees it. The
- * `JoinResolver` uses this to know who is joining, while the
- * `LeaveResolver` uses the symmetric `LeaveArgs` to know who left.
- */
-export interface RouterConnectionContext {
-  /** Stable WS connection id (matches `Connection.connId`). */
-  connId: string;
-  /** Callsign asserted by the auth resolver. */
-  callsign: string;
-  /** Player id from the `players` table. */
-  playerId: string;
-  /**
-   * The ship the player controls. Resolved by the route layer by
-   * joining the player's `shipId` (from `GET /api/players/me`). The
-   * router doesn't touch `repo.listShipsByOwner`; the caller hands in
-   * the row.
-   */
-  ship: {
-    id: string;
-    classId: ShipClassId;
-    hull: number;
-    shields: number;
-    /** Quat tuple — the router flattens into the entity on spawn. */
-    quat: readonly [number, number, number, number];
-  };
-}
+// Re-export the public types from `./router-types` so callers can
+// keep using the same `import { ... } from "./router.js"` surface.
+export type {
+  JoinRejection,
+  JoinResult,
+  RouterConnectionContext,
+  RouterOptions,
+  RouterShardStats,
+  RouterStats,
+} from "./router-types.js";
 
 /**
- * Outcome of a successful `joinSystem` call. The caller emits an
- * `enter_system` wire frame with `snapshotTick` and `players` list.
+ * Re-export so existing imports (`import { PresenceBroadcaster } from
+ * "./router.js"`) continue to work — the type lives in `./presence.ts`
+ * for module cohesion but the router is the public face of the
+ * galaxy layer.
  */
-export interface JoinResult {
-  /** The shard the connection now belongs to. */
-  shard: Shard;
-  /** Connection id (echoed for the WS handler). */
-  connId: string;
-  /** The system the player just joined. */
-  systemId: string;
-  /** Number of players now in the system (1..MAX_PLAYERS_PER_SYSTEM). */
-  players: number;
-  /** Current sim tick of the snapshot the client should ack. */
-  snapshotTick: number;
-}
+export type { PresenceBroadcaster } from "./presence.js";
 
-/** Outcome of a `joinSystem` failure — wire code is `system-full` or `system-not-found`. */
-export interface JoinRejection {
-  /** Wire code ("system-full" | "system-not-found"). */
-  code: "system-full" | "system-not-found";
-  /** Human-readable message. */
-  message: string;
-  /** The system id that was requested (echoed for debug). */
-  systemId: string;
-}
-
-/** Per-shard stats exposed by `router.stats()`. */
-export interface RouterShardStats {
-  systemId: string;
-  /** Display name pulled from the deterministic SystemGen. */
-  name: string;
-  /** Number of active player connections in the shard. */
-  players: number;
-  /** Milliseconds since the shard was first registered. */
-  uptimeMs: number;
-}
-
-/** Top-level router stats (shape used by `/api/galaxy/health`). */
-export interface RouterStats {
-  shardCount: number;
-  totalPlayers: number;
-  /** Wall-clock ms when the router was instantiated. */
-  routerStartedAt: number;
-  shards: RouterShardStats[];
-}
-
-/** Options bag for `GalaxyRouter`. */
-export interface RouterOptions {
-  repo: Repository;
-  /** Galaxy seed used to derive system data. */
-  galaxySeed: string;
-  /** Galaxy size (number of stars in `generateStars`). */
-  galaxyStarCount: number;
-  /** Override the per-shard reap grace (ms). Defaults to `DEFAULT_SHARD_REAP_GRACE_MS`. */
-  reapGraceMs?: number;
-  /** Override the reap sweep interval (ms). Defaults to `DEFAULT_ROUTER_REAP_INTERVAL_MS`. */
-  reapIntervalMs?: number;
-  /** Override the flush service (TASK-24). Tests may inject a recording variant. */
-  flusher?: ShardFlushService;
-  /** Custom event bus; defaults to a per-router `EventEmitter`. */
-  events?: EventEmitter;
-  /** Logger — defaults to a silent info logger so the tests don't spam console. */
-  logger?: Pick<Console, "info" | "warn" | "error" | "debug">;
-  /** Wall-clock override for tests. */
-  now?: () => number;
-}
+// ---------------------------------------------------------------------------
+// Public types live in `./router-types.ts` (re-exported above).
+// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -224,6 +157,13 @@ export class GalaxyRouter {
   private readonly reapSentinels = new Map<string, ReapSentinel>();
   /** When the shard was first registered (for uptimeMs). */
   private readonly shardStartedAt = new Map<string, number>();
+  /**
+   * TASK-12: per-system generation counter. Bumped every time the
+   * router (re)spawns a shard for `systemId`. The reconnect-storm
+   * test reads this from the shard (via `shard.generation`) to
+   * confirm a join+leave burst did not trigger a DB reload.
+   */
+  private readonly shardGeneration = new Map<string, number>();
   /** When the router itself was instantiated. */
   private readonly routerStartedAt = Date.now();
   /** `setInterval` handle for `reapEmpty()`. */
@@ -242,6 +182,13 @@ export class GalaxyRouter {
   private readonly galaxyStarCount: number;
   private readonly logger: Pick<Console, "info" | "warn" | "error" | "debug">;
   private readonly now: () => number;
+  /**
+   * TASK-12: optional presence broadcaster. When set, the router
+   * fires `presence` frames on join/leave/reap so the WS layer can
+   * echo the change to every connection in the system. Default =
+   * silent (the test-only no-op path).
+   */
+  private readonly presenceBroadcaster: PresenceBroadcaster | undefined;
 
   constructor(options: RouterOptions) {
     if (!(options.galaxyStarCount > 0)) {
@@ -260,6 +207,7 @@ export class GalaxyRouter {
     this.events = options.events ?? new NodeEventEmitter();
     this.logger = options.logger ?? silentLogger();
     this.now = options.now ?? Date.now;
+    this.presenceBroadcaster = options.presenceBroadcaster;
 
     if (!Number.isFinite(this.reapGraceMs) || this.reapGraceMs < 0) {
       throw new Error(
@@ -280,15 +228,7 @@ export class GalaxyRouter {
    * same timer.
    */
   start(): void {
-    if (this.disposed) return;
-    if (this.reapTimer !== null) return;
-    const timer = setInterval(() => {
-      void this.reapEmpty();
-    }, this.reapIntervalMs);
-    if (typeof timer === "object" && timer !== null && "unref" in timer) {
-      (timer as { unref: () => void }).unref();
-    }
-    this.reapTimer = timer;
+    routerStart(this.lifecycleDeps());
   }
 
   /**
@@ -299,16 +239,31 @@ export class GalaxyRouter {
    * `shutdown()` cannot leave ships missing from the DB.
    */
   async shutdown(): Promise<void> {
-    if (this.disposed) return;
-    this.disposed = true;
-    if (this.reapTimer !== null) {
-      clearInterval(this.reapTimer);
-      this.reapTimer = null;
-    }
-    // Reap with force=true to skip the grace window. flushShips runs
-    // before sim.stop() so ship positions survive a subsequent kill.
-    await this.reapEmpty({ force: true });
-    this.flusher.dispose();
+    await routerShutdown(this.lifecycleDeps());
+  }
+
+  /** Snapshot the router's mutable state for the lifecycle helpers. */
+  private lifecycleDeps() {
+    return {
+      reapIntervalMs: this.reapIntervalMs,
+      runSweep: () => this.reapEmpty(),
+      clearTimer: () => {
+        if (this.reapTimer !== null) {
+          clearInterval(this.reapTimer);
+          this.reapTimer = null;
+        }
+      },
+      reapAllForce: () => this.reapEmpty({ force: true }),
+      disposeFlusher: () => this.flusher.dispose(),
+      getTimer: () => this.reapTimer,
+      setTimer: (timer: ReturnType<typeof setInterval> | null) => {
+        this.reapTimer = timer;
+      },
+      getDisposed: () => this.disposed,
+      setDisposed: (disposed: boolean) => {
+        this.disposed = disposed;
+      },
+    };
   }
 
   // -------------------------------------------------------------------
@@ -351,137 +306,29 @@ export class GalaxyRouter {
    * Errors propagate so the WS handler can surface a structured
    * `system-not-found` (for unknown systems) or a `server-error`
    * (for DB issues) to the client.
+   *
+   * Delegated to `./router-load.ts` so this module stays under the
+   * AGENTS.md file-size cap.
    */
   private async loadAndRegister(systemId: string): Promise<Shard> {
-    let context;
-    try {
-      context = buildShardContext({
-        seed: this.galaxySeed,
-        starCount: this.galaxyStarCount,
-        systemId,
-      });
-    } catch (err) {
-      if (err instanceof GalaxySystemNotFoundError) {
-        throw err; // re-thrown unchanged; handler maps to `system-not-found`
-      }
-      throw err;
-    }
-    // Hydrate ships from DB. `loadShipsForShard` GC's expired wrecks
-    // FIRST so a row that should be gone never reappears in the next
-    // hydrate. We pass `includeDocked: true` so a player who owns a
-    // docked starter ship still re-hydrates it with the persisted
-    // position — otherwise the entity is missing from the broadcast
-    // loop until the player warps out of dock (TASK-29). The v1
-    // router doesn't need to special-case docked ships because
-    // docking data lives in TASK-29; until then, every persisted row
-    // represents a live ship entity.
-    const { specs } = await loadShipsForShard(systemId, this.repo, {
-      nowMs: this.now(),
-      includeDocked: true,
-    });
-    // Build the shard with a noop broadcaster; the WS layer wires the
-    // real one when it calls `joinSystem`. Using noop here keeps the
-    // router free of any transport reference — same shape as the
-    // existing `createShard` test helpers.
-    const shard: Shard = createShard({
-      systemId,
-      context,
-      // The router doesn't know how to send per-connection frames — it
-      // routes through the shard's `send` callback, which the WS
-      // layer registers via `attachRouter` (see below). We seed both
-      // with noops and require the WS layer to replace them with the
-      // real writers before serving frames.
-      send: () => undefined,
-      broadcast: () => undefined,
+    return loadAndRegister(systemId, {
+      repo: this.repo,
+      galaxySeed: this.galaxySeed,
+      galaxyStarCount: this.galaxyStarCount,
       events: this.events,
       logger: this.logger,
+      now: this.now,
+      maps: this.shardMaps(),
     });
-    // Hydrate entities from the loaded specs. The hydrate step
-    // fetches callsigns for the owner ids on the ship rows so the
-    // resulting entities broadcast the right metadata on
-    // `entity_update`. Idempotent on entityId (`spawnShip` returns
-    // the existing entry); no double-registration.
-    await this.hydrateEntities(shard, specs);
-    this.shards.set(systemId, shard);
-    this.shardStartedAt.set(systemId, this.now());
-    return shard;
   }
 
-  /**
-   * Walk the loaded specs and mint one entity per row via `spawnShip`
-   * (for player entities) or by direct `entities.set(...)` (for
-   * wrecks — they have no input hooks so the broadcast-aware
-   * `spawnWreck` factory adds nothing here). Centralised so a future
-   * regression (e.g. an entity that needs regime derivation) lands
-   * in one place.
-   */
-  private async hydrateEntities(
-    shard: Shard,
-    specs: ReturnType<typeof shipRowToEntitySpec>[],
-  ): Promise<void> {
-    // Build an ownerId → callsign lookup once so the entity factory
-    // can populate the right callsign without N+1 roundtrips. The
-    // callsign is **not** persisted on the ship row (it lives on the
-    // player row), so the load path needs the join. The fetch is
-    // bounded — the number of owners is at most MAX_PLAYERS_PER_SYSTEM
-    // (16), so the loop is small.
-    const ownerIds = new Set<string>();
-    for (const spec of specs) {
-      if (spec.kind !== "wreck" && spec.playerId) {
-        ownerIds.add(spec.playerId);
-      }
-    }
-    const callsignsByOwner = new Map<string, string>();
-    await Promise.all(
-      Array.from(ownerIds).map(async (ownerId) => {
-        const player = await this.repo.findPlayerById(ownerId);
-        if (player) callsignsByOwner.set(ownerId, player.callsign);
-      }),
-    );
-
-    for (const spec of specs) {
-      const fields = specToEntityFields(spec);
-      if (spec.kind === "wreck") {
-        // Wrecks are inert — set the entity directly. The simulator
-        // already populates the wreck entity via `makeWreckEntity`;
-        // the broadcast-aware factory is unnecessary here because we
-        // don't bind a connection.
-        shard.entities.set(fields.id, {
-          id: fields.id,
-          kind: "wreck",
-          playerId: null,
-          callsign: null,
-          classId: spec.classId,
-          hull: 0,
-          shields: 0,
-          targetId: null,
-          pos: fields.pos,
-          vel: fields.vel,
-          quat: fields.quat,
-          regime: fields.regime,
-          originPlanetId: null,
-          onPad: null,
-          wreckExpiresAt: spec.wreckExpiresAt ?? Date.now() + 600_000,
-        });
-        continue;
-      }
-      const ownerId = spec.playerId ?? "owner-unknown";
-      const callsign = callsignsByOwner.get(ownerId) ?? spec.callsign ?? "UNKNOWN";
-      spawnShip(shard, {
-        shipId: spec.shipId,
-        playerId: ownerId,
-        callsign,
-        classId: spec.classId,
-        hull: spec.hull,
-        shields: spec.shields,
-        pos: fields.pos,
-        vel: fields.vel,
-        quat: fields.quat,
-        regime: fields.regime,
-        originPlanetId: spec.originPlanetId,
-        onPad: spec.onPad,
-      });
-    }
+  /** Snapshot the router's mutable shard maps for the load helper. */
+  private shardMaps(): RouterShardMaps {
+    return {
+      shards: this.shards,
+      shardStartedAt: this.shardStartedAt,
+      shardGeneration: this.shardGeneration,
+    };
   }
 
   // -------------------------------------------------------------------
@@ -524,54 +371,21 @@ export class GalaxyRouter {
     }
     // Cap ok — register the connection + spawn a player entity bound
     // to this connection. The WS layer later attaches the shipRow
-    // via `attachConnection`.
-    const conn: ShardConnection = {
-      connId: ctx.connId,
-      callsign: ctx.callsign,
-      playerId: ctx.playerId,
-      entityId: null,
-      lastSeq: 0,
-      pendingInput: null,
-      staleDrops: 0,
-    };
+    // via `attachConnection`. Delegated to `./router-connection.ts`
+    // so this module stays under the AGENTS.md file-size cap.
+    const conn = makeShardConnection(ctx);
     shard.connections.set(conn.connId, conn);
-    // Spawn (or rebind) the player entity. The router is the only
-    // site that knows which `shipId` belongs to which connection;
-    // `spawnShip` handles idempotency on entityId. If the load path
-    // already created the entity, `spawnShip` returns the existing
-    // entry (with the right callsign, since `hydrateEntities` ran
-    // a join against `players` earlier).
-    const existingEntity = shard.entities.get(`entity:${ctx.ship.id}`);
-    if (existingEntity !== undefined) {
-      // Reconnect: bind the connection to the entity that already
-      // holds the right ownership metadata.
-      conn.entityId = existingEntity.id;
-    } else {
-      spawnShip(shard, {
-        shipId: ctx.ship.id,
-        playerId: ctx.playerId,
-        callsign: ctx.callsign,
-        classId: ctx.ship.classId,
-        hull: ctx.ship.hull,
-        shields: ctx.ship.shields,
-        pos: { x: 0, y: 0, z: 0 },
-        vel: { x: 0, y: 0, z: 0 },
-        quat: {
-          x: ctx.ship.quat[0],
-          y: ctx.ship.quat[1],
-          z: ctx.ship.quat[2],
-          w: ctx.ship.quat[3],
-        },
-        regime: "space",
-        originPlanetId: null,
-        onPad: null,
-        bindConnId: conn.connId,
-      });
-    }
+    bindConnectionToEntity(shard, conn, ctx);
     // Connection registered → clear the reap sentinel so a transient
     // empty window doesn't accidentally reap a live shard.
     this.reapSentinels.delete(systemId);
     this.events.emit("join", { systemId, connId: ctx.connId });
+    // TASK-12: broadcast the join to existing connections so every
+    // other client in the system learns about the new player. The
+    // WS layer (via the presence broadcaster hook) decides whether
+    // to echo the frame back to the originator; the router just
+    // ships the canonical roster.
+    this.broadcastPresence(shard);
     return {
       shard,
       connId: ctx.connId,
@@ -598,8 +412,35 @@ export class GalaxyRouter {
       // sentinel is consumed.
       this.reapSentinels.set(systemId, { emptySinceMs: this.now() });
     }
+    if (existed) {
+      // TASK-12: broadcast the leave to remaining connections. We
+      // only ship the frame when the connection was actually
+      // registered so a stray `leaveSystem` for an unknown connId
+      // doesn't churn the broadcast. We broadcast AFTER the delete
+      // so the leaving connection isn't included in the roster
+      // (their client shouldn't see themselves in the new frame).
+      // `buildPresencePayload` returns `null` when the shard is now
+      // empty (no remaining listeners) so the broadcaster is a
+      // no-op; the reap path emits a separate empty-roster frame.
+      this.broadcastPresence(shard);
+    }
     this.events.emit("leave", { systemId, connId });
     return existed;
+  }
+
+  /**
+   * TASK-12: build the canonical presence payload for the shard and
+   * invoke the presence broadcaster hook. The payload includes one
+   * `PresenceEntry` per active connection in the shard.
+   *
+   * Delegated to `firePresenceBroadcast` / `buildPresencePayload` in
+   * `./presence.ts` so the router doesn't accumulate wire-shape
+   * code. For v1 every connection reports `state: 'flying'`; the
+   * docked/on-foot refinement (TASK-29 / TASK-31) replaces the
+   * hard-coded value with the player's actual `ActivityState`.
+   */
+  private broadcastPresence(shard: Shard): void {
+    firePresenceBroadcast(this.presenceBroadcaster, shard);
   }
 
   // -------------------------------------------------------------------
@@ -613,37 +454,25 @@ export class GalaxyRouter {
    *
    * Pass `force: true` to ignore the grace period (used by
    * `shutdown()`).
+   *
+   * Delegated to `./router-reap.ts` to keep this module under the
+   * AGENTS.md file-size cap.
    */
   async reapEmpty(options: { force?: boolean } = {}): Promise<{
     reaped: string[];
   }> {
-    const reaped: string[] = [];
-    const cutoffMs = this.now() - this.reapGraceMs;
-    for (const [systemId, sentinel] of this.reapSentinels.entries()) {
-      const shard = this.shards.get(systemId);
-      if (!shard) {
-        this.reapSentinels.delete(systemId);
-        continue;
-      }
-      if (!options.force && sentinel.emptySinceMs > cutoffMs) {
-        continue; // grace hasn't elapsed yet
-      }
-      // Final flush first so ship positions survive any kill -9 that
-      // races with the sim.stop() below.
-      try {
-        await this.flusher.flushNow(shard);
-      } catch (err) {
-        this.logger.error?.(`[drift-router] flush of ${systemId} failed during reap:`, err);
-      }
-      // Stop the sim loop + clear the registry.
-      shard.shutdown();
-      this.shards.delete(systemId);
-      this.shardStartedAt.delete(systemId);
-      this.reapSentinels.delete(systemId);
-      reaped.push(systemId);
-      this.events.emit("reap", { systemId });
-    }
-    return { reaped };
+    return reapEmpty({
+      reapSentinels: this.reapSentinels,
+      shards: this.shards,
+      shardStartedAt: this.shardStartedAt,
+      flusher: this.flusher,
+      presenceBroadcaster: this.presenceBroadcaster,
+      events: this.events,
+      logger: this.logger,
+      reapGraceMs: this.reapGraceMs,
+      now: this.now,
+      force: options.force,
+    });
   }
 
   /**
@@ -667,34 +496,31 @@ export class GalaxyRouter {
   /**
    * Snapshot of every active shard + the router's overall state. The
    * `/api/galaxy/health` endpoint serialises this shape verbatim.
+   * Delegated to `./router-stats.ts` to keep this module under the
+   * AGENTS.md file-size cap.
    */
   stats(): RouterStats {
-    const shards: RouterShardStats[] = [];
-    let totalPlayers = 0;
-    const started = this.routerStartedAt;
-    const now = this.now();
-    for (const [systemId, shard] of this.shards.entries()) {
-      const startedMs = this.shardStartedAt.get(systemId) ?? started;
-      const players = shard.connections.size;
-      totalPlayers += players;
-      shards.push({
-        systemId,
-        name: shard.context.system.name,
-        players,
-        uptimeMs: Math.max(0, now - startedMs),
-      });
-    }
-    return {
-      shardCount: this.shards.size,
-      totalPlayers,
-      routerStartedAt: started,
-      shards,
-    };
+    return buildRouterStats({
+      shards: this.shards,
+      shardStartedAt: this.shardStartedAt,
+      routerStartedAt: this.routerStartedAt,
+      now: this.now,
+    });
   }
 
   /** Read-only accessor used by tests + diagnostics. */
   listSystemIds(): readonly string[] {
     return Array.from(this.shards.keys());
+  }
+
+  /**
+   * TASK-12: read the current generation counter for `systemId`.
+   * Returns 0 when the shard has never been spawned in this router
+   * instance — useful for tests that want to assert "the counter
+   * never moved from the value I last saw".
+   */
+  generationFor(systemId: string): number {
+    return readGeneration({ shardGeneration: this.shardGeneration, systemId });
   }
 
   /** True if a shard for `systemId` is currently active. */
