@@ -90,7 +90,7 @@ You will need to analyze the completed PRD and generate a comprehensive task lis
 
 ## Part 4: Overall Description
 
-You will need to read the completed PRD and generate an overall description of the project in `PROJECT_ROOT/.agent/prd/SUMMARY.md`.
+You will need to read the completed PRD and generate an overall description of the project in `PROJECT_ROOT/.ralph/prd/SUMMARY.md`.
 
 The description should be short, concise and contain:
 - An overall description of the project
@@ -141,9 +141,9 @@ The description should be short, concise and contain:
 ## After completion
 
 Ensure the required files are present:
-- PROJECT_ROOT/.agent/prd/PRD.md
-- PROJECT_ROOT/.agent/prd/SUMMARY.md
-- PROJECT_ROOT/.agent/tasks.json
+- PROJECT_ROOT/.ralph/prd/PRD.md
+- PROJECT_ROOT/.ralph/prd/SUMMARY.md
+- PROJECT_ROOT/.ralph/tasks.json
 
 If they are not present, warn the user and ask if they would like to create any of them.
 

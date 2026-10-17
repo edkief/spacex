@@ -35,7 +35,7 @@ Install dependencies (using the sequence above), then install Playwright system 
 
 Then install the Playwright browser: `npx playwright install chromium`
 
-Start the dev server and take a screenshot. Save it to the `.agent/screenshots` directory.
+Start the dev server and take a screenshot. Save it to the `.ralph/screenshots` directory.
 
 ---
 

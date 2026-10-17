@@ -151,7 +151,7 @@ The `Prerequisites and Access` section must include:
 - Login/test user requirements without passwords or secret values
 - Open prerequisite gaps and the user's proceed/block decision for each gap
 
-Save as: `PROJECT_ROOT/.agent/prd/PRD.md`
+Save as: `PROJECT_ROOT/.ralph/prd/PRD.md`
 
 ### Step 5: Iterate
 
@@ -232,4 +232,4 @@ Before saving the PRD:
 - [ ] User stories are small and specific
 - [ ] Functional requirements are numbered and unambiguous
 - [ ] Non-goals section defines clear boundaries
-- [ ] Saved to `PROJECT_ROOT/.agent/prd/PRD.md`
+- [ ] Saved to `PROJECT_ROOT/.ralph/prd/PRD.md`

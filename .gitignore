@@ -7,8 +7,8 @@ dist/
 .env.*.local
 
 # Ralph run artefacts
-.agent/history/
-.agent/screenshots/*.png
+.ralph/history/
+.ralph/screenshots/*.png
 
 # Local env file (placeholders, but keep it out of git)
 .env.local

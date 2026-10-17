@@ -3,20 +3,20 @@
 /**
  * PostToolUse hook that enforces the one-task-per-invocation rule.
  *
- * Reads .agent/tasks.json, counts tasks with passes: true,
+ * Reads .ralph/tasks.json, counts tasks with passes: true,
  * and warns if more than one task was completed since the session started.
- * The baseline is stored in .agent/.task-count (ephemeral per session).
+ * The baseline is stored in .ralph/.task-count (ephemeral per session).
  */
 
 const fs = require('fs');
 const path = require('path');
 
-// Find project root by looking for .agent directory
+// Find project root by looking for .ralph directory
 function findProjectRoot() {
   let dir = __dirname;
   // Walk up from .claude/hooks
   while (dir !== path.dirname(dir)) {
-    if (fs.existsSync(path.join(dir, '.agent', 'tasks.json'))) {
+    if (fs.existsSync(path.join(dir, '.ralph', 'tasks.json'))) {
       return dir;
     }
     dir = path.dirname(dir);
@@ -58,7 +58,7 @@ try {
     process.exit(0);
   }
 
-  const agentDir = path.join(root, '.agent');
+  const agentDir = path.join(root, '.ralph');
   const tasksFile = path.join(agentDir, 'tasks.json');
   const countFile = path.join(agentDir, '.task-count');
 

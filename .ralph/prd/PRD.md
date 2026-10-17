@@ -128,7 +128,7 @@ Requirement IDs are `TASK-${ID}`. `TASK-1` is reserved for prerequisite verifica
 - **TASK-58:** LOD/impostor tuning: draw-call and memory budgets per regime; tuning pass to hit budgets. *Accept: budgets met in space/atmo/ground (measured via overlay).*
 - **TASK-59:** Mobile rendering profile: auto-detect → 30 fps target, reduced draw distance, no shadows; keyboard/mouse controls only. *Accept: 30 fps floor on reference mobile profile (headless approximation + manual check).*
 - **TASK-60:** Server tick budget: 16 players, 20 Hz, p95 tick < 30 ms on reference server hardware. *Accept: load test (TASK-18) reports within budget.*
-- **TASK-61:** Reference-hardware verification: scripted SC-1/SC-4/SC-5 run on mid-range laptop with results recorded (screenshots + stats export). *Accept: results archived under .agent/screenshots with pass/fail.*
+- **TASK-61:** Reference-hardware verification: scripted SC-1/SC-4/SC-5 run on mid-range laptop with results recorded (screenshots + stats export). *Accept: results archived under .ralph/screenshots with pass/fail.*
 
 ### 4.10 Data & Persistence
 - **TASK-62:** Data layer: Drizzle schema (SQLite + Postgres drivers from one schema definition): `players`, `ships`, `cargo_items`, `sessions`, `resource_node_state`, `system_registry`. *Accept: schema compiles against both drivers; migrations run on SQLite locally.*

@@ -1,9 +1,10 @@
 {
-  "maxIterations": 20,
+  "maxIterations": 100,
   "pinTask": true,
   "timeouts": {
     "iterationMs": 2700000,
-    "inactivityMs": 300000
+    "inactivityMs": 600000,
+    "wrapUpMs": 1200000
   },
   "retries": {
     "providerRetriesPerIteration": 3,
@@ -11,7 +12,8 @@
     "backoffMs": 15000
   },
   "stall": {
-    "maxUnproductiveIterations": 3
+    "maxUnproductiveIterations": 3,
+    "onRepeatedTimeout": "split"
   },
   "permissions": {
     "fallback": "allow",
@@ -20,5 +22,24 @@
   "log": {
     "format": "text",
     "level": "info"
+  },
+  "git": {
+    "push": "iteration",
+    "remote": "origin"
+  },
+  "ui": {
+    "actions": "open",
+    "host": "0.0.0.0"
+  },
+  "metrics": {
+    "cost": {
+      "estimator": "power",
+      "currency": "$AU",
+      "power": {
+        "watts": 220, 
+        "pricePerKwh": 0.24,
+        "models": { "ollama/qwen3:8b": { "watts": 180 } }
+      }
+    }
   }
 }

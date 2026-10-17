@@ -11,7 +11,7 @@ Only proceed after user confirmation.
 
 ## Task Generation Workflow
 
-You should read the PRD markdown file located in `PROJECT_ROOT/.agent/prd/PRD.md`.
+You should read the PRD markdown file located in `PROJECT_ROOT/.ralph/prd/PRD.md`.
 Each task in the PRD will have a unique ID, formatted as `TASK-${ID}`.
 Use those IDs to generate the task list, except `TASK-1` is always reserved for prerequisite verification.
 
@@ -21,8 +21,8 @@ Copy and track progress:
 Task Generation Progress:
 - [ ] Analyze the complete PRD
 - [ ] Generate mandatory prerequisite verification task first
-- [ ] Generate task index in `PROJECT_ROOT/.agent/tasks.json`
-- [ ] Generate detailed spec for each task in `PROJECT_ROOT/.agent/tasks/TASK-${ID}.json`
+- [ ] Generate task index in `PROJECT_ROOT/.ralph/tasks.json`
+- [ ] Generate detailed spec for each task in `PROJECT_ROOT/.ralph/tasks/TASK-${ID}.json`
 - [ ] Present complete task list to user for review
 ```
 
@@ -33,7 +33,7 @@ If a question can be answered by exploring the codebase, explore the codebase in
 
 Every generated task list must start with `TASK-1: Verify project prerequisites and access`.
 
-Use the `Prerequisites and Access` section from `PROJECT_ROOT/.agent/prd/PRD.md` as the source of truth. This task must verify that implementation can safely begin before feature work starts.
+Use the `Prerequisites and Access` section from `PROJECT_ROOT/.ralph/prd/PRD.md` as the source of truth. This task must verify that implementation can safely begin before feature work starts.
 
 `TASK-1` must confirm:
 - `PROJECT_ROOT/.env.local` exists and contains placeholder entries for every required environment variable name from the PRD
@@ -48,7 +48,7 @@ All downstream implementation tasks that require these prerequisites must includ
 
 Use this exact shape for the first task, adapting names and details to the PRD:
 
-```json:PROJECT_ROOT/.agent/tasks/TASK-1.json
+```json:PROJECT_ROOT/.ralph/tasks/TASK-1.json
 {
   "id": "TASK-1",
   "title": "Verify project prerequisites and access",
@@ -67,7 +67,7 @@ Use this exact shape for the first task, adapting names and details to the PRD:
     {
       "step": 1,
       "description": "Read prerequisite requirements from the PRD",
-      "details": "Open `PROJECT_ROOT/.agent/prd/PRD.md` and review the `Prerequisites and Access` section. List required database access, MCPs, service docs, environment variable names, login/test users, and any open gaps.",
+      "details": "Open `PROJECT_ROOT/.ralph/prd/PRD.md` and review the `Prerequisites and Access` section. List required database access, MCPs, service docs, environment variable names, login/test users, and any open gaps.",
       "pass": false
     },
     {
@@ -114,12 +114,12 @@ Use this exact shape for the first task, adapting names and details to the PRD:
 
 Each task must follow this exact structure:
 
-```json:PROJECT_ROOT/.agent/tasks.json
+```json:PROJECT_ROOT/.ralph/tasks.json
 {
   "id": "TASK-${ID}",
   "title": "Clear, concise title of the task",
   "category": "category-name",
-  "specFilePath": ".agent/tasks/TASK-${ID}.json",
+  "specFilePath": ".ralph/tasks/TASK-${ID}.json",
   "passes": false
 }
 ```
@@ -130,14 +130,14 @@ Each task must follow this exact structure:
 - `title`: A title that gives a high level overview of the task
 - `category`: Classification of task type (see categories below)
 - `title`: A title that gives a high level overview of the task.
-- `specFilePath`: Path to the individual task specification file, formatted as `PROJECT_ROOT/.agent/tasks/TASK-${ID}.json`
+- `specFilePath`: Path to the individual task specification file, formatted as `PROJECT_ROOT/.ralph/tasks/TASK-${ID}.json`
 - `passes`: Always initialize to `false` - only developers update this after completion
 
 ## Individual JSON Task Format
 
 Each task specification file provides comprehensive details for implementation. This is where the real detail lives - the root `tasks.json` is just an index.
 
-```json:PROJECT_ROOT/.agent/tasks/TASK-${ID}.json
+```json:PROJECT_ROOT/.ralph/tasks/TASK-${ID}.json
 {
   "id": "TASK-${ID}",
   "title": "Clear, concise title of the task",
@@ -649,7 +649,7 @@ Only developers should update `passes: true` after verifying all steps are compl
 
 ## Output Format
 
-Save the complete task list as `PROJECT_ROOT/.agent/tasks.json`:
+Save the complete task list as `PROJECT_ROOT/.ralph/tasks.json`:
 
 ```json
 [
@@ -657,21 +657,21 @@ Save the complete task list as `PROJECT_ROOT/.agent/tasks.json`:
     "id": "TASK-1",
     "title": "Verify project prerequisites and access",
     "category": "setup",
-    "specFilePath": ".agent/tasks/TASK-1.json",
+    "specFilePath": ".ralph/tasks/TASK-1.json",
     "passes": false
   },
   {
     "id": "TASK-2",
     "title": "User table with authentication fields",
     "category": "data-model",
-    "specFilePath": ".agent/tasks/TASK-2.json",
+    "specFilePath": ".ralph/tasks/TASK-2.json",
     "passes": false
   },
   {
     "id": "TASK-3",
     "title": "POST /api/auth/register creates new user account",
     "category": "api-endpoint",
-    "specFilePath": ".agent/tasks/TASK-3.json",
+    "specFilePath": ".ralph/tasks/TASK-3.json",
     "passes": false
   }
   // ... continue until you cover all features in the PRD
@@ -692,7 +692,7 @@ Present the tasks to the user:
 
 "I've generated [NUMBER] implementation tasks based on your PRD, organized into [NUMBER] categories. These tasks provide a complete checklist for building and verifying every feature.
 
-The tasks are saved in `PROJECT_ROOT/.agent/tasks.json`. Developers should:
+The tasks are saved in `PROJECT_ROOT/.ralph/tasks.json`. Developers should:
 1. Work through tasks in order (setup → data-model → api-endpoint → ui-ux, etc.)
 2. Complete all verification steps for each task
 3. Only mark `passes: true` after all steps verified
