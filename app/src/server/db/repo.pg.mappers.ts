@@ -7,13 +7,18 @@
  * defined in `./types.ts`.
  */
 import {
+  IDENTITY_QUATERNION,
   ShipLiverySchema,
   ShipPositionSchema,
+  ShipQuaternionSchema,
+  ShipRegimeSchema,
   ShipVelocitySchema,
   type PlayerRow,
   type ResourceNodeStateRow,
   type SessionRow,
   type ShipClassId,
+  type ShipQuaternion,
+  type ShipRegime,
   type ShipRow,
   type SystemRegistryRow,
 } from "./types.js";
@@ -43,8 +48,47 @@ export function mapShip(raw: Record<string, unknown>): ShipRow {
     position: ShipPositionSchema.parse(raw.position),
     velocity: ShipVelocitySchema.parse(raw.velocity),
     state: raw.state as ShipRow["state"],
+    // TASK-24: parse JSON tuple (quat), text (regime), nullable strings,
+    // and timestamp fields. Pre-TASK-24 rows have null columns, so we
+    // default to identity quat and null regime/pad/expiry to bridge
+    // boot continuity for ships persisted by older code.
+    quat: parseShipQuaternion(raw.quat),
+    regime: parseShipRegime(raw.regime),
+    onPad: raw.onPad === null || raw.onPad === undefined ? null : String(raw.onPad),
+    wreckExpiresAt:
+      raw.wreckExpiresAt === null || raw.wreckExpiresAt === undefined
+        ? null
+        : parseDate(raw.wreckExpiresAt).getTime(),
     updatedAt: parseDate(raw.updatedAt),
   };
+}
+
+/**
+ * Parse the `quat` jsonb column into a `ShipQuaternion` — defaults to
+ * identity when the column is null (pre-TASK-24 row).
+ */
+function parseShipQuaternion(raw: unknown): ShipQuaternion {
+  if (raw === null || raw === undefined) return [...IDENTITY_QUATERNION];
+  try {
+    const parsed = ShipQuaternionSchema.parse(raw);
+    return [parsed[0], parsed[1], parsed[2], parsed[3]];
+  } catch {
+    return [...IDENTITY_QUATERNION];
+  }
+}
+
+/**
+ * Parse the `regime` enum column — defaults to `null` so a restart of
+ * a pre-TASK-24 row resumes in regime-less mode (the integrator will
+ * fall back to "space" on first tick).
+ */
+function parseShipRegime(raw: unknown): ShipRegime | null {
+  if (raw === null || raw === undefined) return null;
+  try {
+    return ShipRegimeSchema.parse(String(raw));
+  } catch {
+    return null;
+  }
 }
 
 /** Map a raw sessions row to the driver-agnostic shape. */

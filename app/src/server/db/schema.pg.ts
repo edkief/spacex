@@ -35,6 +35,7 @@ import { sql } from "drizzle-orm";
  */
 export const shipClassIdPg = pgEnum("ship_class_id", ["scout", "freighter", "interceptor"]);
 export const shipStatePg = pgEnum("ship_state", ["docked", "flying", "onfoot", "destroyed"]);
+export const shipRegimePg = pgEnum("ship_regime", ["space", "atmosphere", "surface"]);
 
 /**
  * Player identity and starting state (PRD §8 / TASK-62 AC1).
@@ -61,18 +62,27 @@ export const players = pgTable(
 );
 
 /**
- * Per-player ship state.
+ * Per-player ship state (TASK-24 adds flight persistence columns).
  *
- *   id         — UUID (Postgres defaults to uuid_generate_v4).
- *   owner_id   — FK → players.id (cascade delete).
- *   class_id   — typed enum (ship_class_id_pg).
- *   livery     — JSONB.
- *   hull       — REAL (percent).
- *   shields    — REAL (percent).
- *   position   — JSONB.
- *   velocity   — JSONB.
- *   state      — typed enum (ship_state_pg).
- *   updated_at — timestamptz, bumped on every write.
+ *   id                — UUID (Postgres defaults to uuid_generate_v4).
+ *   owner_id          — FK → players.id (cascade delete).
+ *   class_id          — typed enum (ship_class_id_pg).
+ *   livery            — JSONB.
+ *   hull              — REAL (percent).
+ *   shields           — REAL (percent).
+ *   position          — JSONB.
+ *   velocity          — JSONB.
+ *   state             — typed enum (ship_state_pg).
+ *   quat              — JSONB orientation quaternion (TASK-24).
+ *   regime            — typed enum (ship_regime_pg) | NULL (TASK-24).
+ *   on_pad            — text | NULL — pad id when landed (TASK-24).
+ *   wreck_expires_at  — timestamptz | NULL — GC for wrecks (TASK-24).
+ *   updated_at        — timestamptz, bumped on every write.
+ *
+ * The four added columns mirror the SQLite migration
+ * `0002_ship_state.sql` and were added directly to the schema so
+ * compile-time parity holds — `drizzle-kit generate` will emit the
+ * corresponding `ALTER TABLE` statements in the operator migration.
  */
 export const ships = pgTable(
   "ships",
@@ -88,6 +98,10 @@ export const ships = pgTable(
     position: jsonb("position").notNull(),
     velocity: jsonb("velocity").notNull(),
     state: shipStatePg("state").notNull(),
+    quat: jsonb("quat"),
+    regime: shipRegimePg("regime"),
+    onPad: text("on_pad"),
+    wreckExpiresAt: timestamp("wreck_expires_at", { withTimezone: true }),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

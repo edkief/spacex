@@ -21,6 +21,14 @@ export function isoNow(): string {
   return new Date().toISOString();
 }
 
+/** Format an ms-epoch timestamp as ISO-8601 (UTC). Used by the
+ * wreck_expires_at column (TASK-24): the cleanup loop uses an absolute
+ * ms value but the column itself is TEXT for SQLite-style compatibility.
+ */
+export function isoFromMs(ms: number): string {
+  return new Date(ms).toISOString();
+}
+
 /** Clamp an integer to [lo, hi]. Used for hull/shields percentages. */
 export function clampInt(value: number, lo: number, hi: number): number {
   if (!Number.isInteger(value)) {

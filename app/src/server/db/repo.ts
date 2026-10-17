@@ -132,6 +132,22 @@ export interface Repository {
   listShipsByOwner(ownerId: string): Promise<ShipRow[]>;
   /** Ships whose persisted position.systemId matches the given system. */
   listShipsBySystem(systemId: string): Promise<ShipRow[]>;
+  /**
+   * Ships that should hydrate a freshly-spawned shard (TASK-24). Same
+   * filter as `listShipsBySystem` but additionally:
+   *   - excludes ships with `state === 'destroyed'` and no remaining wreck TTL
+   *   - includes wrecks whose `wreckExpiresAt` is in the future so the
+   *     sim can render their impostor until cleanup
+   * Implementations may translate the `nowMs` value into the driver's
+   * timestamp comparison format.
+   */
+  listLiveShipsBySystem(systemId: string, nowMs: number): Promise<ShipRow[]>;
+  /**
+   * Delete every `state === 'destroyed'` ship whose `wreckExpiresAt`
+   * has passed (TASK-24 destruction persistence). Returns the number
+   * of rows removed. Safe to call repeatedly — idempotent.
+   */
+  deleteExpiredWrecks(systemId: string, nowMs: number): Promise<number>;
 
   // Cargo
   saveCargo(shipId: string, items: CargoItemInput[]): Promise<CargoItemRow[]>;

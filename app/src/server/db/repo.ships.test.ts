@@ -127,4 +127,120 @@ describe("ships", () => {
     const list = await repo.listShipsByOwner(player.id);
     expect(list.map((s) => s.id)).toEqual([ship.id]);
   });
+
+  // ---------------------------------------------------------------------
+  // TASK-24 — listLiveShipsBySystem + deleteExpiredWrecks
+  // ---------------------------------------------------------------------
+
+  it("listLiveShipsBySystem scopes by systemId and excludes destroyed wrecks with no TTL", async () => {
+    const { repo } = active();
+    const player = await repo.createPlayer({ callsign: "PILOT-LIVE", homeSystemId: "system-LIVE" });
+    const flying = await repo.getOrCreateStarterShip(player.id, "scout");
+    await repo.saveShipState(flying.id, {
+      state: "flying",
+      position: { systemId: "system-LIVE", x: 1, y: 2, z: 3 },
+    });
+
+    // A destroyed ship with no TTL row should not appear. We use a
+    // second player so the starter-ship factory doesn't dedupe to
+    // the first row.
+    const wreckPlayer = await repo.createPlayer({
+      callsign: "PILOT-WRECK",
+      homeSystemId: "system-LIVE",
+    });
+    const wreckNoTtl = await repo.getOrCreateStarterShip(wreckPlayer.id, "interceptor");
+    await repo.saveShipState(wreckNoTtl.id, {
+      state: "destroyed",
+      wreckExpiresAt: null,
+      position: { systemId: "system-LIVE", x: 0, y: 0, z: 0 },
+    });
+
+    // The list helper excludes destroyed-with-null-TTL rows by spec:
+    //   state != 'destroyed' OR (state == 'destroyed' AND wreck_expires_at > now)
+    // Only the flying ship satisfies the first clause.
+    const list = await repo.listLiveShipsBySystem("system-LIVE", Date.now());
+    expect(list.map((s) => s.id)).toEqual([flying.id]);
+  });
+
+  it("listLiveShipsBySystem keeps wrecks whose TTL is in the future", async () => {
+    const { repo } = active();
+    const player = await repo.createPlayer({ callsign: "PILOT-WF", homeSystemId: "system-WF" });
+    const ship = await repo.getOrCreateStarterShip(player.id, "scout");
+    const futureExpiry = Date.now() + 60_000;
+    await repo.saveShipState(ship.id, {
+      state: "destroyed",
+      wreckExpiresAt: futureExpiry,
+      position: { systemId: "system-WF", x: 5, y: 0, z: 0 },
+    });
+
+    const list = await repo.listLiveShipsBySystem("system-WF", Date.now());
+    expect(list).toHaveLength(1);
+    expect(list[0]!.wreckExpiresAt).toBe(futureExpiry);
+  });
+
+  it("deleteExpiredWrecks removes rows whose TTL is in the past and returns the count", async () => {
+    const { repo } = active();
+    const player = await repo.createPlayer({ callsign: "PILOT-WX", homeSystemId: "system-WX" });
+    const ship = await repo.getOrCreateStarterShip(player.id, "scout");
+    await repo.saveShipState(ship.id, {
+      state: "destroyed",
+      wreckExpiresAt: Date.now() - 5_000,
+    });
+
+    const deleted = await repo.deleteExpiredWrecks("system-WX", Date.now());
+    expect(deleted).toBe(1);
+
+    const after = await repo.findShipById(ship.id);
+    expect(after).toBeNull();
+  });
+
+  it("deleteExpiredWrecks is scoped by systemId (does not touch wrecks of other systems)", async () => {
+    const { repo } = active();
+    const a = await repo.createPlayer({ callsign: "PILOT-DA", homeSystemId: "system-A" });
+    const aShip = await repo.getOrCreateStarterShip(a.id, "scout");
+    await repo.saveShipState(aShip.id, {
+      state: "destroyed",
+      wreckExpiresAt: Date.now() - 1_000,
+    });
+
+    const b = await repo.createPlayer({ callsign: "PILOT-DB", homeSystemId: "system-B" });
+    const bShip = await repo.getOrCreateStarterShip(b.id, "scout");
+    await repo.saveShipState(bShip.id, {
+      state: "destroyed",
+      wreckExpiresAt: Date.now() - 1_000,
+    });
+
+    const deleted = await repo.deleteExpiredWrecks("system-A", Date.now());
+    expect(deleted).toBe(1);
+
+    // system-A row is gone; system-B row survives.
+    expect(await repo.findShipById(aShip.id)).toBeNull();
+    expect(await repo.findShipById(bShip.id)).not.toBeNull();
+  });
+
+  it("saveShipState round-trips every TASK-24 field (quat, regime, onPad, wreckExpiresAt)", async () => {
+    const { repo } = active();
+    const player = await repo.createPlayer({ callsign: "PILOT-RT", homeSystemId: "system-RT" });
+    const ship = await repo.getOrCreateStarterShip(player.id, "scout");
+
+    const updated = await repo.saveShipState(ship.id, {
+      quat: [0.1, 0.2, 0.3, 0.9],
+      regime: "atmosphere",
+      onPad: "pad-1-2",
+      wreckExpiresAt: 12345,
+    });
+
+    expect(updated.quat[0]).toBeCloseTo(0.1);
+    expect(updated.quat[3]).toBeCloseTo(0.9);
+    expect(updated.regime).toBe("atmosphere");
+    expect(updated.onPad).toBe("pad-1-2");
+    expect(updated.wreckExpiresAt).toBe(12345);
+
+    // Reading back from the DB (not the in-memory merge) confirms
+    // the row is genuinely persisted.
+    const reread = await repo.findShipById(ship.id);
+    expect(reread!.regime).toBe("atmosphere");
+    expect(reread!.onPad).toBe("pad-1-2");
+    expect(reread!.wreckExpiresAt).toBe(12345);
+  });
 });

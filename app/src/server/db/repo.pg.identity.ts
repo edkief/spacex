@@ -12,7 +12,14 @@
 import { eq, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { pgSchema } from "./schema.pg.js";
-import { ShipLiverySchema, ShipPositionSchema, ShipVelocitySchema } from "./types.js";
+import {
+  IDENTITY_QUATERNION,
+  ShipLiverySchema,
+  ShipPositionSchema,
+  ShipQuaternionSchema,
+  ShipRegimeSchema,
+  ShipVelocitySchema,
+} from "./types.js";
 import type {
   CargoItemInput,
   CargoItemRow,
@@ -48,6 +55,8 @@ export function bindPgIdentity(db: NodePgDatabase<typeof pgSchema>): {
   saveShipState: (id: string, patch: SaveShipStateInput) => Promise<ShipRow>;
   listShipsByOwner: (ownerId: string) => Promise<ShipRow[]>;
   listShipsBySystem: (systemId: string) => Promise<ShipRow[]>;
+  listLiveShipsBySystem: (systemId: string, nowMs: number) => Promise<ShipRow[]>;
+  deleteExpiredWrecks: (systemId: string, nowMs: number) => Promise<number>;
   saveCargo: (shipId: string, items: CargoItemInput[]) => Promise<CargoItemRow[]>;
   listCargoByShip: (shipId: string) => Promise<CargoItemRow[]>;
 } {
@@ -110,6 +119,13 @@ export function bindPgIdentity(db: NodePgDatabase<typeof pgSchema>): {
           position,
           velocity: ZERO_VELOCITY,
           state: "docked",
+          // TASK-24: starter ships materialise with identity orientation,
+          // no regime (the integrator defaults to "space"), no pad, and
+          // no wreck TTL.
+          quat: [...IDENTITY_QUATERNION],
+          regime: null,
+          onPad: null,
+          wreckExpiresAt: null,
         })
         .returning();
       const first = rows[0];
@@ -140,6 +156,23 @@ export function bindPgIdentity(db: NodePgDatabase<typeof pgSchema>): {
       if (patch.livery !== undefined) {
         update.livery = ShipLiverySchema.parse(patch.livery);
       }
+      // TASK-24 persistence: the orientation quaternion + flight regime
+      // + pad id + wreck TTL. Each is one column UPDATE — Postgres jsonb
+      // and timestamptz accept the same shapes as the SQLite TEXT columns
+      // so the wire / logical shape stays identical between drivers.
+      if (patch.quat !== undefined) {
+        update.quat = ShipQuaternionSchema.parse(patch.quat);
+      }
+      if (patch.regime !== undefined) {
+        update.regime = patch.regime === null ? null : ShipRegimeSchema.parse(patch.regime);
+      }
+      if (patch.onPad !== undefined) {
+        update.onPad = patch.onPad === null ? null : patch.onPad;
+      }
+      if (patch.wreckExpiresAt !== undefined) {
+        update.wreckExpiresAt =
+          patch.wreckExpiresAt === null ? null : new Date(patch.wreckExpiresAt);
+      }
       const rows = await db
         .update(pgSchema.ships)
         .set(update)
@@ -165,6 +198,44 @@ export function bindPgIdentity(db: NodePgDatabase<typeof pgSchema>): {
         .from(pgSchema.ships)
         .where(sql`${pgSchema.ships.position}->>'systemId' = ${systemId}`);
       return rows.map(mapShip);
+    },
+
+    async listLiveShipsBySystem(systemId: string, nowMs: number): Promise<ShipRow[]> {
+      // TASK-24: hydrate a freshly-spawned shard with every ship whose
+      // embedded position.systemId matches. We keep wrecks whose TTL is
+      // in the future so the renderer can draw them until cleanup. The
+      // jsonb operator + timestamptz comparison keeps both columns in
+      // their native types so we don't pay a cast cost per row.
+      const rows = await db
+        .select()
+        .from(pgSchema.ships)
+        .where(
+          sql`${pgSchema.ships.position}->>'systemId' = ${systemId}
+              AND (
+                  ${pgSchema.ships.state} <> 'destroyed'
+                  OR (${pgSchema.ships.state} = 'destroyed'
+                      AND ${pgSchema.ships.wreckExpiresAt} IS NOT NULL
+                      AND ${pgSchema.ships.wreckExpiresAt} > ${new Date(nowMs)})
+              )`,
+        );
+      return rows.map(mapShip);
+    },
+
+    async deleteExpiredWrecks(systemId: string, nowMs: number): Promise<number> {
+      // TASK-24 destruction persistence: clean rows whose wreck TTL has
+      // elapsed so a restart never sees orphan wreck rows. Returning a
+      // count (instead of rows[]) lets the caller log the GC stats
+      // without materialising the doomed entities.
+      const rows = await db
+        .delete(pgSchema.ships)
+        .where(
+          sql`${pgSchema.ships.position}->>'systemId' = ${systemId}
+              AND ${pgSchema.ships.state} = 'destroyed'
+              AND ${pgSchema.ships.wreckExpiresAt} IS NOT NULL
+              AND ${pgSchema.ships.wreckExpiresAt} <= ${new Date(nowMs)}`,
+        )
+        .returning({ id: pgSchema.ships.id });
+      return rows.length;
     },
 
     async saveCargo(shipId: string, items: CargoItemInput[]): Promise<CargoItemRow[]> {

@@ -393,6 +393,14 @@ export function materialiseShip(input: {
   position: ShipPosition;
   velocity?: ShipVelocity;
   state?: ShipState;
+  /** Optional orientation quaternion (TASK-24). Defaults to identity. */
+  quat?: ShipRow["quat"];
+  /** Optional regime tag (TASK-24). Defaults to null. */
+  regime?: ShipRow["regime"];
+  /** Optional pad id (TASK-24). Defaults to null. */
+  onPad?: ShipRow["onPad"];
+  /** Optional wreck TTL ms-epoch (TASK-24). Defaults to null. */
+  wreckExpiresAt?: ShipRow["wreckExpiresAt"];
 }): ShipRow {
   const velocity = input.velocity ?? { x: 0, y: 0, z: 0 };
   return {
@@ -405,6 +413,13 @@ export function materialiseShip(input: {
     position: input.position,
     velocity,
     state: input.state ?? "docked",
+    // TASK-24: pre-TASK-24 callers (e.g. crash-writer) get identity quat
+    // and null fields by default — the test path doesn't need to know
+    // about the new columns to round-trip a row.
+    quat: input.quat ?? [0, 0, 0, 1],
+    regime: input.regime ?? null,
+    onPad: input.onPad ?? null,
+    wreckExpiresAt: input.wreckExpiresAt ?? null,
     // The `updatedAt` is overwritten by `saveShipState` so this value is
     // only used by callers that want a synthetic timestamp for tests.
     updatedAt: new Date(0),

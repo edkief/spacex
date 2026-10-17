@@ -22,6 +22,8 @@ import { type pgSchema } from "./db/schema.pg.js";
 import { createRepository } from "./db/repo.js";
 import { assertValidSecret } from "./auth/token.js";
 import { buildAuthResolver, buildLogoutResolver } from "./auth/resolver.js";
+import { ShardFlushService, DEFAULT_FLUSH_INTERVAL_MS } from "./shard/persist.js";
+import { ShardRegistry } from "./shard/registry.js";
 
 async function main(): Promise<void> {
   // The token codec requires a real SESSION_SECRET. Refuse to boot if
@@ -58,6 +60,19 @@ async function main(): Promise<void> {
   const logoutResolver = buildLogoutResolver(repo);
   const ws = attachWs(app, serverConfig.wsPath, { authResolver, logoutResolver });
 
+  // TASK-24: per-shard ship flush service. The interval cadence is
+  // configurable via `SHARD_FLUSH_INTERVAL_MS` (default 30 s) so the
+  // crash-restart integration test can shorten the cycle. Today the
+  // registry is empty — the future TASK-11 router will populate it as
+  // players join systems; the timer is wired now so the SIGTERM
+  // graceful-shutdown flush path is exercised from boot.
+  const flushIntervalMs = readFlushIntervalMs();
+  const registry = new ShardRegistry(repo);
+  const flusher = new ShardFlushService(repo, { intervalMs: flushIntervalMs });
+  flusher.start(async () => {
+    await registry.flushAll();
+  });
+
   await app.listen({ port: serverConfig.apiPort, host: "0.0.0.0" });
   app.log.info(
     { port: serverConfig.apiPort, wsPath: serverConfig.wsPath, clientPort: serverConfig.port },
@@ -67,6 +82,14 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     app.log.info({ signal }, "shutting down");
     try {
+      // TASK-24 graceful-shutdown flush: write every live ship's state
+      // to the DB before we tear down the WS / HTTP layers. The 30 s
+      // interval is too coarse to guarantee a flush within the SIGTERM
+      // window, so we run one final pass here.
+      app.log.info({ signal }, "flushing shards before shutdown");
+      await registry.flushAll();
+      flusher.dispose();
+      registry.shutdownAll();
       await ws.close();
       await app.close();
       if (client.driver === "sqlite") {
@@ -81,6 +104,23 @@ async function main(): Promise<void> {
 
   process.on("SIGINT", () => void shutdown("SIGINT"));
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
+}
+
+/**
+ * Resolve the flush interval from `SHARD_FLUSH_INTERVAL_MS`. Falls
+ * back to `DEFAULT_FLUSH_INTERVAL_MS` when the env var is missing,
+ * empty, or unparseable. The crash-restart integration test sets a
+ * shorter value (e.g. 200 ms) so a single kill cycle exercises the
+ * flush path.
+ */
+function readFlushIntervalMs(): number {
+  const raw = process.env.SHARD_FLUSH_INTERVAL_MS;
+  if (!raw) return DEFAULT_FLUSH_INTERVAL_MS;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_FLUSH_INTERVAL_MS;
+  }
+  return parsed;
 }
 
 main().catch((err: unknown) => {

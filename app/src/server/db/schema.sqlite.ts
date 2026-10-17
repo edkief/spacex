@@ -37,18 +37,29 @@ const players = sqliteTable(
 );
 
 /**
- * Per-player ship state (PRD §8 / TASK-62 AC1).
+ * Per-player ship state (PRD §8 / TASK-62 AC1, extended by TASK-24).
  *
- *   id         — RFC 4122 UUID.
- *   owner_id   — FK → players.id.
- *   class_id   — scout | freighter | interceptor (CHECK constraint).
- *   livery     — JSON object (3-colour scheme).
- *   hull       — INTEGER percent [0..100].
- *   shields    — INTEGER percent [0..100].
- *   position   — JSON {systemId, x, y, z}.
- *   velocity   — JSON {x, y, z}.
- *   state      — docked | flying | onfoot | destroyed (CHECK constraint).
- *   updated_at — wall-clock at last write.
+ *   id                — RFC 4122 UUID.
+ *   owner_id          — FK → players.id.
+ *   class_id          — scout | freighter | interceptor (CHECK constraint).
+ *   livery            — JSON object (3-colour scheme).
+ *   hull              — INTEGER percent [0..100].
+ *   shields           — INTEGER percent [0..100].
+ *   position          — JSON {systemId, x, y, z}.
+ *   velocity          — JSON {x, y, z}.
+ *   state             — docked | flying | onfoot | destroyed (CHECK constraint).
+ *   quat              — JSON [x, y, z, w] orientation quaternion (TASK-24).
+ *   regime            — space | atmosphere | surface | NULL (TASK-24).
+ *   on_pad            — landing pad id when landed; NULL otherwise (TASK-24).
+ *   wreck_expires_at  — wall-clock ISO ms when a wreck should be GC'd (TASK-24).
+ *   updated_at        — wall-clock at last write.
+ *
+ * The quat / regime / on_pad / wreck_expires_at columns were added in
+ * migration `0002_ship_state.sql` so a pre-TASK-24 row reads as
+ * "in space at origin facing +Z, not on a pad, no wreck TTL". The sim
+ * uses this defaulting to bridge over any rows persisted by older code
+ * so a server restart can still resume every ship at its last saved
+ * orientation.
  */
 const ships = sqliteTable(
   "ships",
@@ -64,6 +75,10 @@ const ships = sqliteTable(
     position: text("position").notNull(),
     velocity: text("velocity").notNull(),
     state: text("state").notNull(),
+    quat: text("quat"),
+    regime: text("regime"),
+    onPad: text("on_pad"),
+    wreckExpiresAt: text("wreck_expires_at"),
     updatedAt: text("updated_at")
       .notNull()
       .default(sql`(CURRENT_TIMESTAMP)`),
@@ -71,6 +86,10 @@ const ships = sqliteTable(
   (t) => [
     check("ships_class_id_check", sql`${t.classId} IN ('scout','freighter','interceptor')`),
     check("ships_state_check", sql`${t.state} IN ('docked','flying','onfoot','destroyed')`),
+    check(
+      "ships_regime_check",
+      sql`${t.regime} IS NULL OR ${t.regime} IN ('space','atmosphere','surface')`,
+    ),
     index("ships_owner_id_idx").on(t.ownerId),
   ],
 );

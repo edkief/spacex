@@ -1,6 +1,6 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-17 after **TASK-14** (Client prediction + server reconciliation).
+Snapshot taken 2026-10-17 after **TASK-24** (Ship state persistence across restarts).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.
@@ -108,6 +108,14 @@ PROJECT_ROOT
 │   │       ├── persist.bench.test.ts    # 16-ship dirty-flush perf benchmark (TASK-63)
 │   │       ├── combat.ts        # applyCombatDamage + cleanupExpiredWrecks + broadcastCombatEvent + WRECK_TTL_S=600 (TASK-23) — server-side hook for weapons (TASK-43) + hazards (TASK-48)
 │   │       ├── combat.test.ts   # 17 cases: shield-first on live entity, destroyed ships skip integration, double-destroy guard, wreck TTL cleanup, combat_event broadcast to all connections
+│   │       ├── shard/         # Per-system authoritative sim (TASK-13 + TASK-14 + TASK-24)
+│   │       │   ├── persist.ts       # flushShips + ShardFlushService (30s interval) + DEFAULT_FLUSH_INTERVAL_MS + entityToShipPatch (TASK-24)
+│   │       │   ├── persist.test.ts   # 13 cases: full-patch round-trip, second-flush overwrite, docked state via onPad, wreck state, ShardFlushService timer idempotency, flushNow()
+│   │       │   ├── persist.crash.test.ts # Real child-process crash + loadShipsForShard round-trip within 1u + destruction persistence
+│   │       │   ├── persist.bench.test.ts # 16-ship × 200-iteration flush latency: p95 ≈ 7ms (spec ≤ 8ms)
+│   │       │   ├── load.ts           # loadShipsForShard (deleteExpiredWrecks + listLiveShipsBySystem + shipRowToEntitySpec) + specToEntityFields + entityIdForSpec (TASK-24)
+│   │       │   ├── load.test.ts      # 11 cases: empty system, scoped to systemId, skip docked + opt-in, expired-wreck GC, future-wreck preservation
+│   │       │   ├── registry.ts       # ShardRegistry: Map<systemId, Shard> + flushAll() for graceful shutdown (TASK-24)
 │   │       ├── ws.ts            # ws upgrade handler attached to Fastify (TASK-9)
 │   │       ├── ws.connection.ts # Connection struct + ConnectionRegistry (TASK-9, extended with bucket/floodTracker/chatLimiter in TASK-65)
 │   │       ├── ws.dispatch.ts   # processRawFrame + dispatch + noteInvalidInput + noteRateViolation + INVALID_DROP_THRESHOLD=50 + MAX_MESSAGE_BYTES=64KB (TASK-9 + TASK-64 + TASK-65)
@@ -145,11 +153,20 @@ PROJECT_ROOT
 │   │           └── log-leak.test.ts # Log-leak guard: Fastify capture-stream logger scan for SESSION_SECRET/raw token/tokenHash across full claim/logout cycle (TASK-66)
 │   │       └── shards/          # Authoritative sim runtime per system (TASK-13; future TASK-11 consumers)
 │   │       │   └── event-bus.ts # ShipSwapEvent + LiveryChangedEvent + ShardsBus singleton (EventEmitter + process.nextTick)
-│   │       └── shard/           # Per-system authoritative sim (TASK-13 + TASK-14)
-│   │       │   ├── types.ts     # Shard + ShardConnection + PlayerInput + SimEntity + ShardSystemContext contracts (TASK-13) — SnapshotBroadcaster now takes lastAppliedSeq map for client reconciliation (TASK-14)
-│   │       │   ├── entity.ts    # Player/AI/Wreck entity factory + entity → EntityState wire serializer (TASK-13)
+│   │       └── shard/           # Per-system authoritative sim (TASK-13 + TASK-14 + TASK-24)
+│   │       │   ├── types.ts     # Shard + ShardConnection + PlayerInput + SimEntity + ShardSystemContext contracts (TASK-13) — SnapshotBroadcaster now takes lastAppliedSeq map for client reconciliation (TASK-14); SimEntity gained wreckExpiresAt? field (TASK-23) + onPad (TASK-24)
+│   │       │   ├── entity.ts    # Player/AI/Wreck entity factory + entity → EntityState wire serializer (TASK-13 + TASK-23)
 │   │       │   ├── input-queue.ts # Per-connection seq-protected slot, latest-wins, stale-seq drop + counters (TASK-13)
 │   │       │   ├── histogram.ts # Ring-buffer histogram (p50/p95/p99) for per-tick duration (TASK-13)
+│   │       │   ├── combat.ts    # applyCombatDamage + cleanupExpiredWrecks + broadcastCombatEvent + WRECK_TTL_S=600 (TASK-23)
+│   │       │   ├── combat.test.ts   # 17 cases: shield-first on live entity, destroyed ships skip integration, double-destroy guard, wreck TTL cleanup, combat_event broadcast to all connections
+│   │       │   ├── persist.ts       # flushShips + ShardFlushService (30s interval) + DEFAULT_FLUSH_INTERVAL_MS + entityToShipPatch (TASK-24)
+│   │       │   ├── persist.test.ts   # 13 cases: full-patch round-trip, second-flush overwrite, docked state via onPad, wreck state, ShardFlushService timer idempotency, flushNow(), ShardRegistry flushAll
+│   │       │   ├── persist.crash.test.ts # Real child-process crash + loadShipsForShard round-trip within 1u + destruction persistence
+│   │       │   ├── persist.bench.test.ts # 16-ship × 200-iteration flush latency: p95 ≈ 7ms (spec ≤ 8ms)
+│   │       │   ├── load.ts           # loadShipsForShard (deleteExpiredWrecks + listLiveShipsBySystem + shipRowToEntitySpec) + specToEntityFields + entityIdForSpec (TASK-24)
+│   │       │   ├── load.test.ts      # 11 cases: empty system, scoped to systemId, skip docked + opt-in, expired-wreck GC, future-wreck preservation
+│   │       │   ├── registry.ts       # ShardRegistry: Map<systemId, Shard> + flushAll() for graceful shutdown (TASK-24)
 │   │       │   ├── sim.ts       # SimLoop class: 20 Hz tick, accumulator + 5-step catch-up ceiling, 10 Hz snapshot every 2nd tick, integrateShip() + heightAt3x3 cache, ship persisted-state plumbing (TASK-13); cumulative lastAppliedSeq map per player for ack (TASK-14)
 │   │       │   ├── index.ts     # createShard() factory + spawnShip/spawnAiShip + pushPlayerInput + simulateNTicks + sendEntityUpdate with lastAppliedSeq (TASK-13 + TASK-14)
 │   │       │   └── sim.test.ts  # 18 cases: accumulator math (1000 ticks no drift), 5-step catch-up ceiling, 10 Hz cadence, latest-input-wins, stale-seq drops, broadcast payload shape, entity kind mapping, 32 KB warning gate, histogram p50/p95/p99, 16-ship 60s benchmark p95 < 30 ms (TASK-13) + lastAppliedSeq ack map populated for owning player + empty for AI-only frames (TASK-14)
@@ -162,23 +179,24 @@ PROJECT_ROOT
 │   │           ├── client.ts   # createDbClient(loadConfig) — driver factory
 │   │           ├── migrate.ts   # tiny SQL-bookkeeping runner over hand-written *.sql files
 │   │           ├── migrations/sqlite/0001_init.sql  # Six tables + indexes + CHECKs + `_drift_migrations`
-│   │           ├── repo.ts      # Repository interface + constants (DEFAULT_LIVERY, STARTER_HULL, …)
-│   │           ├── repo.helpers.ts   # parseDate / parseJsonField / clampInt / mapUniqueViolation
+│   │           ├── migrations/sqlite/0002_ship_state.sql  # TASK-24: quat + regime + on_pad + wreck_expires_at columns
+│   │           ├── repo.ts      # Repository interface + constants (DEFAULT_LIVERY, STARTER_HULL, …) + listLiveShipsBySystem + deleteExpiredWrecks (TASK-24)
+│   │           ├── repo.helpers.ts   # parseDate / parseJsonField / clampInt / mapUniqueViolation / isoFromMs (TASK-24)
 │   │           ├── repo.sqlite.ts    # SQLite factory (composes identity + world sub-bindings)
-│   │           ├── repo.sqlite.identity.ts   # players / ships / cargo methods (SQLite)
+│   │           ├── repo.sqlite.identity.ts   # players / ships / cargo methods (SQLite) — TASK-24: saveShipState writes quat/regime/onPad/wreckExpiresAt + listLiveShipsBySystem + deleteExpiredWrecks + fast-path save (single SELECT + UPDATE)
 │   │           ├── repo.sqlite.world.ts      # credits / nodes / sessions / registry + runInTransaction (SQLite, TASK-41)
 │   │           ├── repo.sqlite.world.credits.ts # sqliteAddSync / sqliteWithdrawSync atomic UPDATEs + SqliteCreditHandle (TASK-41)
-│   │           ├── repo.sqlite.mappers.ts    # text → *Row coercion for SQLite
+│   │           ├── repo.sqlite.mappers.ts    # text → *Row coercion for SQLite + TASK-24 parseShipQuaternion/parseShipRegime defaults
 │   │           ├── repo.pg.ts        # Postgres factory (composes identity + world sub-bindings)
-│   │           ├── repo.pg.identity.ts       # players / ships / cargo methods (Postgres)
+│   │           ├── repo.pg.identity.ts       # players / ships / cargo methods (Postgres) + TASK-24 quat/regime/onPad/wreckExpiresAt patches + listLiveShipsBySystem + deleteExpiredWrecks
 │   │           ├── repo.pg.world.ts          # credits / nodes / sessions / registry (Postgres)
-│   │           ├── repo.pg.mappers.ts        # native-Date + jsonb coercion for Postgres
+│   │           ├── repo.pg.mappers.ts        # native-Date + jsonb coercion for Postgres + TASK-24 parseShipQuaternion/parseShipRegime defaults
 │   │           ├── migrate.test.ts            # migrateSqlite() idempotency + table sanity (TASK-62)
 │   │           ├── repo.purchase.test.ts      # 9 cases: purchaseShip happy/error/atomicity (TASK-20)
 │   │           ├── pg.parity.test.ts          # drizzle-kit generate parity (no live PG required)
 │   │           ├── repo.test.shared.ts        # per-test harness factory (`installRepoHooks()`)
 │   │           ├── repo.players.test.ts       # createPlayer / findPlayer* / CallsignTakenError
-│   │           ├── repo.ships.test.ts         # getOrCreateStarterShip / saveShipState / NotFoundError
+│   │           ├── repo.ships.test.ts         # getOrCreateStarterShip / saveShipState / NotFoundError + TASK-24 listLiveShipsBySystem + deleteExpiredWrecks + full-field round-trip
 │   │           ├── repo.cargo.test.ts         # saveCargo wipe-and-replace + zero-quantity filtering
 │   │           ├── repo.credits.test.ts       # 12 cases: start 500, atomic add, atomic withdraw, insufficient, zero floor, 100-concurrent withdrawals of 10 (50 success, bal 0), transaction commit + rollback (TASK-41)
 │   │           └── repo.world.test.ts         # nodes / sessions / system registry + schema invariants
@@ -196,6 +214,8 @@ PROJECT_ROOT
 │   │   ├── gen-surface-chunk10-fixture.ts # Regenerate chunk10 fixture (TASK-6)
 │   │   ├── gen-surface-chunk01-fixture.ts # Regenerate chunk01 fixture (TASK-6)
 │   │   ├── gen-flight-trajectories.ts   # Regenerate flight golden fixtures (TASK-22)
+│   │   ├── crash-writer.ts              # Child-process SIGKILL crash test for PersistService (TASK-63)
+│   │   ├── shard-crash-runner.ts        # Child-process runner for shard flush + position continuity crash test (TASK-24)
 │   ├── tsconfig.json            # Strict TS, path aliases @shared/@client/@server
 │   ├── vite.config.ts           # Vite root, proxy /api + /ws → server :API_PORT
 │   └── vitest.config.ts         # Vitest mirrors vite aliases

@@ -93,8 +93,45 @@ export interface ShipRow {
   position: ShipPosition;
   velocity: ShipVelocity;
   state: ShipState;
+  /**
+   * Live orientation quaternion. Persisted as a JSON tuple of four
+   * finite numbers. Defaults to `IDENTITY_QUATERNION` for pre-TASK-24
+   * rows so a server restart preserves orientation continuity.
+   */
+  quat: ShipQuaternion;
+  /** Current flight regime (TASK-25). Nullable for pre-TASK-24 rows. */
+  regime: ShipRegime | null;
+  /** Landing-pad id when `state === 'docked' | 'onfoot'`; null otherwise. */
+  onPad: string | null;
+  /** Wall-clock ms epoch when a wreck should be GC'd (TASK-23). */
+  wreckExpiresAt: number | null;
   updatedAt: Date;
 }
+
+/**
+ * Orientation quaternion persisted with the ship. The flight model
+ * (`@shared/physics/vec`) uses the same shape internally; persisting
+ * the four-tuple means a server restart resumes a ship mid-bank
+ * with no visible snap (TASK-24 acceptance: "ship is within 1 u of
+ * its last position").
+ */
+export const ShipQuaternionSchema = z.tuple([
+  z.number().finite(),
+  z.number().finite(),
+  z.number().finite(),
+  z.number().finite(),
+]);
+export type ShipQuaternion = [number, number, number, number];
+
+/** Canonical "facing +Z, level" quaternion used when none has been persisted yet. */
+export const IDENTITY_QUATERNION: ShipQuaternion = [0, 0, 0, 1];
+
+/**
+ * Flight regime tag persisted with the ship (TASK-25). Nullable for
+ * pre-TASK-24 rows so a backfill doesn't crash on the strict enum.
+ */
+export const ShipRegimeSchema = z.enum(["space", "atmosphere", "surface"]);
+export type ShipRegime = z.infer<typeof ShipRegimeSchema>;
 
 /** Logical shape of a row in the `cargo_items` table. */
 export interface CargoItemRow {
@@ -143,6 +180,14 @@ export interface SaveShipStateInput {
   velocity?: ShipVelocity;
   state?: ShipState;
   livery?: ShipLivery;
+  /** Orientation quaternion (TASK-24). */
+  quat?: ShipQuaternion;
+  /** Flight regime (TASK-24). Pass null to clear. */
+  regime?: ShipRegime | null;
+  /** Landing-pad id; pass null to clear (TASK-24). */
+  onPad?: string | null;
+  /** Wreck TTL ms-epoch (TASK-23 + TASK-24). Pass null to clear. */
+  wreckExpiresAt?: number | null;
 }
 
 /** Inputs accepted by `saveCargo` — fully replaces the ship's manifest. */

@@ -10,7 +10,14 @@ import { eq, sql } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { sqliteSchema } from "./schema.sqlite.js";
-import { ShipLiverySchema, ShipPositionSchema, ShipVelocitySchema } from "./types.js";
+import {
+  IDENTITY_QUATERNION,
+  ShipLiverySchema,
+  ShipPositionSchema,
+  ShipQuaternionSchema,
+  ShipRegimeSchema,
+  ShipVelocitySchema,
+} from "./types.js";
 import type {
   CargoItemInput,
   CargoItemRow,
@@ -21,7 +28,7 @@ import type {
   ShipRow,
 } from "./types.js";
 import { NotFoundError } from "./errors.js";
-import { clampInt, isoNow, mapUniqueViolation } from "./repo.helpers.js";
+import { clampInt, isoFromMs, isoNow, mapUniqueViolation } from "./repo.helpers.js";
 import { mapPlayer, mapShip } from "./repo.sqlite.mappers.js";
 import {
   DEFAULT_LIVERY,
@@ -48,6 +55,8 @@ export function bindSqliteIdentity(db: BetterSQLite3Database<typeof sqliteSchema
   saveShipState: (id: string, patch: SaveShipStateInput) => Promise<ShipRow>;
   listShipsByOwner: (ownerId: string) => Promise<ShipRow[]>;
   listShipsBySystem: (systemId: string) => Promise<ShipRow[]>;
+  listLiveShipsBySystem: (systemId: string, nowMs: number) => Promise<ShipRow[]>;
+  deleteExpiredWrecks: (systemId: string, nowMs: number) => Promise<number>;
   saveCargo: (shipId: string, items: CargoItemInput[]) => Promise<CargoItemRow[]>;
   listCargoByShip: (shipId: string) => Promise<CargoItemRow[]>;
 } {
@@ -118,6 +127,14 @@ export function bindSqliteIdentity(db: BetterSQLite3Database<typeof sqliteSchema
           position: JSON.stringify(position),
           velocity: JSON.stringify(ZERO_VELOCITY),
           state: "docked",
+          // TASK-24: starter ships materialise with identity orientation
+          // and no regime / pad / wreck TTL. The quat / regime / on_pad /
+          // wreck_expires_at columns are nullable so pre-TASK-24 rows
+          // backfill to "in space at origin facing +Z" on read.
+          quat: JSON.stringify(IDENTITY_QUATERNION),
+          regime: null,
+          onPad: null,
+          wreckExpiresAt: null,
         })
         .run();
       const row = await this.findShipById(id);
@@ -137,6 +154,13 @@ export function bindSqliteIdentity(db: BetterSQLite3Database<typeof sqliteSchema
     },
 
     async saveShipState(id: string, patch: SaveShipStateInput): Promise<ShipRow> {
+      // Read the existing row once, apply the patch in memory, and
+      // return the merged shape — avoids the previous 2× SELECT +
+      // UPDATE round-trip pattern that cost ~9 ms for the 16-ship
+      // flush benchmark. The pre-update SELECT remains so we still
+      // raise `NotFoundError` for unknown ships; the post-update
+      // SELECT was pure overhead (the patch already contains every
+      // changed field).
       const existing = await this.findShipById(id);
       if (!existing) {
         throw new NotFoundError("Ship", id);
@@ -144,24 +168,64 @@ export function bindSqliteIdentity(db: BetterSQLite3Database<typeof sqliteSchema
       const update: Partial<typeof sqliteSchema.ships.$inferInsert> = {
         updatedAt: isoNow(),
       };
-      if (patch.hull !== undefined) update.hull = clampInt(patch.hull, 0, 100);
-      if (patch.shields !== undefined) update.shields = clampInt(patch.shields, 0, 100);
+      let merged: ShipRow = { ...existing, updatedAt: new Date() };
+      if (patch.hull !== undefined) {
+        const hull = clampInt(patch.hull, 0, 100);
+        update.hull = hull;
+        merged = { ...merged, hull };
+      }
+      if (patch.shields !== undefined) {
+        const shields = clampInt(patch.shields, 0, 100);
+        update.shields = shields;
+        merged = { ...merged, shields };
+      }
       if (patch.position !== undefined) {
-        update.position = JSON.stringify(ShipPositionSchema.parse(patch.position));
+        const position = ShipPositionSchema.parse(patch.position);
+        update.position = JSON.stringify(position);
+        merged = { ...merged, position };
       }
       if (patch.velocity !== undefined) {
-        update.velocity = JSON.stringify(ShipVelocitySchema.parse(patch.velocity));
+        const velocity = ShipVelocitySchema.parse(patch.velocity);
+        update.velocity = JSON.stringify(velocity);
+        merged = { ...merged, velocity };
       }
-      if (patch.state !== undefined) update.state = patch.state;
+      if (patch.state !== undefined) {
+        update.state = patch.state;
+        merged = { ...merged, state: patch.state };
+      }
       if (patch.livery !== undefined) {
-        update.livery = JSON.stringify(ShipLiverySchema.parse(patch.livery));
+        const livery = ShipLiverySchema.parse(patch.livery);
+        update.livery = JSON.stringify(livery);
+        merged = { ...merged, livery };
+      }
+      // TASK-24 persistence: orientation + flight regime + pad id + wreck
+      // TTL. Saving is one row UPDATE per ship — the spec calls out that
+      // a hot-path write must be "one UPDATE per ship, no WAL checkpoint
+      // inside" so the entire batch is small enough to fit in a single
+      // transaction.
+      if (patch.quat !== undefined) {
+        const quat = ShipQuaternionSchema.parse(patch.quat);
+        update.quat = JSON.stringify(quat);
+        merged = { ...merged, quat };
+      }
+      if (patch.regime !== undefined) {
+        const regime = patch.regime === null ? null : ShipRegimeSchema.parse(patch.regime);
+        update.regime = regime;
+        merged = { ...merged, regime };
+      }
+      if (patch.onPad !== undefined) {
+        const onPad = patch.onPad === null ? null : patch.onPad;
+        update.onPad = onPad;
+        merged = { ...merged, onPad };
+      }
+      if (patch.wreckExpiresAt !== undefined) {
+        const wreckExpiresAt =
+          patch.wreckExpiresAt === null ? null : isoFromMs(patch.wreckExpiresAt);
+        update.wreckExpiresAt = wreckExpiresAt;
+        merged = { ...merged, wreckExpiresAt: patch.wreckExpiresAt };
       }
       await db.update(sqliteSchema.ships).set(update).where(eq(sqliteSchema.ships.id, id)).run();
-      const refreshed = await this.findShipById(id);
-      if (!refreshed) {
-        throw new Error(`saveShipState: row vanished after update id=${id}`);
-      }
-      return refreshed;
+      return merged;
     },
 
     async listShipsByOwner(ownerId: string): Promise<ShipRow[]> {
@@ -181,6 +245,49 @@ export function bindSqliteIdentity(db: BetterSQLite3Database<typeof sqliteSchema
         .from(sqliteSchema.ships)
         .where(sql`json_extract(${sqliteSchema.ships.position}, '$.systemId') = ${systemId}`);
       return rows.map(mapShip);
+    },
+
+    async listLiveShipsBySystem(systemId: string, nowMs: number): Promise<ShipRow[]> {
+      // TASK-24: hydrate a freshly-spawned shard with every ship whose
+      // `position.systemId` matches. We keep wrecks whose `wreck_expires_at`
+      // is in the future so the renderer can draw them until cleanup.
+      // `wreck_expires_at` is stored as ISO-8601 TEXT so we compare
+      // against the same format from `isoFromMs(nowMs)`. Pre-TASK-24
+      // rows have `state` only (no `wreck_expires_at`) — they read
+      // correctly because `wreck_expires_at` is null which falls
+      // through the second condition cleanly.
+      const nowIso = isoFromMs(nowMs);
+      const rows = await db
+        .select()
+        .from(sqliteSchema.ships)
+        .where(
+          sql`json_extract(${sqliteSchema.ships.position}, '$.systemId') = ${systemId}
+              AND (
+                  ${sqliteSchema.ships.state} != 'destroyed'
+                  OR (${sqliteSchema.ships.state} = 'destroyed'
+                      AND ${sqliteSchema.ships.wreckExpiresAt} IS NOT NULL
+                      AND ${sqliteSchema.ships.wreckExpiresAt} > ${nowIso})
+              )`,
+        );
+      return rows.map(mapShip);
+    },
+
+    async deleteExpiredWrecks(systemId: string, nowMs: number): Promise<number> {
+      // TASK-24 destruction persistence: clean rows whose wreck TTL has
+      // elapsed so a restart never sees orphan wreck rows. The filter
+      // scopes by systemId so an unload of one system doesn't trash the
+      // wrecks of an inactive sibling.
+      const nowIso = isoFromMs(nowMs);
+      const result = db
+        .delete(sqliteSchema.ships)
+        .where(
+          sql`json_extract(${sqliteSchema.ships.position}, '$.systemId') = ${systemId}
+              AND ${sqliteSchema.ships.state} = 'destroyed'
+              AND ${sqliteSchema.ships.wreckExpiresAt} IS NOT NULL
+              AND ${sqliteSchema.ships.wreckExpiresAt} <= ${nowIso}`,
+        )
+        .run();
+      return result.changes ?? 0;
     },
 
     async saveCargo(shipId: string, items: CargoItemInput[]): Promise<CargoItemRow[]> {

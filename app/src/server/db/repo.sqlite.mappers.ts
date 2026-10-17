@@ -9,13 +9,18 @@
  * logic.
  */
 import {
+  IDENTITY_QUATERNION,
   ShipLiverySchema,
   ShipPositionSchema,
+  ShipQuaternionSchema,
+  ShipRegimeSchema,
   ShipVelocitySchema,
   type PlayerRow,
   type ResourceNodeStateRow,
   type SessionRow,
   type ShipClassId,
+  type ShipQuaternion,
+  type ShipRegime,
   type ShipRow,
   type SystemRegistryRow,
 } from "./types.js";
@@ -30,7 +35,13 @@ export interface SqlitePlayerRaw {
   createdAt: string;
 }
 
-/** Raw shape of a `ships` row straight from better-sqlite3. */
+/** Raw shape of a `ships` row straight from better-sqlite3.
+ *
+ * The TASK-24 additions (quat / regime / on_pad / wreck_expires_at) are
+ * stored as nullable TEXT so a SELECT against a pre-TASK-24 row returns
+ * `null` here and the mapper can fill in safe defaults (identity quat,
+ * null regime, null pad, null expiry).
+ */
 export interface SqliteShipRaw {
   id: string;
   ownerId: string;
@@ -41,6 +52,10 @@ export interface SqliteShipRaw {
   position: string;
   velocity: string;
   state: string;
+  quat?: string | null;
+  regime?: string | null;
+  onPad?: string | null;
+  wreckExpiresAt?: string | null;
   updatedAt: string;
 }
 
@@ -93,8 +108,38 @@ export function mapShip(raw: SqliteShipRaw | Record<string, unknown>): ShipRow {
     position: ShipPositionSchema.parse(parseJsonField(raw.position, "position")),
     velocity: ShipVelocitySchema.parse(parseJsonField(raw.velocity, "velocity")),
     state: raw.state as ShipRow["state"],
+    // TASK-24 additions: parse JSON tuples; default to identity quat and
+    // null regime/pad/expiry when the column is null (pre-TASK-24 rows).
+    quat: parseShipQuaternion(raw.quat),
+    regime: parseShipRegime(raw.regime),
+    onPad: raw.onPad === null || raw.onPad === undefined ? null : String(raw.onPad),
+    wreckExpiresAt:
+      raw.wreckExpiresAt === null || raw.wreckExpiresAt === undefined
+        ? null
+        : parseDate(raw.wreckExpiresAt).getTime(),
     updatedAt: parseDate(raw.updatedAt),
   };
+}
+
+/** Parse a quat column into a `ShipQuaternion` — defaults to identity. */
+function parseShipQuaternion(raw: unknown): ShipQuaternion {
+  if (raw === null || raw === undefined) return [...IDENTITY_QUATERNION];
+  try {
+    const parsed = ShipQuaternionSchema.parse(JSON.parse(String(raw)));
+    return [parsed[0], parsed[1], parsed[2], parsed[3]];
+  } catch {
+    return [...IDENTITY_QUATERNION];
+  }
+}
+
+/** Parse a regime column into a `ShipRegime | null` — defaults to null. */
+function parseShipRegime(raw: unknown): ShipRegime | null {
+  if (raw === null || raw === undefined) return null;
+  try {
+    return ShipRegimeSchema.parse(String(raw));
+  } catch {
+    return null;
+  }
 }
 
 /** Map a raw sessions row to the driver-agnostic shape. */
