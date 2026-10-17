@@ -2,10 +2,53 @@
 
 `Current Status`
 =================
-**Last Updated:** 2026-10-17 17:43
+**Last Updated:** 2026-10-17 17:57
 
-**Tasks Completed:** 19 of 71
-**Current Task:** TASK-13 Complete
+**Tasks Completed:** 20 of 71
+**Current Task:** TASK-14 Complete
+
+### 2026-10-17 — Iteration 22
+- **TASK-14** Client prediction + server reconciliation → **DONE**
+  - New module `app/src/client/net/prediction.ts` (~660 lines + 600-line test file) implements the client-side prediction + reconciliation + remote interpolation that lets local input feel lag-free under ~150 ms simulated RTT.
+  - **`ClientShipPredictor`** — pure class with a `now` parameter so tests can drive it with a virtual clock.
+    - `step({now, thrust, turn, pitch, yaw, dt})` stamps a monotonic `seq`, queues the input for delivery to the server, and integrates the local state by calling the same `integrateShip` the server uses (`@shared/physics/flight`). Zero perceptible lag.
+    - `reconcile({now, serverState, lastAppliedSeq})` compares the server state to the predicted state:
+      - Within `MAX_BLEND_POS_U = 5 u` and `MAX_BLEND_ANGLE_RAD = 0.2 rad` → **blend** (gentle skew toward server, then drain unacked inputs).
+      - Outside tolerance → **rewind**: copy server state, replay the queued unacked inputs to catch up.
+      - Queue age > `MAX_QUEUED_SECONDS = 10 s` → **force-snap** with a `FORCE_SNAP_BLEND_MS = 100` ms blend overlay (no visible teleport).
+    - `forceSnap({now, serverState})` for hard resyncs (TASK-17).
+    - `pendingInputs()` for the WS layer to flush. `stats()` for the debug HUD (TASK-57) — max correction, blend/rewind/force-snap counts.
+  - **`RemoteEntityBuffer`** — per-remote ring buffer (`REMOTE_BUFFER_CAPACITY = 16` entries, ~1.6 s at 10 Hz).
+    - `push(tMs, state)` records one snapshot; the buffer auto-sorts by `tMs` and trims oldest.
+    - `sample(now)` renders at `now - INTERP_DELAY_MS = 200 ms` by `vecLerp` + `quatSlerp` between bracketing snapshots.
+    - Underrun (target precedes oldest snapshot) returns the oldest snapshot with `stale: true` — no teleporting.
+    - Forward render time clamps to newest with `stale: true` if `now - newest > REMOTE_STALE_MS = 1000`.
+  - **`applyEntityUpdateToBuffer`** — pure helper for the WS layer: walks an `entity_update` frame, skips `ownEntityId`, and pushes each remote into its `RemoteEntityBuffer`. Returns a new `Map`.
+  - **`simEntityFromWire`** — wire `EntityState` → `SimEntityLite` (trimmed view used by the predictor and renderer; defaults `quat` to identity since the wire shape omits rotation).
+  - **`localInputToShipInput`** — same mapping the server uses (`turn → yaw`, `pitch → pitch`, `yaw → roll`, `up = 0`). Centralised so test cases agree with the live wire.
+  - **Tuning constants** exported as named exports so the renderer (TASK-26+) and tests can import them verbatim: `INTERP_DELAY_MS`, `MAX_BLEND_POS_U`, `MAX_BLEND_ANGLE_RAD`, `MAX_QUEUED_INPUTS`, `MAX_QUEUED_SECONDS`, `FORCE_SNAP_BLEND_MS`, `REMOTE_STALE_MS`, `REMOTE_BUFFER_CAPACITY`.
+  - **Acceptance criteria checklist:**
+    - `src/client/net/prediction.ts` on each local input → ✅ `step()` stamps `seq`, queues, calls `integrateShip` with the render frame `dt`.
+    - Snapshot arrival: compare + blend/rewind on distance + angle thresholds → ✅ `reconcile()` with `MAX_BLEND_POS_U = 5`, `MAX_BLEND_ANGLE_RAD = 0.2`.
+    - Remote entities: 200 ms interpolation buffer + lerp/slerp + stale > 1 s → ✅ `RemoteEntityBuffer` with `INTERP_DELAY_MS`, `vecLerp`, `quatSlerp`, `REMOTE_STALE_MS`.
+    - 150 ms RTT, constant thrust, max correction < 5 u after 2 s → ✅ dedicated "150 ms RTT + constant thrust" test case with 3 s simulated run (asserts every correction event after the first 2 s is < 5 u).
+    - Jittery 10 Hz ± 20 ms produces no visible jumps → ✅ dedicated "snapshot jitter at 10 Hz ± 20 ms" test (max per-frame delta < 3 u).
+    - `npm run test` green → ✅ 791/791 (28 new from TASK-14 + 2 new from TASK-13 lastAppliedSeq update).
+    - Playwright smoke → ✅ `tests/e2e/prediction.spec.ts` (2 cases): bundle imports cleanly, console clean, local ship integrates forward 5 s, remote buffer lerps jittery snapshots, blend/rewind outcomes match the unit suite.
+  - **Server-side plumbing (TASK-14 step 2):**
+    - `app/src/shared/protocol/schemas.ts` — `EntityUpdateSchema` now requires `lastAppliedSeq: Record<playerId, seq>`. Backward-compatible note: the field was previously absent; pre-TASK-14 builds won't validate against the new schema (acceptable since the field is required and we're pre-release).
+    - `app/src/shared/protocol/schemas.test.ts` — happy + invalid fixtures updated.
+    - `app/src/server/shard/types.ts` — `SnapshotBroadcaster` signature gains a third arg `lastAppliedSeq: Readonly<Record<string, number>>`.
+    - `app/src/server/shard/sim.ts` — `SimLoop` tracks a cumulative `lastAppliedSeq` map per player (high-water mark, never shrinks). Updated on every `runOneStep` when an integration happens. Passed to broadcast every snapshot tick.
+    - `app/src/server/shard/index.ts` — `sendEntityUpdate` includes `lastAppliedSeq` in the outgoing payload.
+    - `app/src/server/shard/sim.test.ts` — 2 new cases: (a) three player inputs flushed → next snapshot carries `lastAppliedSeq["p-1"] === 3`; (b) AI-only frames carry an empty `lastAppliedSeq` map. Test recorder signature updated for the new broadcast arg.
+  - **Shared helper (used by the predictor's `RemoteEntityBuffer`):**
+    - `app/src/shared/physics/vec.ts` — added `quatSlerp(a, b, t)`. Short-arc path (flips `b` when their dot product is negative), `acos` pole fallback to normalized lerp for nearly-parallel quaternions, `t` clamped to `[0, 1]`.
+    - `app/src/shared/physics/vec.test.ts` — 5 new cases: clamp outside `[0, 1]`, exact endpoints, half-rotation accuracy, short-arc selection, near-parallel fallback.
+  - **E2E (`tests/e2e/prediction.spec.ts`, 2 cases):**
+    - `prediction module imports and basic flows work` — boots the app, hits `/api/health`, runs an in-page integration smoke (5 s constant thrust at 60 Hz produces `pos > 50 u`), captures the per-task screenshot, fails loudly on console errors.
+    - `prediction module unit smoke (Node)` — exercises `ClientShipPredictor` end-to-end (5 s integration → far rewind → close blend → remote buffer lerp) directly in the test runner so the smoke doesn't depend on the TS source being bundled.
+  - **Run results:** `npx vitest run` → 791/791 passing (28 new from TASK-14, 2 new from TASK-13 shard update). `npx tsc --noEmit` clean. `npx eslint .` + `prettier --check .` clean. `npx playwright test` → 4/4 passing. Screenshot saved to `.ralph/screenshots/TASK-14-1.png` (scaffold shell — actual three.js rendering is gated on TASK-26+).
 
 ### 2026-10-17 — Iteration 21
 - **TASK-13** Server sim: 20 Hz tick with 10 Hz snapshots → **DONE**

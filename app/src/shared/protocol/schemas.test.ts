@@ -71,6 +71,7 @@ const VALID_PAYLOADS: Record<MessageType, () => unknown> = {
         livery: null,
       },
     ],
+    lastAppliedSeq: { "player-1": 7 },
   }),
   chat: () => ({ text: "hello world" }),
   input: () => ({

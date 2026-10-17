@@ -64,21 +64,31 @@ function makeContext(): ShardSystemContext {
 function makeRecorderShard(opts: { autoStart?: boolean } = {}): {
   shard: Shard;
   sent: Array<{ connId: string; frame: unknown }>;
-  broadcasts: Array<{ tick: number; entities: ProtocolEntityState[]; bytes?: number }>;
+  broadcasts: Array<{
+    tick: number;
+    entities: ProtocolEntityState[];
+    lastAppliedSeq: Readonly<Record<string, number>>;
+    bytes?: number;
+  }>;
   nowMs: () => number;
   advance: (ms: number) => void;
 } {
   let now = 0;
   const sent: Array<{ connId: string; frame: unknown }> = [];
-  const broadcasts: Array<{ tick: number; entities: ProtocolEntityState[]; bytes?: number }> = [];
+  const broadcasts: Array<{
+    tick: number;
+    entities: ProtocolEntityState[];
+    lastAppliedSeq: Readonly<Record<string, number>>;
+    bytes?: number;
+  }> = [];
   const shard = createShard({
     systemId: "test-system",
     context: makeContext(),
     send: (connId, frame) => {
       sent.push({ connId, frame });
     },
-    broadcast: (tick, entities) => {
-      broadcasts.push({ tick, entities });
+    broadcast: (tick, entities, lastAppliedSeq) => {
+      broadcasts.push({ tick, entities, lastAppliedSeq });
       return Buffer.byteLength(JSON.stringify(entities), "utf8");
     },
     onTickObserver: null,
@@ -672,6 +682,112 @@ describe("Benchmark — 16 ships, 60 s virtual run", () => {
 // ---------------------------------------------------------------------------
 // Misc protocol constants — sanity-pin.
 // ---------------------------------------------------------------------------
+
+describe("TASK-14 — lastAppliedSeq in broadcast", () => {
+  it("broadcast carries lastAppliedSeq populated for the owning player", () => {
+    const recorder = makeRecorderShard({ autoStart: false });
+    const connId = "conn-1";
+    addConnection(recorder.shard, {
+      connId,
+      callsign: "ALPHA",
+      playerId: "p-1",
+      entityId: null,
+      lastSeq: 0,
+      pendingInput: null,
+      staleDrops: 0,
+    });
+    spawnShip(recorder.shard, {
+      shipId: "ship-1",
+      playerId: "p-1",
+      callsign: "ALPHA",
+      classId: "scout",
+      hull: 100,
+      shields: 50,
+      pos: { x: 0, y: 0, z: 0 },
+      regime: "space",
+      bindConnId: connId,
+    });
+    // Push three inputs; each should advance the high-water mark.
+    pushPlayerInput(recorder.shard, connId, {
+      seq: 1,
+      thrust: 0.5,
+      turn: 0,
+      pitch: 0,
+      yaw: 0,
+      fire: false,
+      lock: false,
+      action: null,
+    });
+    pushPlayerInput(recorder.shard, connId, {
+      seq: 2,
+      thrust: 0.7,
+      turn: 0,
+      pitch: 0,
+      yaw: 0,
+      fire: false,
+      lock: false,
+      action: null,
+    });
+    pushPlayerInput(recorder.shard, connId, {
+      seq: 3,
+      thrust: 1,
+      turn: 0,
+      pitch: 0,
+      yaw: 0,
+      fire: false,
+      lock: false,
+      action: null,
+    });
+    // Drive enough ticks for at least one snapshot.
+    const fakeNow = vi.fn(() => 0);
+    (recorder.shard.sim as unknown as { hooks: { clock: () => number } }).hooks.clock = fakeNow;
+    let now = 0;
+    fakeNow.mockImplementation(() => now);
+    driveWithFakeClock(
+      recorder.shard,
+      fakeNow,
+      () => now,
+      () => {
+        now += TICK_S * 1000;
+      },
+      4,
+    );
+    expect(recorder.broadcasts.length).toBeGreaterThan(0);
+    // Every broadcast should carry the latest-applied seq for the
+    // owning player.
+    for (const b of recorder.broadcasts) {
+      expect(b.lastAppliedSeq["p-1"]).toBe(3);
+    }
+    recorder.shard.shutdown();
+  });
+
+  it("empty lastAppliedSeq when no player inputs were integrated", () => {
+    const recorder = makeRecorderShard({ autoStart: false });
+    spawnAiShip(recorder.shard, {
+      id: "ai-1",
+      classId: "scout",
+      pos: { x: 0, y: 0, z: 0 },
+    });
+    const fakeNow = vi.fn(() => 0);
+    (recorder.shard.sim as unknown as { hooks: { clock: () => number } }).hooks.clock = fakeNow;
+    let now = 0;
+    fakeNow.mockImplementation(() => now);
+    driveWithFakeClock(
+      recorder.shard,
+      fakeNow,
+      () => now,
+      () => {
+        now += TICK_S * 1000;
+      },
+      4,
+    );
+    expect(recorder.broadcasts.length).toBeGreaterThan(0);
+    for (const b of recorder.broadcasts) {
+      expect(Object.keys(b.lastAppliedSeq).length).toBe(0);
+    }
+    recorder.shard.shutdown();
+  });
+});
 
 describe("Protocol constants", () => {
   it("SNAPSHOT_EVERY_N_TICKS = 2 (10 Hz from 20 Hz)", () => {

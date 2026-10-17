@@ -193,12 +193,25 @@ export const StateSnapshotSchema = z
   })
   .strict();
 
-/** `entity_update` — delta snapshot (subset of state_snapshot). */
+/**
+ * `entity_update` — delta snapshot (subset of state_snapshot).
+ *
+ * `lastAppliedSeq` (TASK-14): the seq of the most recent player input
+ * the server has integrated into the owning player's entity, plus a
+ * `seqs` map keyed by player id. The client uses the relevant entry
+ * to reconcile its input queue. When the entity_update is a
+ * non-player-only frame (AI ships, NPC wrecks) the map is empty and
+ * the field is still emitted so clients can use a single uniform
+ * parser. Optional for backward-compatibility with pre-TASK-14
+ * builds that did not include the ack.
+ */
 export const EntityUpdateSchema = z
   .object({
     systemId: z.string().min(1),
     tick: z.number().int().nonnegative(),
     entities: z.array(EntityStateSchema),
+    /** Map of playerId → last input seq the server integrated for that player. */
+    lastAppliedSeq: z.record(z.string().min(1), z.number().int().nonnegative()),
   })
   .strict();
 

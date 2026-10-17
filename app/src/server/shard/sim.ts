@@ -157,6 +157,16 @@ export class SimLoop {
   private inputsAppliedTotal = 0;
   private staleInputsTotal = 0;
   private lastTickEntityCount = 0;
+  /**
+   * Cumulative `playerId → highest input seq the server has
+   * integrated so far` (TASK-14). Routers include this verbatim
+   * in the outgoing `entity_update` so the owning client can drain
+   * its input queue on reconcile. The map only grows the
+   * high-water mark — it never shrinks, so a tick that doesn't
+   * process any new inputs still reports the previous value to
+   * clients that reconnected mid-stream.
+   */
+  private lastAppliedSeq: Record<string, number> = {};
 
   constructor(
     private readonly shard: Shard,
@@ -260,7 +270,9 @@ export class SimLoop {
     if (stepsRun > 0 && this.tickCount % SNAPSHOT_EVERY_N_TICKS === 0) {
       const entities = this.hooks.buildSnapshot();
       const bytes = this.encodeBroadcast(entities);
-      this.shard.broadcast(this.tickCount, entities);
+      // Pass the per-tick ack map so routers can include it in the
+      // outgoing `entity_update` (TASK-14 reconciliation hook).
+      this.shard.broadcast(this.tickCount, entities, this.lastAppliedSeq);
       didSnapshot = true;
       this.hooks.onSnapshot?.(this.tickCount, bytes);
     }
@@ -299,6 +311,12 @@ export class SimLoop {
       const entity = shard.entities.get(conn.entityId);
       if (entity === undefined || entity.kind !== "player") continue;
       integrateEntity(entity, input, shard.context);
+      // Record the seq the server actually applied so the owning
+      // client can drain its input queue on reconcile (TASK-14).
+      // `lastSeq` is the conn's authoritative high-water mark — the
+      // tick always integrates the *latest* accepted input, so this
+      // is the right ack value.
+      this.lastAppliedSeq[conn.playerId] = conn.lastSeq;
     }
 
     // 2. Tick AI / wreck entities — stub: no integration (TASK-46).

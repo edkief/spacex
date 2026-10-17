@@ -16,6 +16,7 @@ import {
   quatMul,
   quatNormalize,
   quatRotateVector,
+  quatSlerp,
   quatToMat3,
   vec,
   vecAdd,
@@ -224,5 +225,73 @@ describe("quat: Quat ops", () => {
     expect(back.x).toBeCloseTo(v.x, 9);
     expect(back.y).toBeCloseTo(v.y, 9);
     expect(back.z).toBeCloseTo(v.z, 9);
+  });
+});
+
+describe("vec: quatSlerp", () => {
+  it("clamps t outside [0,1] to the endpoints", () => {
+    const a = quatFromAxisAngle(X_AXIS, 0);
+    const b = quatFromAxisAngle(X_AXIS, Math.PI / 2);
+    const before = quatSlerp(a, b, -1);
+    const after = quatSlerp(a, b, 2);
+    expect(before.x).toBeCloseTo(a.x, 9);
+    expect(before.y).toBeCloseTo(a.y, 9);
+    expect(before.z).toBeCloseTo(a.z, 9);
+    expect(before.w).toBeCloseTo(a.w, 9);
+    expect(after.x).toBeCloseTo(b.x, 9);
+    expect(after.y).toBeCloseTo(b.y, 9);
+    expect(after.z).toBeCloseTo(b.z, 9);
+    expect(after.w).toBeCloseTo(b.w, 9);
+  });
+
+  it("matches the endpoints at t=0 and t=1", () => {
+    const a = quatFromEuler(0.1, 0.4, 0.0);
+    const b = quatFromEuler(1.2, -0.5, 0.7);
+    const at0 = quatSlerp(a, b, 0);
+    const at1 = quatSlerp(a, b, 1);
+    expect(at0.x).toBeCloseTo(a.x, 9);
+    expect(at0.y).toBeCloseTo(a.y, 9);
+    expect(at0.z).toBeCloseTo(a.z, 9);
+    expect(at0.w).toBeCloseTo(a.w, 9);
+    expect(at1.x).toBeCloseTo(b.x, 9);
+    expect(at1.y).toBeCloseTo(b.y, 9);
+    expect(at1.z).toBeCloseTo(b.z, 9);
+    expect(at1.w).toBeCloseTo(b.w, 9);
+  });
+
+  it("interpolates linearly in angle for a 90° swing", () => {
+    const a = quatFromAxisAngle(Y_AXIS, 0);
+    const b = quatFromAxisAngle(Y_AXIS, Math.PI / 2);
+    const mid = quatSlerp(a, b, 0.5);
+    const expected = quatFromAxisAngle(Y_AXIS, Math.PI / 4);
+    expect(mid.x).toBeCloseTo(expected.x, 6);
+    expect(mid.y).toBeCloseTo(expected.y, 6);
+    expect(mid.z).toBeCloseTo(expected.z, 6);
+    expect(mid.w).toBeCloseTo(expected.w, 6);
+  });
+
+  it("takes the short-arc path (handles negated b)", () => {
+    const a = quatFromAxisAngle(Y_AXIS, 0);
+    const bRaw = quatFromAxisAngle(Y_AXIS, Math.PI);
+    const bNeg = { x: -bRaw.x, y: -bRaw.y, z: -bRaw.z, w: -bRaw.w };
+    // Both should produce a 90° rotation halfway (the short-arc side).
+    const midA = quatSlerp(a, bRaw, 0.5);
+    const midB = quatSlerp(a, bNeg, 0.5);
+    expect(midA.x).toBeCloseTo(midB.x, 9);
+    expect(midA.y).toBeCloseTo(midB.y, 9);
+    expect(midA.z).toBeCloseTo(midB.z, 9);
+    expect(midA.w).toBeCloseTo(midB.w, 9);
+  });
+
+  it("falls back to normalised lerp for nearly-parallel quaternions", () => {
+    const a = quatFromAxisAngle(Y_AXIS, 0);
+    const b = quatFromAxisAngle(Y_AXIS, 1e-6);
+    const mid = quatSlerp(a, b, 0.5);
+    // Should still be very close to identity — no NaN, no jump.
+    expect(Number.isFinite(mid.x)).toBe(true);
+    expect(Number.isFinite(mid.y)).toBe(true);
+    expect(Number.isFinite(mid.z)).toBe(true);
+    expect(Number.isFinite(mid.w)).toBe(true);
+    expect(Math.abs(mid.w - 1)).toBeLessThan(1e-5);
   });
 });

@@ -108,6 +108,60 @@ export function vecLerp(a: Vec3, b: Vec3, t: number): Vec3 {
   };
 }
 
+/**
+ * Spherical linear interpolation between two unit quaternions. Always
+ * picks the short-arc path (flips the sign of `b` when their dot
+ * product is negative) so consecutive slerps along a near-180° flip
+ * don't double-back through 2π.
+ *
+ * Falls back to `quatNormalize(nlerp(a, b, t))` when the two
+ * quaternions are nearly parallel — this avoids the `acos(±1)` pole
+ * and keeps the function numerically stable for the network-predictor
+ * hot path.
+ *
+ * `t` is clamped to `[0, 1]`; outside that range the result is just
+ * one of the two endpoints. The caller (interpolation buffer) is
+ * responsible for picking a sensible `t`.
+ */
+export function quatSlerp(a: Quat, b: Quat, t: number): Quat {
+  const tc = t < 0 ? 0 : t > 1 ? 1 : t;
+  let bx = b.x;
+  let by = b.y;
+  let bz = b.z;
+  let bw = b.w;
+  let cosTheta = a.x * bx + a.y * by + a.z * bz + a.w * bw;
+  if (cosTheta < 0) {
+    // Short-arc path.
+    cosTheta = -cosTheta;
+    bx = -bx;
+    by = -by;
+    bz = -bz;
+    bw = -bw;
+  }
+  // Near-parallel → fall back to normalised lerp to avoid the
+  // `acos` pole.
+  if (cosTheta > 0.9995) {
+    const rx = a.x + (bx - a.x) * tc;
+    const ry = a.y + (by - a.y) * tc;
+    const rz = a.z + (bz - a.z) * tc;
+    const rw = a.w + (bw - a.w) * tc;
+    return quatNormalize({ x: rx, y: ry, z: rz, w: rw });
+  }
+  const theta = Math.acos(cosTheta);
+  const sinTheta = Math.sin(theta);
+  if (sinTheta < 1e-12) {
+    return quatNormalize({ x: a.x, y: a.y, z: a.z, w: a.w });
+  }
+  const wa = Math.sin((1 - tc) * theta) / sinTheta;
+  const wb = Math.sin(tc * theta) / sinTheta;
+  return {
+    x: a.x * wa + bx * wb,
+    y: a.y * wa + by * wb,
+    z: a.z * wa + bz * wb,
+    w: a.w * wa + bw * wb,
+  };
+}
+
 /** Component-wise equality within `epsilon`. */
 export function vecEquals(a: Vec3, b: Vec3, epsilon = 1e-9): boolean {
   return (

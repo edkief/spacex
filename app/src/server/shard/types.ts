@@ -244,8 +244,18 @@ export interface SimTickStats {
  * the router wires simply walks `shard.connections` and calls
  * `send` on each. For TASK-13 the test harness subscribes its own
  * listener to assert cadence + payload shape.
+ *
+ * `lastAppliedSeq` (TASK-14) is a map of `playerId → highest input
+ * seq the server integrated this tick`. Routers should include it
+ * verbatim in the outgoing `entity_update` so the owning client can
+ * reconcile its input queue. When the shard ran no player inputs
+ * this tick (e.g. an AI-only frame) the map is empty.
  */
-export type SnapshotBroadcaster = (tick: number, entities: ProtocolEntityState[]) => void;
+export type SnapshotBroadcaster = (
+  tick: number,
+  entities: ProtocolEntityState[],
+  lastAppliedSeq: Readonly<Record<string, number>>,
+) => void;
 
 /**
  * Connection send hook — keeps the shard transport-agnostic. The

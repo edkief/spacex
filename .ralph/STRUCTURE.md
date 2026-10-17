@@ -1,6 +1,6 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-17 after **TASK-13** (Server sim: 20 Hz tick with 10 Hz snapshots).
+Snapshot taken 2026-10-17 after **TASK-14** (Client prediction + server reconciliation).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.
@@ -63,18 +63,18 @@ PROJECT_ROOT
 │   │   │   │       └── surface-dev-seed-star0-planet0-chunk01.json  # Chunk (0,1) (TASK-6)
 │   │   │   ├── health.ts        # HealthPayload interface + factory
 │   │   │   ├── health.test.ts   # Trivial vitest (TASK-68 acceptance)
-│   │   │   ├── protocol/        # WS protocol: envelope + handshake + zod schemas (TASK-9)
+│   │   │   ├── protocol/        # WS protocol: envelope + handshake + zod schemas (TASK-9 + TASK-14)
 │   │   │   │   ├── index.ts          # PROTOCOL_VERSION, EnvelopeSchema, encode/decode, parseMessage, ProtocolError
-│   │   │   │   ├── schemas.ts        # One zod schema per message type + PAYLOAD_SCHEMAS registry
-│   │   │   │   └── schemas.test.ts   # Parametrized valid/invalid + envelope round-trip
+│   │   │   │   ├── schemas.ts        # One zod schema per message type + PAYLOAD_SCHEMAS registry; EntityUpdateSchema now requires lastAppliedSeq map (TASK-14)
+│   │   │   │   └── schemas.test.ts   # Parametrized valid/invalid + envelope round-trip + entity_update includes lastAppliedSeq (TASK-14)
 │   │   │   ├── random.ts        # seedFromString + Rng (xoshiro128**) + hash2 (TASK-2)
 │   │   │   ├── random.test.ts   # Golden / distribution / purity suite (node)
 │   │   │   ├── random.parity.test.ts # Same golden values under happy-dom
 │   │   │   ├── ships.ts         # SHIP_CLASSES + shipStats/compareShips/totalWeaponCount/shipPrice (TASK-19)
 │   │   │   ├── ships.test.ts    # 32 cases: shape, stat validity, balance, helpers, throw on unknown
 │   │   │   ├── physics/         # Deterministic ship flight model (TASK-22)
-│   │   │   │   ├── vec.ts          # Vec3 + Quat math (plain objects, zero deps)
-│   │   │   │   ├── vec.test.ts     # 21 cases: ops + rotations + orthonormal mat3
+│   │   │   │   ├── vec.ts          # Vec3 + Quat math (plain objects, zero deps) + quatSlerp (TASK-14)
+│   │   │   │   ├── vec.test.ts     # 26 cases: ops + rotations + orthonormal mat3 + quatSlerp (clamp, short-arc, lerp fallback, half-rotation accuracy)
 │   │   │   │   ├── atmosphere.ts   # PlanetAtmosphere + boundaryFactor + dragCoefficient (shared with TASK-28)
 │   │   │   │   ├── atmosphere.test.ts # 19 cases: ramp continuity + density scaling
 │   │   │   │   ├── flight.ts       # integrateShip(state, input, dt, regime, shipClass, planet?) + helpers
@@ -85,6 +85,9 @@ PROJECT_ROOT
 │   │   ├── client/              # React + three.js frontend (Vite)
 │   │   │   ├── App.tsx          # Top-level shell
 │   │   │   ├── components/      # UI sub-components (CanvasStage.tsx)
+│   │   │   ├── net/             # Client prediction + reconciliation (TASK-14)
+│   │   │   │   ├── prediction.ts          # ClientShipPredictor (local input → integrate → reconcile) + RemoteEntityBuffer (200 ms interp ring) + applyEntityUpdateToBuffer + simEntityFromWire + tuning constants
+│   │   │   │   └── prediction.test.ts     # 28 cases: input stamping, bit-equality with server integrator, blend/rewind/force-snap thresholds, queue cap + age overflow, 150 ms RTT acceptance, jittery 10 Hz remote interp
 │   │   │   ├── ships/           # Paint-zone + mesh-registry logic (TASK-21)
 │   │   │   │   ├── ShipMeshBuilder.ts      # PaintZone enum + ShipPaintRegistry + MaterialAdapter interface + defaultLiveryFor + in-memory test adapter
 │   │   │   │   ├── threeAdapter.ts          # three.js-backed MaterialAdapter factory (mutates Color in place)
@@ -136,14 +139,14 @@ PROJECT_ROOT
 │   │           └── log-leak.test.ts # Log-leak guard: Fastify capture-stream logger scan for SESSION_SECRET/raw token/tokenHash across full claim/logout cycle (TASK-66)
 │   │       └── shards/          # Authoritative sim runtime per system (TASK-13; future TASK-11 consumers)
 │   │       │   └── event-bus.ts # ShipSwapEvent + LiveryChangedEvent + ShardsBus singleton (EventEmitter + process.nextTick)
-│   │       └── shard/           # Per-system authoritative sim (TASK-13)
-│   │       │   ├── types.ts     # Shard + ShardConnection + PlayerInput + SimEntity + ShardSystemContext contracts (TASK-13)
+│   │       └── shard/           # Per-system authoritative sim (TASK-13 + TASK-14)
+│   │       │   ├── types.ts     # Shard + ShardConnection + PlayerInput + SimEntity + ShardSystemContext contracts (TASK-13) — SnapshotBroadcaster now takes lastAppliedSeq map for client reconciliation (TASK-14)
 │   │       │   ├── entity.ts    # Player/AI/Wreck entity factory + entity → EntityState wire serializer (TASK-13)
 │   │       │   ├── input-queue.ts # Per-connection seq-protected slot, latest-wins, stale-seq drop + counters (TASK-13)
 │   │       │   ├── histogram.ts # Ring-buffer histogram (p50/p95/p99) for per-tick duration (TASK-13)
-│   │       │   ├── sim.ts       # SimLoop class: 20 Hz tick, accumulator + 5-step catch-up ceiling, 10 Hz snapshot every 2nd tick, integrateShip() + heightAt3x3 cache, ship persisted-state plumbing (TASK-13)
-│   │       │   ├── index.ts     # createShard() factory + spawnShip/spawnAiShip + pushPlayerInput + simulateNTicks (TASK-13)
-│   │       │   └── sim.test.ts  # 16 cases: accumulator math (1000 ticks no drift), 5-step catch-up ceiling, 10 Hz cadence, latest-input-wins, stale-seq drops, broadcast payload shape, entity kind mapping, 32 KB warning gate, histogram p50/p95/p99, 16-ship 60s benchmark p95 < 30 ms (TASK-13)
+│   │       │   ├── sim.ts       # SimLoop class: 20 Hz tick, accumulator + 5-step catch-up ceiling, 10 Hz snapshot every 2nd tick, integrateShip() + heightAt3x3 cache, ship persisted-state plumbing (TASK-13); cumulative lastAppliedSeq map per player for ack (TASK-14)
+│   │       │   ├── index.ts     # createShard() factory + spawnShip/spawnAiShip + pushPlayerInput + simulateNTicks + sendEntityUpdate with lastAppliedSeq (TASK-13 + TASK-14)
+│   │       │   └── sim.test.ts  # 18 cases: accumulator math (1000 ticks no drift), 5-step catch-up ceiling, 10 Hz cadence, latest-input-wins, stale-seq drops, broadcast payload shape, entity kind mapping, 32 KB warning gate, histogram p50/p95/p99, 16-ship 60s benchmark p95 < 30 ms (TASK-13) + lastAppliedSeq ack map populated for owning player + empty for AI-only frames (TASK-14)
 │   │       └── db/              # Drift persistence layer (TASK-62 / TASK-63 / TASK-41)
 │   │           ├── types.ts     # PlayerRow / ShipRow / etc. + zod shapes for JSON columns
 │   │           ├── errors.ts    # CallsignTakenError / InsufficientCreditsError / NotFoundError

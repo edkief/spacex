@@ -294,12 +294,19 @@ export function broadcastSizeFor(_shard: Shard, entities: ProtocolEntityState[])
  * Helper: send one entity_update frame to one connection via the
  * shard's `send` hook. Lets the test harness subscribe without
  * wiring a full WS server.
+ *
+ * The optional `lastAppliedSeq` map (TASK-14) is the per-player
+ * acknowledgement that drives the client-side input reconciliation.
+ * When omitted (e.g. for a unit test that only cares about the
+ * entity list) the field defaults to an empty object — the wire
+ * schema requires the key to be present.
  */
 export function sendEntityUpdate(
   shard: Shard,
   connId: string,
   tick: number,
   entities: ProtocolEntityState[],
+  lastAppliedSeq: Readonly<Record<string, number>> = {},
 ): void {
   shard.send(connId, {
     type: "entity_update",
@@ -307,6 +314,7 @@ export function sendEntityUpdate(
       systemId: shard.systemId,
       tick,
       entities,
+      lastAppliedSeq: { ...lastAppliedSeq },
     },
   });
 }
