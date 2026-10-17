@@ -14,7 +14,7 @@
   { "id": "TASK-10", "title": "Callsign-only auth with signed session tokens", "category": "security", "specFilePath": ".ralph/tasks/TASK-10.json", "passes": true },
   { "id": "TASK-66", "title": "Session token integrity (signing, expiry, revocation)", "category": "security", "specFilePath": ".ralph/tasks/TASK-66.json", "passes": true },
   { "id": "TASK-19", "title": "Ship catalog: 3 data-driven ship classes", "category": "functional", "specFilePath": ".ralph/tasks/TASK-19.json", "passes": true },
-  { "id": "TASK-41", "title": "Credits balance with persistence and spend rules", "category": "functional", "specFilePath": ".ralph/tasks/TASK-41.json", "passes": false },
+  { "id": "TASK-41", "title": "Credits balance with persistence and spend rules", "category": "functional", "specFilePath": ".ralph/tasks/TASK-41.json", "passes": true },
   { "id": "TASK-22", "title": "Shared flight model: space, atmosphere, VTOL (deterministic)", "category": "functional", "specFilePath": ".ralph/tasks/TASK-22.json", "passes": false },
   { "id": "TASK-20", "title": "Ship acquisition: starter ship + dock purchase", "category": "functional", "specFilePath": ".ralph/tasks/TASK-20.json", "passes": false },
   { "id": "TASK-21", "title": "Persistent ship livery customization", "category": "functional", "specFilePath": ".ralph/tasks/TASK-21.json", "passes": false },

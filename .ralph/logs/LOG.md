@@ -2,10 +2,80 @@
 
 `Current Status`
 =================
-**Last Updated:** 2026-10-17 15:50
+**Last Updated:** 2026-10-17 16:50
 
-**Tasks Completed:** 14 of 71
-**Current Task:** TASK-19 Complete
+**Tasks Completed:** 15 of 71
+**Current Task:** TASK-41 Complete
+
+### 2026-10-17 — Iteration 17
+- **TASK-41** Credits balance with persistence and spend rules → **DONE**
+  - Repository (`app/src/server/db/repo.sqlite.world.ts` + new `repo.sqlite.world.credits.ts`):
+    - `addCredits`/`withdrawCredits` rewritten to use single-statement SQL atomic UPDATEs:
+      `UPDATE players SET credits = credits + ? WHERE id = ?` and
+      `UPDATE players SET credits = credits - ? WHERE id = ? AND credits >= ?` (the canonical
+      compare-and-swap). `rowsAffected === 0` is disambiguated into `NotFoundError` vs
+      `InsufficientCreditsError` via a follow-up `findPlayerById`.
+    - New `SqliteCreditHandle` interface + `sqliteAddSync`/`sqliteWithdrawSync` helpers
+      extracted into `repo.sqlite.world.credits.ts` (112 lines) so the world-binding file
+      doesn't carry the SQL strings. Postgres mirror in `repo.pg.world.ts` uses the same
+      `sql\`${col} + ${val}\`` / `sql\`${col} - ${val}\`` pattern.
+    - `getCredits` renamed to `getBalance` on both drivers + the `Repository` interface
+      (lone call site in `persist.ts` updated).
+  - Transaction primitive (`runInTransaction(fn)`):
+    - Exposed on the SQLite world impl. Uses Drizzle's `db.transaction(callback)`
+      (better-sqlite3 is sync underneath, but the wrapper exposes a `Promise<T>` to keep
+      signatures uniform with the async repo methods). Callback receives a
+      `SqliteCreditHandle` whose `addCredits`/`withdrawCredits` are sync and return
+      `{ id, credits }`. Throws inside the callback automatically roll back.
+    - Coverage: `repo.ts` + `repo.sqlite.world.credits.ts` re-export the type
+      `SqliteRepositoryTransaction`.
+  - REST surface (`app/src/server/routes/players.ts`, 71 lines):
+    - `GET /api/players/me` returns `{callsign, credits, homeSystemId, shipId}`. Uses the
+      `loadSessionProfile()` helper from `auth/resolver.ts`. 401 on missing/malformed/
+      tampered/revoked bearer token. No other-player endpoint exists; `/api/players/whatever-id`
+      returns 404 (catch-all route guard).
+    - Wired into `server.ts` next to the callsign routes via
+      `registerPlayersRoutes(app, { repo, sessionSecret, nowMs })`.
+  - Tests (20 new cases, all pass + 590 prior → 610 total):
+    - `repo.credits.test.ts` (12 cases): start 500, non-negative integer persistence,
+      atomic add round-trip, atomic withdraw + InsufficientCreditsError, non-positive
+      amount rejection, **zero floor no-debt**, **100 concurrent withdrawals of 10 against
+      500 → 50 success, balance 0** (the TASK-41 AC #3 load-bearing case), 100
+      mixed add+withdraw preserves balance arithmetic, transaction commits on resolve,
+      transaction rolls back prior writes when callback throws, transaction rolls back
+      on synthetic throw, `getBalance` NotFoundError for unknown id.
+    - `routes/players.test.ts` (8 cases): happy-path payload, reflected mutations,
+      missing/malformed/tampered/revoked tokens all → 401, `players/<id>` → 404 (no
+      other-player endpoint), two players see only their own balances.
+  - **Pre-existing flaky test fix** (now stable across 10/10 consecutive runs):
+    - `app/src/server/auth/resolver.test.ts` lines ~141 and ~256 + `routes/logout.test.ts`
+      line ~195 all used to do `const tampered = \`${token.slice(0, -1)}A\`;`. This was a
+      no-op ~5% of the time because HMAC-SHA256 base64url-encoded signatures occasionally
+      end in `A`. Replaced with: `lastChar === "A" ? "B" : "A"`. 10 consecutive `npm run test`
+      runs passed 610/610; the ~7/30 flake observed in iteration 16 is gone.
+  - Live smoke: `POST /api/callsigns {callsign:"SMOKE-TASK-41"}` → token issued;
+    `GET /api/players/me` with that bearer → `{callsign:"SMOKE-TASK-41",credits:500,
+    homeSystemId:"cfd49a34bb6baf64",shipId:"..."}`; missing bearer → 401; bogus bearer → 401.
+  - **610 vitest cases pass** across 41 test files (was 590). `npm run typecheck`,
+    `npm run lint`, `npm run lint:fix`, `npm run test` all green. TASK-41 is `functional`
+    (server-side only) → no Playwright smoke needed. No screenshot (no UI).
+  - Files added/modified:
+    - Added: `app/src/server/db/repo.sqlite.world.credits.ts` (112), `app/src/server/routes/players.ts` (71),
+      `app/src/server/routes/players.test.ts` (193).
+    - Modified: `app/src/server/db/repo.credits.test.ts` (rewritten, 265), `app/src/server/db/repo.sqlite.world.ts`,
+      `app/src/server/db/repo.pg.world.ts`, `app/src/server/db/repo.ts`, `app/src/server/persist.ts`,
+      `app/src/server/server.ts`, `app/src/server/auth/resolver.test.ts`, `app/src/server/routes/logout.test.ts`.
+
+### 2026-10-17 — Iteration 16
+- **TASK-41** pickup (resumed) → no new code; the previous iteration shipped the implementation (atomic
+  `UPDATE players SET credits = credits ± ?` with `credits >= ?` CAS guard, `runInTransaction`,
+  `GET /api/players/me`, 20 new tests) but paused because `npm run test` was flaky ~7/30 runs in
+  `app/src/server/auth/resolver.test.ts > returns null for a tampered token`. The flake is independent
+  of TASK-41 — same rate on this branch as on master without TASK-41's changes — but the task spec
+  states "all tests must pass" before flipping `passes:true`, so this iteration fixes the pre-existing
+  token-tamper pattern at three sites (two in `auth/resolver.test.ts`, one in `routes/logout.test.ts`),
+  verifies 10/10 consecutive clean runs, then commits. See the iteration 17 entry for the substantive
+  TASK-41 summary (this run was just the patch + verification).
 
 ### 2026-10-17 — Iteration 15
 - **TASK-19** Ship catalog: 3 data-driven ship classes → **DONE**

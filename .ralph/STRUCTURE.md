@@ -1,6 +1,6 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-17 after **TASK-19** (Ship catalog: 3 data-driven ship classes).
+Snapshot taken 2026-10-17 after **TASK-41** (Credits balance with persistence and spend rules).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.
@@ -107,14 +107,16 @@ PROJECT_ROOT
 │   │       ├── routes/          # REST route registrations
 │   │       │   ├── callsigns.ts # POST /api/callsigns + GET /api/session + POST /api/session/logout (TASK-10 + TASK-66)
 │   │       │   ├── callsigns.test.ts # 11 cases: POST /api/callsigns + GET /api/session (REST integration via fastify.inject) (TASK-10)
-│   │       │   └── logout.test.ts # 12 cases: POST /api/session/logout revoke + double-logout + tampered/garbage tokens (TASK-66)
+│   │       │   ├── logout.test.ts # 12 cases: POST /api/session/logout revoke + double-logout + tampered/garbage tokens (TASK-66)
+│   │       │   ├── players.ts # GET /api/players/me — callsign/credits/home/ship (TASK-41)
+│   │       │   └── players.test.ts # 8 cases: happy-path, reflected mutations, 401 paths, per-player isolation (TASK-41)
 │   │       └── auth/            # Token codec + WS auth resolver (TASK-10)
 │   │           ├── token.ts     # HMAC-SHA256 session-token codec: sign/verify/hashToken + clock-skew tolerance (TASK-10)
 │   │           ├── resolver.ts  # claimCallsign + resumeSession + revokeSession + buildAuthResolver + buildLogoutResolver + pickHomeSystemId (TASK-10 + TASK-66)
 │   │           ├── token.test.ts # 16 cases: round-trip, expiry (fake clock), MAC tamper, payload tamper, length-tolerance (TASK-10) + 162-case exhaustive codec matrix (TASK-66)
 │   │           ├── resolver.test.ts # 19 cases: schema validation, claim happy path, duplicate, resume, profile, WS resolver adapter (TASK-10) + revokeSession + buildLogoutResolver + concurrent-use (TASK-66)
 │   │           └── log-leak.test.ts # Log-leak guard: Fastify capture-stream logger scan for SESSION_SECRET/raw token/tokenHash across full claim/logout cycle (TASK-66)
-│   │       └── db/              # Drift persistence layer (TASK-62 / TASK-63)
+│   │       └── db/              # Drift persistence layer (TASK-62 / TASK-63 / TASK-41)
 │   │           ├── types.ts     # PlayerRow / ShipRow / etc. + zod shapes for JSON columns
 │   │           ├── errors.ts    # CallsignTakenError / InsufficientCreditsError / NotFoundError
 │   │           ├── schema.ts    # selectSchemaFor(driver) re-exports both bundles
@@ -127,7 +129,8 @@ PROJECT_ROOT
 │   │           ├── repo.helpers.ts   # parseDate / parseJsonField / clampInt / mapUniqueViolation
 │   │           ├── repo.sqlite.ts    # SQLite factory (composes identity + world sub-bindings)
 │   │           ├── repo.sqlite.identity.ts   # players / ships / cargo methods (SQLite)
-│   │           ├── repo.sqlite.world.ts      # credits / nodes / sessions / registry (SQLite)
+│   │           ├── repo.sqlite.world.ts      # credits / nodes / sessions / registry + runInTransaction (SQLite, TASK-41)
+│   │           ├── repo.sqlite.world.credits.ts # sqliteAddSync / sqliteWithdrawSync atomic UPDATEs + SqliteCreditHandle (TASK-41)
 │   │           ├── repo.sqlite.mappers.ts    # text → *Row coercion for SQLite
 │   │           ├── repo.pg.ts        # Postgres factory (composes identity + world sub-bindings)
 │   │           ├── repo.pg.identity.ts       # players / ships / cargo methods (Postgres)
@@ -139,7 +142,7 @@ PROJECT_ROOT
 │   │           ├── repo.players.test.ts       # createPlayer / findPlayer* / CallsignTakenError
 │   │           ├── repo.ships.test.ts         # getOrCreateStarterShip / saveShipState / NotFoundError
 │   │           ├── repo.cargo.test.ts         # saveCargo wipe-and-replace + zero-quantity filtering
-│   │           ├── repo.credits.test.ts       # add/withdrawCredits + InsufficientCreditsError
+│   │           ├── repo.credits.test.ts       # 12 cases: start 500, atomic add, atomic withdraw, insufficient, zero floor, 100-concurrent withdrawals of 10 (50 success, bal 0), transaction commit + rollback (TASK-41)
 │   │           └── repo.world.test.ts         # nodes / sessions / system registry + schema invariants
 │   ├── drizzle.config.ts         # drizzle-kit config for operator-driven PG migrations
 │   ├── tests/

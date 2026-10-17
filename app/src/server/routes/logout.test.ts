@@ -192,7 +192,12 @@ describe("POST /api/session/logout (TASK-66)", () => {
 
   it("rejects a tampered MAC with 401", async () => {
     const { token } = await claim(harness.app, `Lo-Tmp-${Math.random().toString(36).slice(2, 6)}`);
-    const tampered = `${token.slice(0, -1)}A`;
+    // Deterministic flip of the signature's final base64url char. The
+    // naive `${slice(0,-1)}A` pattern was a no-op when the signature
+    // already ended in `A`, making this test flaky ~5% of the time.
+    const lastChar = token[token.length - 1];
+    const replacement = lastChar === "A" ? "B" : "A";
+    const tampered = `${token.slice(0, -1)}${replacement}`;
     const res = await harness.app.inject({
       method: "POST",
       url: "/api/session/logout",

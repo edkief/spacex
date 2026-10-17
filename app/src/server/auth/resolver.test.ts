@@ -138,7 +138,14 @@ describe("resumeSession", () => {
   it("returns null for a tampered token", async () => {
     const { repo } = active();
     const claimed = await claimCallsign(repo, SECRET, "Pilot-Y", DEFAULTS);
-    const tampered = `${claimed.token.slice(0, -1)}A`;
+    // Flip the signature's final base64url character to one that is
+    // *guaranteed* to differ (i.e. `B` when the original ends in `A`,
+    // otherwise `A`). The naive `${token.slice(0, -1)}A` pattern was a
+    // no-op ~5% of the time because HMAC-SHA256 outputs commonly end
+    // in `A` after base64url encoding, which made this test flaky.
+    const lastChar = claimed.token[claimed.token.length - 1];
+    const replacement = lastChar === "A" ? "B" : "A";
+    const tampered = `${claimed.token.slice(0, -1)}${replacement}`;
     const r = await resumeSession(repo, SECRET, tampered, { nowMs: FAKE_NOW_MS });
     expect(r).toBeNull();
   });
@@ -250,7 +257,11 @@ describe("revokeSession (TASK-66)", () => {
   it("returns {revoked:false} for a token whose MAC is tampered (does NOT delete anything)", async () => {
     const { repo } = active();
     const claimed = await claimCallsign(repo, SECRET, "Revoke-C", DEFAULTS);
-    const tampered = `${claimed.token.slice(0, -1)}A`;
+    // Deterministic flip — see the equivalent note in
+    // `returns null for a tampered token`. Always changes the MAC.
+    const lastChar = claimed.token[claimed.token.length - 1];
+    const replacement = lastChar === "A" ? "B" : "A";
+    const tampered = `${claimed.token.slice(0, -1)}${replacement}`;
     const r = await revokeSession(repo, SECRET, tampered, { nowMs: FAKE_NOW_MS });
     expect(r.revoked).toBe(false);
     // Original session row must still exist.
