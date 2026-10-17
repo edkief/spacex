@@ -2,9 +2,6 @@
   "permissions": {
     "deny": [
       "Read(.ralph/history/**)"
-    ],
-    "allow": [
-      "**"
     ]
   },
   "defaultMode": "acceptEdits",
