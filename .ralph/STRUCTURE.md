@@ -1,6 +1,6 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-17 after **TASK-6** (galaxy determinism verification).
+Snapshot taken 2026-10-17 after **TASK-62** (Drizzle data layer: dual-driver schema).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.
@@ -78,6 +78,34 @@ PROJECT_ROOT
 │   │       ├── server.ts        # buildApp() factory (testable via inject)
 │   │       ├── server.test.ts   # Fastify inject() smoke for /api/health
 │   │       └── ws.ts            # ws upgrade handler attached to Fastify
+│   │       └── db/              # Drift persistence layer (TASK-62)
+│   │           ├── types.ts     # PlayerRow / ShipRow / etc. + zod shapes for JSON columns
+│   │           ├── errors.ts    # CallsignTakenError / InsufficientCreditsError / NotFoundError
+│   │           ├── schema.ts    # selectSchemaFor(driver) re-exports both bundles
+│   │           ├── schema.sqlite.ts   # better-sqlite3 schema (sqliteTable)
+│   │           ├── schema.pg.ts       # postgres schema (pgTable, pgEnum, jsonb)
+│   │           ├── client.ts   # createDbClient(loadConfig) — driver factory
+│   │           ├── migrate.ts   # tiny SQL-bookkeeping runner over hand-written *.sql files
+│   │           ├── migrations/sqlite/0001_init.sql  # Six tables + indexes + CHECKs + `_drift_migrations`
+│   │           ├── repo.ts      # Repository interface + constants (DEFAULT_LIVERY, STARTER_HULL, …)
+│   │           ├── repo.helpers.ts   # parseDate / parseJsonField / clampInt / mapUniqueViolation
+│   │           ├── repo.sqlite.ts    # SQLite factory (composes identity + world sub-bindings)
+│   │           ├── repo.sqlite.identity.ts   # players / ships / cargo methods (SQLite)
+│   │           ├── repo.sqlite.world.ts      # credits / nodes / sessions / registry (SQLite)
+│   │           ├── repo.sqlite.mappers.ts    # text → *Row coercion for SQLite
+│   │           ├── repo.pg.ts        # Postgres factory (composes identity + world sub-bindings)
+│   │           ├── repo.pg.identity.ts       # players / ships / cargo methods (Postgres)
+│   │           ├── repo.pg.world.ts          # credits / nodes / sessions / registry (Postgres)
+│   │           ├── repo.pg.mappers.ts        # native-Date + jsonb coercion for Postgres
+│   │           ├── migrate.test.ts            # migrateSqlite() idempotency + table sanity (TASK-62)
+│   │           ├── pg.parity.test.ts          # drizzle-kit generate parity (no live PG required)
+│   │           ├── repo.test.shared.ts        # per-test harness factory (`installRepoHooks()`)
+│   │           ├── repo.players.test.ts       # createPlayer / findPlayer* / CallsignTakenError
+│   │           ├── repo.ships.test.ts         # getOrCreateStarterShip / saveShipState / NotFoundError
+│   │           ├── repo.cargo.test.ts         # saveCargo wipe-and-replace + zero-quantity filtering
+│   │           ├── repo.credits.test.ts       # add/withdrawCredits + InsufficientCreditsError
+│   │           └── repo.world.test.ts         # nodes / sessions / system registry + schema invariants
+│   ├── drizzle.config.ts         # drizzle-kit config for operator-driven PG migrations
 │   ├── tests/
 │   │   └── e2e/
 │   │       └── scaffold.spec.ts # Playwright smoke (canvas + /api/health)

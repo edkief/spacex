@@ -2,13 +2,48 @@
 
 `Current Status`
 =================
-**Last Updated:** 2026-10-17 13:18
-**Tasks Completed:** 7 of 71
-**Current Task:** TASK-6 Complete
+**Last Updated:** 2026-10-17 13:45
+**Tasks Completed:** 8 of 71
+**Current Task:** TASK-62 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-10-17 — Iteration 8
+- **TASK-62** Drizzle data layer: dual-driver schema (SQLite/Postgres) → **DONE**
+  - New `app/src/server/db/` module suite (24 files, ~2.97 kLOC) with strict driver split:
+    - `types.ts` (168) — `PlayerRow` / `ShipRow` / `CargoItemRow` / `SessionRow` / `ResourceNodeStateRow` / `SystemRegistryRow` driver-agnostic shapes; zod schemas for `ShipLivery` / `ShipPosition` / `ShipVelocity`.
+    - `errors.ts` (60) — `CallsignTakenError`, `InsufficientCreditsError`, `NotFoundError` (all `RepositoryError` base).
+    - `schema.sqlite.ts` (171) — `players`, `ships` (CHECK on `class_id` + `state`), `cargo_items` (unique `(ship_id, resource_type)`), `sessions`, `resource_node_state` (with `system_id` for `listNodeStates` scoping), `system_registry`. Booleans via `integer({ mode: "boolean" })`, timestamps as ISO TEXT.
+    - `schema.pg.ts` (182) — Postgres twin using `uuid().defaultRandom()`, `pgEnum`, `jsonb`, `timestamp({ withTimezone: true })`, `boolean()`, plus check constraints on hull/shields range.
+    - `client.ts` (175) — `createDbClient(loadConfig)` factory; `createSqliteTestDb()` for vitest; Postgres factory via `pg.Pool` from `DATABASE_URL` (deferred to operator deploy).
+    - `migrate.ts` (93) + `migrations/sqlite/0001_init.sql` (77) — hand-written SQL migrations with local `_drift_migrations` bookkeeping table; applied sequentially on boot.
+    - `drizzle.config.ts` (20) — operator config for `drizzle-kit generate --dialect postgresql` against `./src/server/db/schema.pg.ts`.
+    - `repo.ts` (154) — `Repository` interface (16 methods) + canonical constants (DEFAULT_LIVERY, STARTER_HULL/SHIELDS, ZERO_VELOCITY) + `createRepository()` factory.
+    - `repo.helpers.ts` (111) — shared `parseDate`, `parseJsonField`, `clampInt`, `assertPositiveInt`, `mapUniqueViolation` (handles both SQLite UNIQUE message + PG SQLSTATE 23505).
+    - `repo.sqlite.ts` (36) — composes identity + world sub-bindings via `Object.assign` (no class ceremony).
+    - `repo.sqlite.identity.ts` (204) — players/ships/cargo methods (uses generated UUIDs from `crypto.randomUUID()`).
+    - `repo.sqlite.world.ts` (216) — credits/nodes/sessions/registry methods (callback pattern: takes `identity` for `findPlayerById`).
+    - `repo.sqlite.mappers.ts` (134) — text-JSON/timestamp → typed *Row coercion.
+    - `repo.pg.ts` (33) + `repo.pg.identity.ts` (186) + `repo.pg.world.ts` (189) + `repo.pg.mappers.ts` (80) — Postgres mirror.
+  - Test files (5 new + 1 shared harness → 36 new cases; 22 in `repo.*.test.ts` + 5 in `migrate.test.ts` + 3 in `pg.parity.test.ts` + 4 in `errors`/`helpers` indirect coverage):
+    - `repo.test.shared.ts` (66) — `installRepoHooks()` + `active()` for fresh in-memory `:memory:` DB per test (state shared via `Symbol.for`).
+    - `repo.players.test.ts` (51, 2 cases) — `createPlayer` happy path + `CallsignTakenError` on duplicate.
+    - `repo.ships.test.ts` (130, 8 cases) — starter-ship canonical shape, idempotent getOrCreate, NotFoundError, saveShipState `updatedAt` refresh, hull/shields clamping, zod rejection on bad livery, listShipsByOwner.
+    - `repo.cargo.test.ts` (64, 3 cases) — wipe-and-replace, zero-quantity filter, NotFoundError.
+    - `repo.credits.test.ts` (53, 3 cases) — addCredits round-trip, withdrawCredits + InsufficientCreditsError, non-positive amount rejection.
+    - `repo.world.test.ts` (147, 6 cases) — upsertNodeState round-trip, listNodeStates by system, createSession/get/delete, custom TTL + systemId, system registry shard-active filter, SQLite TEXT → Date mapping.
+    - `migrate.test.ts` (97, 5 cases) — fresh-DB apply, idempotency across restarts, schema inventory, UNIQUE-constraint sanity, CHECK-constraint sanity.
+    - `pg.parity.test.ts` (133, 3 cases) — schema key parity with SQLite, `drizzle-kit generate --dialect postgresql` against `schema.pg.ts` runs cleanly with 6 tables detected + DDL written + `players_callsign_unique` index emitted, schema-compile check.
+  - **Postgres parity mechanism** (no live PG needed): install `drizzle-kit@^0.31` as dev dep; the parity test writes its own ephemeral `drizzle.config.cjs` in a `mkdtempSync` dir, runs `node_modules/.bin/drizzle-kit generate --dialect postgresql`, asserts exit 0 + DDL contains all six tables + the `players_callsign_unique` index. Schema tables exported as top-level bindings (not just inside the `pgSchema` object) so drizzle-kit's AST scan picks them up — this was the bug I caught on the first manual smoke.
+  - **system_id extension on `resource_node_state`**: PRD §8 lists only 3 columns but TASK-62 step 4 demands `listNodeStates(systemId)`; rather than filter by an opaque prefix of `node_id`, I added a nullable `system_id TEXT` column (indexed on both schemas and present in the migration). Denormalised but kept simple; reverse-engineering the system from the seed chain would require recomputing the galaxy hash.
+  - **Repository split rationale**: the implementation files naturally bounded at ~390–480 lines; AGENTS.md caps at 300. I split each into a `*.identity.ts` (players/ships/cargo) + `*.world.ts` (credits/nodes/sessions/registry) + `*.mappers.ts` (row coercion) + the small composable `*.ts` factory. Two-phase binding (`Object.assign(identity, world)`) avoids a cyclic class dependency. All files now ≤ 220 lines.
+  - **Driver-error mapping**: `mapUniqueViolation()` in `repo.helpers.ts` checks both SQLite `UNIQUE constraint failed: players.callsign_unique` and Postgres `code === "23505"` + `callsign`-mentioning message — both surface as a typed `CallsignTakenError`. Driver-level transient errors are intentionally rethrown unchanged.
+  - 181/181 vitest cases pass (151 → +30 new in `db/`). `npm run typecheck`, `npm run lint` (eslint + prettier --check), `npm run lint:fix`, `npm test` all clean. TASK-62 is `data-model` (no UI surface) → no Playwright smoke needed, no screenshot. Operator-side `drizzle-kit` invocation is documented but not exercised (sandbox has no live PG per TASK-1 approved gap).
+
+### 2026-10-17 — Iteration 7
+- **TASK-6** Galaxy determinism verification (snapshot fixtures) → **DONE**
 
 ### 2026-10-17 — Iteration 7
 - **TASK-6** Galaxy determinism verification (snapshot fixtures) → **DONE**
