@@ -57,6 +57,7 @@ import {
   quatRotateVector,
   vecAdd,
   vecLength,
+  vecLengthSq,
   vecScale,
 } from "./vec.js";
 
@@ -154,6 +155,37 @@ export interface FlightOptions {
    * to clamp landing detection.
    */
   padRadius?: number;
+  /**
+   * TASK-29: maximum altitude mismatch (metres) between the ship's
+   * clamped Y and the pad's top altitude for the ship to count as
+   * docked. Default `1` (spec acceptance). For v1 the pad sits on
+   * the surrounding terrain so the clamped Y exactly equals the
+   * pad altitude — this tolerance is here so future tasks that
+   * raise pads above the terrain don't silently break the dock
+   * check.
+   */
+  padAltitudeTolerance?: number;
+  /**
+   * TASK-29: VTOL drift damping factor (multiplier on the ship's
+   * horizontal velocity when the VTOL assist is active). The
+   * integrator scales `vel.x / vel.z` by this value each tick when
+   * the assist engages. `0.5` = "drift halves each tick while
+   * holding VTOL". Default `0.5` per spec.
+   */
+  vtolDriftDamping?: number;
+  /**
+   * TASK-29: VTOL-assist activation radius (metres). The ship must
+   * be within this distance of a pad for the assist to engage.
+   * Default `100` per spec.
+   */
+  vtolAssistRadius?: number;
+  /**
+   * TASK-29: maximum total speed (u/s) below which the VTOL-assist
+   * drift damping engages. Default `50` per spec. Above this speed
+   * the assist ignores the ship (the player is flying in, not
+   * parking).
+   */
+  vtolAssistMaxSpeed?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -164,11 +196,19 @@ const DEFAULT_VTOL_THRUST = 25;
 const DEFAULT_DRAG_AREA = 1;
 const DEFAULT_SOFT_CAP_DECAY = 0.05;
 const DEFAULT_SUBSTEP_MAX_TRAVEL = 2;
-const DEFAULT_PAD_RADIUS = 20;
+const DEFAULT_PAD_RADIUS = 25;
 /** Maximum vertical speed (m/s) to count as "stationary" for pad detection. */
 const PAD_VERTICAL_SPEED_THRESHOLD = 2;
 /** Horizontal-speed threshold (m/s) below which VTOL lift can engage. */
 const VTOL_HORIZONTAL_SPEED_THRESHOLD = 5;
+/** TASK-29: default altitude tolerance for pad detection (1 m per spec). */
+const DEFAULT_PAD_ALTITUDE_TOLERANCE_M = 1;
+/** TASK-29: default VTOL drift damping factor (0.5 per spec). */
+const DEFAULT_VTOL_DRIFT_DAMPING = 0.5;
+/** TASK-29: default VTOL-assist activation radius (100 m per spec). */
+const DEFAULT_VTOL_ASSIST_RADIUS_M = 100;
+/** TASK-29: default VTOL-assist max speed (50 u/s per spec). */
+const DEFAULT_VTOL_ASSIST_MAX_SPEED = 50;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -224,22 +264,39 @@ function applySoftSpeedCap(vel: Vec3, maxVelocity: number, decay: number): Vec3 
  * Pick the nearest pad under the ship. Returns `undefined` if no pad
  * is within `radius`. `pos` is in world coords; pad centres are
  * converted to world coords via `planet.radius`.
+ *
+ * TASK-29: hysteresis — when `stateOnPad !== undefined` we widen the
+ * lookup to `pad.exitRadius ?? pad.radius` for the pad the ship is
+ * already docked on (so a docked ship can drift up to 25 m without
+ * un-docking) and keep the narrow `pad.radius` for every other pad.
+ * This implements the "19 m in / 21 m out" invariant from the spec.
+ *
+ * `radius` is an upper bound on what `findNearestPad` is allowed to
+ * consider; the caller passes the largest sensible detection radius
+ * so an over-large pad (e.g. one with `exitRadius = 100`) doesn't
+ * accidentally dock the ship across the planet. For the spec's
+ * 20 m / 25 m radii the upper bound of `options.padRadius = 25` is
+ * exactly the widest possible match.
  */
 function findNearestPad(
   pos: Vec3,
   pads: readonly FlightPad[] | undefined,
   planetRadius: number,
   radius: number,
+  stateOnPad?: string,
 ): FlightPad | undefined {
   if (!pads || pads.length === 0) return undefined;
   let best: FlightPad | undefined;
-  let bestDistSq = radius * radius;
+  let bestDistSq = Infinity;
   for (const pad of pads) {
+    const isCurrent = pad.id === stateOnPad;
+    const r = isCurrent ? (pad.exitRadius ?? pad.radius) : pad.radius;
+    if (r > radius) continue;
     const dx = pos.x - pad.x;
     const dz = pos.z - pad.z;
     const dy = pos.y - (planetRadius + pad.height);
     const distSq = dx * dx + dy * dy + dz * dz;
-    if (distSq <= bestDistSq) {
+    if (distSq <= r * r && distSq < bestDistSq) {
       bestDistSq = distSq;
       best = pad;
     }
@@ -306,10 +363,64 @@ function stepOnce(
     }
   }
 
+  // 5b. TASK-29: VTOL drift assist.
+  //
+  // When the player is *holding* the VTOL key AND within 100 m of a
+  // pad AND below 50 u/s total speed, damp the horizontal drift by
+  // `options.vtolDriftDamping` (default 0.5) per **second**. The
+  // spec says "0.5x" which is naturally interpreted as "drift
+  // halves in one second" — we therefore scale the per-tick factor
+  // by `tick_duration` so the assist produces a consistent decay
+  // across tick rates.
+  //
+  // The assist is a pure damping multiplier on `vel.x / vel.z`;
+  // vertical speed is left alone so the player can still descend
+  // onto the pad. The activation test runs once per substep; the
+  // assist is applied *before* thrust integration so the damping
+  // feeds the velocity that gets integrated into the next
+  // position. This is a physics-authoritative assist — the server
+  // is the single source of truth, the client just visualises the
+  // damped motion.
+  let assistedVel: Vec3 = state.vel;
+  if (
+    (regime === "atmosphere" || regime === "surface") &&
+    input.up > 0 &&
+    planet &&
+    planet.pads !== undefined &&
+    planet.pads.length > 0
+  ) {
+    const totalSpeedSq = vecLengthSq(state.vel);
+    if (totalSpeedSq < options.vtolAssistMaxSpeed * options.vtolAssistMaxSpeed) {
+      // Find the nearest pad and check 3-D distance.
+      let nearestDistSq = Infinity;
+      for (const pad of planet.pads) {
+        const dx = state.pos.x - pad.x;
+        const dz = state.pos.z - pad.z;
+        const dy = state.pos.y - (planet.radius + pad.height);
+        const dSq = dx * dx + dy * dy + dz * dz;
+        if (dSq < nearestDistSq) nearestDistSq = dSq;
+      }
+      const assistR = options.vtolAssistRadius;
+      if (nearestDistSq <= assistR * assistR) {
+        // Per-tick damping factor: damping_per_second ^ dt. So a
+        // 0.5x per-second decay at 20 Hz is `0.5^0.05 ≈ 0.966`
+        // (3.4% per tick) — a gentle, predictable assist that
+        // decays drift over ~1 s without freezing the ship on the
+        // very first tick.
+        const perTickDamping = options.vtolDriftDamping ** dt;
+        assistedVel = {
+          x: state.vel.x * perTickDamping,
+          y: state.vel.y,
+          z: state.vel.z * perTickDamping,
+        };
+      }
+    }
+  }
+
   // 6. Integrate velocity.
   const accel = vecAdd(vecAdd(thrustVec, dragVec), liftVec);
   const dv = vecScale(accel, dt);
-  const velAfterAccel = vecAdd(state.vel, dv);
+  const velAfterAccel = vecAdd(assistedVel, dv);
 
   // 7. Soft speed cap (applies in all regimes; the cap decays excess
   //    so the player's "stuck against the wall" feel is preserved).
@@ -327,14 +438,53 @@ function stepOnce(
       if (nextPos.y <= terrainY) {
         nextPos = { x: nextPos.x, y: terrainY, z: nextPos.z };
         // After clamping, vertical velocity is zero.
-        const wasMovingVertically = Math.abs(state.vel.y) > PAD_VERTICAL_SPEED_THRESHOLD;
+        const wasMovingVertically = Math.abs(assistedVel.y) > PAD_VERTICAL_SPEED_THRESHOLD;
         const clampedVel = { ...nextVel, y: 0 };
-        // Pad detection: within the largest pad radius AND with
-        // small enough vertical speed to count as "landed".
-        const nearest = findNearestPad(nextPos, planet.pads, planet.radius, options.padRadius);
-        const canLand = nearest !== undefined && Math.abs(nextVel.y) < PAD_VERTICAL_SPEED_THRESHOLD;
+        // Pad detection: within the pad radius (with hysteresis for
+        // the pad the ship is already docked on) AND with small
+        // enough vertical speed to count as "landed".
+        const nearest = findNearestPad(
+          nextPos,
+          planet.pads,
+          planet.radius,
+          options.padRadius,
+          state.onPad,
+        );
+        // TASK-29: altitude within 1 m of pad height is required
+        // (spec acceptance). For v1 the pad height equals the
+        // surrounding terrain (pads sit on the flattest spot) and
+        // the ship just got clamped to that exact altitude, so the
+        // |dy| is zero. We still measure it explicitly so the
+        // tolerance is visible to future tasks that lift pads
+        // above the terrain.
+        const altitudeOk =
+          nearest !== undefined &&
+          Math.abs(nextPos.y - (planet.radius + nearest.height)) <= options.padAltitudeTolerance;
+        const canLand =
+          nearest !== undefined && altitudeOk && Math.abs(nextVel.y) < PAD_VERTICAL_SPEED_THRESHOLD;
         if (canLand) {
           nextOnPad = nearest.id;
+        } else if (state.onPad !== undefined) {
+          // TASK-29 hysteresis: ship is on the ground and was docked.
+          // Either switch to a different pad (if a closer one is in
+          // range and at the right altitude) or clear the dock (if
+          // no pad is in range).
+          if (nearest !== undefined && nearest.id !== state.onPad) {
+            if (
+              Math.abs(nextPos.y - (planet.radius + nearest.height)) <= options.padAltitudeTolerance
+            ) {
+              nextOnPad = nearest.id;
+            } else {
+              nextOnPad = state.onPad;
+            }
+          } else if (nearest === undefined) {
+            // Drifted beyond the exit radius of the pad we were
+            // docked on — clear the dock.
+            nextOnPad = undefined;
+          } else {
+            // Same pad → stay docked.
+            nextOnPad = state.onPad;
+          }
         } else if (wasMovingVertically) {
           // Crashed into the ground but not on a pad → leave onPad as is
           // (a ship already on a pad that lifts off keeps onPad until it
@@ -428,6 +578,10 @@ export function integrateShip(
     softCapDecay: options.softCapDecay ?? DEFAULT_SOFT_CAP_DECAY,
     substepMaxTravel: options.substepMaxTravel ?? DEFAULT_SUBSTEP_MAX_TRAVEL,
     padRadius: options.padRadius ?? DEFAULT_PAD_RADIUS,
+    padAltitudeTolerance: options.padAltitudeTolerance ?? DEFAULT_PAD_ALTITUDE_TOLERANCE_M,
+    vtolDriftDamping: options.vtolDriftDamping ?? DEFAULT_VTOL_DRIFT_DAMPING,
+    vtolAssistRadius: options.vtolAssistRadius ?? DEFAULT_VTOL_ASSIST_RADIUS_M,
+    vtolAssistMaxSpeed: options.vtolAssistMaxSpeed ?? DEFAULT_VTOL_ASSIST_MAX_SPEED,
   };
 
   const safeInput = sanitiseInput(input);

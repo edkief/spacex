@@ -15,6 +15,9 @@
  *      generation lives in TASK-26 (streaming pipeline); the router
  *      only needs the *shape* of the lookup wired so future tasks can
  *      swap in real per-planet terrain resolution.
+ *   4. TASK-29: derive the per-planet landing-pad list (cached on
+ *      first call) so the in-tick pad detection can mark a ship
+ *      `docked` when it crosses the 20 m threshold.
  *
  * The function is pure (seed + starId in, context out). Tests can
  * assert determinism by calling it twice with the same inputs.
@@ -24,6 +27,8 @@
  */
 import { generateStars } from "@shared/galaxy/stars.js";
 import { generateSystem } from "@shared/galaxy/system.js";
+import { padsForSystem, type SystemPad } from "@shared/world/pads.js";
+import type { FlightPad } from "@shared/physics/types.js";
 
 import type { Planet, Star, SystemGen } from "@shared/galaxy/types.js";
 import type { ShardSystemContext } from "../shard/types.js";
@@ -69,8 +74,47 @@ export function buildShardContext(options: BuildShardContextOptions): ShardSyste
     return (_x: number, _z: number) => 0;
   };
 
+  // TASK-29: derive the pad registry once per system (cached on the
+  // closure below) and expose the per-planet view that the
+  // integrator's `PlanetAtmosphere.pads` reads. The translation
+  // `SystemPad -> FlightPad` passes the world-space position so
+  // the integrator can match against `entity.pos` (which is
+  // already in world coords from `spawnShip`).
+  const systemPads: SystemPad[] = padsForSystem({
+    seed,
+    starId: star.id,
+    planets: system.planets,
+  });
+  const padsByPlanet = new Map<string, SystemPad>();
+  for (const pad of systemPads) {
+    padsByPlanet.set(pad.planetId, pad);
+  }
+  const padsForPlanet = (planetId: string): readonly FlightPad[] | undefined => {
+    const pad = padsByPlanet.get(planetId);
+    if (!pad) return undefined;
+    // Pad in world coords. The integrator's `findNearestPad` reads
+    // `pos.x / pos.z` against `pad.x / pad.z` (no planet-local
+    // transform) because the `PlanetAtmosphere.heightAt` callback
+    // already works in world coords — see
+    // `regimeFor` → `distanceToSurface` for the same convention.
+    return [
+      {
+        id: pad.padId,
+        x: pad.pos.x,
+        z: pad.pos.z,
+        // Pad sits on the surface (TASK-29 step 1: "top of the
+        // structure, flat 40 m circle"). `height` is the metres
+        // above the planet's radius — 0 for surface-level pads.
+        height: 0,
+        radius: pad.radius,
+        exitRadius: pad.exitRadius,
+      },
+    ];
+  };
+
   return {
     system,
+    starId: star.id,
     planetById: (planetId: string) => planetByIdMap.get(planetId),
     heightAtFor,
     tileSizeM: 64,
@@ -79,6 +123,8 @@ export function buildShardContext(options: BuildShardContextOptions): ShardSyste
     // seed + star id). Callers that don't know the seed leave
     // this undefined; the sim falls back to the dev seed.
     galaxySeed: seed,
+    // TASK-29: pad registry for in-tick dock detection.
+    padsForPlanet,
   };
 }
 

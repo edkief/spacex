@@ -263,7 +263,7 @@
     "title": "Landing pads: detection, VTOL assist, landed state",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-29.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-31",

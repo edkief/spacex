@@ -61,6 +61,7 @@ function makeContext(): ShardSystemContext {
   void planetCenter; // referenced by the noise-tolerance test below.
   const planetId = "test-planet";
   return {
+    starId: "star-TEST",
     system: {
       systemId: "star-TEST",
       name: "Test",
@@ -464,6 +465,7 @@ describe("sim: regime transitions — noise tolerance (TASK-25 AC #6)", () => {
     ];
     void planets;
     const ctx: ShardSystemContext = {
+      starId: "star-NOISE",
       system: {
         systemId: "star-NOISE",
         name: "Noise",

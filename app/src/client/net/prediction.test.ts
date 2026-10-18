@@ -68,6 +68,9 @@ function liteToWire(l: SimEntityLite): ProtocolEntityState {
     classId: "scout",
     callsign: null,
     livery: null,
+    // TASK-29: pad id is part of the wire shape. Forwarded from
+    // the lite entity so the predictor can reconcile dock state.
+    onPad: l.onPad,
   };
 }
 
@@ -656,6 +659,7 @@ describe("simEntityFromWire", () => {
       classId: "scout",
       callsign: "FOO",
       livery: null,
+      onPad: null,
     };
     const lite = simEntityFromWire(wire);
     expect(lite.id).toBe("e-1");
@@ -677,6 +681,7 @@ describe("simEntityFromWire", () => {
       classId: "scout",
       callsign: null,
       livery: null,
+      onPad: null,
     };
     const lite = simEntityFromWire(wire);
     expect(lite.quat).toEqual({ x: 0, y: 0, z: 0, w: 1 });

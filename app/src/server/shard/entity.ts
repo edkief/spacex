@@ -179,6 +179,12 @@ export function entityToWire(e: SimEntity): ProtocolEntityState {
     classId: e.classId,
     callsign: e.callsign,
     livery: null,
+    // TASK-29: pad id when the entity is docked. The persistence
+    // layer and the sim tick both keep this field in sync — when
+    // it's non-null the renderer shows the "DOCKED" HUD indicator
+    // and the server treats the entity as a candidate for repair /
+    // livery / cargo routes.
+    onPad: e.onPad,
   };
 }
 

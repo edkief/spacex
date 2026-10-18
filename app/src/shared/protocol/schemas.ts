@@ -72,6 +72,14 @@ export const EntityStateSchema = z
     classId: ShipClassIdSchema.nullable(),
     callsign: z.string().min(1).nullable(),
     livery: LiverySchema.nullable(),
+    /**
+     * TASK-29: id of the landing pad the ship is currently docked
+     * on. `null` when the ship is flying or undocked. Stable per
+     * `(seed, planetId, chunkX, chunkZ)` — see `LandingPad.id` in
+     * `@shared/galaxy/types`. Clients use the field to drive the
+     * in-HUD "DOCKED" indicator (TASK-29 acceptance criterion).
+     */
+    onPad: z.string().min(1).nullable(),
   })
   .strict();
 export type ProtocolEntityState = z.infer<typeof EntityStateSchema>;

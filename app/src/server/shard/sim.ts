@@ -525,7 +525,7 @@ function resolveRegimePlanetContexts(ctx: ShardSystemContext): RegimePlanetConte
   }
   const list = regimePlanetContexts({
     seed: ctx.galaxySeed ?? "drift-dev-seed-001",
-    starId: ctx.system.systemId,
+    starId: ctx.starId,
     planets: ctx.system.planets,
     heightAtFor: (id) => ctx.heightAtFor(id) ?? (() => 0),
     atmosphereHeightFor: ctx.atmosphereHeightFor,
@@ -561,6 +561,10 @@ function resolvePlanetContext(
   const planet = ctx.planetById(planetId);
   if (!planet) return undefined;
   const heightAt = ctx.heightAtFor(planetId) ?? (() => 0);
+  // TASK-29: attach the per-planet pad list so the integrator's
+  // pad detection (and VTOL-assist distance check) sees the pads
+  // we seeded in `system-data.ts`.
+  const pads = ctx.padsForPlanet?.(planetId);
   return {
     id: planet.id,
     radius: planet.radiusKm * 1000,
@@ -568,6 +572,7 @@ function resolvePlanetContext(
     atmosphereDensity: planet.hasAtmosphere ? 1 : 0,
     hasAtmosphere: planet.hasAtmosphere,
     heightAt,
+    ...(pads !== undefined ? { pads } : {}),
   };
 }
 

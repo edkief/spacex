@@ -37,6 +37,7 @@ import { CanvasStage } from "./components/CanvasStage.js";
 import { WarpOverlay } from "./components/WarpOverlay.js";
 import { AtmosphereOverlay } from "./components/AtmosphereOverlay.js";
 import { ReentryOverlay } from "./components/ReentryOverlay.js";
+import { DockedIndicator, useOwnShipOnPad } from "./components/DockedIndicator.js";
 import {
   currentAtmosphereStateProvider,
   installAtmosphereTestHook,
@@ -337,6 +338,11 @@ export function App(): React.JSX.Element {
   // short-circuits without ever rendering.
   const devMode = import.meta.env.DEV;
 
+  // TASK-29: docked indicator. Reads the local ship's `onPad` from
+  // the DriftClient's predictor (set by the server's `entity_update`
+  // frames) and renders a single DOM node when non-null.
+  const ownOnPad = useOwnShipOnPad();
+
   return (
     <div
       style={{
@@ -358,6 +364,10 @@ export function App(): React.JSX.Element {
       {/* TASK-28: orange re-entry rim. Cosmetic only; fires when descent
           > REENTRY_DESCENT_SPEED_U_S (200 u/s) inside the boundary band. */}
       <ReentryOverlay provider={currentAtmosphereStateProvider} />
+      {/* TASK-29: docked indicator. Shows a single "DOCKED" pill when the
+          local ship is on a landing pad (server reports `onPad`).
+          Stub HUD — full ship HUD is TASK-51. */}
+      <DockedIndicator padId={ownOnPad} />
       <header
         data-testid="drift-header"
         style={{

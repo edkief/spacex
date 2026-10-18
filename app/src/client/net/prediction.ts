@@ -650,7 +650,7 @@ export function simEntityFromWire(e: ProtocolEntityState): SimEntityLite {
     regime: e.regime,
     hull: e.hull,
     shields: e.shields,
-    onPad: null,
+    onPad: e.onPad,
   };
 }
 

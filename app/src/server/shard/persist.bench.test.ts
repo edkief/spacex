@@ -26,6 +26,7 @@ import type { ShardSystemContext } from "./types.js";
 
 function makeContext(): ShardSystemContext {
   return {
+    starId: "star-DUMMY",
     system: {
       systemId: "system-BENCH",
       name: "Bench",

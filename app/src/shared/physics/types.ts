@@ -15,6 +15,13 @@
  * A landing pad reachable from atmosphere / surface regimes. Sourced
  * from the deterministic placement pass (TASK-5) on the server and
  * cached on the client; see TASK-29 for the pad registry.
+ *
+ * `radius` is the **entry** radius — a non-docked ship within
+ * `radius` metres of the pad centre AND on the ground AND slow
+ * enough vertically will dock. `exitRadius` (≥ radius) is the
+ * **hysteresis** radius — an already-docked ship can drift up to
+ * `exitRadius` metres from the pad centre without un-docking, so
+ * jitter at the boundary doesn't bounce the state.
  */
 export interface FlightPad {
   /** Stable id (matches `LandingPad.id` from the surface chunk). */
@@ -25,6 +32,12 @@ export interface FlightPad {
   z: number;
   /** Pad top altitude (metres above planet radius). */
   height: number;
-  /** Pad detection radius in metres. Ships within this radius can dock. */
+  /** Pad entry detection radius in metres (non-docked ship docks inside). */
   radius: number;
+  /**
+   * Pad exit hysteresis radius in metres (≥ `radius`). A docked ship
+   * stays docked while within `exitRadius`; the integrator reads it
+   * to avoid hysteresis flapping at the 20 m boundary.
+   */
+  exitRadius?: number;
 }

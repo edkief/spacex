@@ -29,6 +29,7 @@
 import type { EventEmitter } from "node:events";
 
 import type { Planet, SystemGen } from "@shared/galaxy/types.js";
+import type { FlightPad } from "@shared/physics/types.js";
 import type { ProtocolEntityState, ProtocolShipClassId } from "@shared/protocol/index.js";
 import type { ChatRingBuffer } from "../chat.js";
 import type { ShipRow } from "../db/types.js";
@@ -212,6 +213,15 @@ export interface SpawnedShip {
 export interface ShardSystemContext {
   readonly system: SystemGen;
   /**
+   * TASK-29: the actual star id used by the deterministic galaxy
+   * generator. Note that `system.systemId` is the *derived* hash
+   * (`hash2(seedFromString(seed), seedFromString(starId))`) and is
+   * NOT equal to `starId` — `planetWorldPosition` is keyed on the
+   * star id, not the derived system id, so callers that need to
+   * derive per-planet world positions must use this field.
+   */
+  readonly starId: string;
+  /**
    * Resolve a planet by id. The shard loops over this when priming
    * the per-ship heightAt cache each tick — the cache is bounded to
    * the planets present in the active player ships' `originPlanetId`,
@@ -245,6 +255,16 @@ export interface ShardSystemContext {
    * logger; production wires nothing (no `regime_event` frame yet).
    */
   readonly onRegimeChange?: (event: RegimeChangeEvent) => void;
+  /**
+   * TASK-29: deterministic landing-pad list for the system — one
+   * `SystemPad` per landable planet. Consumed by the integrator
+   * (via `PlanetAtmosphere.pads`) so the in-tick pad detection
+   * knows where the pads are. Cached on the shard after the first
+   * call; the same list is broadcast to clients via the dev hook
+   * for HUD ring markers. `undefined` for shards built before
+   * TASK-29 — those run without pad detection.
+   */
+  readonly padsForPlanet?: (planetId: string) => readonly FlightPad[] | undefined;
 }
 
 /**

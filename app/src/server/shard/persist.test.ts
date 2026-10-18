@@ -33,6 +33,7 @@ installRepoHooks();
 
 function makeContext(): ShardSystemContext {
   return {
+    starId: "star-DUMMY",
     system: {
       systemId: "test-system",
       name: "Test",

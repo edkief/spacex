@@ -69,6 +69,7 @@ const VALID_PAYLOADS: Record<MessageType, () => unknown> = {
         classId: "scout",
         callsign: "TEST-ALPHA",
         livery: null,
+        onPad: null,
       },
     ],
     lastAppliedSeq: { "player-1": 7 },

@@ -40,6 +40,7 @@ const ZERO_QUAT = { x: 0, y: 0, z: 0, w: 1 };
 
 function makeContext(): ShardSystemContext {
   return {
+    starId: "star-DUMMY",
     system: {
       systemId: "test-system",
       name: "Test",
