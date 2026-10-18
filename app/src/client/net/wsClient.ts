@@ -252,6 +252,10 @@ export class DriftClient {
   private readonly warpRejectedListeners = new Set<
     (payload: { code: string; message: string }) => void
   >();
+  /** TASK-33: ui-open subscriber set (dock terminal modal etc). */
+  private readonly uiOpenListeners = new Set<
+    (payload: { ui: string; payload: Record<string, unknown> }) => void
+  >();
   private status: DriftClientStatus = "idle";
   private playerId: string | null = null;
   private callsign: string | null = null;
@@ -581,6 +585,37 @@ export class DriftClient {
       throw new Error("DriftClient: sendExitShip requires an open socket");
     }
     this.socket.send(encodeEnvelope("exit_ship", {}));
+  }
+
+  /**
+   * TASK-33: send an `interact` request. The server validates the
+   * target via the active shard's `InteractableRegistry` and replies
+   * with either `interact_ok` (success) or an `error` frame carrying
+   * one of `out-of-range` / `wrong-regime` / `not-found`.
+   *
+   * Throws if the socket isn't open. The interaction prompt UI
+   * guards against this via the `enabled={status === 'online'}` gate.
+   */
+  sendInteract(targetId: string, action: "use" | "enter" | "exit" | "inspect" | "mine"): void {
+    if (!this.socket || this.socket.readyState !== this.socket.OPEN) {
+      throw new Error("DriftClient: sendInteract requires an open socket");
+    }
+    this.socket.send(encodeEnvelope("interact", { targetId, action }));
+  }
+
+  /**
+   * TASK-33: register a listener for `ui_open` server frames.
+   * Dock terminals and any future modal surfaces use this channel
+   * so the modal lives entirely on the client (the server emits a
+   * single presentation directive).
+   */
+  onUiOpen(
+    listener: (payload: { ui: string; payload: Record<string, unknown> }) => void,
+  ): () => void {
+    this.uiOpenListeners.add(listener);
+    return () => {
+      this.uiOpenListeners.delete(listener);
+    };
   }
 
   /**
@@ -1026,6 +1061,25 @@ export class DriftClient {
             this.remoteBuffers.set(ent.id, buf);
           }
           buf.push(nowMs, e as never);
+        }
+        return;
+      }
+      case "ui_open": {
+        // TASK-33: server-pushed modal directive (e.g. dock
+        // terminal UI). The frame's `ui` tag drives which modal
+        // mounts on the client. We just fan out to subscribers;
+        // the actual UI lives in the host (App.tsx) which can
+        // choose to mount / unmount the appropriate shell.
+        const payload = env.payload as {
+          ui: string;
+          payload: Record<string, unknown>;
+        };
+        for (const listener of this.uiOpenListeners) {
+          try {
+            listener(payload);
+          } catch {
+            // swallow — faulty listener must not break the loop
+          }
         }
         return;
       }

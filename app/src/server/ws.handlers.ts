@@ -28,6 +28,8 @@ import {
   validateChatText,
 } from "./chat.js";
 import { broadcastChat, handleDisembark, pushPlayerInput } from "./shard/index.js";
+import { handleInteract } from "./shard/interact.js";
+import type { InteractAction } from "@client/input/interaction.js";
 import { sendError, sendFrame } from "./ws.dispatch.helpers.js";
 
 // ---------------------------------------------------------------------------
@@ -497,6 +499,59 @@ export function onExitShip(conn: Connection, options: WsHandleOptions, _payload:
     return;
   }
   // No outbound frame — the next broadcast carries the character.
+}
+
+// ---------------------------------------------------------------------------
+// onInteract — TASK-33 proximity interaction
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle a validated `interact` frame from a `joined`-state
+ * connection.
+ *
+ * The flow:
+ *   1. Locate the shard for this connection (via `options.shardFor`).
+ *   2. Delegate to `handleInteract(shard, { connId, targetId, action })`
+ *      which:
+ *        - enforces `conn.entityId` is a character (else `wrong-regime`),
+ *        - resolves the target entity in the shard registry (else `not-found`),
+ *        - validates 3 m range server-side (else `out-of-range`),
+ *        - dispatches via the `InteractableRegistry`.
+ *   3. On success: emit `interact_ok` to the requesting connection so
+ *      it can update its local prediction without waiting for the
+ *      next snapshot. The dispatch itself may also have produced a
+ *      `ui_open` frame (e.g. dock terminals) which the handler
+ *      piggybacked onto `shard.send` — that frame streams out as
+ *      part of the same loop. The next broadcast carries the
+ *      result to every connection (e.g. a deposit removal).
+ *   4. On rejection: emit a structured `error` frame with the
+ *      resolver's code (`out-of-range` / `wrong-regime` / `not-found`).
+ *
+ * Validation order (regime → existence → range) matches the spec:
+ * the prompt UI only ever shows valid targets, so the existence +
+ * range checks are belt-and-braces against a frame that races the
+ * prompt update.
+ */
+export function onInteract(conn: Connection, options: WsHandleOptions, payload: unknown): void {
+  const shard = options.shardFor?.(conn);
+  if (!shard) {
+    sendError(conn, "unauthenticated", "interact requires a joined system");
+    return;
+  }
+  const p = payload as { targetId: string; action: string };
+  const result = handleInteract(shard, {
+    connId: conn.connId,
+    targetId: p.targetId,
+    action: p.action as InteractAction,
+  });
+  if (!result.ok) {
+    sendError(conn, result.code, result.message);
+    return;
+  }
+  sendFrame(conn, "interact_ok", {
+    targetId: result.targetId,
+    action: result.action,
+  });
 }
 
 // ---------------------------------------------------------------------------

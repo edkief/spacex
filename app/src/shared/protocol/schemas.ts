@@ -34,7 +34,21 @@ export const ShipClassIdSchema = z.enum(["scout", "freighter", "interceptor"]);
 export type ProtocolShipClassId = z.infer<typeof ShipClassIdSchema>;
 
 /** Entity kind tag (one shape for snapshot, entity_update, presence). */
-export const EntityKindSchema = z.enum(["ship", "character", "ai-ship", "wreck"]);
+/**
+ * The kinds of entity the wire recognises (TASK-33 added
+ * `deposit` + `terminal` for proximity interaction). Ship /
+ * character / ai-ship / wreck predate this. The server-side
+ * `EntityKind` (in `@server/shard/types`) is a separate union
+ * that includes the unrendered `player` (maps to `ship` here).
+ */
+export const EntityKindSchema = z.enum([
+  "ship",
+  "character",
+  "ai-ship",
+  "wreck",
+  "deposit",
+  "terminal",
+]);
 export type ProtocolEntityKind = z.infer<typeof EntityKindSchema>;
 
 /** Regime tag — drives the rendering pipeline (TASK-25). */
@@ -147,7 +161,7 @@ export const PresenceEntrySchema = z
   })
   .strict();
 
-/** Structured error code (TASK-9 + TASK-31 acceptance criteria). */
+/** Structured error code (TASK-9 + TASK-31 + TASK-33 acceptance criteria). */
 export const ErrorCodeSchema = z.enum([
   "version-mismatch",
   "unauthenticated",
@@ -160,6 +174,25 @@ export const ErrorCodeSchema = z.enum([
   // docked on a landing pad. Surfaced on `exit_ship` frames; the
   // client renders a "Cannot disembark while flying" toast.
   "not-docked",
+  // TASK-33: proximity interaction denied because the player is
+  // farther than 3 m from the targeted entity. Surfaced on
+  // `interact` frames; the prompt UI never displays invalid
+  // targets (client pre-filters), so reaching this path means a
+  // frame raced past the prompt update (e.g. a teleport cheat).
+  "out-of-range",
+  // TASK-33: proximity interaction denied because the player's
+  // *active regime* doesn't match — e.g. attempting to inspect
+  // a dock terminal while sitting inside a ship (the character
+  // isn't on foot yet). The handler maps the shard's `isOnFoot`
+  // flag onto this code.
+  "wrong-regime",
+  // TASK-33: proximity interaction denied because the targeted
+  // entity doesn't exist in the shard's registry (id mismatch,
+  // already-collected pickup, etc). Mirrors the server-side
+  // convention; the registry refuses to dispatch for an unknown
+  // kind, but the client may have raced ahead of the entity
+  // removal broadcast.
+  "not-found",
 ]);
 export type ProtocolErrorCode = z.infer<typeof ErrorCodeSchema>;
 
@@ -334,8 +367,66 @@ export const WarpArrivedSchema = z
   })
   .strict();
 
-/** `interact` — proximity interaction (TASK-33). */
+/**
+ * `interact` — proximity interaction (TASK-33).
+ *
+ *   - `targetId` — the entity id the client wants to act on. The
+ *     server resolves this against the active shard's registry;
+ *     a missing id returns `{code:'not-found'}`.
+ *   - `action` — the kind of interaction. The client picks one of
+ *     these based on the prompt shown (the registry maps entity
+ *     kind → {prompt, action}).
+ *       - `'inspect'` — generic look-at (small flavour); not used
+ *         for actual side effects.
+ *       - `'use'`    — generic activation (dock terminal, pickup).
+ *       - `'enter'`  — re-enter a docked ship (TASK-35 owner).
+ *       - `'exit'`   — disembark from a docked ship (TASK-31
+ *         handlers; TASK-33 only references it as the schema
+ *         value for completeness).
+ *       - `'mine'`   — long-running extraction (TASK-38 owner).
+ *
+ * The server validates `(targetId, action)` against the
+ * `InteractableRegistry` dispatch table. The client filters
+ * invalid targets before the prompt appears, so reaching the
+ * dispatch path with an unknown combination is treated as a
+ * protocol violation.
+ */
 export const InteractSchema = z
+  .object({
+    targetId: z.string().min(1),
+    action: z.enum(["inspect", "mine", "enter", "exit", "use"]),
+  })
+  .strict();
+
+/**
+ * `ui_open` — server-only frame (TASK-33) commanding the client to
+ * surface a named modal UI (e.g. the dock selling screen from
+ * TASK-40 / TASK-53). The client owns rendering for each `ui`
+ * value; the server treats it as a pure presentation directive.
+ *
+ * Generic by design — `payload` is forwarded verbatim into the UI
+ * so future terminals (guild, missions, etc.) reuse the same
+ * frame rather than spawning a new message type per terminal.
+ *
+ * `ui` is a small whitelisted tag, not a free string, so a
+ * malformed frame can't open an arbitrary modal — `dock` is the
+ * only consumer today; future tasks extend the union.
+ */
+export const UiOpenSchema = z
+  .object({
+    ui: z.enum(["dock"]),
+    payload: z.record(z.string(), z.unknown()),
+  })
+  .strict();
+
+/**
+ * `interact_ok` — server-only ack for `interact`. Tells the owning
+ * client that the interaction landed (e.g. pickup removed) so it
+ * can update its local prediction / inventory without waiting for
+ * the next snapshot. Other clients still learn via the regular
+ * `entity_update` broadcast.
+ */
+export const InteractOkSchema = z
   .object({
     targetId: z.string().min(1),
     action: z.enum(["inspect", "mine", "enter", "exit", "use"]),
@@ -553,6 +644,8 @@ export const PAYLOAD_SCHEMAS = {
   input: InputSchema,
   warp: WarpSchema,
   interact: InteractSchema,
+  interact_ok: InteractOkSchema,
+  ui_open: UiOpenSchema,
   mine: MineSchema,
   sell: SellSchema,
   buy_ship: BuyShipSchema,

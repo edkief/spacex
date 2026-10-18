@@ -42,6 +42,8 @@ import {
   ExitShipPrompt,
   useOwnShipOnPad as useExitPromptShipOnPad,
 } from "./components/ExitShipPrompt.js";
+import { InteractionPrompt } from "./components/InteractionPrompt.js";
+import { useInteractables, useLocalInteractor } from "./components/useInteractables.js";
 import {
   currentAtmosphereStateProvider,
   installAtmosphereTestHook,
@@ -350,6 +352,11 @@ export function App(): React.JSX.Element {
   // Hooks must be called at the top of the component (Rules of
   // Hooks) — we lift the call up here instead of inside the JSX.
   const exitPromptOnPad = useExitPromptShipOnPad();
+  // TASK-33: on-foot interact prompt — derived from the latest
+  // `entity_update` snapshot. Cheap (single poll) so the Rules of
+  // Hooks are fine to call both here.
+  const interactables = useInteractables();
+  const localInteractor = useLocalInteractor();
 
   return (
     <div
@@ -391,6 +398,24 @@ export function App(): React.JSX.Element {
             // The `enabled` prop already gates on `online`; a throw
             // here means the socket dropped between the gate check
             // and the send. Swallow so the UI stays responsive.
+          }
+        }}
+      />
+      {/* TASK-33: on-foot interaction prompt. Projects every entity
+          in the live snapshot through `interactableFromWire`,
+          runs the cone raycast, and shows a single "[E] …" pill
+          when a candidate lands inside the 3 m × 30° forward
+          cone. Hides entirely on no-match. */}
+      <InteractionPrompt
+        interactor={localInteractor}
+        interactables={interactables}
+        enabled={status === "online"}
+        onInteract={(targetId, action) => {
+          try {
+            client.sendInteract(targetId, action);
+          } catch {
+            // Same swallow rationale as above; the `enabled` gate
+            // already prevents the common path.
           }
         }}
       />

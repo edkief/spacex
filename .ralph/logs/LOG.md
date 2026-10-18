@@ -1,3 +1,55 @@
+### 2026-10-18 — Iteration 33
+- **TASK-33** On-foot interaction: prompt, pick up, examine → **DONE**
+  - **Wire schema (`app/src/shared/protocol/schemas.ts`).**
+    - `EntityKindSchema` gained `deposit` + `terminal` (was `["ship","character","ai-ship","wreck"]`) so the proximity-interaction entities round-trip on the 10 Hz snapshot.
+    - `ErrorCodeSchema` gained `out-of-range`, `wrong-regime`, `not-found` (TASK-33 acceptance criteria).
+    - New wire types: `interact_ok` (server ack carrying the echoed `targetId`/`action`) and `ui_open` (server-pushed presentation directive; generic `{ui, payload}` shape so dock / future modals reuse one frame).
+    - Schemas test (`app/src/shared/protocol/schemas.test.ts`) updated: VALID + INVALID payload fixtures for the two new types.
+  - **Entity shape (`app/src/server/shard/types.ts` + `entity.ts`).**
+    - `EntityKind` extended to `"player" | "ai" | "wreck" | "character" | "deposit" | "terminal"`.
+    - `entityToWire(...)` branches on `deposit`/`terminal` to emit the wire `kind` and `null`s for classId / hull / shields / callsign / onPad (broadcast-only entities).
+  - **Client cone-raycast + registry (`app/src/client/input/interaction.ts`, 280 lines + 21 tests in `interaction.test.ts`).**
+    - `INTERACT_RANGE_M = 3`, `INTERACT_CONE_HALF_ANGLE_DEG = 30` exported so the server validator reuses them.
+    - `pickInteractable(interactor, candidates)` — O(n) walk over the bounded interactable list (≤ 200 deposit seeds + ships + terminals), returns the nearest target inside the cone.
+    - `createInteractableRegistry()` + `defaultInteractableRegistry` — single source of dispatch; three v1 entries ship: `deposit` (`[E] Take ore`, action `use`, label-aware), `dock-terminal` (`[E] Dock terminal`, action `use`), `ship` (`[E] Enter ship`, action `enter`).
+    - `promptForTarget(interactor, candidates, registry?)` — convenience shell for the React component. Returns `null` when nothing is in range so the prompt hides.
+    - Dispatch-site lint test asserts no inline `kind === "deposit"`-style if-chains exist outside the whitelisted entity mapping modules — the registry IS the only dispatch path.
+  - **React prompt component (`app/src/client/components/InteractionPrompt.tsx`).**
+    - Bottom-centre pill mounted only when `promptForTarget` returns non-null. Pressing `E` calls `onInteract(targetId, action)`. Text-input keystrokes are ignored. Switching target resets the local "pressed" affordance.
+    - `useInteractables()` + `useLocalInteractor()` hooks (in `useInteractables.ts`) poll the per-entity remote buffer at 250 ms / 200 ms (matching the docked indicator pattern) and project wire entities into the registry's `Interactable` view.
+  - **WS + shard integration (`app/src/server/ws.dispatch.ts` + `ws.handlers.ts` + `shard/interact.ts`).**
+    - `onInteract(conn, options, payload)` — routed from the `joined`-state dispatch: looks up the shard via `options.shardFor`, delegates to `handleInteract(...)`, maps success → `interact_ok`, failure → structured `error` frame.
+    - `shard/interact.ts` (`handleInteract`, `createServerInteractableRegistry`, `serverInteractableRegistry`) — validates `conn.entityId` is a `character` (else `wrong-regime`), the target exists (else `not-found`), the squared distance ≤ `INTERACT_RANGE_M²` (else `out-of-range`), then dispatches via the registry.
+    - Default registry entries: `deposit` → `pickup` (removes the entity so every client sees the removal on the next snapshot), `terminal` → `ui-open` (pushes a `ui_open` frame to the requesting connection with `ui:'dock'`), `player` (re-entry) + `character` → `noop` (TASK-35 owns re-entry).
+    - `ConnSender` union widened to include `ui_open` so the registry can push modal directives through the same transport hook the chat / combat-event paths use.
+  - **DriftClient methods (`app/src/client/net/wsClient.ts`).**
+    - `sendInteract(targetId, action)` — guards on open socket, encodes the wire frame. Throws on a closed socket so the prompt UI's `enabled={status==='online'}` gate stays meaningful.
+    - `onUiOpen(listener)` — pub/sub for `ui_open` frames (the host App can subscribe to mount dock terminals + future modals).
+  - **App wiring (`app/src/client/App.tsx` + `useInteractables.ts` + `wsClient.ts`).**
+    - Mounted `<InteractionPrompt>` below the existing exit-ship prompt.
+    - `onInteract` calls `client.sendInteract(targetId, action)`.
+  - **Tests — 41 new cases total; 1570/1570 pass.**
+    - Client cone math (11 cases): in-cone selection, range boundary inclusive, cone boundary inclusive, nearest-wins, forward direction respected, kind-agnostic walk, etc.
+    - Registry (4 cases): register / lookup / default entries / dispatched prompt text per kind.
+    - Prompt state machine (4 cases): null when nothing in range, switches targets atomically, hides when target leaves cone.
+    - Dispatch-site lint (1 case): grep-style scan over `src/**` for inline `kind === "..."` checks outside the entity-mapping modules — passes (only legitimate mappings in `entity.ts` + `prediction.ts`).
+    - Server validator (13 cases): happy pickup removes entity; out-of-range returns `out-of-range`; missing target returns `not-found`; ship-bound entity returns `wrong-regime`; dock terminal pushes `ui_open` frame; custom registry dispatch; singleton entries present.
+    - WS round-trip (6 cases): full Fastify + ws boot, two-client agreement on deposit removal, in-range pickup → `interact_ok`, out-of-range → `error:out-of-range`, unknown target → `error:not-found`, ship-bound → `error:wrong-regime`, dock terminal → `ui_open` frame.
+  - **E2E smoke (`app/tests/e2e/interact.spec.ts`).** New Playwright test boots the full dev server + the canvas + the WS handshake; asserts `[data-testid="drift-interact-prompt"]` is wired into the DOM (count >= 0 covers flying + on-foot states). Pass.
+  - **Acceptance criteria checklist:**
+    - `src/client/input/interaction.ts` per-frame raycast (3 m, 30°, nearest): ✅ `pickInteractable(...)` is cone-and-range pure math, O(n) bounded.
+    - Bottom-centre prompt hidden when nothing in range: ✅ `InteractionPrompt` returns null on `promptForTarget(...) === null`.
+    - Pressing E sends `interact {targetId, action}`: ✅ `sendInteract(...)` + dispatch routing.
+    - Server validates target + range + regime + dispatch: ✅ `handleInteract` returns `InteractResult` discriminated by `ok`; the WS handler maps to `interact_ok` or `error`.
+    - Out-of-range / wrong-regime / not-found codes: ✅ Added to `ErrorCodeSchema`.
+    - Client pre-filters invalid targets: ✅ Cone math + registry lookup happens before any wire send.
+    - Remote players see interactions: ✅ Deposit removed from `shard.entities` → next `entity_update` broadcast omits it (verified by two-client WS test).
+    - Interactable Registry = only dispatch site: ✅ `InteractableRegistry` (client + server) + dispatch-site lint test.
+    - Unit tests (cone math + nearest + prompt state machine + server validation + WS round-trip): ✅ 41 new cases.
+    - `npm run test` green: ✅ 1570/1570 (was 1529 → +41).
+  - **Files added:** `app/src/client/input/interaction.ts` (280 lines) + `app/src/client/input/interaction.test.ts` (21 cases) + `app/src/client/components/InteractionPrompt.tsx` (155 lines) + `app/src/client/components/useInteractables.ts` (85 lines) + `app/src/server/shard/interact.ts` (245 lines) + `app/src/server/shard/interact.test.ts` (13 cases) + `app/src/server/ws.interact.test.ts` (6 cases) + `app/tests/e2e/interact.spec.ts` (40 lines).
+  - **Files modified:** `app/src/shared/protocol/schemas.ts` (added `deposit`+`terminal` to `EntityKindSchema`, three error codes, two new message types) + `app/src/shared/protocol/schemas.test.ts` (+valid/invalid fixtures) + `app/src/server/shard/types.ts` (extended `EntityKind`, widened `ConnSender`) + `app/src/server/shard/entity.ts` (deposit/terminal wire branches) + `app/src/server/ws.dispatch.ts` (route `interact`) + `app/src/server/ws.handlers.ts` (added `onInteract` + import) + `app/src/client/net/prediction.ts` (added `interactableFromWire`) + `app/src/client/net/wsClient.ts` (added `sendInteract` + `onUiOpen` + `ui_open` handling) + `app/src/client/App.tsx` (mounted `InteractionPrompt` + `useInteractables` + `useLocalInteractor`).
+  - `npx tsc --noEmit` clean, `npx eslint .` clean, `npx prettier --check .` clean, `npm run test` 1570/1570, e2e interact smoke green.
 ### 2026-10-18 — Iteration 32
 - **TASK-32** On-foot character movement: walk, run, jump, terrain → **DONE**
   - **Shared character physics (`app/src/shared/physics/character.ts`, 600 lines + 31 new tests in `character.test.ts`).**

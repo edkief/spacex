@@ -71,6 +71,7 @@ import {
   onExitShip,
   onHello,
   onInput,
+  onInteract,
   onJoinSystem,
   onLogout,
   onWarp,
@@ -397,7 +398,17 @@ async function dispatch(
         onExitShip(conn, options, payload);
         return;
       }
-      // Future tasks route `warp`, `interact`, etc. to the system
+      if (type === "interact") {
+        // TASK-33: proximity interaction. The handler validates
+        // range + regime + target existence against the shard
+        // registry and dispatches via `InteractableRegistry`.
+        // Success: emit `interact_ok` (and possibly a `ui_open` for
+        // dock terminals). Failure: emit a structured `error` with
+        // one of `out-of-range`, `wrong-regime`, `not-found`.
+        onInteract(conn, options, payload);
+        return;
+      }
+      // Future tasks route `mine`, `sell`, etc. to the system
       // shard. TASK-9 / TASK-65 accept them silently — the connection stays alive.
       return;
 

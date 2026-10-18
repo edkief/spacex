@@ -112,7 +112,7 @@ export interface PlayerInput {
 // ---------------------------------------------------------------------------
 
 /**
- * The flavors of entity the sim knows about (TASK-13 + TASK-31).
+ * The flavors of entity the sim knows about (TASK-13 + TASK-31 + TASK-33).
  *
  *   `player`    — driven by a WS connection via `pendingInput`.
  *   `ai`        — driven by the future AI state machine (TASK-46). For
@@ -124,8 +124,16 @@ export interface PlayerInput {
  *                 entities (not client-side illusions) so multi-player
  *                 on-foot works (TASK-36) and persistence reuses the
  *                 ship pattern. Idle until TASK-32 wires walk/look.
+ *   `deposit`   — surface resource nodes (TASK-33 / TASK-37). First-
+ *                 class sim entities so proximity pickup propagates
+ *                 via the entity_update broadcast. They never integrate
+ *                 (they sit on the chunk anchor) and never have a
+ *                 classId — `null` on the wire.
+ *   `terminal`  — dock terminals (TASK-33 / TASK-40). Static entities
+ *                 that the proximity-interact dispatch opens via the
+ *                 `ui_open` server frame. Also broadcast-only.
  */
-export type EntityKind = "player" | "ai" | "wreck" | "character";
+export type EntityKind = "player" | "ai" | "wreck" | "character" | "deposit" | "terminal";
 
 /**
  * The full per-entity state. Combines the flight-model's `ShipState`
@@ -350,7 +358,8 @@ export type SnapshotBroadcaster = (
  * the right WS socket. The union accepts every frame type the
  * shard currently pushes (`entity_update` from the sim loop,
  * `chat` from `broadcastChat`, `combat_event` from
- * `broadcastCombatEvent`); the WS layer decides how to serialise
+ * `broadcastCombatEvent`, `ui_open` from the TASK-33 proximity
+ * interaction handler); the WS layer decides how to serialise
  * each. For unit tests the tests inject a recorder.
  */
 export type ConnSender = (
@@ -358,7 +367,8 @@ export type ConnSender = (
   frame:
     | { type: "entity_update"; payload: unknown }
     | { type: "chat"; payload: unknown }
-    | { type: "combat_event"; payload: unknown },
+    | { type: "combat_event"; payload: unknown }
+    | { type: "ui_open"; payload: unknown },
 ) => void;
 
 /**

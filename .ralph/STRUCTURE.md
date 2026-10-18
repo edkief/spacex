@@ -363,3 +363,5 @@ PROJECT_ROOT
 - `API_PORT` (default `PORT + 1`, i.e. 3001) → Fastify + ws server.
 - Vite proxies `/api/*` and `/ws` to `API_PORT`, so the browser stays on
   a single origin.
+
+Snapshot taken 2026-10-18 after **TASK-33** (On-foot interaction: prompt, pick up, examine; `InteractableRegistry` is the sole dispatch site — enforced by a grep-style lint test; cone raycast 3 m × 30° in `src/client/input/interaction.ts`; server validator in `src/server/shard/interact.ts`; new wire codes `out-of-range` / `wrong-regime` / `not-found`; new wire types `interact_ok` + `ui_open`; WS round-trip tests include a two-client pickup-agreement check).

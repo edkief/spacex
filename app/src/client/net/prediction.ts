@@ -61,7 +61,6 @@ import {
 import type { PlanetAtmosphere } from "@shared/physics/atmosphere.js";
 import { SHIP_CLASSES, type ShipClassId } from "@shared/ships.js";
 import { quatSlerp, vecLerp, type Quat, type Vec3 } from "@shared/physics/vec.js";
-
 // ---------------------------------------------------------------------------
 // Tuning constants — referenced by tests and the renderer.
 // ---------------------------------------------------------------------------
@@ -701,6 +700,48 @@ export function characterFromWire(e: ProtocolEntityState): CharacterLite | null 
     onFoot: e.onFoot === true,
     onPad: e.onPad,
   };
+}
+
+/**
+ * TASK-33: project a wire `EntityState` into a client-side
+ * `Interactable` (only the kinds the proximity-interact prompt
+ * actually displays). Returns `null` when the entity is not
+ * interactable so callers can skip them silently.
+ *
+ * The mapping is intentionally narrow — the per-frame
+ * `pickInteractable(...)` walks only entities that registered a
+ * client-side interaction kind, so we don't pre-allocate anything
+ * for the ships / wrecks / AI the prompt already filters.
+ *
+ * The `label` field is currently `undefined` for everything except
+ * deposits — TASK-37 lands resource types; for v1 the deposit's
+ * `label` is filled in by the resource-node generator.
+ */
+export function interactableFromWire(
+  e: ProtocolEntityState,
+): { id: string; kind: "deposit" | "ship" | "dock-terminal"; pos: Vec3; label?: string } | null {
+  if (e.kind === "deposit") {
+    return {
+      id: e.id,
+      kind: "deposit",
+      pos: { x: e.pos[0], y: e.pos[1], z: e.pos[2] },
+    };
+  }
+  if (e.kind === "terminal") {
+    return {
+      id: e.id,
+      kind: "dock-terminal",
+      pos: { x: e.pos[0], y: e.pos[1], z: e.pos[2] },
+    };
+  }
+  if (e.kind === "ship") {
+    return {
+      id: e.id,
+      kind: "ship",
+      pos: { x: e.pos[0], y: e.pos[1], z: e.pos[2] },
+    };
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------

@@ -249,6 +249,25 @@ export function entityToWire(e: SimEntity): ProtocolEntityState {
       onFoot: true,
     };
   }
+  // TASK-33: deposit / terminal entities — broadcast-only, no
+  // ship / character fields are meaningful. `classId` is null.
+  if (e.kind === "deposit" || e.kind === "terminal") {
+    return {
+      id: e.id,
+      kind: e.kind,
+      pos: [e.pos.x, e.pos.y, e.pos.z],
+      vel: [e.vel.x, e.vel.y, e.vel.z],
+      regime:
+        e.regime === "atmosphere" ? "atmosphere" : e.regime === "surface" ? "surface" : "space",
+      hull: 0,
+      shields: 0,
+      targetId: null,
+      classId: null,
+      callsign: null,
+      livery: null,
+      onPad: null,
+    };
+  }
   return {
     id: e.id,
     kind: e.kind === "player" ? "ship" : e.kind === "ai" ? "ai-ship" : "wreck",

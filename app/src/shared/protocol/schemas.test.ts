@@ -121,6 +121,8 @@ const VALID_PAYLOADS: Record<MessageType, () => unknown> = {
     snapshotTick: 0,
   }),
   interact: () => ({ targetId: "node-1", action: "inspect" }),
+  interact_ok: () => ({ targetId: "node-1", action: "use" }),
+  ui_open: () => ({ ui: "dock", payload: { station: "alpha" } }),
   mine: () => ({ nodeId: "node-1", duration: 2.5 }),
   sell: () => ({ resourceType: "iron", quantity: 5 }),
   buy_ship: () => ({ classId: "freighter" }),
@@ -228,6 +230,8 @@ const INVALID_PAYLOADS: Record<MessageType, () => unknown> = {
     snapshotTick: -1, // invalid — must be non-negative
   }),
   interact: () => ({ targetId: "node-1", action: "explode" }), // bad enum
+  interact_ok: () => ({ targetId: "", action: "explode" }), // empty targetId + bad enum
+  ui_open: () => ({ ui: "menu", payload: { x: 1 } }), // unknown `ui`
   mine: () => ({ nodeId: "", duration: -1 }),
   sell: () => ({ resourceType: "", quantity: 0 }), // zero/negative quantity
   buy_ship: () => ({ classId: "corvette" }), // unknown class
