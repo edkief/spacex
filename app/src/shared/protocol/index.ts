@@ -204,6 +204,7 @@ export {
   ChatSchema,
   InputSchema,
   WarpSchema,
+  WarpArrivedSchema,
   InteractSchema,
   MineSchema,
   SellSchema,

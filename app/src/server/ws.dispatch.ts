@@ -57,9 +57,15 @@ import {
 } from "@shared/protocol/index.js";
 
 import type { Connection, ConnectionRegistry } from "./ws.connection.js";
-import type { AuthResolver, JoinResolver, LogoutResolver, WsHandleOptions } from "./ws.js";
+import type {
+  AuthResolver,
+  JoinResolver,
+  LogoutResolver,
+  WarpResolver,
+  WsHandleOptions,
+} from "./ws.js";
 import { closeFloodedConnection, sendError, sendFrame } from "./ws.dispatch.helpers.js";
-import { onAuth, onChat, onHello, onInput, onJoinSystem, onLogout } from "./ws.handlers.js";
+import { onAuth, onChat, onHello, onInput, onJoinSystem, onLogout, onWarp } from "./ws.handlers.js";
 
 // ---------------------------------------------------------------------------
 // Constants — exported so tests can reference them without hard-coding
@@ -186,6 +192,7 @@ export async function processRawFrame(
   authResolver: AuthResolver,
   joinResolver: JoinResolver,
   logoutResolver: LogoutResolver,
+  warpResolver: WarpResolver,
   options: WsHandleOptions,
   raw: string,
 ): Promise<void> {
@@ -257,6 +264,7 @@ export async function processRawFrame(
     authResolver,
     joinResolver,
     logoutResolver,
+    warpResolver,
     options,
     parsed.type,
     parsed.payload,
@@ -288,6 +296,7 @@ async function dispatch(
   authResolver: AuthResolver,
   joinResolver: JoinResolver,
   logoutResolver: LogoutResolver,
+  warpResolver: WarpResolver,
   options: WsHandleOptions,
   type: MessageType,
   payload: unknown,
@@ -332,6 +341,17 @@ async function dispatch(
         // Subsequent join_system frames (e.g. after a warp, future TASK-8)
         // are accepted and treated as re-join of the given system.
         await onJoinSystem(conn, joinResolver, options, payload);
+        return;
+      }
+      if (type === "warp") {
+        // TASK-8: inter-system travel. The handler drives the
+        // galaxy router to remove the conn from the source shard
+        // and join it to the target shard; on success the client
+        // receives a `warp_arrived` frame, on failure a structured
+        // `error` frame carrying the wire code. The connection
+        // stays alive across the warp so the player can re-try
+        // (or pick a different system).
+        await onWarp(conn, warpResolver, options, payload);
         return;
       }
       if (type === "logout") {

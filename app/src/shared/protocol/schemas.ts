@@ -251,10 +251,48 @@ export const InputSchema = z
   })
   .strict();
 
-/** `warp` — inter-system travel request (TASK-8). */
+/**
+ * `warp` — inter-system travel request (TASK-8). Client → server.
+ *
+ * The client sends this after the chart UI's Warp button is clicked;
+ * the server validates the target system, spawns it on demand via the
+ * galaxy router (TASK-11), repositions the player's ship at the
+ * target's spawn gate, and replies with a `warp_arrived` frame carrying
+ * the canonical target-system snapshot. On rejection (target missing,
+ * target full, etc.) the server replies with an `error` frame so the
+ * client can render a "System full" toast and stay in the source system.
+ */
 export const WarpSchema = z
   .object({
     targetSystemId: z.string().min(1),
+  })
+  .strict();
+
+/**
+ * `warp_arrived` — server-only success response to `warp` (TASK-8).
+ *
+ * The shape mirrors `enter_system` exactly: the client receives the
+ * canonical snapshot the player should hydrate from in their new
+ * system. We define it as a distinct schema (rather than reusing
+ * `EnterSystemSchema` via `z.lazy`) so a future TASK that needs to
+ * extend one side (e.g. adding a `spawnGatePos` vector to the warp
+ * arrival) doesn't silently change the initial-join path.
+ *
+ * The `targetSystemId` echoes back what the client sent so the
+ * client can correlate the frame with the in-flight warp slot (the
+ * warp state machine discards frames whose `targetSystemId` does not
+ * match the currently-warping target).
+ */
+export const WarpArrivedSchema = z
+  .object({
+    targetSystemId: z.string().min(1),
+    systemId: z.string().min(1),
+    entities: z.array(EntityStateSchema),
+    nodes: z.array(NodeSnapshotSchema),
+    chat: z.array(ChatEntrySchema),
+    players: z.array(z.string().min(1)),
+    serverTickHz: z.number().int().positive(),
+    snapshotTick: z.number().int().nonnegative(),
   })
   .strict();
 
@@ -492,6 +530,7 @@ export const PAYLOAD_SCHEMAS = {
   presence: PresenceSchema,
   target_update: TargetUpdateSchema,
   combat_event: CombatEventSchema,
+  warp_arrived: WarpArrivedSchema,
 } as const satisfies Record<string, z.ZodTypeAny>;
 
 /** Discriminated union of every supported message type name. */

@@ -16,7 +16,13 @@
  * Keeping the stubs in their own module makes that swap a one-line
  * change in `attachWs` without churning the rest of the protocol.
  */
-import type { AuthResolver, JoinResolver, JoinResolverResult, LogoutResolver } from "./ws.js";
+import type {
+  AuthResolver,
+  JoinResolver,
+  JoinResolverResult,
+  LogoutResolver,
+  WarpResolver,
+} from "./ws.js";
 
 /**
  * Default auth resolver. Accepts any well-formed `auth` payload and
@@ -78,4 +84,29 @@ export function defaultJoinResolver(
     snapshotTick: 0,
   };
   return Promise.resolve(result);
+}
+
+/**
+ * Default warp resolver (TASK-8). Rejects every warp with the
+ * tagged `same-system` code so the WS layer stays router-agnostic
+ * in unit tests — production wires `buildRouterWarpResolver(…)`
+ * via `setWarpResolver(...)` instead.
+ *
+ * The thrown error is shaped the same way the real resolver throws
+ * (a regular `Error` with a `code` property) so the WS handler
+ * can extract the wire code uniformly.
+ */
+export function defaultWarpResolver(
+  _toSystemId: string,
+  _callsign: string,
+  _connId: string,
+  _fromSystemId: string,
+): ReturnType<WarpResolver> {
+  const err = new Error("warp resolver not configured") as Error & {
+    code: string;
+    targetSystemId: string;
+  };
+  err.code = "same-system";
+  err.targetSystemId = _toSystemId;
+  return Promise.reject(err);
 }

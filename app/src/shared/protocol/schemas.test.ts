@@ -85,6 +85,16 @@ const VALID_PAYLOADS: Record<MessageType, () => unknown> = {
     action: null,
   }),
   warp: () => ({ targetSystemId: "system-002" }),
+  warp_arrived: () => ({
+    targetSystemId: "system-002",
+    systemId: "system-002",
+    entities: [],
+    nodes: [],
+    chat: [],
+    players: [],
+    serverTickHz: 20,
+    snapshotTick: 0,
+  }),
   interact: () => ({ targetId: "node-1", action: "inspect" }),
   mine: () => ({ nodeId: "node-1", duration: 2.5 }),
   sell: () => ({ resourceType: "iron", quantity: 5 }),
@@ -182,6 +192,16 @@ const INVALID_PAYLOADS: Record<MessageType, () => unknown> = {
     action: null,
   }),
   warp: () => ({ targetSystemId: "" }),
+  warp_arrived: () => ({
+    targetSystemId: "system-002",
+    systemId: "system-002",
+    entities: [],
+    nodes: [],
+    chat: [],
+    players: [],
+    serverTickHz: 0, // invalid — must be positive
+    snapshotTick: -1, // invalid — must be non-negative
+  }),
   interact: () => ({ targetId: "node-1", action: "explode" }), // bad enum
   mine: () => ({ nodeId: "", duration: -1 }),
   sell: () => ({ resourceType: "", quantity: 0 }), // zero/negative quantity

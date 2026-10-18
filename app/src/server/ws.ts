@@ -57,7 +57,12 @@ import {
   MAX_MESSAGE_BYTES,
   PROTOCOL_VERSION,
 } from "./ws.dispatch.js";
-import { defaultAuthResolver, defaultJoinResolver, defaultLogoutResolver } from "./ws.resolvers.js";
+import {
+  defaultAuthResolver,
+  defaultJoinResolver,
+  defaultLogoutResolver,
+  defaultWarpResolver,
+} from "./ws.resolvers.js";
 import {
   ChatLimiter,
   FloodTracker,
@@ -109,6 +114,22 @@ export type JoinResolver = (
   callsign: string,
   connId: string,
 ) => Promise<JoinResolverResult>;
+
+/**
+ * TASK-8: warp resolver — inter-system travel. Accepts the
+ * decoded `warp { targetSystemId }` payload plus the connection
+ * metadata the WS handler already has on hand. Returns the same
+ * snapshot shape as `JoinResolverResult` plus a `targetSystemId`
+ * echo so the client can correlate the response with the in-flight
+ * warp slot. Throws tagged errors (`code: 'system-full' | ...`)
+ * on rejection so the handler can map them to wire codes.
+ */
+export type WarpResolver = (
+  toSystemId: string,
+  callsign: string,
+  connId: string,
+  fromSystemId: string,
+) => Promise<JoinResolverResult & { targetSystemId: string }>;
 
 /**
  * Auth resolver — turns the auth payload into a playerId/callsign pair.
@@ -164,6 +185,14 @@ export interface WsHandle {
    * in the same shard the connection is in.
    */
   setShardFor: (lookup: (conn: Connection) => Shard | undefined) => void;
+  /**
+   * TASK-8: swap in the warp resolver after the router is built.
+   * Production wires `buildRouterWarpResolver(...)` so subsequent
+   * `warp` frames route through the live galaxy router. Default
+   * rejects every warp with `same-system` so a router-less test
+   * harness fails closed.
+   */
+  setWarpResolver: (resolver: WarpResolver) => void;
 }
 
 /** Tunable keepalive knobs. Tests override these to avoid real timers. */
@@ -180,6 +209,12 @@ export interface WsHandleOptions {
   authResolver?: AuthResolver;
   /** Resolve `join_system` frames to a snapshot. Defaults to a stub. */
   joinResolver?: JoinResolver;
+  /**
+   * TASK-8: resolve `warp` frames to a target snapshot. Defaults to
+   * a stub that rejects every warp — keeps the WS layer
+   * router-agnostic in unit tests.
+   */
+  warpResolver?: WarpResolver;
   /**
    * Resolve `logout` frames (TASK-66). Default rejects every logout with
    * `unauthenticated`. Production wires this to `buildLogoutResolver(...)`
@@ -297,6 +332,14 @@ export function attachWs(
   const setShardFor = (next: (conn: Connection) => Shard | undefined): void => {
     shardFor = next;
   };
+  // TASK-8: warp resolver — same mutable-slot pattern as
+  // `joinResolver`. Production calls `setWarpResolver` once the
+  // router is ready; the default keeps the WS layer
+  // router-agnostic in unit tests.
+  let warpResolverLive: WarpResolver = options.warpResolver ?? defaultWarpResolver;
+  const setWarpResolver = (next: WarpResolver): void => {
+    warpResolverLive = next;
+  };
 
   app.server.on("upgrade", (request, socket, head) => {
     const url = request.url ?? "";
@@ -409,6 +452,7 @@ export function attachWs(
         authResolver,
         joinResolver,
         logoutResolver,
+        warpResolverLive,
         chatAwareOptions,
         text,
       );
@@ -472,6 +516,7 @@ export function attachWs(
     setJoinResolver,
     setOnConnectionClose,
     setShardFor,
+    setWarpResolver,
   };
 }
 

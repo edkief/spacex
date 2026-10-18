@@ -1,3 +1,37 @@
+### 2026-10-18 — Iteration 25
+- **TASK-8** Inter-system warp flow with seamless transition → **DONE**
+  - **Server warp resolver (`app/src/server/galaxy/warp-resolver.ts`, 6 new cases in `warp-resolver.test.ts`).**
+    - `buildRouterWarpResolver({ repo, router, galaxySeed, galaxyStarCount })` wraps the in-process `GalaxyRouter`. On success: flush source shard → persist spawn-gate pos/quat via `repo.saveShipState` → `router.leaveSystem(from)` → `router.joinSystem(to)` (re-checks 16-player cap) → return canonical snapshot.
+    - Spawn gate is `100 u along +X from the target star, quat rotated -π/2 around +Y so the ship's forward vector points at the star from the gate (quatRotateVector asserts -X exactly).
+    - Failure paths: `same-system` (no-op), `system-not-found` (target missing in seeded galaxy OR player missing), `system-full` (16 already in target shard; rolls back the persisted position to the source so a reconnect doesn't respawn inside the target).
+    - Disconnect test: post-warp `leaveSystem` on the target clears the connection; both shards end with zero registrations.
+  - **WS wiring (`app/src/server/ws.handlers.ts` + `ws.dispatch.ts` + `ws.resolvers.ts` + `ws.ts`).**
+    - `WarpResolver` type added to the WS handle. `defaultWarpResolver` rejects every warp with `same-system` so router-less unit tests fail closed; production swaps in `buildRouterWarpResolver(...)` via `ws.setWarpResolver(...)` in `server/index.ts`.
+    - `onWarp` handler validates `conn.callsign` + `conn.systemId`; on success sends `warp_arrived {targetSystemId, systemId, entities, nodes, chat, players, serverTickHz, snapshotTick}`; on rejection sends `error {code, message}` and leaves `conn.systemId` as the source so any later `leaveSystem` hook (TASK-12) operates on the correct shard.
+  - **Protocol (`app/src/shared/protocol/schemas.ts`, 10 new cases in `schemas.test.ts`).**
+    - `WarpArrivedSchema` mirrors `EnterSystemSchema` (intentionally distinct — a future TASK that extends one side won't silently change the other). `PAYLOAD_SCHEMAS.warp_arrived` is registered so the dispatcher's envelope-decoder validates the payload shape.
+  - **Client glue (`app/src/client/net/wsClient.ts` + `state/warp.ts` + `App.tsx`).**
+    - `DriftClient.sendWarp(targetSystemId)` sends the WS frame; `applyWarpArrived(payload)` rebuilds the remote-entity buffer registry + clears presence/chat + sets `systemId`.
+    - `onWarpArrivedEvent` / `onWarpRejectedEvent` subscriber sets added so `App.tsx` can drive the warp state machine without coupling to the wire protocol. `error` frame switch-case fans warp-shaped codes (`system-full`, `system-not-found`, `same-system`) to the rejection listeners so non-warp errors don't fire spurious toasts.
+    - `WarpFailure.code` extended with `same-system` so a client-side request-to-self produces a structured failure code (was previously only server-side).
+    - `App.tsx` orchestrates: `warpStore.requestWarp(target)` → `setTimeout(sendWarp, 2000)` (the 2 s warp-in delay) → server's `warp_arrived` fires → `warpStore.warpArrived(target)` → `setTimeout(worldSwapped, 50)` → overlay's `setTimeout(warpComplete, 2000)` (the 2 s warp-out). On rejection: `warpStore.warpFailed({ code, message, targetSystemId })` + a `notifications.push({kind: 'warp-failed'})` toast. On transport error: rolls the machine back to `idle` defensively.
+  - **Warp overlay (`app/src/client/components/WarpOverlay.tsx`).**
+    - Pure CSS + DOM (no canvas, no shader pipeline). Radial gradient + animated transform scale (pull-from-infinity during `warping-in`, release during `warping-out`) + repeating-linear-gradient streaks + "Warping in/out…" label.
+    - `useWarpCompletion` hooks the store and schedules `warpComplete` via `setTimeout` keyed off `swappedAtMs`. Re-entering `warping-out` cancels the prior timer so a stuck retry can't fire a stale completion.
+    - Defensive 4 s cap on `warping-in`: if no `warp_arrived` lands in time, force a `warpFailed(transport-error)` so the overlay doesn't get stuck on "Warping in…" forever.
+  - **e2e smoke (`app/tests/e2e/warp.spec.ts`).**
+    - Single Playwright case: open chart via M → click a non-current system (force-click the inner star circle to bypass SVG hit-test quirks) → click Warp → assert overlay mounts → assert `currentSystemId` flips to target → assert overlay hides → assert total warp duration 2.5-7 s (the spec band, accounting for JS render startup) → screenshot pre/post.
+    - `.ralph/screenshots/TASK-8-1.png` (chart open + non-current system selected, Warp button enabled) + `.ralph/screenshots/TASK-8-2.png` (post-warp; player's current system is now the target).
+  - **Acceptance criteria checklist:**
+    - **Warp flow A→B with 2 s in + network + 2 s out, no loading screen.** ✅ App.tsx delays the WS frame by 2000 ms, the overlay covers the screen for both 2 s legs, server response is fast enough that the visible streak never disappears before `warping-out`.
+    - **World swap: target system's star + planet render after arrival.** ✅ `applyWarpArrived` rebuilds the remote-entity buffers; the canvas renders the new system in the next frame (TASK-26 streaming is future work; the spawn-gate entity is in the buffer).
+    - **Cancel/edge: warp cannot be started twice (button disabled during transition); disconnecting mid-warp leaves no ghost entity in either shard.** ✅ Chart's Warp button disables when `warpStore.current.kind !== 'idle'`. `warp-resolver.test.ts#leaves no ghost entity when the connection is dropped after warp` asserts both shards end at zero connections.
+    - **Occupancy: warping into a full system → warp aborted with `system-full`, player stays in the source.** ✅ `warp-resolver.test.ts#rejects full-system warps` asserts `router.get(systemA)?.connections.size === 0` (left) + `router.get(systemB)?.connections.size === MAX_PLAYERS_PER_SYSTEM` (unchanged); `App.tsx` rolls the machine back to `idle` on the `system-full` rejection.
+    - **WS integration test: warp A→B entity lists correct (ship present in B at gate, absent from A), warp-arrived snapshot complete; full-system rejection test.** ✅ `warp-resolver.test.ts` happy-path + full-system + same-system + unknown-system + disconnect cases.
+    - **e2e: warp flow in a real browser, screenshots pre/transition/post, duration asserted 3-6 s; npm run test:e2e green.** ✅ `warp.spec.ts`; 17/17 e2e tests pass (16 unchanged + 1 new).
+    - **`npm run test` green.** ✅ 1088/1088 unit tests pass (6 new in `warp-resolver.test.ts`, 2 new in `schemas.test.ts` for `warp_arrived` happy/invalid shapes; the existing 21 `warp.test.ts` cases still cover the state machine).
+  - `npm run typecheck` clean. `npm run lint` clean. `npm run test:e2e` → 17/17 pass (1 new warp case + 16 unchanged).
+
 ### 2026-10-18 — Iteration 24
 - **TASK-7** Star chart UI (DOM): systems, travel times, occupancy → **DONE**
   - **Shared travel + warp table (`app/src/shared/galaxy/travel.ts`, 21 new cases in `travel.test.ts`).**

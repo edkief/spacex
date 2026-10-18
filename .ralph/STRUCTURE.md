@@ -1,6 +1,6 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-18 after **TASK-7** (Star chart UI: systems, travel times, occupancy).
+Snapshot taken 2026-10-18 after **TASK-8** (Inter-system warp flow: WS warp frame + server flush/leave/join + WarpStore + WarpOverlay + WarpResolver).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.
@@ -194,6 +194,8 @@ PROJECT_ROOT
 │   │       │   ├── system-data.ts # buildShardContext — derive SystemGen + per-planet closures from (seed, starId); GalaxySystemNotFoundError tagged error
 │   │       │   ├── join-resolver.ts # buildRouterJoinResolver — maps (systemId, callsign, connId) to router.joinSystem + repo.findPlayerByCallsign + repo.listShipsByOwner + tag errors with code field for the WS dispatcher; seeds enter_system.chat with shard.chatLog.snapshot() (TASK-16)
 │   │       │   ├── join-resolver.test.ts # 4 cases: success + cap-full + system-not-found + missing-callsign defensive path
+│   │       │   ├── warp-resolver.ts # buildRouterWarpResolver — flush source shard → persist spawn-gate pos/quat → leave source → join target → return canonical snapshot (TASK-8)
+│   │       │   └── warp-resolver.test.ts # 6 cases: happy-path A→B + spawn-gate pos/quat (forward -X) + same-system/full/unknown rejections + disconnect-mid-warp ghost check (TASK-8)
 │   │       │   └── index.ts     # Re-export barrel
 │   │       └── auth/            # Token codec + WS auth resolver (TASK-10)
 │   │           ├── token.ts     # HMAC-SHA256 session-token codec: sign/verify/hashToken + clock-skew tolerance (TASK-10)
@@ -266,6 +268,7 @@ PROJECT_ROOT
 │   │       ├── render-smoke.spec.ts # Headless WebGL starfield smoke — samples 256x256 via 2D scratch canvas; asserts variance + starFraction (TASK-70)
 │   │       ├── scaffold.spec.ts # Playwright smoke (canvas + /api/health) (TASK-68, fixture-rewritten in TASK-70)
 │   │       ├── star-chart.spec.ts # Playwright smoke (open chart via M key + Systems button, click a node, screenshot the open chart, verify Warp button enables with the shortest-hop warp time) (TASK-7)
+│   │       ├── warp.spec.ts     # Playwright smoke (open chart via M, click a non-current system, click Warp, assert overlay mounts + systemId flips to target + total duration 2.5-7 s + overlay hides, screenshot pre/post) (TASK-8)
 │   ├── scripts/
 │   │   ├── gen-stars-fixture.ts         # Regenerate __fixtures__/stars-dev-seed.json (TASK-3)
 │   │   ├── gen-stars-full-fixture.ts    # Regenerate __fixtures__/stars-dev-seed-full.json (TASK-6)

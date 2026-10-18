@@ -72,7 +72,7 @@ export type WarpState =
 
 /** Failure payload — passed through `warp:failed` for toast rendering. */
 export interface WarpFailure {
-  code: "system-full" | "system-not-found" | "transport-error" | "cancelled";
+  code: "system-full" | "system-not-found" | "same-system" | "transport-error" | "cancelled";
   message: string;
   targetSystemId: string;
 }

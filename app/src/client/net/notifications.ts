@@ -28,7 +28,7 @@
  * proximity alerts, …) can extend without breaking listeners.
  */
 export interface Notification {
-  kind: "reconnected" | "connection-lost";
+  kind: "reconnected" | "connection-lost" | "warp-arrived" | "warp-failed";
   /** Human-readable headline for the toast column. */
   text: string;
   /** Wall-clock ms when the notification was published. */

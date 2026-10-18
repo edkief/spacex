@@ -25,6 +25,7 @@ import { buildAuthResolver, buildLogoutResolver } from "./auth/resolver.js";
 import { ShardFlushService, DEFAULT_FLUSH_INTERVAL_MS } from "./shard/persist.js";
 import { GalaxyRouter } from "./galaxy/router.js";
 import { buildRouterJoinResolver } from "./galaxy/join-resolver.js";
+import { buildRouterWarpResolver } from "./galaxy/warp-resolver.js";
 import {
   buildPresenceBroadcaster,
   buildConnSender,
@@ -110,6 +111,20 @@ async function main(): Promise<void> {
   // map; pre-attaching the router first ensures no joinSystem call
   // can race the broadcaster wiring.
   ws.setJoinResolver(buildRouterJoinResolver({ repo, router }));
+  // TASK-8: warp resolver — inter-system travel. Same pattern as
+  // the join resolver: the WS layer ships a stub until the router
+  // exists, then swaps in the router-aware one. The warp resolver
+  // additionally needs `galaxySeed` + `galaxyStarCount` so it can
+  // compute the spawn gate (deterministic star position lookup
+  // through `findStar`).
+  ws.setWarpResolver(
+    buildRouterWarpResolver({
+      repo,
+      router,
+      galaxySeed: serverConfig.galaxySeed,
+      galaxyStarCount: 32,
+    }),
+  );
   // TASK-16: chat pipeline needs to look up the shard a connection
   // belongs to so `onChat` can broadcast. The router exposes a
   // thin `get(systemId)` lookup; we resolve it via `conn.systemId`

@@ -119,6 +119,12 @@ export interface ResyncEvent {
 /** Resync listener. */
 export type ResyncListener = (event: ResyncEvent) => void;
 
+/**
+ * TASK-8: warp-arrived listener. Fired when the server confirms
+ * an inter-system travel with a `warp_arrived` frame.
+ */
+export type WarpArrivedListener = (payload: PayloadFor<"warp_arrived">) => void;
+
 /** Default factory — `WebSocket` from the global scope in the browser. */
 export type WebSocketFactory = (url: string) => WebSocket;
 
@@ -203,6 +209,10 @@ export interface DriftClientOptions {
   onError?: ErrorListener;
   /** Optional resync observer (fires on every successful reconnect). */
   onResync?: ResyncListener;
+  /** TASK-8: optional warp-arrived observer (fires when a `warp_arrived` frame lands). */
+  onWarpArrived?: WarpArrivedListener;
+  /** TASK-8: optional warp-rejected observer (fires when an `error` frame arrives with a warp-related code). */
+  onWarpRejected?: (payload: { code: string; message: string }) => void;
   /**
    * Optional: filter applied to every outbound `presence` frame
    * before it reaches the store. Defaults to identity. Tests use
@@ -232,6 +242,12 @@ export class DriftClient {
   private readonly remoteBuffer: RemoteEntityBuffer;
   private readonly remoteBuffers = new Map<string, RemoteEntityBuffer>();
   private socket: WebSocket | null = null;
+  /** TASK-8: warp-arrived subscriber set. */
+  private readonly warpArrivedListeners = new Set<WarpArrivedListener>();
+  /** TASK-8: warp-rejected subscriber set. */
+  private readonly warpRejectedListeners = new Set<
+    (payload: { code: string; message: string }) => void
+  >();
   private status: DriftClientStatus = "idle";
   private playerId: string | null = null;
   private callsign: string | null = null;
@@ -344,6 +360,32 @@ export class DriftClient {
     this.resyncListeners.add(listener);
     return () => {
       this.resyncListeners.delete(listener);
+    };
+  }
+
+  /**
+   * TASK-8: subscribe to warp-arrived events. Fires every time a
+   * `warp_arrived` frame lands so the warp state machine + world
+   * manager can transition `awaiting → warping-out` and swap the
+   * in-world scene. Returns an unsubscribe handle.
+   */
+  onWarpArrivedEvent(listener: WarpArrivedListener): () => void {
+    this.warpArrivedListeners.add(listener);
+    return () => {
+      this.warpArrivedListeners.delete(listener);
+    };
+  }
+
+  /**
+   * TASK-8: subscribe to warp-rejected events. Fires every time
+   * the server replies to a `warp` frame with an `error` frame
+   * (e.g. `system-full`, `system-not-found`, `same-system`).
+   * Returns an unsubscribe handle.
+   */
+  onWarpRejectedEvent(listener: (payload: { code: string; message: string }) => void): () => void {
+    this.warpRejectedListeners.add(listener);
+    return () => {
+      this.warpRejectedListeners.delete(listener);
     };
   }
 
@@ -489,6 +531,62 @@ export class DriftClient {
         action: input.action ?? null,
       }),
     );
+  }
+
+  /**
+   * TASK-8: send a warp request. The server validates the target
+   * system and replies with a `warp_arrived` frame on success or an
+   * `error` frame on rejection. The client subscribes to both via
+   * the warp store (see `App.tsx`) so the UI can render the streak
+   * overlay + swap-world transition without coupling to the
+   * WebSocket layer.
+   *
+   * No client-side rate-limit: the chart UI already disables the
+   * Warp button while a warp is in flight, so a double-click is
+   * impossible in practice. The server-side rate-limit also catches
+   * any pathological frames.
+   */
+  sendWarp(targetSystemId: string): void {
+    if (!this.socket || this.socket.readyState !== this.socket.OPEN) {
+      throw new Error("DriftClient: sendWarp requires an open socket");
+    }
+    this.socket.send(encodeEnvelope("warp", { targetSystemId }));
+  }
+
+  /**
+   * TASK-8: consume the canonical snapshot from a `warp_arrived`
+   * frame. Updates the live `systemId`, clears stale presence /
+   * chat (the target system is a fresh roster), and rebuilds the
+   * remote-entity buffer from the new entities list. Returns
+   * `void` — callers (the warp state machine subscriber in
+   * `App.tsx`) only need to know the warp landed.
+   *
+   * Implemented as a public method (instead of being inlined into
+   * `handleMessage`) so unit tests can drive it directly without a
+   * live socket.
+   */
+  applyWarpArrived(payload: PayloadFor<"warp_arrived">): void {
+    // The target's roster is independent of the source's, so we
+    // wipe both stores before applying the new frame. The
+    // presence broadcaster hasn't fired yet for the new system
+    // either, so a stale roster would leak otherwise.
+    this.presence.leaveAll();
+    this.chat.clear();
+    this.resetRemoteBuffers();
+    this.systemId = payload.systemId;
+    // Seed the remote buffers with the canonical entities so the
+    // future renderer (TASK-26) can hydrate immediately.
+    const nowMs = (this.opts.now ?? Date.now)();
+    for (const entity of payload.entities) {
+      const ent = entity as { id: string };
+      if (!ent.id) continue;
+      let buf = this.remoteBuffers.get(ent.id);
+      if (!buf) {
+        buf = new RemoteEntityBuffer();
+        this.remoteBuffers.set(ent.id, buf);
+      }
+      buf.push(nowMs, entity as never);
+    }
   }
 
   // ---------------------------------------------------------------------
@@ -816,6 +914,43 @@ export class DriftClient {
         // accept the broader type and let `applyChatFrame` validate.
         const payload = env.payload as unknown as Parameters<ChatStore["applyChatFrame"]>[0];
         this.chat.applyChatFrame(payload);
+        return;
+      }
+      case "warp_arrived": {
+        // TASK-8: inter-system travel landed. Hydrate the
+        // target system from the canonical snapshot and surface
+        // the event via the `warpArrived` listener so the warp
+        // state machine in `state/warp.ts` can drive the
+        // `awaiting → warping-out` transition.
+        const payload = env.payload as PayloadFor<"warp_arrived">;
+        this.applyWarpArrived(payload);
+        for (const listener of this.warpArrivedListeners) {
+          try {
+            listener(payload);
+          } catch {
+            // swallow — faulty listener must not break the loop
+          }
+        }
+        this.opts.onWarpArrived?.(payload);
+        return;
+      }
+      case "error": {
+        // TASK-8: fan the error frame out to the warp-rejected
+        // subscribers. The server uses the same `error` envelope
+        // for both join and warp rejections; we filter on code
+        // so a non-warp error (e.g. a join rejection during
+        // boot) doesn't fire spurious warp-failed toasts.
+        const payload = env.payload as { code: string; message: string };
+        const warpCodes = new Set(["system-full", "system-not-found", "same-system"]);
+        if (warpCodes.has(payload.code)) {
+          for (const listener of this.warpRejectedListeners) {
+            try {
+              listener({ code: payload.code, message: payload.message });
+            } catch {
+              // swallow
+            }
+          }
+        }
         return;
       }
       case "state_snapshot":

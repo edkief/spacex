@@ -34,6 +34,7 @@ import { PlayerList } from "./components/PlayerList.js";
 import { ToastStack } from "./components/ToastStack.js";
 import { ChatLog } from "./components/ChatLog.js";
 import { CanvasStage } from "./components/CanvasStage.js";
+import { WarpOverlay } from "./components/WarpOverlay.js";
 import { DriftClient } from "./net/wsClient.js";
 import { NotificationStore } from "./net/notifications.js";
 import { installDriftDebug } from "./net/driftDebug.js";
@@ -107,6 +108,57 @@ export function App(): React.JSX.Element {
         ts: Date.now(),
       });
     });
+    // TASK-8: warp-arrived listener — drives the warp state
+    // machine from `warping-in` → `awaiting`. The overlay
+    // component handles the `awaiting → warping-out → idle`
+    // timer on the client side; we only transition when the
+    // server confirms the snapshot (so a `system-full` rejection
+    // leaves the chart able to retry immediately).
+    const offWarp = client.onWarpArrivedEvent((payload) => {
+      const target = payload.targetSystemId;
+      // The DriftClient already applied the canonical snapshot
+      // (presence + chat + remote buffers) before this listener
+      // fires — see `handleMessage` in `wsClient.ts`. We only
+      // need to drive the warp state machine forward.
+      warpStore.warpArrived(target, Date.now());
+      // Schedule the world-swap transition. The overlay
+      // component will tick the state machine through
+      // `warping-out` → idle once the streak timer completes.
+      window.setTimeout(() => {
+        warpStore.worldSwapped(target, Date.now());
+      }, 50);
+      notifications.push({
+        kind: "warp-arrived",
+        text: `Arrived in ${payload.systemId}`,
+        ts: Date.now(),
+      });
+    });
+    // TASK-8: warp-rejected listener — server said the warp is
+    // a no-go (`system-full`, `system-not-found`, `same-system`).
+    // Roll the warp state machine back to `idle` so the chart can
+    // re-enable the Warp button + surface a toast.
+    const offWarpRejected = client.onWarpRejectedEvent((payload) => {
+      const current = warpStore.current;
+      const targetSystemId = current.targetSystemId ?? "unknown";
+      warpStore.warpFailed(
+        {
+          code:
+            payload.code === "system-full" ||
+            payload.code === "system-not-found" ||
+            payload.code === "same-system"
+              ? payload.code
+              : "transport-error",
+          message: payload.message,
+          targetSystemId,
+        },
+        Date.now(),
+      );
+      notifications.push({
+        kind: "warp-failed",
+        text: payload.code === "system-full" ? "System full" : payload.message,
+        ts: Date.now(),
+      });
+    });
     // TASK-7: pick up the bearer token once the WS handshake
     // completes so the chart's REST fetches (`/api/galaxy/overview`
     // + `/api/galaxy/health`) can authenticate. We poll
@@ -125,6 +177,8 @@ export function App(): React.JSX.Element {
       offStatus();
       offError();
       offResync();
+      offWarp();
+      offWarpRejected();
       window.clearInterval(tokenTimer);
       void client.stop();
     };
@@ -319,7 +373,48 @@ export function App(): React.JSX.Element {
         currentSystemId={client.currentSystemId}
         warpStore={warpStore}
         authToken={token}
+        callbacks={{
+          onWarp: (targetSystemId) => {
+            // Transition the warp machine synchronously so the
+            // overlay paints the streak immediately. The actual WS
+            // frame goes out after the 2 s warp-in so the player
+            // gets the full streak animation the spec calls for
+            // ("2 s in + network + 2 s out"). The chart's Warp
+            // button is disabled while a warp is in flight, so
+            // the user can't queue a second warp here.
+            warpStore.requestWarp(targetSystemId);
+            window.setTimeout(() => {
+              try {
+                client.sendWarp(targetSystemId);
+              } catch (err) {
+                // The chart only enables the Warp button while the
+                // client is online, but defensive: a mid-flight
+                // disconnect + reconnect race could fire `sendWarp`
+                // against a closed socket. Roll the machine back to
+                // `idle` + surface a toast so the player isn't left
+                // staring at a stuck "Warping…" badge.
+                warpStore.warpFailed(
+                  {
+                    code: "transport-error",
+                    message: (err as Error).message,
+                    targetSystemId,
+                  },
+                  Date.now(),
+                );
+                notifications.push({
+                  kind: "warp-failed",
+                  text: `Warp failed: ${(err as Error).message}`,
+                  ts: Date.now(),
+                });
+              }
+            }, 2_000);
+          },
+        }}
       />
+      {/* TASK-8: warp overlay. Mounted unconditionally so the
+          streak layer can drive the auto-complete timer without
+          racing the chart's open state. */}
+      <WarpOverlay warpStore={warpStore} />
       {/* TASK-17: "Connection lost" overlay. Renders when the
           DriftClient's retry budget is exhausted. The Retry button
           re-runs `start()` which re-claims a fresh token (the

@@ -14,7 +14,13 @@ import { PROTOCOL_VERSION } from "@shared/protocol/index.js";
 
 import type { Connection, ConnectionRegistry, WsConnectionState } from "./ws.connection.js";
 import { snapshotConnection } from "./ws.connection.js";
-import type { AuthResolver, JoinResolver, LogoutResolver, WsHandleOptions } from "./ws.js";
+import type {
+  AuthResolver,
+  JoinResolver,
+  LogoutResolver,
+  WarpResolver,
+  WsHandleOptions,
+} from "./ws.js";
 import {
   chatValidationMessage,
   chatWindowMessage,
@@ -358,6 +364,88 @@ export function onInput(conn: Connection, options: WsHandleOptions, payload: unk
       reason: result.reason,
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// onWarp — TASK-8 inter-system travel
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle a `warp { targetSystemId }` frame from a `joined`-state
+ * connection. The resolver does the actual work:
+ *
+ *   1. Validates the player + ship exist in the DB.
+ *   2. Flushes the source shard so the ship state survives the warp.
+ *   3. Computes the target's spawn gate (100 u along +X from the
+ *      target star, facing the star).
+ *   4. Updates the persisted ship row to the gate position.
+ *   5. Drops the connection from the source shard.
+ *   6. Spawns the target shard on demand and joins the connection.
+ *   7. Returns the canonical target-system snapshot.
+ *
+ * On success: send a `warp_arrived` frame with the snapshot. The
+ * connection's `systemId` is updated to the target so subsequent
+ * frames route through the new shard (TASK-12 wired
+ * `presenceBroadcaster` reads `conn.systemId` to decide who gets
+ * the broadcast).
+ *
+ * On rejection (resolver throws a tagged error): send a structured
+ * `error` frame with the resolver's code + message, restore the
+ * connection's `systemId` so a stray close hook doesn't drop the
+ * player twice, and stay connected so the player can pick a
+ * different target.
+ *
+ * The handler is intentionally tolerant of any
+ * `code: ...` string the resolver sets — a future TASK can
+ * introduce new rejection codes (e.g. `warp-busy` if a second
+ * warp races the first) without a dispatch table update.
+ */
+export async function onWarp(
+  conn: Connection,
+  warpResolver: WarpResolver,
+  _options: WsHandleOptions,
+  payload: unknown,
+): Promise<void> {
+  if (conn.callsign === null) {
+    sendError(conn, "unauthenticated", "warp requires prior auth");
+    return;
+  }
+  if (conn.systemId === null) {
+    sendError(conn, "unauthenticated", "warp requires a joined system");
+    return;
+  }
+  const warp = payload as { targetSystemId: string };
+  const targetSystemId = warp.targetSystemId;
+  const fromSystemId = conn.systemId;
+
+  try {
+    const result = await warpResolver(targetSystemId, conn.callsign, conn.connId, fromSystemId);
+    conn.systemId = result.systemId;
+    sendFrame(conn, "warp_arrived", {
+      targetSystemId: result.targetSystemId,
+      systemId: result.systemId,
+      entities: result.entities,
+      nodes: result.nodes,
+      chat: result.chat,
+      players: result.players,
+      serverTickHz: result.serverTickHz,
+      snapshotTick: result.snapshotTick,
+    });
+  } catch (err) {
+    // Resolver throws tagged errors so we can pick the right code.
+    // Default to `system-not-found` so an un-tagged throw doesn't
+    // silently 200 — the client gets a structured error either way.
+    const code = (err as { code?: string }).code ?? "system-not-found";
+    // Leave `conn.systemId` as it was so any later `leaveSystem`
+    // hook (TASK-12 connection-close) operates on the correct
+    // shard. For same-system rejections we already left the
+    // source; for un-found-system rejections we never moved; for
+    // target-full rejections the resolver rolls back the
+    // persisted row. Either way `fromSystemId` is the truth.
+    conn.systemId = fromSystemId;
+    sendError(conn, code, (err as Error).message ?? "warp failed");
+  }
+  void _options;
 }
 
 // ---------------------------------------------------------------------------
