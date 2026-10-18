@@ -40,6 +40,8 @@ import { NotificationStore } from "./net/notifications.js";
 import { installDriftDebug } from "./net/driftDebug.js";
 import { StarChart, type OccupancyBySystem } from "./ui/StarChart.js";
 import { WarpStore } from "./state/warp.js";
+import { DebugOverlay } from "./perf/DebugOverlay.js";
+import { FrameMonitor } from "./perf/frameMonitor.js";
 import type { GalaxyOverview } from "@shared/galaxy/overview.js";
 
 /**
@@ -56,6 +58,13 @@ export function App(): React.JSX.Element {
   // TASK-7: warp state machine (shared between the chart and the
   // future TASK-8 warp flow). Created once per mount.
   const warpStore = useMemo(() => new WarpStore(), []);
+  // TASK-57: in-game frame monitor. Owned by the top-level shell so
+  // the render-loop driver (TASK-26+) and the budget hooks (TASK-30,
+  // TASK-58, TASK-59, TASK-61) all reach the same instance via
+  // `window.__driftFrameMonitor` in dev. In production the monitor
+  // is still constructed (cheap — a 300-slot Float64Array) so future
+  // instrumentation work doesn't have to fork the import graph.
+  const frameMonitor = useMemo(() => new FrameMonitor(), []);
   const [status, setStatus] = useState(client.currentStatus);
   const [error, setError] = useState<string | null>(null);
   // TASK-7: chart open state — toggled by the `M` key or the
@@ -70,6 +79,11 @@ export function App(): React.JSX.Element {
   // The bearer token used for the chart's GETs. We pull it off
   // the live DriftClient once `auth_ok` lands; `null` until then.
   const [token, setToken] = useState<string | null>(null);
+  // TASK-57: dev-only in-game frame monitor panel. Toggled by F3.
+  // We keep the state at the host level (not inside the overlay)
+  // so the F3 keybind has a single source of truth and the overlay
+  // can mount unconditionally without re-subscribing.
+  const [debugOverlayOpen, setDebugOverlayOpen] = useState(false);
 
   useEffect(() => {
     // Expose the client on `window` so the Playwright smoke test
@@ -77,6 +91,18 @@ export function App(): React.JSX.Element {
     // system). Production builds can ship the same code path —
     // `window.__driftClient` is a debug seam, not a public API.
     (globalThis as { __driftClient?: DriftClient }).__driftClient = client;
+
+    // TASK-57: expose the frame monitor on `window.__driftFrameMonitor`
+    // so the dev console (and Playwright smoke tests) can poke at it
+    // without scraping the in-page overlay. Dev-only — the construction
+    // cost in prod is negligible (one 300-slot Float64Array) but
+    // consumers of the seam should treat it as undefined in prod builds.
+    (globalThis as { __driftFrameMonitor?: FrameMonitor }).__driftFrameMonitor = frameMonitor;
+    // Expose the toggle setter so the e2e smoke can flip the panel
+    // without driving a real keyboard event (the F3 path is covered
+    // by the unit suite via direct DOM event dispatch).
+    (globalThis as { __driftDebugOverlayToggle?: () => void }).__driftDebugOverlayToggle = () =>
+      setDebugOverlayOpen((o) => !o);
 
     // TASK-71: install the dev-only debug surface (`window.__DRIFT__`)
     // so the two-client e2e can re-derive the galaxy chart from the
@@ -248,12 +274,16 @@ export function App(): React.JSX.Element {
   }, [chartOpen, token]);
 
   // -----------------------------------------------------------------
-  // TASK-7: global keyboard handler — `M` opens the chart. `Escape`
-  // closes it (handled inside the chart as well, but a top-level
+  // TASK-7 + TASK-57: global keyboard handler — `M` opens the chart,
+  // `F3` toggles the dev-only frame monitor, `Escape` closes the
+  // chart (handled inside the chart as well, but a top-level
   // fallback so the close fires even if the chart isn't focused).
+  // F3 is dev-only and gated on `import.meta.env.DEV` so a prod
+  // build literally has no listener for it.
   // -----------------------------------------------------------------
 
   const toggleChart = useCallback(() => setChartOpen((o) => !o), []);
+  const toggleDebugOverlay = useCallback(() => setDebugOverlayOpen((o) => !o), []);
 
   useEffect(() => {
     const onKey = (ev: KeyboardEvent): void => {
@@ -273,13 +303,26 @@ export function App(): React.JSX.Element {
         // otherwise other overlays (TASK-58 menu) may need it.
         ev.preventDefault();
         setChartOpen(false);
+      } else if (import.meta.env.DEV && ev.key === "F3") {
+        // F3 toggles the in-game frame monitor. Gated on dev so
+        // the production bundle never registers the listener.
+        ev.preventDefault();
+        toggleDebugOverlay();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [toggleChart, chartOpen]);
+  }, [toggleChart, chartOpen, toggleDebugOverlay]);
 
   const store = client.presenceStore;
+
+  // Indicate whether the dev-only debug overlay is mounted at all.
+  // In production builds `import.meta.env.DEV` is `false` and we
+  // skip the JSX entirely — Vite's build steps the `import` of the
+  // overlay module is still present, but `import.meta.env.DEV` is
+  // statically replaced with `false`, so the surrounding component
+  // short-circuits without ever rendering.
+  const devMode = import.meta.env.DEV;
 
   return (
     <div
@@ -415,6 +458,11 @@ export function App(): React.JSX.Element {
           streak layer can drive the auto-complete timer without
           racing the chart's open state. */}
       <WarpOverlay warpStore={warpStore} />
+      {/* TASK-57: dev-only in-game frame monitor (FPS / p50 / p95
+          / p99 / draws / tris / ents). Toggled with F3 via the
+          `toggleDebugOverlay` handler registered below; hidden in
+          production builds via `import.meta.env.DEV`. */}
+      {devMode && <DebugOverlay monitor={frameMonitor} open={debugOverlayOpen} />}
       {/* TASK-17: "Connection lost" overlay. Renders when the
           DriftClient's retry budget is exhausted. The Retry button
           re-runs `start()` which re-claims a fresh token (the

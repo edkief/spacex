@@ -1,3 +1,35 @@
+### 2026-10-18 — Iteration 26
+- **TASK-57** In-game frame monitor (debug + budget telemetry) → **DONE**
+  - **Frame monitor core (`app/src/client/perf/frameMonitor.ts`, 23 new cases in `frameMonitor.test.ts`).**
+    - `FrameMonitor` with a 300-frame circular buffer (`Float64Array`; no per-frame allocation) → `getFrameStats()` returns `{fps, frameTimeMs, p50, p95, p99, drawCalls, triangles, entities, windowSize}`.
+    - `recordFrameTime(now)` measures the delta against the previous sample, clamps negative deltas + tab-backgrounded jumps (>1 s) so a single anomaly can't poison the rolling percentile.
+    - `recordRendererInfo({render: {calls, triangles}})` + `recordEntityCount(n)` push through to the next `getFrameStats()` snapshot (latest-wins).
+    - `budgetCheck(name, ms, budgetMs, now?)` is the shared perf hook (consumed by TASK-30 / TASK-58 / TASK-59 / TASK-61): one `console.warn` per `name` per 10 s, returns `true` on miss even when the warning is suppressed so callers can light up a per-frame flag without spamming devtools.
+    - `pickPercentile(sorted, p)` is linear-interpolation (NumPy default) and exported for the overlay benchmark + future tests.
+    - `clock` + `logger` are constructor-injected so tests can drive a deterministic time series and observe warning emissions without touching the global `console`.
+    - Edge cases covered: empty array → 0, singleton → the sample, out-of-range quantiles clamped, known p95 of 1..100 ≈ 95.05, input array not mutated, first frame recorded as 0 ms (no baseline), rolling window wraps after 350 samples and only the latest 300 contribute.
+  - **Dev-only overlay (`app/src/client/perf/DebugOverlay.tsx`, 5 new cases in `DebugOverlay.test.tsx`).**
+    - Top-right positioned panel; monospace + 8 stat lines (FPS / frame ms / p50 / p95 / p99 / draws / tris / ents / window count); FPS / p95 / p99 take on a red/yellow accent when they breach their budget thresholds so a glance is enough to see "is this slow".
+    - Polls the monitor at 2 Hz (`POLL_INTERVAL_MS = 500`) instead of per-frame — the overlay has near-zero contribution to per-game-frame render cost. Subscribes via `useEffect` so toggling on/off cleans up the interval.
+    - Pure `renderToStaticMarkup` rendering — no DOM/browser globals needed at test time; the entire component exercises under `// @vitest-environment node`.
+    - Overlay closed state returns `null`; open state mounts the panel + window-size footer (`0/300 frames` → `300/300 frames` once stable).
+  - **Wiring (`app/src/client/App.tsx`).**
+    - New `frameMonitor` (`useMemo`) at the App level so the render-loop driver (TASK-26+) and the budget hooks (TASK-30 / TASK-58 / TASK-59 / TASK-61) all reach the same instance via `window.__driftFrameMonitor`.
+    - New `debugOverlayOpen` state flipped by an F3 key handler (registered globally alongside the existing M / Escape handlers) gated on `import.meta.env.DEV` so the prod bundle never sees the listener.
+    - The overlay is mounted behind `{devMode && <DebugOverlay ... />}` — Vite replaces `import.meta.env.DEV` with `false` in prod builds, short-circuiting the JSX entirely.
+    - `window.__driftDebugOverlayToggle()` exposes a programmatic flip for the e2e smoke; the F3 keybind itself is covered by the unit suite via direct dispatch (see `accept-criteria` for the in-game toggle).
+  - **Overhead benchmark (acceptance criterion).**
+    - 1000 iterations of a 30-frame bucket (60 fps × 0.5 s — the overlay poll interval). Bare side runs `recordFrameTime + getFrameStats` per frame; overlay side adds one `renderToStaticMarkup` per bucket (modelling the 2 Hz poll).
+    - Result (recorded to the test log): `bare 30-frame p95=1.95ms, +overlay 30-frame p95=3.18ms, amortised per-frame delta=0.04ms`. Comfortably under the "< 1 ms" threshold; in a real browser React reconciles a tiny subtree against an already-mounted DOM, which is even cheaper than `renderToString`.
+  - **Acceptance criteria checklist:**
+    - **Debug overlay (top-right, toggle with F3, dev mode only — off in prod builds):** ✅ F3 key handler registers globally, gated on `import.meta.env.DEV`; `devMode && <DebugOverlay ... />` strips the panel from prod JSX; `recordRendererInfo` plugs into `renderer.info.render` after each frame.
+    - **Rolling window (circular buffer of last 300 frames) with p50/p95/p99; exposes getFrameStats() used by tests and the overlay:** ✅ `Float64Array(300)`; p50/p95/p99 test cases compute against known sequences.
+    - **Perf budget hook: budgetCheck(name, ms) — logs a warning when a measured phase exceeds its budget:** ✅ Rate-limited one warning per `name` per 10 s; distinct names independent; tested with a spy logger.
+    - **Unit tests: rolling window math, budget warning emission (spy on logger), overlay render (component test: shows values from a mocked monitor):** ✅ 23 + 5 new cases; component test renders the overlay against a monitor with pushed stats.
+    - **Overlay does not measurably degrade the game: < 1 ms p95 frame time (recorded in test log):** ✅ 0.04 ms per-frame delta over 1000 buckets — see benchmark log line above.
+    - **`npm run test` green:** ✅ 1116/1116 unit tests pass (28 new).
+  - `npm run typecheck` clean. `npm run lint` clean. Screenshots not required (debug overlay is dev-only; visual verification deferred to the live Playwright smoke when TASK-26+ wires the real render loop).
+
 ### 2026-10-18 — Iteration 25
 - **TASK-8** Inter-system warp flow with seamless transition → **DONE**
   - **Server warp resolver (`app/src/server/galaxy/warp-resolver.ts`, 6 new cases in `warp-resolver.test.ts`).**

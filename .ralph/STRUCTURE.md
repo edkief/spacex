@@ -118,6 +118,11 @@ PROJECT_ROOT
 │   │   │   │   ├── ShipMeshBuilder.ts      # PaintZone enum + ShipPaintRegistry + MaterialAdapter interface + defaultLiveryFor + in-memory test adapter
 │   │   │   │   ├── threeAdapter.ts          # three.js-backed MaterialAdapter factory (mutates Color in place)
 │   │   │   │   └── ShipMeshBuilder.test.ts  # 24 cases: zone enumeration, defaults, idempotent build, in-place applyLivery, disposeShip/disposeAll
+│   │   │   ├── perf/            # In-game frame monitor + dev-only overlay (TASK-57) — 300-frame circular buffer + 2 Hz overlay poll
+│   │   │   │   ├── frameMonitor.ts          # FrameMonitor class: recordFrameTime + recordRendererInfo + recordEntityCount + budgetCheck(name, ms, budgetMs, now?) rate-limited warn hook + pickPercentile helper
+│   │   │   │   ├── frameMonitor.test.ts     # 23 cases: percentile math, rolling window wrap, FPS over 1 s, budget emission + cooldown, latest-wins renderer info, console-backed default logger
+│   │   │   │   ├── DebugOverlay.tsx         # Dev-only top-right React panel; 2 Hz poll via setInterval; FPS/p50/p95/p99/draws/tris/ents rows with budget-threshold accents; F3-toggled via App.tsx
+│   │   │   │   └── DebugOverlay.test.tsx    # 5 cases: closed returns null, every labelled row renders, stats reflect monitor snapshot, formatter shapes, overhead benchmark (< 1 ms p95 delta amortised)
 │   │   │   ├── index.html       # Vite HTML entry
 │   │   │   ├── main.tsx         # React DOM bootstrap
 │   │   │   └── public/          # Static assets served by Vite (favicon.ico)
