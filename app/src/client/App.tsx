@@ -35,6 +35,12 @@ import { ToastStack } from "./components/ToastStack.js";
 import { ChatLog } from "./components/ChatLog.js";
 import { CanvasStage } from "./components/CanvasStage.js";
 import { WarpOverlay } from "./components/WarpOverlay.js";
+import { AtmosphereOverlay } from "./components/AtmosphereOverlay.js";
+import { ReentryOverlay } from "./components/ReentryOverlay.js";
+import {
+  currentAtmosphereStateProvider,
+  installAtmosphereTestHook,
+} from "./components/AtmosphereState.js";
 import { DriftClient } from "./net/wsClient.js";
 import { NotificationStore } from "./net/notifications.js";
 import { installDriftDebug } from "./net/driftDebug.js";
@@ -110,6 +116,13 @@ export function App(): React.JSX.Element {
     // (`net/driftDebug.ts`) is tree-shaken from production builds by
     // an `import.meta.env.DEV` guard — never installed outside dev.
     installDriftDebug();
+    // TASK-28: install the atmosphere test hook so the dev console
+    // (and Playwright smoke tests) can drive the haze + re-entry
+    // transitions without a live ship state. Dev-only — the seam is
+    // a thin facade on `globalThis.__driftAtmosphereState`.
+    if (import.meta.env.DEV) {
+      installAtmosphereTestHook();
+    }
 
     const offStatus = client.onStatusChange((next) => {
       setStatus(next);
@@ -335,6 +348,16 @@ export function App(): React.JSX.Element {
       }}
     >
       <CanvasStage />
+      {/* TASK-28: atmosphere haze overlay (skybox → planet transition).
+          Reads the same `boundaryFactor` as the physics drag ramp, so
+          the visual and physical boundaries cannot desync. The provider
+          defaults to `null` (no planet in range) so the overlay is
+          invisible until the dev hook or a future ship-state wiring
+          pushes a real snapshot. */}
+      <AtmosphereOverlay provider={currentAtmosphereStateProvider} />
+      {/* TASK-28: orange re-entry rim. Cosmetic only; fires when descent
+          > REENTRY_DESCENT_SPEED_U_S (200 u/s) inside the boundary band. */}
+      <ReentryOverlay provider={currentAtmosphereStateProvider} />
       <header
         data-testid="drift-header"
         style={{

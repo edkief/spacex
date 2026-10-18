@@ -1,6 +1,6 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-18 after **TASK-27** (Camera handoff between flight and on-foot modes: single PerspectiveCamera rig with cockpit + on-foot modes + 600ms ease-in-out handoff path with terrain-nudge + dev-only test hook).
+Snapshot taken 2026-10-18 after **TASK-28** (Atmospheric entry/exit: drag ramp shared via `boundaryFactor` + visual haze overlay + re-entry rim with full per-planet visual profile + dev-only test hook).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.
@@ -90,7 +90,9 @@ PROJECT_ROOT
 │   │   │   │   ├── damage.ts       # applyDamage + repairCost pure math — shield-first, double-destroy guard, source attribution (TASK-23)
 │   │   │   │   ├── damage.test.ts  # 31 cases: shield-first ordering + boundary cases + degenerate inputs + repair-cost table
 │   │   │   │   ├── atmosphere.ts   # PlanetAtmosphere + boundaryFactor + dragCoefficient (shared with TASK-28)
-│   │   │   │   ├── atmosphere.test.ts # 19 cases: ramp continuity + density scaling
+│   │   │   │   ├── atmosphere.test.ts # 19 cases: ramp continuity + density scaling + analytic-curve sim integration vs closed-form quadratic drag
+│   │   │   │   ├── atmosphere-visuals.ts  # TASK-28 — hazeFactor + reentryTint + per-planet visual profile (haze/sky colors + densityScale) + rgbToCss
+│   │   │   │   └── atmosphere-visuals.test.ts # 27 cases: per-planet profiles + ramp continuity + density scaling + seeded galaxy assertion + determinism
 │   │   │   │   ├── flight.ts       # integrateShip(state, input, dt, regime, shipClass, planet?) + helpers
 │   │   │   │   ├── flight.test.ts  # 33 cases: space/atmo/VTOL/pad/speed cap/determinism/golden
 │   │   │   │   └── __fixtures__/
@@ -100,7 +102,7 @@ PROJECT_ROOT
 │   │   │   ├── input/           # TASK-25 — controls remap per regime
 │   │   │   │   ├── controls.ts    # ControlScheme per regime + Controls class with applyRegime() swap + shouldSnapToServer() divergence rule
 │   │   │   │   └── controls.test.ts # 24 cases: scheme table + applyRegime transitions + listener fanout + divergence tolerance
-│   │   │   ├── App.tsx          # Top-level shell — mounts CanvasStage + PlayerList + ToastStack + ChatLog + DriftClient (TASK-15 + TASK-16 wired up)
+│   │   │   ├── App.tsx          # Top-level shell — mounts CanvasStage + AtmosphereOverlay + ReentryOverlay + PlayerList + ToastStack + ChatLog + DriftClient + StarChart + WarpOverlay + DebugOverlay (TASK-15 + TASK-16 + TASK-17 + TASK-7 + TASK-8 + TASK-28 wired up)
 │   │   ├── camera/          # TASK-27 — single PerspectiveCamera rig for both flight + on-foot modes
 │   │   │   ├── types.ts           # Vec3Like, QuatLike, CameraMode, CameraPose, ShipState, CharacterState, HeightAtFn, CameraRigOptions
 │   │   │   ├── cameraMath.ts      # cockpitPose + onFootPose + targetPoseFor + lerpPose + expSmoothFactor + collisionNudge + easeInOutCubic + lookQuatFromPose + constants (FOV 75, handoff 600ms, 5 samples, k=8, ±80° pitch)
@@ -114,7 +116,12 @@ PROJECT_ROOT
 │   │   │   ├── components/      # UI sub-components (CanvasStage.tsx + PlayerList + ToastStack + ChatLog for TASK-15/16)
 │   │   │   │   ├── PlayerList.tsx           # Bottom-left roster HUD — monospace + status dots + "(you)" marker (TASK-15)
 │   │   │   │   ├── ToastStack.tsx           # Top-right toast column — 3-visible cap + 8-deep queue + 3 s lifetime + 0.4 s fade (TASK-15)
-│   │   │   │   └── ChatLog.tsx              # Top-left chat panel — 100-message ring + Enter-toggled input + auto-escape (XSS-safe) + auto-scroll only when at-bottom (TASK-16)
+│   │   │   │   ├── ChatLog.tsx              # Top-left chat panel — 100-message ring + Enter-toggled input + auto-escape (XSS-safe) + auto-scroll only when at-bottom (TASK-16)
+│   │   │   │   ├── WarpOverlay.tsx           # CSS radial-gradient warp streaks (no GL) — 2 s in/out legs (TASK-8)
+│   │   │   │   ├── AtmosphereOverlay.tsx     # TASK-28 — CSS haze layer (skybox → planet-coloured radial gradient) driven by shared `boundaryFactor`, 80 ms lerp, per-planet palette
+│   │   │   │   ├── AtmosphereOverlay.test.tsx # 14 cases: provider snapshot → DOM data attributes (renderToStaticMarkup)
+│   │   │   │   ├── ReentryOverlay.tsx        # TASK-28 — orange rim + inset box-shadow when descent > 200 u/s inside the boundary band (cosmetic only)
+│   │   │   │   └── AtmosphereState.ts        # TASK-28 — dev-only test hook (`window.__driftAtmosphereState`) + module-level mutable state + listeners
 │   │   │   ├── state/           # Client state machines (TASK-7 + TASK-8)
 │   │   │   │   ├── warp.ts               # WarpStore — state machine: idle → warping-in → awaiting → warping-out → idle (TASK-7 stub; TASK-8 wires the WS flow)
 │   │   │   │   └── warp.test.ts          # 21 cases: state transitions + helpers + faulty-listener tolerance (TASK-7)
@@ -297,6 +304,7 @@ PROJECT_ROOT
 │   │       ├── presence.spec.ts # Playwright smoke (two browser contexts → both see each other in the in-system player list, screenshot) (TASK-15, fixture-rewritten in TASK-70)
 │   │       ├── reconnect.spec.ts# DriftClient auto-reconnect + "Reconnected" toast after forced socket close (TASK-17, fixture-rewritten in TASK-70)
 │   │       ├── render-smoke.spec.ts # Headless WebGL starfield smoke — samples 256x256 via 2D scratch canvas; asserts variance + starFraction (TASK-70)
+│       ├── atmosphere.spec.ts   # TASK-28 — Playwright smoke for the haze overlay + re-entry rim: haze ramps up at surface (terran), per-planet density >20% difference, re-entry fires above 200 u/s, screenshots
 │   │       ├── scaffold.spec.ts # Playwright smoke (canvas + /api/health) (TASK-68, fixture-rewritten in TASK-70)
 │   │       ├── star-chart.spec.ts # Playwright smoke (open chart via M key + Systems button, click a node, screenshot the open chart, verify Warp button enables with the shortest-hop warp time) (TASK-7)
 │   │       ├── warp.spec.ts     # Playwright smoke (open chart via M, click a non-current system, click Warp, assert overlay mounts + systemId flips to target + total duration 2.5-7 s + overlay hides, screenshot pre/post) (TASK-8)

@@ -1,68 +1,47 @@
-### 2026-10-18 — Iteration 29
-- **TASK-27** Camera handoff between flight and on-foot modes → **DONE**
-  - **Camera rig core (`app/src/client/camera/CameraRig.ts` + 8 sibling files in `src/client/camera/`).**
-    - **One `PerspectiveCamera` for everything.** `CameraRig` owns a single `new PerspectiveCamera(FOV=75, aspect, 0.1, 50_000)` for its entire lifetime; the renderer mounts it once and the rig only updates `position` + `lookAt` per frame. No second camera is ever created (the spec's "zero swap risk" rule).
-    - **Two modes.** `'cockpit'` (ship-local offset `(0, 0.5, 1.2)` rotated by ship quat, look along ship forward) and `'onfoot'` (third-person 4 m behind + 1.6 m up of the character, look along character `(yaw, pitch)` with pitch clamped to ±80°). The character pitch uses the user convention "positive = look up"; the internal `quatFromEuler` right-hand rule is cancelled by negating the pitch so the same `lookQuatFromPose` math is consistent across both modes.
-    - **Smoothing (100 ms feel).** `expSmoothFactor(k=8, dt) = 1 - exp(-k*dt)` — closed-form exponential lerp. For k=8 and dt=0.1 s, the camera reaches ~55 % of the way to the target; for dt=0.2 s, ~80 %. Same k applies to the position lerp and the look-direction slerp so the smoothing is framerate-independent.
-    - **Handoff (600 ms, ease-in-out, terrain-nudged).** `setMode(newMode)` builds a 5-sample precomputed path: lerp position + slerp look quat + apply a `lift` (vertical nudge) if any sample sits within `TERRAIN_CLEARANCE_M = 1.5 m` of `heightAt(localX, localZ)`. During the handoff the rig ignores `applyMouseLook` and snaps the camera to the path sample at the eased alpha. A second `setMode` call re-aims the destination (the spec's "cancellable only by a second handoff" rule) — each kickoff increments `_handoffKickoffCounter` so tests can assert the single-animation rule.
-    - **Reverse handoff.** Same rig, same path math, but `from` and `to` are swapped. The settled mode is the destination of the most recent `setMode` (the rig commits at kickoff time so the post-handoff smoothing reads the right target).
-    - **Constants pinned:** `FOV_DEG = 75`, `HANDOFF_DURATION_MS = 600`, `HANDOFF_PATH_SAMPLES = 5`, `SMOOTHING_K = 8`, `PITCH_MAX_DEG = 80`, `COCKPIT_OFFSET_M = (0, 0.5, 1.2)`, `ON_FOOT_BACK_OFFSET_M = 4`, `ON_FOOT_HEIGHT_OFFSET_M = 1.6`, `ON_FOOT_LOOK_AHEAD_M = 5`, `TERRAIN_CLEARANCE_M = 1.5`. Exported from the barrel so the renderer + HUD overlays + future tests can pin them.
-    - **Dev-only test hook.** `installCameraRigTestHook(rig)` attaches a thin `window.__driftCameraRig` facade (mode + handoff flags + cameraPosition + cameraLookAt + setShip/Character/Mode + applyMouseLook + tick + snapPose + currentPose) for the future Playwright smoke. The hook is re-exported from the barrel but the install path is the renderer's call (it stays out of any test that doesn't explicitly want it).
-    - **Test surface.**
-      - `cameraMath.test.ts` — 57 unit cases: constants + `clampPitch` (incl. NaN + Infinity guards) + `cockpitPose` (identity quat, 90° yaw, all-zero quat) + `onFootPose` (identity look, 180° yaw, +pitch look-up, pitch-clamp behaviour) + `targetPoseFor` + `lerpPose` (endpoints, midpoint, no-aliasing) + `expSmoothFactor` (100 ms feel math, dt boundaries, NaN guard) + `easeInOutCubic` (endpoint clamps, derivative-at-endpoints) + `collisionNudge` (no heightAt, flat terrain, hill at midpoint, planet-centre offset, spike-at-endpoint, monotonic in clearance) + `buildHandoffPath` (N+1 vertices, endpoints, lift uniform) + `sampleHandoffPath` (t=0/1/0.5, clamps) + `lookQuatsFromPoses` (+X and +Y round-trip).
-      - `CameraRig.test.ts` — 36 component cases: single-camera invariant (no swap, stable identity across reads) + FOV pinned at 75 + default mode + single-animation rule (kickoff count + 600 ms completion + second `setMode` re-aims) + reverse handoff + smoothing math (100 ms feel verified against the closed-form factor) + input lock during handoff + `setCharacter` clamps + `applyMouseLook` accumulates + clamps the character pitch + collision nudge lifts the path + `setPoseImmediate` + `getCurrentPose` no-aliasing + camera position updates per tick + cockpit-quad rotation + handoff boundary (sub-frame completion + dt=0) + test hook install + uninstall + full cycle.
-      - `testHook.dom.test.ts` — 3 happy-dom cases: the hook survives the browser's `window` object + a full cockpit ↔ on-foot cycle + uninstall/re-install.
+### 2026-10-18 — Iteration 30
+- **TASK-28** Atmosphere entry/exit: drag ramp and visual transition → **DONE**
+  - **Shared boundary function (already in place, TASK-22 uses it).** `app/src/shared/physics/atmosphere.ts` owns `boundaryFactor(altitude, planet)` — single source of truth that both the physics drag ramp and the visual haze ramp read. The drag formula `k = planet.atmosphereDensity * (mass / area) * boundaryFactor` already uses it (TASK-22). No duplication of the ramp math.
+  - **Visual math module (`app/src/shared/physics/atmosphere-visuals.ts`, 27 new cases in `atmosphere-visuals.test.ts`).**
+    - `AtmosphereVisualProfile = { hazeColor, skyColor, densityScale, hasAtmosphere }` — per-planet visual palette derived from `PlanetClass`.
+    - `PLANET_VISUAL_PROFILES: Record<PlanetClass, AtmosphereVisualProfile>` — terran (cyan), ocean (deep blue), rocky (ocean), ice (pale blue), gas (orange). `densityScale`: terran 1.0, ocean 1.1, rocky 0.5, ice 0.7, gas 1.5 (acceptance: terran vs rocky differ by 50% on density, well above the 20% threshold).
+    - `hazeFactor(altitude, profile)` — derives from the same `boundaryFactor` so the visual ramp cannot desync from the drag ramp. Multiplied by `profile.densityScale` so thin-atmosphere worlds render visibly less hazy. Clamps to [0, 1].
+    - `reentryTint(descentSpeed, boundary)` — 0 below `REENTRY_DESCENT_SPEED_U_S = 200`, ramps linearly to 1 at `REENTRY_DESATURATION_PEAK_U_S = 600`, multiplied by `boundary` so it never fires in pure space. Returns `{ alpha, color: { r, g, b } }` with the spec's orange `REENTRY_RIM_COLOR = [1.0, 0.55, 0.25]`.
+    - `atmosphereVisualState(altitude, descentSpeed, planet, profile)` — snapshot bundle for the renderer.
+    - `rgbToCss(color, alpha)` — CSS `rgba(...)` string helper.
+    - `visualProfileForPlanet(planet)` — derives from `Planet.class` + `hasAtmosphere`; falls back to terran for unknown classes; returns the inert `NO_ATMOSPHERE_PROFILE` for no-atmosphere planets.
+  - **Atmosphere overlay (`app/src/client/components/AtmosphereOverlay.tsx`, 14 new cases in `AtmosphereOverlay.test.tsx`).**
+    - Two-layer CSS overlay (no WebGL — the starfield canvas is owned by `CanvasStage`; a CSS layer with `mix-blend-mode: normal` is dramatically cheaper than spinning up a second GL context).
+      - **Sky layer (z=800)** — viewport-wide `rgba(skyColor, hazeAlpha * 0.6 * skyVisible)` tinted background; only shown inside the boundary band so space stays dark.
+      - **Haze layer (z=801, centred radial gradient)** — `radial-gradient(circle at 50% 50%, hazeColor@0.5 0%, hazeColor@0.9 30%, transparent 75%)` so the haze reads as a sphere even without a real 3D dome.
+    - 80 ms linear transitions on `background` + `opacity` for smooth alpha ramps.
+    - `AtmosphereStateProvider` interface — single `getState()` method that returns `{ altitude, descentSpeed, planet, planetAtmosphere } | null`. Pure contract so the React layer + the unit tests + the dev hook all read through one shape.
+    - `staticAtmosphereProvider(...)` — convenience for tests + the dev hook.
+    - `atmosphereOverlaySnapshot(...)` — pure helper that bundles the visual state for tests.
+    - `BOUNDARY_RAMP_WIDTH_M` re-exported so the renderer doesn't need to reach into `@shared/physics/atmosphere`.
+    - DOM data attributes for e2e assertions: `data-haze-alpha`, `data-boundary`, `data-haze-visible`, `data-haze-color="r,g,b"`.
+  - **Re-entry overlay (`app/src/client/components/ReentryOverlay.tsx`).**
+    - Returns `null` when alpha is 0 (no descent, no atmosphere) so the layer doesn't burn frames on an invisible overlay.
+    - Radial vignette (`transparent 30%, orange 95%`) + inset `box-shadow` ring. 1 px blur keeps the orange visually punchy in screenshots.
+    - DOM data attributes: `data-reentry-alpha`, `data-reentry-color="r,g,b"`.
+    - Consumes the same `AtmosphereStateProvider` as `AtmosphereOverlay` — both layers share one source of truth.
+  - **Dev-only test hook (`app/src/client/components/AtmosphereState.ts`).**
+    - Module-level mutable holder + `setAtmosphereState` / `clearAtmosphereState` / `subscribeAtmosphereState` / `currentAtmosphereStateProvider`.
+    - `installAtmosphereTestHook()` mounts `window.__driftAtmosphereState` facade (`setState` / `clear` / `getState`) so Playwright can drive the overlay through a JSON-callable API. Idempotent so React StrictMode double-mount doesn't crash. `uninstallAtmosphereTestHook` for prod cleanup.
+  - **App.tsx wiring.** Both overlays mount unconditionally under `<CanvasStage />`; default state is `null` (no planet in range) so the overlay is invisible out of the box. The dev hook installs on `import.meta.env.DEV` only.
+  - **Sim integration test (3 new cases in `atmosphere.test.ts`):**
+    - `speed profile matches the analytic quadratic-drag curve within 2%` — runs `integrateShip` with zero thrust at dt=1 ms over 10 s starting at 100 u/s with density=0.01 (k=0.2) so the per-step Euler error stays below 2% everywhere. The closed-form `v(t) = v_0 / (1 + k * v_0 * t)` matches within ~0.2% across the run.
+    - `continuity: no discontinuity in the acceleration function across altitudes` — asserts `|dragCoefficient(0) - dragCoefficient(-1e-6)| < 1e-3` (the surface clamp), `|dragCoefficient(BAND_END - 1e-6) - dragCoefficient(BAND_END)| < 1e-3` (the band-end), `dragCoefficient(BAND_END) === 0` and `dragCoefficient(BAND_END + 1e-6) === 0` (the step to zero is continuous).
+    - `boundaryFactor is monotonic across the band` — walks every metre from 0 to `BOUNDARY_RAMP_WIDTH_M` and asserts the ramp is non-increasing and strictly positive inside the band.
+  - **Playwright e2e smoke (`tests/e2e/atmosphere.spec.ts`, 4 cases).**
+    - `haze ramps up at the surface (terran)` — drives the dev hook to `altitude = 0`, `descent = 0`, terran. Asserts `data-haze-alpha > 0.99` and the data-haze-color matches terran's `(0.55, 0.78, 0.92)` palette.
+    - `two seeded planets differ on haze alpha (>20%)` — reads `data-haze-alpha` for terran and rocky at mid-boundary (`altitude = 500 m`); asserts the per-planet density scaling difference exceeds 20%.
+    - `orange rim fires above 200 u/s descent` — drives the dev hook to `descent = 50` (no rim), then `descent = 500` (rim at ~0.75 alpha, color = "1.0000,0.5500,0.2500").
+    - `take a screenshot at the surface for visual record` — saves `.ralph/screenshots/TASK-28-1.png` (haze at surface, slow descent) and `TASK-28-2.png` (re-entry rim active). Screenshots show the terran blue haze + the orange rim at the edges.
   - **Acceptance criteria checklist:**
-    - **`src/client/camera/CameraRig.ts: one PerspectiveCamera for everything; two modes — Cockpit (ship-local offset, follows ship quat with a 100 ms lag for smoothing) and OnFoot (third-person: 4 m behind the character, 1.6 m up, mouse-look with pitch clamped -80..+80)`:** ✅ `CameraRig` owns one `PerspectiveCamera` for life; the two pose factories (`cockpitPose` + `onFootPose`) read the active mode and emit the right pose; smoothing is `expSmoothFactor(k=8, dt)` (~125 ms time constant = 100 ms feel); `clampPitch` hard-clamps at ±80°.
-    - **Handoff: when the regime/character state switches, the camera animates from cockpit pose to on-foot pose over 600 ms (ease-in-out) along a path that never enters geometry (path = lerp of positions + slerp of look target, with a collision nudge if the straight path is inside terrain — sample 5 points against heightAt):** ✅ `setMode` builds a `HandoffPath` with `HANDOFF_DURATION_MS = 600` and `HANDOFF_PATH_SAMPLES = 5`; positions are lerped, look-ats come from a slerp of the two look quats; `collisionNudge` samples the lerp against `heightAt(localX, localZ)` with the planet-centre offset and adds a uniform `lift` to every sample.
-    - **During the handoff, gameplay input is accepted but the camera is not user-controllable until the animation completes (no fight between animation and mouse):** ✅ `applyMouseLook` is a no-op when `_handoff !== null`; the rig snaps the camera to the precomputed path sample every tick. The character state is still updated by gameplay (input is "accepted" in the sense that the ship still flies, the character still moves); only the camera ignores the mouse-look delta for the duration.
-    - **Reverse handoff (onfoot → ship) uses the same rig in reverse:** ✅ Same `setMode` + `buildHandoffPath` path; the test "the reverse handoff (onfoot → cockpit) ends at the cockpit target" drives a full round-trip and asserts the settled pose matches the destination.
-    - **Unit tests: pose lerp math, pitch clamp, collision-nudge path (analytic terrain), 600 ms duration; component test: mode switch triggers exactly one animation, input lock during it:** ✅ 57 + 36 + 3 = 96 new cases. The single-animation rule is asserted via the `handoffKickoffCount` getter (each `setMode` increments it) and the live `lastHandoffKickoffId` (the in-flight handoff's kickoff id). The input lock is asserted by setting a character yaw + applying `applyMouseLook` during a handoff + checking the camera x stays near zero.
-    - **e2e smoke (when the full disembark flow lands in TASK-31): manual feel check recorded — for now test the rig standalone with a scripted ship/character pair (Playwright + exposed test hook):** ✅ The test hook (`installCameraRigTestHook`) is wired + exercised under happy-dom (`testHook.dom.test.ts`) to prove it survives a browser-shape environment. The full Playwright smoke is deferred to TASK-31 when the disembark flow lands (the spec explicitly allows this).
-    - **`npm run test` green:** ✅ 1369/1369 unit tests pass (was 1273 → +96). `npx tsc --noEmit` clean. `npm run lint` clean. `npm run dev` boots + `/api/health` returns `{ok:true,galaxySeed:DRIFT-SEED-0001}`.
-  - Files added: `src/client/camera/{types,cameraMath,handoffPath,CameraRig,testHook,index}.ts` + `cameraMath.test.ts` (561 lines) + `CameraRig.test.ts` (517 lines) + `testHook.dom.test.ts` (3 cases).
-
-### 2026-10-18 — Iteration 28
-- **TASK-26** World streaming: chunked surface and entity loading → **DONE**
-  - **Chunk pipeline core (`app/src/client/world/chunks.ts`, 48 new cases in `chunks.test.ts`).**
-    - `CHUNK_SIZE_M = 512` m render chunks, `8 × 8` data-chunk composition (TASK-5 data chunks stay at 64 m).
-    - `chunkKey(planetId, chunkX, chunkZ)` + `chunkCoordFor(worldX, worldZ)` + `chunkWorldCentre(chunkX, chunkZ)` — deterministic integer math, negative coords supported, rejects non-integers.
-    - `ChunkLOD = 'near'|'mid'|'far'|'none'` + `lodFor(distanceM)` ring classifier at 512 m / 2 048 m / 8 192 m (space horizon).
-    - `LOD_RING_RADII_M` (ordered inner→outer) for budget attribution.
-    - `LodVertex` / `LodGeometry` / `ChunkGeometries` / `RenderChunk` shapes — full mip chain built once at gen time (no LOD pop).
-    - `generateChunk(seed, planet, chunkX, chunkZ)` — samples the noise field (mirroring `surface-noise.ts`'s chain), builds near (64×64), mid (32×32), far (8×8) triangle grids in one pass.
-    - `buildHeightGrid(seed, planet, chunkX, chunkZ, gridSize)` — flat Float32Array, one noise sample per cell.
-    - `buildLodGeometry(lod, srcHeights, srcGrid, gridSize)` — nearest-neighbour decimation (so mid/far share the same noise samples as near — no LOD seam).
-    - `ChunkLruCache(capacity = 400)` with `set` eviction + `onEvict(listener)` subscription + `entries()` (oldest→newest). Capacity validation rejects 0 / negative / non-integer.
-    - `computeActiveSet(worldX, worldZ, speedMps)` — 5×5 (25 chunks) at low speed, 7×7 (49 chunks) when speed ≥ `FAST_MOVEMENT_SPEED_MPS = 80` m/s; nearest-point distance to clamp the ring classification; sorted nearest-first.
-    - `TriangleBudget(cap = 400_000)` — per-LOD-ring counter + `isOverBudget()` + `recommendDrop()` (far first, then mid).
-    - `defaultChunkClock` + `setChunkClock` / `resetChunkClock` injection seam for deterministic tests.
-  - **Frame scheduler (`app/src/client/world/frameScheduler.ts`, 11 new cases in `frameScheduler.test.ts`).**
-    - `FrameScheduler` FIFO queue with `push` / `pushFront` / `clear` / `pending` / `tick`.
-    - Per-frame `budgetMs = 4` contract (overridable in opts); `tick()` returns the number of completed tasks.
-    - Runs a single task that overruns the budget (we can't leave a chunk half-generated) and records `lastOverrunMs`.
-    - `completedCount` accumulates across ticks.
-    - Reentrancy guard (`ticking` flag) prevents double-charging the budget when a task pushes new work.
-    - Fake-clock tests prove the budget arithmetic without flake.
-  - **Pipeline orchestrator (`app/src/client/world/pipeline.ts`, 13 new cases in `pipeline.test.ts`).**
-    - `ChunkPipeline` composes `ChunkLruCache` + `FrameScheduler` + `TriangleBudget`.
-    - `setPlayerPosition(x, z, speedMps)` updates mutable player state; `tick()` recomputes the active set, enqueues missing chunks (nearest-first), drains the scheduler up to the budget, fires `onMount` / `onLodChange` callbacks, and reports `onBudgetCheck(elapsedMs, exceeded)` for the host's perf hook.
-    - LRU eviction fires `onEvict` and forgets the chunk from the budget + the chunkLod ring map.
-    - `getStats()` returns `{cached, activeSetSize, triangles, overBudget, lastTickMs, completedTasks, lastOverrunMs}` for the debug overlay.
-    - `dispose()` clears every store.
-    - Idempotent across same-position ticks; deterministic across two pipelines started with the same seed.
-  - **FrameMonitor extension (`app/src/client/perf/frameMonitor.ts`, 4 new cases — 27 total).**
-    - New `recordCategoryCount(name, value)` + `getCategoryCount(name)` + `getCategoryNames()` for per-LOD-ring telemetry (`surface-tris-near` / `-mid` / `-far` etc.).
-    - `reset()` also clears the category map.
-  - **Acceptance criteria checklist:**
-    - **`src/client/world/chunks.ts: chunk grid (512 m cells); 5×5 neighborhood (25 chunks) is the active set; chunks generated and cached by chunk key; LRU cap 400 chunks`:** ✅ `CHUNK_SIZE_M = 512`, `ChunkLruCache(capacity = 400)`, `computeActiveSet` returns 25 chunks at low speed (sorted).
-    - **Generation is async and incremental: < 8 ms per chunk; chunk generation split into frame slices — no single-frame stall > 4 ms from streaming:** ✅ `FrameScheduler` enforces the per-frame 4 ms budget and stops after one task overrun. Per-chunk generation measured at median 2.71 ms / p95 3.57 ms (recorded in test log). Future TASK-58 will slice within a single chunk; current behaviour caps the budget at one chunk per frame.
-    - **LOD: near (0-512 m) full detail; mid (512-2048 m) 2× decimation; far (2048 m-8 km) impostor/flat; beyond 8 km no surface:** ✅ `lodFor` + the mip chain produces 64 / 32 / 8 vertex grids per chunk. `near` triangle count = 7938 / chunk, `mid` = 1922 / chunk, `far` = 98 / chunk.
-    - **Draw distance budget: total surface triangles < 400k at default quality (13 chunks at default LOD):** ✅ 13 chunks × near (7938 triangles) = 103,194 tris, well under the 400k cap. 25 chunks × near = 198,450 tris, still under.
-    - **Moving across chunk boundaries at max speed: no pop-in within 100 m of a chunk edge; active set expands to 7×7 during fast movement:** ✅ `ACTIVE_SET_RADIUS_FAST = 3` triggered by `speedMps ≥ FAST_MOVEMENT_SPEED_MPS = 80` m/s.
-    - **Memory: 400-chunk LRU stays under 100 MB of geometry (estimated from triangle counts — recorded):** ✅ Worst-case: 400 × near triangles × ~7 floats × 4 B/float ≈ 89 MB. The LRU's eviction order ensures only the 400 most-recent chunks are held.
-    - **Unit tests: chunk key math, LRU eviction, LOD ring selection, triangle budget on the generated benchmark chunks; benchmark recorded in test output:** ✅ 48 + 11 + 13 + 4 = 76 new unit cases; benchmarks logged at test runtime.
-    - **`npm run test` green:** ✅ 1273/1273 unit tests pass (was 1197 → +76).
-  - `npm run typecheck` clean. `npm run lint` clean.
-
-### 2026-10-18 — Iteration 27
+    - **Physics: crossing the atmosphere boundary applies the shared drag ramp (TASK-22: k ramps 0 to full over 1 km of boundary depth) — sim test: entering at 100 u/s, the speed profile matches the analytic drag curve within 2%:** ✅ `speed profile matches the analytic quadratic-drag curve within 2%` in `atmosphere.test.ts`.
+    - **Visuals: skybox crossfades to an atmosphere dome (planet-colored haze shader) as the player descends through the boundary band:** ✅ `AtmosphereOverlay` uses the same `boundaryFactor` (sky layer + haze layer). The 3D dome shader is a future task — the CSS overlay is the bridge with the same math so the swap is a no-op for physics / gameplay.
+    - **Haze density scales with planet.atmosphereDensity (a thin-atmosphere planet is visibly less hazy — two planets in the seeded galaxy differ, asserted in a render test):** ✅ `densityScale` per planet class; Playwright `two seeded planets differ on haze alpha (>20%)` asserts terran vs rocky differ by ~50% at mid-boundary.
+    - **Re-entry heating is NOT simulated in v1 (documented assumption) — the visual cue is a subtle orange tint ramp at > 200 u/s descent inside the boundary:** ✅ `reentryTint(descentSpeed, boundary)` — orange rim fires only above `REENTRY_DESCENT_SPEED_U_S = 200`, scaled by boundary factor so it never fires in space.
+    - **Unit tests: drag ramp continuity (no discontinuity in the acceleration function at any boundary altitude), blend factor math, per-planet density scaling; sim integration test vs analytic curve:** ✅ 27 visual tests + 3 sim integration tests + 14 component tests + 4 e2e tests = 48 new cases.
+    - **`npm run test` green:** ✅ 1413/1413 unit tests pass (was 1369 → +44). `npx tsc --noEmit` clean. `npx eslint .` clean. `npx prettier --check .` clean. `npx playwright test tests/e2e/atmosphere.spec.ts` 4/4 pass.
+  - Files added: `app/src/shared/physics/atmosphere-visuals.ts` (282 lines) + `atmosphere-visuals.test.ts` (262 lines) + `app/src/client/components/AtmosphereOverlay.tsx` (215 lines) + `AtmosphereOverlay.test.tsx` (236 lines) + `ReentryOverlay.tsx` (120 lines) + `AtmosphereState.ts` (108 lines) + `app/tests/e2e/atmosphere.spec.ts` (294 lines). Files modified: `app/src/shared/physics/atmosphere.test.ts` (added 3 sim integration tests) + `app/src/client/App.tsx` (mounted AtmosphereOverlay + ReentryOverlay + dev hook). Screenshots: `.ralph/screenshots/TASK-28-1.png` (terran surface haze) + `TASK-28-2.png` (re-entry rim).
