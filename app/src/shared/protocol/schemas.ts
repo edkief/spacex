@@ -209,6 +209,21 @@ export const ErrorCodeSchema = z.enum([
   // kind, but the client may have raced ahead of the entity
   // removal broadcast.
   "not-found",
+  // TASK-35: re-entry denied because the targeted ship belongs
+  // to a different player (v1 ships are single-owner). Surfaced
+  // on `enter_ship` frames; the client renders a "Not your ship"
+  // toast. v1 does not support boarding other ships — a
+  // deliberate scope cut.
+  "not-owner",
+  // TASK-35: re-entry denied because the targeted ship is
+  // moving (> 1 u/s). The spec calls out: a drifting ship can
+  // be re-claimed; a moving ship cannot.
+  "ship-moving",
+  // TASK-35: re-entry is idempotent. A second `enter_ship` frame
+  // that arrives while the player is already in a ship surfaces
+  // this code so the client can distinguish "double-press" from
+  // a real rejection.
+  "already-in-ship",
 ]);
 export type ProtocolErrorCode = z.infer<typeof ErrorCodeSchema>;
 
@@ -537,6 +552,24 @@ export const ExitShipSchema = z.object({}).strict();
 /** `enter_ship` — re-entry from character to ship (TASK-35). */
 export const EnterShipSchema = z.object({}).strict();
 
+/**
+ * `enter_ship_ok` — server-only ack for `enter_ship` (TASK-35).
+ *
+ * Mirrors the `interact_ok` shape: the success path itself is
+ * idempotent (no broadcast change — the server just rebinds the
+ * connection's `entityId` from the character to the ship and
+ * drops the character entity), so the next `entity_update` IS
+ * the confirmation. The explicit ack lets the client surface a
+ * "Boarded <callsign>" toast on the same frame the controls
+ * flip back to the flight scheme.
+ */
+export const EnterShipOkSchema = z
+  .object({
+    /** The now-active ship entity id (matches the wire's `EntityState.id`). */
+    shipId: z.string().min(1),
+  })
+  .strict();
+
 /** `repair` — dock repair request (TASK-23). */
 export const RepairSchema = z
   .object({
@@ -734,6 +767,7 @@ export const PAYLOAD_SCHEMAS = {
   set_livery: SetLiverySchema,
   exit_ship: ExitShipSchema,
   enter_ship: EnterShipSchema,
+  enter_ship_ok: EnterShipOkSchema,
   repair: RepairSchema,
   logout: LogoutSchema,
   logout_ok: LogoutOkSchema,

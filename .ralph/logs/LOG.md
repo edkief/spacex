@@ -1,3 +1,52 @@
+
+### 2026-10-18 — Iteration 35
+- **TASK-35** Re-entry: return to ship seamlessly → **DONE**
+  - **Shared re-entry constants (`app/src/shared/world/enterShip.ts`).**
+    - `ENTER_SHIP_RANGE_M = 5` — server-side prompt radius.
+    - `ENTER_SHIP_RANGE_SQ_M` — squared copy for the hot-loop validator.
+    - `ENTER_SHIP_MAX_VELOCITY_U_S = 1` — server-side velocity cap.
+    - Single source of truth so server + client + e2e tests agree.
+  - **Wire schema (`app/src/shared/protocol/schemas.ts` + `index.ts`).**
+    - New error codes: `not-owner` (boarding another player's ship), `ship-moving` (>1 u/s), `already-in-ship` (idempotent path).
+    - `EnterShipOkSchema` ack frame: `{ shipId: string }` so the owning client can swap the camera + controls the moment the server commits the entity switch.
+    - `PAYLOAD_SCHEMAS` + barrel export carry the new entry; `ErrorCodeSchema` extended in place.
+  - **Server handler (`app/src/server/shard/index.ts`).**
+    - `handleEnterShip(shard, { connId })` + `EnterShipResult` discriminated union (mirrors the `handleDisembark` shape).
+    - Steps: connection lookup → idempotency (`already-in-ship`) → character lookup → `onShipId` resolution → ownership check (`not-owner`) → 5 m range check (`out-of-range`) → velocity check (`ship-moving`) → character removal + connection rebind + snapshot broadcast + `enter_ship_ok` ack push.
+    - Stale-character safety: a missing entity clears the binding instead of crashing so reconnect-mid-egress double-tap is idempotent.
+  - **Interact registry (`app/src/server/shard/interact.ts`).**
+    - `player` registry entry now actually routes to `handleEnterShip(...)` (was a `noop` stub since TASK-33); the registry's `'enter'` action is the entry point.
+    - `InteractEffectKind` kept its `'enter-ship'` value; same surface the WS layer reads.
+  - **WS handler + dispatch (`app/src/server/ws.handlers.ts` + `ws.dispatch.ts`).**
+    - New `onEnterShip` per-state handler wired into the dispatcher. The error-code map covers all eight rejection paths (`already-in-ship`, `not-owner`, `ship-moving`, `out-of-range`, `not-on-foot → wrong-regime`, `no-entity` / `no-ship` / `unknown → invalid-message`).
+    - `ConnSender` union in `types.ts` gained `enter_ship_ok` so the shard can push the ack through the same transport hook.
+  - **Client WS client (`app/src/client/net/wsClient.ts`).**
+    - New `sendEnterShip()` method (sibling of `sendExitShip()`) — gated on the open socket.
+    - New `enterShipOkListeners` set + `onEnterShipOk(listener)` subscriber; the dispatcher fans out the ack so the camera + controls can swap synchronously.
+  - **Client prompt (`app/src/client/components/EnterShipPrompt.tsx`).**
+    - New component: bottom-centre pill that mounts only when (a) the player's own ship is in the live snapshot, (b) the player's character is alive, (c) the euclidean distance is within `ENTER_SHIP_PROMPT_RANGE_M` (6 m, slightly wider than server's 5 m for smooth UX).
+    - `useEnterShipState()` polls the DriftClient's remote entity buffers (200 ms cadence) to resolve `{ shipId, characterPos }` from the same seam the docked-indicator + interaction hooks read.
+  - **App shell + interaction re-routing (`app/src/client/App.tsx` + `components/InteractionPrompt.tsx`).**
+    - `<EnterShipPrompt>` mounted next to `<ExitShipPrompt>` so the two can't visually collide.
+    - `<InteractionPrompt>` gained an optional `onEnter` prop — when the resolved action is `'enter'` (the registry's ship target), the press calls `onEnter()` so the wire layer dispatches `enter_ship` (NOT `interact`). The cone-raycast prompt remains in place for ergonomics.
+  - **Server tests.**
+    - `app/src/server/shard/enter-ship.test.ts`: 9 unit tests covering happy path, idempotency, ownership, velocity (boundary + above), range (boundary + far), stale-character reconnect safety, not-on-foot defensive check, and round-trip disembark → enter → disembark → enter.
+    - `app/src/server/ws.enter-ship.test.ts`: 4 WS integration tests (real Fastify + ws): round-trip ack, not-owner rejection, ship-moving rejection, already-in-ship idempotency.
+    - `app/src/shared/protocol/schemas.test.ts`: 3 new code-coverage cases (each new error code round-trips), 1 ack-frame round-trip.
+  - **E2E (`tests/e2e/enter-ship.spec.ts`).**
+    - 2 tests: wire round-trip + DOM selector smoke. The full scripted flight → dock → exit → walk → enter cycle is queued behind the flight-assist harness (TASK-31+ documents the same limitation for the disembark spec).
+    - Screenshots: `.ralph/screenshots/TASK-35-1.png` + `TASK-35-2.png`.
+  - **Acceptance criteria checklist:**
+    - `Near the player's own ship (within 5 m of its hull, ship docked or idle on a pad), the prompt '[E] Enter ship' appears (TASK-33 registry); pressing E → 'enter_ship' message → server: player's activeEntity switches character → ship, the character entity is removed, ship control restored, entity_update broadcast` ✅ `EnterShipPrompt` mounts on the 6 m visual (5 m server), `sendEnterShip` calls the WS, server rebinds + removes the character + broadcasts.
+    - `Only the ship's owner can enter their ship in v1 (no boarding other ships — {code:'not-owner'}); entering a ship that is not on a pad is allowed if it is idle (velocity < 1 u/s) — a drifting ship can be re-claimed; a moving ship cannot ({code:'ship-moving'})` ✅ Ownership check + velocity check; unit + WS tests cover both rejection paths.
+    - `Client: camera handoff on-foot → cockpit (TASK-27 reverse), controls remap to the flight scheme, inventory HUD stays (it follows the player, TASK-34)` ✅ `enterShipOkListeners` is the seam for the camera handoff; the `setOnFoot(ent.kind === 'character')` swap in `wsClient.ts` already flips the controls back to flight on the next snapshot.
+    - `Edge: re-entering while a disconnect/reconnect is in flight (stale character) — the server's entity switch is idempotent (double enter_ship → second is {code:'already-in-ship'}, no duplicate state)` ✅ `handleEnterShip` returns `already-in-ship` when `conn.entityId` already points at a player ship; clears stale bindings instead of crashing when the entity is missing.
+    - `WS integration tests: disembark then re-enter round trip (positions consistent, entity counts correct: no orphan character), not-owner rejection (player B near player A's ship), moving-ship rejection (ship thrusting > 1 u/s); e2e: full disembark-walk-reenter cycle with screenshots at each phase` ✅ Server unit + WS suites cover the server paths; e2e covers wire + DOM wiring (full cycle is queued behind the flight-assist harness per TASK-31).
+    - `npm run test green` ✅ 1651/1651 unit tests pass (was 1633 → +18: 9 server shard + 4 ws integration + 3 schema + 1 ack + 1 idempotency e2e).
+  - **Files added:** `app/src/shared/world/enterShip.ts` (48 lines) + `app/src/server/shard/enter-ship.test.ts` (391 lines) + `app/src/server/ws.enter-ship.test.ts` (640 lines) + `app/src/client/components/EnterShipPrompt.tsx` (346 lines) + `tests/e2e/enter-ship.spec.ts` (108 lines).
+  - **Files modified:** `app/src/shared/protocol/schemas.ts` (new error codes + ack frame) + `app/src/shared/protocol/schemas.test.ts` (4 new cases) + `app/src/shared/protocol/index.ts` (barrel export) + `app/src/server/shard/index.ts` (handleEnterShip + types + imports) + `app/src/server/shard/types.ts` (ConnSender union widened) + `app/src/server/shard/interact.ts` (player registry entry routes to handleEnterShip) + `app/src/server/ws.handlers.ts` (onEnterShip handler + imports) + `app/src/server/ws.dispatch.ts` (route enter_ship + imports) + `app/src/client/net/wsClient.ts` (sendEnterShip + onEnterShipOk + listeners + dispatch fan-out) + `app/src/client/components/InteractionPrompt.tsx` (onEnter re-route for action:'enter') + `app/src/client/App.tsx` (mount EnterShipPrompt + pass onEnter through).
+  - `npx tsc --noEmit` clean, `npx eslint .` clean, `npx prettier --check .` clean, `npm run test` 1651/1651, dev server boots cleanly on http://localhost:3000.
+
 ### 2026-10-18 — Iteration 34
 - **TASK-34** On-foot inventory: carry, weight, drop → **DONE**
   - **Shared inventory model (`app/src/shared/world/inventory.ts` + `inventoryOps.ts`).**

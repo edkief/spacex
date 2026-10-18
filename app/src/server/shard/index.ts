@@ -30,6 +30,7 @@
  */
 import { EventEmitter } from "node:events";
 
+import { ENTER_SHIP_MAX_VELOCITY_U_S, ENTER_SHIP_RANGE_M } from "@shared/world/enterShip.js";
 import type { ProtocolEntityState, ProtocolShipClassId } from "@shared/protocol/index.js";
 import { ChatRingBuffer, type ChatEntry } from "../chat.js";
 
@@ -426,6 +427,234 @@ export type DisembarkResult =
   | {
       ok: false;
       code: "not-docked" | "no-ship" | "unknown";
+      message: string;
+    };
+
+// ---------------------------------------------------------------------------
+// Re-entry (TASK-35) — `handleEnterShip`
+// ---------------------------------------------------------------------------
+
+/**
+ * TASK-35: process an `enter_ship` request from a player connection.
+ *
+ * Steps (mirror of TASK-31's `handleDisembark`, in reverse):
+ *
+ *   1. Look up the connection's bound entity (must be a `character`).
+ *   2. Read the character's `onShipId` to find the docked ship the
+ *      player owns.
+ *   3. **Ownership check:** `ship.playerId` must equal the
+ *      connection's `playerId`. v1 doesn't support boarding other
+ *      players' ships — a deliberate scope cut.
+ *   4. **Velocity check:** `|ship.vel| < ENTER_SHIP_MAX_VELOCITY_U_S`.
+ *      A drifting / idle ship (vel = 0 on the integration's
+ *      magnitude metric) can be re-claimed; a moving one cannot.
+ *   5. **Range check (reconnect safety):** when the connection
+ *      returns after a disconnect, the character may live in a
+ *      stale spot. We *don't* enforce range on the server side
+ *      here because TASK-31's persistence pattern guarantees the
+ *      character is on the same pad as the ship — but a test
+ *      seam (re-entry at any range) keeps the surface predictable.
+ *      The 5 m radius lives in the client prompt and is documented
+ *      by `ENTER_SHIP_RANGE_M` for future rigour; this v1 trusts
+ *      the persistence + the prologue tests.
+ *   6. Switch the connection's `entityId` from the character to
+ *      the ship, remove the character from the registry, force a
+ *      snapshot. The owning player's next input frame routes into
+ *      the ship again.
+ *   7. Push an `enter_ship_ok { shipId }` ack so the client can
+ *      surface a "Boarded <callsign>" toast.
+ *
+ * The handler is idempotent (TASK-35 acceptance: "double
+ * enter_ship → second is `{code:'already-in-ship'}`"): calling it
+ * when the connection's entity is already a ship returns
+ * `{ok:false, code:'already-in-ship'}` without mutating state.
+ *
+ * On the wire, the rejection codes are exactly:
+ *
+ *   `'no-entity'`        — connection has no bound entity.
+ *   `'not-on-foot'`      — connection's entity isn't a character.
+ *   `'no-ship'`          — character lacks `onShipId` (corrupt).
+ *   `'not-owner'`        — ship belongs to a different player.
+ *   `'ship-moving'`      — ship velocity ≥ ENTER_SHIP_MAX_VELOCITY_U_S.
+ *   `'already-in-ship'`  — connection is already bound to a ship.
+ *   `'unknown'`          — connection not in the shard.
+ */
+export function handleEnterShip(
+  shard: Shard,
+  args: { connId: string; nowMs?: number },
+  opts: { rangeM?: number } = {},
+): EnterShipResult {
+  const conn = shard.connections.get(args.connId);
+  if (!conn) return { ok: false, code: "unknown", message: "Connection not in shard" };
+
+  // Idempotency: double-tap `enter_ship` while already in ship is a
+  // structured error, not a silent success. The owning client uses
+  // the `enter_ship_ok` ack for the genuine path; this is the
+  // "defensive" path for a misfiring prompt.
+  if (conn.entityId !== null) {
+    const existing = shard.entities.get(conn.entityId);
+    if (existing && existing.kind === "player") {
+      return {
+        ok: false,
+        code: "already-in-ship",
+        message: "Connection is already bound to a ship",
+      };
+    }
+    if (existing && existing.kind === "character") {
+      // Continue — the happy path.
+    } else if (existing && existing.kind === "ai") {
+      // Defensive: AI entities can't be controlled by players.
+      return {
+        ok: false,
+        code: "not-on-foot",
+        message: "Connection is bound to an AI ship",
+      };
+    } else if (existing === undefined) {
+      // entityId is set but the entity is gone (stale character
+      // after persistence GC, or an interrupted disconnect). Reset
+      // the connection's binding and fall through to the failure
+      // paths below so the caller sees the truth.
+      conn.entityId = null;
+      return {
+        ok: false,
+        code: "no-entity",
+        message: "Stale entity binding cleared",
+      };
+    }
+  }
+  if (conn.entityId === null) {
+    return { ok: false, code: "no-entity", message: "No character bound to connection" };
+  }
+  const character = shard.entities.get(conn.entityId);
+  if (!character) {
+    // Defensive: entityId pointed at something the registry
+    // doesn't have. Clear the binding so future frames don't
+    // crash the input queue.
+    conn.entityId = null;
+    return { ok: false, code: "no-entity", message: "Character not in registry" };
+  }
+  if (character.kind !== "character") {
+    return {
+      ok: false,
+      code: "not-on-foot",
+      message: "Connection's active entity is not a character",
+    };
+  }
+  const shipId = character.onShipId;
+  if (!shipId) {
+    return {
+      ok: false,
+      code: "no-ship",
+      message: "Character has no associated ship id",
+    };
+  }
+  const ship = shard.entities.get(shipId);
+  if (!ship) {
+    return {
+      ok: false,
+      code: "no-ship",
+      message: "Associated ship not in registry",
+    };
+  }
+  if (ship.kind !== "player") {
+    return {
+      ok: false,
+      code: "no-ship",
+      message: "Associated entity is not a player ship",
+    };
+  }
+  // Ownership: v1 single-player-per-ship. Future tasks can relax
+  // this for party-boarding flows.
+  if (ship.playerId !== conn.playerId) {
+    return {
+      ok: false,
+      code: "not-owner",
+      message: "Ship belongs to a different player",
+    };
+  }
+  // Range check (server-authoritative, NOT cone-limited — the
+  // spec calls for "within 5 m of its hull", and a cone would
+  // reject a player standing on the *back* side of their ship).
+  // The TASK-31 persistence pattern guarantees the character
+  // spawns on the same pad as the ship, so the only way range
+  // fails is if the player walked far away while on foot — and
+  // that walking reads the shared `character.ts` integrator
+  // (TASK-32). We accept `rangeM` from the options so tests can
+  // verify; production uses `ENTER_SHIP_RANGE_M` from the shared
+  // module.
+  const rangeM = opts.rangeM ?? ENTER_SHIP_RANGE_M;
+  const dx = character.pos.x - ship.pos.x;
+  const dy = character.pos.y - ship.pos.y;
+  const dz = character.pos.z - ship.pos.z;
+  const distSq = dx * dx + dy * dy + dz * dz;
+  if (distSq > rangeM * rangeM) {
+    return {
+      ok: false,
+      code: "out-of-range",
+      message: `Character is ${Math.sqrt(distSq).toFixed(2)} m from ship (max ${rangeM})`,
+    };
+  }
+  // Velocity check: spec "drifting ship can be re-claimed; a moving
+  // ship cannot". Uses the magnitude metric `integrateShip` reads
+  // (sqrt(vel.x² + vel.y² + vel.z²)).
+  const velMagSq = ship.vel.x * ship.vel.x + ship.vel.y * ship.vel.y + ship.vel.z * ship.vel.z;
+  if (velMagSq >= ENTER_SHIP_MAX_VELOCITY_U_S * ENTER_SHIP_MAX_VELOCITY_U_S) {
+    const vel = Math.sqrt(velMagSq);
+    return {
+      ok: false,
+      code: "ship-moving",
+      message: `Ship moving at ${vel.toFixed(2)} u/s (max ${ENTER_SHIP_MAX_VELOCITY_U_S})`,
+    };
+  }
+
+  // Happy path:
+  //   1. Drop the character entity (the player is in the ship now).
+  //   2. Rebind the connection to the ship.
+  //   3. Force a snapshot so every client sees the entity switch.
+  //   4. Push `enter_ship_ok { shipId }` so the owning client can
+  //      swap the camera + controls synchronously.
+  shard.entities.delete(character.id);
+  conn.entityId = ship.id;
+
+  const tick = shard.sim.currentTick;
+  const entities = buildSnapshotEntities(shard);
+  shard.broadcast(tick, entities, {});
+
+  shard.send(conn.connId, {
+    type: "enter_ship_ok",
+    payload: { shipId: ship.id },
+  });
+
+  return { ok: true, ship, character };
+}
+
+/**
+ * TASK-35: discriminated result of `handleEnterShip`. The WS
+ * handler maps `code` to the wire error code so a malformed
+ * re-entry surfaces as a structured `error` frame instead of a
+ * silent drop.
+ *
+ * On success the ship's existing fields are returned (the
+ * character is consumed — the entity no longer exists).
+ */
+export type EnterShipResult =
+  | {
+      ok: true;
+      ship: SimEntity;
+      /** The character that was removed (caller can inspect pos). */
+      character: SimEntity;
+    }
+  | {
+      ok: false;
+      code:
+        | "already-in-ship"
+        | "no-entity"
+        | "not-on-foot"
+        | "no-ship"
+        | "not-owner"
+        | "out-of-range"
+        | "ship-moving"
+        | "unknown";
       message: string;
     };
 

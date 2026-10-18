@@ -42,6 +42,7 @@ import {
   ExitShipPrompt,
   useOwnShipOnPad as useExitPromptShipOnPad,
 } from "./components/ExitShipPrompt.js";
+import { EnterShipPrompt, useEnterShipState } from "./components/EnterShipPrompt.js";
 import { InteractionPrompt } from "./components/InteractionPrompt.js";
 import { WeightBar, useOwnInventory } from "./components/WeightBar.js";
 import { useInteractables, useLocalInteractor } from "./components/useInteractables.js";
@@ -358,6 +359,11 @@ export function App(): React.JSX.Element {
   // Hooks are fine to call both here.
   const interactables = useInteractables();
   const localInteractor = useLocalInteractor();
+  // TASK-35: enter-ship prompt — derives the player's own ship
+  // id + character position from the same per-entity remote
+  // buffer. The prompt hides when either is missing or when the
+  // character is beyond the 6 m visual range (server uses 5 m).
+  const enterShipState = useEnterShipState();
   // TASK-34: own inventory (drives the WeightBar HUD).
   const ownInventory = useOwnInventory();
 
@@ -404,6 +410,26 @@ export function App(): React.JSX.Element {
           }
         }}
       />
+      {/* TASK-35: enter-ship prompt. Mounts when the player is on
+          foot and within 6 m (visual) of their own ship — the
+          server is authoritative at 5 m so the pill appears a
+          hair before the press would succeed. On `E` press the
+          client sends `enter_ship`; the server commits the
+          character → ship entity switch and fires an
+          `enter_ship_ok` ack so the camera + controls swap back
+          to the cockpit on the same frame. */}
+      <EnterShipPrompt
+        shipId={enterShipState.shipId}
+        characterPos={enterShipState.characterPos}
+        enabled={status === "online"}
+        onEnter={() => {
+          try {
+            client.sendEnterShip();
+          } catch {
+            // Same swallow rationale as `onExit()` above.
+          }
+        }}
+      />
       {/* TASK-33: on-foot interaction prompt. Projects every entity
           in the live snapshot through `interactableFromWire`,
           runs the cone raycast, and shows a single "[E] …" pill
@@ -423,6 +449,18 @@ export function App(): React.JSX.Element {
           } catch {
             // Same swallow rationale as above; the `enabled` gate
             // already prevents the common path.
+          }
+        }}
+        // TASK-35: ship targets (action `'enter'`) route through
+        // `sendEnterShip` instead of the generic interact path.
+        // The two paths share the same keyboard handler so the
+        // registry-side prompt text + visible affordance stay
+        // consistent for the player.
+        onEnter={() => {
+          try {
+            client.sendEnterShip();
+          } catch {
+            // Same swallow rationale.
           }
         }}
       />

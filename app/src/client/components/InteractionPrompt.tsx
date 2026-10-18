@@ -21,6 +21,15 @@
  * until either the target leaves the cone (next snapshot picks a
  * different / no target) or the player moves off-foot.
  *
+ * TASK-35 re-routing: the registry's `ship` entry fires `action:
+ * 'enter'`, which the registry's server dispatch routes through
+ * `handleEnterShip`. The client-side path mirrors this: pressing E
+ * on a ship target sends `enter_ship` (NOT `interact`), so the
+ * server's `handleEnterShip` validation runs with the 5 m radius +
+ * ownership check (the in-cone prompt is just a discovery affordance
+ * — the player could also walk around to the back of the ship and
+ * press E from any direction).
+ *
  * Acceptance criteria:
  *
  *   - Prompt visible when a candidate is in range.
@@ -48,8 +57,21 @@ export interface InteractionPromptProps {
   interactor: Interactor | null;
   /** The current interactable list (driven by entity_update). */
   interactables: readonly Interactable[];
-  /** Send an interact frame. */
+  /**
+   * Send an interact frame. For ship targets (action `'enter'`)
+   * TASK-35 re-routes the press to `sendEnterShip()` instead of
+   * the generic `sendInteract(targetId, action)` path, since
+   * re-entry is its own server-side handler.
+   */
   onInteract: (targetId: string, action: InteractionPrompt["action"]) => void;
+  /**
+   * TASK-35: optional re-entry dispatcher. When the resolved
+   * action is `'enter'` (i.e. the target is the player's ship),
+   * the prompt calls this instead of `onInteract`. Falls back to
+   * `onInteract` when not supplied so existing TASK-33 callers
+   * stay working.
+   */
+  onEnter?: () => void;
   /** True while the WS is online. */
   enabled: boolean;
   /** Optional registry override (defaults to `defaultInteractableRegistry`). */
@@ -65,6 +87,7 @@ export function InteractionPrompt(props: InteractionPromptProps): React.JSX.Elem
     interactor,
     interactables,
     onInteract,
+    onEnter,
     enabled,
     registry = defaultInteractableRegistry,
   } = props;
@@ -95,7 +118,15 @@ export function InteractionPrompt(props: InteractionPromptProps): React.JSX.Elem
       ev.preventDefault();
       setPressed(true);
       try {
-        onInteract(prompt.targetId, prompt.action);
+        // TASK-35: ship targets route through `onEnter` (which
+        // sends `enter_ship`) instead of the generic interact
+        // path. Other actions (`use`, `inspect`, `mine`) keep the
+        // legacy dispatch.
+        if (prompt.action === "enter" && onEnter) {
+          onEnter();
+        } else {
+          onInteract(prompt.targetId, prompt.action);
+        }
       } catch {
         // Swallow — the `enabled` prop already gates on the socket
         // being open; a throw here means something exotic happened
@@ -105,7 +136,7 @@ export function InteractionPrompt(props: InteractionPromptProps): React.JSX.Elem
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [prompt, enabled, pressed, onInteract]);
+  }, [prompt, enabled, pressed, onInteract, onEnter]);
 
   if (prompt === null) return null;
 

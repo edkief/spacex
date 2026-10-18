@@ -69,6 +69,7 @@ import {
   onAuth,
   onChat,
   onDrop,
+  onEnterShip,
   onExitShip,
   onHello,
   onInput,
@@ -398,6 +399,20 @@ async function dispatch(
         // frames (`not-docked`, `no-ship`); success is silent
         // because the *next* snapshot is the confirmation.
         onExitShip(conn, options, payload);
+        return;
+      }
+      if (type === "enter_ship") {
+        // TASK-35: player-initiated re-entry from character to
+        // ship. The reverse of `exit_ship`: validates the player
+        // is on foot, finds the associated ship via the
+        // character's `onShipId`, enforces ownership + the 5 m
+        // proximity radius + the 1 u/s velocity cap, then rebinds
+        // the connection to the ship. Success pushes an
+        // `enter_ship_ok` ack so the owning client can swap the
+        // controls + camera synchronously. Rejection surfaces as
+        // `not-owner` / `ship-moving` / `out-of-range` /
+        // `already-in-ship` / `invalid-message`.
+        onEnterShip(conn, options, payload);
         return;
       }
       if (type === "interact") {

@@ -34,6 +34,7 @@ import type { Repository } from "../db/repo.js";
 import type { Shard, SimEntity } from "./types.js";
 import type { EntityKind } from "./types.js";
 import { handlePickup } from "./inventory.js";
+import { handleEnterShip } from "./index.js";
 
 // ---------------------------------------------------------------------------
 // Wire codes (TASK-33 acceptance).
@@ -72,10 +73,11 @@ export type InteractResult = InteractSuccess | InteractError;
  *   - `'ui-open'`     — server pushes a `ui_open` frame so the
  *                       client renders the dock modal (TASK-40
  *                       drives the actual sell UI).
- *   - `'enter-ship'`  — TASK-35 wires the actual enter; here we
- *                       return a typed `NotImplemented` so the
- *                       handler can still reply with a clean
- *                       `code:'not-found'` rather than crashing.
+ *   - `'enter-ship'`  — TASK-35: re-entry (character → ship) via
+ *                       the `InteractableRegistry`. The handler
+ *                       enforces ownership + velocity + range
+ *                       itself; the WS layer wraps the effect in
+ *                       an `interact_ok` for the success path.
  */
 export type InteractEffectKind = "pickup" | "ui-open" | "enter-ship" | "noop";
 
@@ -219,14 +221,20 @@ serverInteractableRegistry.register("terminal", {
 });
 
 serverInteractableRegistry.register("player", {
-  apply(): InteractEffectKind {
-    // TASK-35 will route re-entry here. For now we surface the
-    // prompt (the client uses it) but tell the WS handler this is
-    // a no-op so it can decide whether to fail loudly or just
-    // acknowledge. The acceptance criterion is "out of scope for
-    // TASK-33" so we return `noop` and the handler replies
-    // `interact_ok` anyway.
-    return "noop";
+  // TASK-35: pressing `E` on a player-ship target now routes to
+  // the authoritative `handleEnterShip` handler. The handler
+  // enforces ownership, velocity, and the 5 m proximity bound
+  // itself; the existing `handleInteract` range check (3 m × 30°
+  // cone) is the prompt-ergonomics layer — this entry IS the
+  // dispatch site, so re-entry semantics only live in one place.
+  apply({ shard, connId, target, action }): InteractEffectKind {
+    if (action !== "enter") return "noop";
+    // Optional sanity: only fire the path when the target is
+    // genuinely a player ship (defends against a future kind
+    // being misconfigured through this same key).
+    if (target.kind !== "player") return "noop";
+    const result = handleEnterShip(shard, { connId });
+    return result.ok ? "enter-ship" : "noop";
   },
 });
 

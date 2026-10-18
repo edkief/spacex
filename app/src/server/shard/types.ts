@@ -387,8 +387,9 @@ export type SnapshotBroadcaster = (
  * `chat` from `broadcastChat`, `combat_event` from
  * `broadcastCombatEvent`, `ui_open` from the TASK-33 proximity
  * interaction handler, `inventory_update` from the TASK-34
- * inventory handler); the WS layer decides how to serialise each.
- * For unit tests the tests inject a recorder.
+ * inventory handler, `enter_ship_ok` from the TASK-35 re-entry
+ * handler); the WS layer decides how to serialise each. For unit
+ * tests the tests inject a recorder.
  */
 export type ConnSender = (
   connId: string,
@@ -397,7 +398,8 @@ export type ConnSender = (
     | { type: "chat"; payload: unknown }
     | { type: "combat_event"; payload: unknown }
     | { type: "ui_open"; payload: unknown }
-    | { type: "inventory_update"; payload: unknown },
+    | { type: "inventory_update"; payload: unknown }
+    | { type: "enter_ship_ok"; payload: unknown },
 ) => void;
 
 /**

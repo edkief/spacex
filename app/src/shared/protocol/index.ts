@@ -218,6 +218,7 @@ export {
   SetLiverySchema,
   ExitShipSchema,
   EnterShipSchema,
+  EnterShipOkSchema,
   RepairSchema,
   LogoutSchema,
   LogoutOkSchema,

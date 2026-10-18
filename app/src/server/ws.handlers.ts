@@ -27,7 +27,7 @@ import {
   sanitizeChatText,
   validateChatText,
 } from "./chat.js";
-import { broadcastChat, handleDisembark, pushPlayerInput } from "./shard/index.js";
+import { broadcastChat, handleDisembark, handleEnterShip, pushPlayerInput } from "./shard/index.js";
 import { handleInteract } from "./shard/interact.js";
 import type { InteractAction } from "@client/input/interaction.js";
 import { handlePickup, handleDrop } from "./shard/inventory.js";
@@ -502,6 +502,84 @@ export function onExitShip(conn: Connection, options: WsHandleOptions, _payload:
     return;
   }
   // No outbound frame — the next broadcast carries the character.
+}
+
+// ---------------------------------------------------------------------------
+// onEnterShip — TASK-35 player re-entry from character to ship
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle a validated `enter_ship` frame from a `joined`-state
+ * connection. The reverse of `onExitShip`: the player has walked
+ * up to their own (docked or idle) ship and wants to board.
+ *
+ * The flow:
+ *   1. Locate the shard for this connection (via `options.shardFor`).
+ *   2. Delegate to `handleEnterShip(shard, { connId })` which:
+ *      - confirms the connection is bound to a character,
+ *      - reads `onShipId` to find the docked ship the player owns,
+ *      - enforces ownership (`ship.playerId === conn.playerId`),
+ *      - enforces the 5 m proximity radius (server-authoritative),
+ *      - enforces the 1 u/s velocity cap (drifting allowed,
+ *        moving rejected),
+ *      - removes the character entity,
+ *      - rebinds the connection's `entityId` to the ship,
+ *      - forces a snapshot so every client sees the entity switch,
+ *      - sends an `enter_ship_ok { shipId }` ack to the owning
+ *        client (so the controls swap back to the flight scheme
+ *        synchronously).
+ *   3. On rejection: send a structured `error` frame carrying the
+ *      resolver's code. Codes map directly to wire error codes:
+ *        - `already-in-ship` -> `already-in-ship`
+ *        - `not-owner`        -> `not-owner`
+ *        - `ship-moving`      -> `ship-moving`
+ *        - `out-of-range`     -> `out-of-range`
+ *        - `not-on-foot`      -> `wrong-regime`
+ *        - `no-entity` / `no-ship` / `unknown`
+ *                            -> `invalid-message`
+ *
+ * Note: the success path is NOT a broadcast-only confirmation
+ * like `exit_ship` is — we send an explicit `enter_ship_ok` ack
+ * because the owning client wants to swap the camera + control
+ * scheme the moment the server commits the rebind (the broadcast
+ * may be a tick late in v1's 10 Hz cadence).
+ */
+export function onEnterShip(conn: Connection, options: WsHandleOptions, _payload: unknown): void {
+  const shard = options.shardFor?.(conn);
+  if (!shard) {
+    sendError(conn, "unauthenticated", "enter_ship requires a joined system");
+    return;
+  }
+  const result = handleEnterShip(shard, { connId: conn.connId });
+  if (result.ok) {
+    // The success ack was already pushed by `handleEnterShip`
+    // (it owns the `shard.send(...)` so the entity switch and the
+    // ack are guaranteed to land in the same frame).
+    return;
+  }
+  const code = result.code;
+  let wireCode:
+    | "already-in-ship"
+    | "not-owner"
+    | "ship-moving"
+    | "out-of-range"
+    | "wrong-regime"
+    | "invalid-message";
+  switch (code) {
+    case "already-in-ship":
+    case "not-owner":
+    case "ship-moving":
+    case "out-of-range":
+    case "not-on-foot":
+      wireCode = code === "not-on-foot" ? "wrong-regime" : code;
+      break;
+    case "no-entity":
+    case "no-ship":
+    case "unknown":
+      wireCode = "invalid-message";
+      break;
+  }
+  sendError(conn, wireCode, result.message);
 }
 
 // ---------------------------------------------------------------------------

@@ -257,6 +257,12 @@ export class DriftClient {
   private readonly uiOpenListeners = new Set<
     (payload: { ui: string; payload: Record<string, unknown> }) => void
   >();
+  /** TASK-35: enter_ship_ok subscriber set (re-entry ack). Fired
+   *  when the server commits the character → ship entity switch.
+   *  The owning client listens for this so it can swap the
+   *  camera + controls synchronously without waiting for the
+   *  next `entity_update` broadcast. */
+  private readonly enterShipOkListeners = new Set<(payload: { shipId: string }) => void>();
   /** TASK-34: latest known on-foot inventory. The server pushes
    *  `inventory_update` frames on every pickup / drop; the HUD
    *  polls `getInventory()` instead of subscribing so the
@@ -595,6 +601,32 @@ export class DriftClient {
   }
 
   /**
+   * TASK-35: send an `enter_ship` request. Reverses `sendExitShip`:
+   * the player is on foot near their own docked/idle ship and
+   * presses `E` to reboard. The server validates ownership,
+   * velocity, and the 5 m proximity radius (server-authoritative)
+   * and replies with either `enter_ship_ok { shipId }` on success
+   * or an `error` frame carrying `not-owner`, `ship-moving`,
+   * `out-of-range`, `already-in-ship`, `wrong-regime`, or
+   * `invalid-message`.
+   *
+   * No client-side proximity check (the prompt already gates on
+   * the 3 m × 30° forward cone): the server's 5 m check accepts a
+   * player on the *back* side of their ship too, so the prompt
+   * doesn't need to widen.
+   *
+   * Throws if the socket isn't open. The enter-ship prompt UI
+   * guards against this via the `enabled={status === 'online'}`
+   * gate (analogous to `sendExitShip`).
+   */
+  sendEnterShip(): void {
+    if (!this.socket || this.socket.readyState !== this.socket.OPEN) {
+      throw new Error("DriftClient: sendEnterShip requires an open socket");
+    }
+    this.socket.send(encodeEnvelope("enter_ship", {}));
+  }
+
+  /**
    * TASK-33: send an `interact` request. The server validates the
    * target via the active shard's `InteractableRegistry` and replies
    * with either `interact_ok` (success) or an `error` frame carrying
@@ -657,6 +689,20 @@ export class DriftClient {
     this.uiOpenListeners.add(listener);
     return () => {
       this.uiOpenListeners.delete(listener);
+    };
+  }
+
+  /**
+   * TASK-35: subscribe to `enter_ship_ok` frames. Fired when the
+   * server commits a re-entry (character → ship entity switch).
+   * The owning client listens so it can swap the camera + controls
+   * + character mesh synchronously without waiting for the next
+   * `entity_update` broadcast. Returns an unsubscribe function.
+   */
+  onEnterShipOk(listener: (payload: { shipId: string }) => void): () => void {
+    this.enterShipOkListeners.add(listener);
+    return () => {
+      this.enterShipOkListeners.delete(listener);
     };
   }
 
@@ -1121,6 +1167,25 @@ export class DriftClient {
             listener(payload);
           } catch {
             // swallow — faulty listener must not break the loop
+          }
+        }
+        return;
+      }
+      case "enter_ship_ok": {
+        // TASK-35: server ack for `enter_ship` (player re-entry).
+        // The owning client listens to swap the camera + controls
+        // + character mesh synchronously. The next `entity_update`
+        // broadcast already carries the ship (and no character),
+        // so the lens-side observer eventually applies the same
+        // swap via `setOnFoot(ent.kind === 'ship')` on the new ship
+        // row — this listener is the *frame-locked* companion so the
+        // player sees the swap before the next 100 ms tick.
+        const payload = env.payload as { shipId: string };
+        for (const listener of this.enterShipOkListeners) {
+          try {
+            listener(payload);
+          } catch {
+            // swallow — same rationale as above
           }
         }
         return;

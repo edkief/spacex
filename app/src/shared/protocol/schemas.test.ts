@@ -143,6 +143,7 @@ const VALID_PAYLOADS: Record<MessageType, () => unknown> = {
   }),
   exit_ship: () => ({}),
   enter_ship: () => ({}),
+  enter_ship_ok: () => ({ shipId: "ship-test-1" }),
   repair: () => ({}),
   logout: () => ({}),
   logout_ok: () => ({ callsign: "TEST-ALPHA" }),
@@ -258,6 +259,7 @@ const INVALID_PAYLOADS: Record<MessageType, () => unknown> = {
   set_livery: () => ({ primary: "red", secondary: "#abcdef", accent: "#f0f0f0" }), // bad hex
   exit_ship: () => ({ extra: true }), // strict forbids extra keys
   enter_ship: () => ({ extra: true }),
+  enter_ship_ok: () => ({ shipId: "" }), // empty shipId rejected
   repair: () => ({ shipId: "" }),
   logout: () => ({ extra: true }), // strict forbids extra keys
   logout_ok: () => ({ callsign: "" }), // empty string rejected
@@ -412,6 +414,38 @@ describe("protocol/schemas", () => {
       });
       expect(out.type).toBe("error");
       expect(out.payload.code).toBe("not-docked");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // TASK-35: re-entry wire codes (not-owner / ship-moving / already-in-ship).
+  // -------------------------------------------------------------------------
+
+  describe("re-entry error codes (TASK-35)", () => {
+    it("accepts each new error code", () => {
+      for (const code of ["not-owner", "ship-moving", "already-in-ship"] as const) {
+        const result = ErrorCodeSchema.safeParse(code);
+        expect(result.success).toBe(true);
+      }
+    });
+
+    it("round-trips each new code through parseMessage", () => {
+      for (const code of ["not-owner", "ship-moving", "already-in-ship"] as const) {
+        const out = parseMessage("error", {
+          code,
+          message: `re-entry rejected: ${code}`,
+        });
+        expect(out.type).toBe("error");
+        if (out.type !== "error") throw new Error("unreachable");
+        expect(out.payload.code).toBe(code);
+      }
+    });
+
+    it("enter_ship_ok round-trips a shipId payload", () => {
+      const out = parseMessage("enter_ship_ok", { shipId: "ship-test-1" });
+      expect(out.type).toBe("enter_ship_ok");
+      if (out.type !== "enter_ship_ok") throw new Error("unreachable");
+      expect(out.payload.shipId).toBe("ship-test-1");
     });
   });
 
