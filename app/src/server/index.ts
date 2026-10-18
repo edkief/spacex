@@ -137,6 +137,14 @@ async function main(): Promise<void> {
   // instance the boot created above so the load/save cycle hits
   // the same SQLite file or PG pool as the rest of the server.
   ws.setRepo(repo);
+  // TASK-36: rebroadcast presence after activity transitions
+  // (disembark → onfoot, re-entry → flying). Production forwards
+  // to `router.broadcastPresenceForSystem(systemId)` so the
+  // PlayerList icon switches on the same frame the entity kind
+  // changes.
+  ws.setPresenceRebroadcaster((systemId) => {
+    router.broadcastPresenceForSystem(systemId);
+  });
   // Register the health route now that the router exists.
   // (buildApp is intentionally not re-called; we register the route
   // directly here to avoid the double-listener cost.)

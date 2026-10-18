@@ -717,9 +717,12 @@ export function characterFromWire(e: ProtocolEntityState): CharacterLite | null 
  * deposits — TASK-37 lands resource types; for v1 the deposit's
  * `label` is filled in by the resource-node generator.
  */
-export function interactableFromWire(
-  e: ProtocolEntityState,
-): { id: string; kind: "deposit" | "ship" | "dock-terminal"; pos: Vec3; label?: string } | null {
+export function interactableFromWire(e: ProtocolEntityState): {
+  id: string;
+  kind: "deposit" | "ship" | "dock-terminal" | "ground-item";
+  pos: Vec3;
+  label?: string;
+} | null {
   if (e.kind === "deposit") {
     return {
       id: e.id,
@@ -739,6 +742,19 @@ export function interactableFromWire(
       id: e.id,
       kind: "ship",
       pos: { x: e.pos[0], y: e.pos[1], z: e.pos[2] },
+    };
+  }
+  // TASK-36: ground items dropped by any player appear in every
+  // client's interactable list so the [E] Take iron x3 prompt
+  // surfaces for whoever walks within range. The kind is the
+  // protocol's `groundItem` (camel-cased wire shape); the label
+  // carries the resource type so the prompt text reads correctly.
+  if (e.kind === "groundItem") {
+    return {
+      id: e.id,
+      kind: "ground-item",
+      pos: { x: e.pos[0], y: e.pos[1], z: e.pos[2] },
+      label: e.resourceType ?? "ore",
     };
   }
   return null;

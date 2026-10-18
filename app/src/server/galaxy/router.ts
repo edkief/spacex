@@ -453,6 +453,29 @@ export class GalaxyRouter {
     firePresenceBroadcast(this.presenceBroadcaster, shard);
   }
 
+  /**
+   * TASK-36: public hook for shard-side events that change a player's
+   * activity (disembark, re-entry, dock, undock) so the presence
+   * roster re-broadcasts with the new `state`. The router normally
+   * fires presence frames only on join/leave/reap; the per-activity
+   * changes happen inside the shard (e.g. `handleDisembark`,
+   * `handleEnterShip`, the pad detection in the tick loop) so we
+   * expose this entry point for the WS handlers to call after a
+   * successful state transition.
+   *
+   * Returns `true` if a broadcaster was wired AND a frame went out.
+   * Callers can ignore the return value — the no-broadcaster case is
+   * the unit-test default and the silence is correct (no WS means
+   * no one is listening).
+   */
+  broadcastPresenceForSystem(systemId: string): boolean {
+    const shard = this.shards.get(systemId);
+    if (!shard) return false;
+    if (!this.presenceBroadcaster) return false;
+    firePresenceBroadcast(this.presenceBroadcaster, shard);
+    return true;
+  }
+
   // -------------------------------------------------------------------
   // reaping
   // -------------------------------------------------------------------

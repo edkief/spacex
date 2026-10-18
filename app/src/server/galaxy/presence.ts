@@ -1,5 +1,5 @@
 /**
- * Presence broadcast helpers (TASK-12).
+ * Presence broadcast helpers (TASK-12 + TASK-36).
  *
  * Centralised so the router can build a canonical presence payload
  * from a `Shard`'s connections without duplicating the logic across
@@ -14,15 +14,22 @@
  *   { systemId: string, players: PresenceEntry[] }
  *
  * Each `PresenceEntry` carries `(playerId, callsign, shipId,
- * state)`. The v1 router hard-codes `state: 'flying'` for every
- * connection; TASK-29 + TASK-31 refine the state from the player's
- * landing-pad / on-foot status without changing the wire schema.
+ * state)`. TASK-36 derives `state` from the player's bound entity:
+ *
+ *   - `character` entity → `"onfoot"`   (TASK-31 disembark flow)
+ *   - ship `onPad` non-null → `"docked"` (TASK-29 pad detection)
+ *   - otherwise          → `"flying"`
+ *
+ * The router invokes `buildPresencePayload` after every join,
+ * leave, disembark, re-entry, and dock event so the `PlayerList`
+ * icon switches on the same frame the server-side state flips.
  *
  * @see ./router.ts for the consumer.
  * @see ../../shared/protocol/schemas.ts for the wire schema.
  */
-import type { PayloadFor } from "@shared/protocol/index.js";
+import type { PayloadFor, ProtocolPlayerActivity } from "@shared/protocol/index.js";
 
+import { makeCharacterId } from "../shard/entity.js";
 import type { Shard } from "../shard/types.js";
 
 /**
@@ -31,6 +38,37 @@ import type { Shard } from "../shard/types.js";
  * outbound queue so the router doesn't take a transport dependency.
  */
 export type PresenceBroadcaster = (systemId: string, payload: PayloadFor<"presence">) => void;
+
+/**
+ * Derive the `PlayerActivity` tag for one connection based on its
+ * currently-bound entity in the shard. Returns `"onfoot"` for a
+ * character entity, `"docked"` for a ship sitting on a landing
+ * pad, and `"flying"` for everything else.
+ *
+ * The order matters: a disembarked player owns *no* ship entity,
+ * so the entity lookup walks the character's id (`char:<playerId>`)
+ * first; if no character exists we fall back to the connection's
+ * ship entity. The fallback handles the "just-re-entered" race
+ * where the re-entry has fired but the disembark has not yet
+ * released the character.
+ */
+export function derivePlayerActivity(shard: Shard, connPlayerId: string): ProtocolPlayerActivity {
+  const charId = makeCharacterId(connPlayerId);
+  const character = shard.entities.get(charId);
+  if (character && character.kind === "character") {
+    return "onfoot";
+  }
+  // Fall back to the connection's ship (TASK-12 stores the id in
+  // `conn.shipId`); check the registry for docked state. The
+  // connection's `entityId` is only set after the first input, so
+  // we walk the shipId directly through the registry instead.
+  const conn = Array.from(shard.connections.values()).find((c) => c.playerId === connPlayerId);
+  if (!conn) return "flying";
+  const shipEntityId = `entity:${conn.shipId}`;
+  const ship = shard.entities.get(shipEntityId);
+  if (ship && ship.onPad !== null) return "docked";
+  return "flying";
+}
 
 /**
  * Build the canonical presence payload for the shard.
@@ -45,7 +83,7 @@ export function buildPresencePayload(shard: Shard): PayloadFor<"presence"> {
     playerId: c.playerId,
     callsign: c.callsign,
     shipId: c.shipId,
-    state: "flying" as const,
+    state: derivePlayerActivity(shard, c.playerId),
   }));
   return { systemId: shard.systemId, players };
 }

@@ -408,6 +408,58 @@ export function toastTextFor(event: PresenceEvent): string {
 }
 
 /**
+ * Resolve the status icon for the HUD player list (TASK-36).
+ *
+ * Each entry returns a small SVG-style glyph (an inline SVG path
+ * or a short text symbol) the PlayerList renders next to the
+ * callsign so the player can tell ships from characters at a
+ * glance. The function is pure — it does not depend on the
+ * PlayerList's internal layout.
+ *
+ *   - `flying`   → ✈ plane glyph (ship is in flight)
+ *   - `docked`   → ⏚ dock glyph (ship is on a pad)
+ *   - `onfoot`   → 🚶 walking-figure glyph (character is disembarked)
+ *
+ * Centralised so the wording stays consistent with the spec's
+ * "walking figure vs ship" requirement and so a future task can
+ * swap the glyph library without touching the PlayerList.
+ */
+export interface StatusIcon {
+  /** Single-character or short text representation (for legacy rendering). */
+  readonly glyph: string;
+  /** CSS color string for the glyph. */
+  readonly color: string;
+  /** Inline SVG path data so the PlayerList can render at any DPI. */
+  readonly svgPath: string;
+}
+
+export function statusIcon(state: ProtocolPlayerActivity): StatusIcon {
+  switch (state) {
+    case "flying":
+      return {
+        glyph: "▲",
+        color: "#7ee787",
+        // Plane (triangle pointing up) silhouette.
+        svgPath: "M -4 3 L 4 3 L 0 -4 Z",
+      };
+    case "docked":
+      return {
+        glyph: "■",
+        color: "#8b949e",
+        // Square — visually "stationary".
+        svgPath: "M -4 -4 L 4 -4 L 4 4 L -4 4 Z",
+      };
+    case "onfoot":
+      return {
+        glyph: "☻",
+        color: "#f0b76b",
+        // Walking figure: small head circle + body line.
+        svgPath: "M 0 -4 a 2 2 0 1 0 0.01 0 Z M 0 -1 L 0 3 M -3 1 L 3 1 M -2 4 L 0 1 L 2 4",
+      };
+  }
+}
+
+/**
  * Resolve the status-dot colour for the HUD player list. The store
  * keeps `state` as the canonical tag; this helper maps it to a CSS
  * colour so the HUD component stays presentational.

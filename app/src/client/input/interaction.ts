@@ -57,8 +57,15 @@ export const INTERACT_CONE_COS = Math.cos((INTERACT_CONE_HALF_ANGLE_DEG * Math.P
  * adding a new kind here MUST be paired with a registry entry
  * otherwise the dispatch site will return `not-found`. The dispatch
  * test (`interaction.test.ts`) enforces a non-empty registry.
+ *
+ * TASK-36: `ground-item` joins the list — a ground item is
+ * functionally the same as a deposit (pickup within 3 m, weight-
+ * capped stack) but is tagged distinctly on the wire so the
+ * renderer can glow it differently (TASK-36 acceptance: "small
+ * glowing ore chunk mesh") and the prompt label can read
+ * "Take ore x3" / "Take iron x3" based on the carried stack.
  */
-export type InteractableKind = "deposit" | "ship" | "dock-terminal";
+export type InteractableKind = "deposit" | "ship" | "dock-terminal" | "ground-item";
 
 /**
  * The wire-stable action the client sends. Mirrors the enum in
@@ -268,6 +275,20 @@ defaultInteractableRegistry.register("ship", {
       targetId: target.id,
       prompt: `[E] Enter ship`,
       action: "enter",
+    };
+  },
+});
+// TASK-36: shared ground items dropped by any player are pickup-
+// interactable for whoever walks within range. The prompt text
+// mirrors the deposit registry so the player can't distinguish
+// the two at a glance (the visual glow comes from the renderer).
+defaultInteractableRegistry.register("ground-item", {
+  prompt(target): InteractionPrompt | null {
+    const label = target.label ? target.label : "ore";
+    return {
+      targetId: target.id,
+      prompt: `[E] Take ${label}`,
+      action: "use",
     };
   },
 });

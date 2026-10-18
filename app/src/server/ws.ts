@@ -202,6 +202,14 @@ export interface WsHandle {
    * rather than crash so the connection stays alive.
    */
   setRepo: (repo: Repository) => void;
+  /**
+   * TASK-36: rebroadcast presence for a system. Production wires
+   * this to `router.broadcastPresenceForSystem(systemId)` so that
+   * disembark / re-entry / dock / undock transitions fire a fresh
+   * `presence` frame on the same tick the entity changes. Default
+   * is a no-op so handlers stay testable without a router.
+   */
+  setPresenceRebroadcaster: (hook: (systemId: string) => void) => void;
 }
 
 /** Tunable keepalive knobs. Tests override these to avoid real timers. */
@@ -280,6 +288,16 @@ export interface WsHandleOptions {
    * structured error rather than a crash.
    */
   repo?: Repository;
+  /**
+   * TASK-36: rebroadcast the system-wide presence roster. Called
+   * after disembark / re-entry so the `state` field (`flying` /
+   * `docked` / `onfoot`) updates for every player on the same
+   * frame the entity kind flips. Production wires
+   * `(systemId) => router.broadcastPresenceForSystem(systemId)`.
+   * Default is `undefined`; handlers treat it as a no-op so unit
+   * tests don't have to wire the hook.
+   */
+  presenceRebroadcaster?: (systemId: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -365,6 +383,13 @@ export function attachWs(
   let repoLive: Repository | undefined = options.repo;
   const setRepo = (next: Repository): void => {
     repoLive = next;
+  };
+  // TASK-36: rebroadcast hook for presence after activity changes
+  // (disembark, re-entry, dock, undock). Default no-op so handlers
+  // stay testable without one.
+  let presenceRebroadcaster: ((systemId: string) => void) | undefined;
+  const setPresenceRebroadcaster = (next: (systemId: string) => void): void => {
+    presenceRebroadcaster = next;
   };
 
   app.server.on("upgrade", (request, socket, head) => {
@@ -472,6 +497,7 @@ export function attachWs(
         ...options,
         shardFor,
         repo: repoLive,
+        presenceRebroadcaster,
       };
       void processRawFrame(
         c,
@@ -545,6 +571,7 @@ export function attachWs(
     setShardFor,
     setWarpResolver,
     setRepo,
+    setPresenceRebroadcaster,
   };
 }
 

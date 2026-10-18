@@ -22,7 +22,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { PresenceStore, toastTextFor, statusDotColor } from "./presence.js";
+import { PresenceStore, toastTextFor, statusDotColor, statusIcon } from "./presence.js";
 import type { PresenceEvent } from "./presence.js";
 import type { PayloadFor } from "@shared/protocol/index.js";
 
@@ -236,6 +236,25 @@ describe("PresenceStore", () => {
     // Each tag gets a distinct colour so the HUD never confuses them.
     const tags = ["flying", "docked", "onfoot"] as const;
     const colours = tags.map((t) => statusDotColor(t));
+    expect(new Set(colours).size).toBe(3);
+  });
+
+  it("maps activity tags to distinct status icons (TASK-36)", () => {
+    const tags = ["flying", "docked", "onfoot"] as const;
+    const glyphs = tags.map((t) => statusIcon(t).glyph);
+    const paths = tags.map((t) => statusIcon(t).svgPath);
+    const colours = tags.map((t) => statusIcon(t).color);
+    // Every tag has a non-empty glyph + svg path + colour.
+    for (const t of tags) {
+      expect(statusIcon(t).glyph).not.toBe("");
+      expect(statusIcon(t).svgPath).not.toBe("");
+      expect(statusIcon(t).color).toMatch(/^#[0-9a-f]{6}$/u);
+    }
+    // Each tag is visually distinct — three glyphs, three paths,
+    // three colours. The spec calls out "walking figure vs ship"
+    // so the swap must be readable at a glance.
+    expect(new Set(glyphs).size).toBe(3);
+    expect(new Set(paths).size).toBe(3);
     expect(new Set(colours).size).toBe(3);
   });
 });

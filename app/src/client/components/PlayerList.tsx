@@ -23,7 +23,12 @@
 import { useSyncExternalStore } from "react";
 import type * as React from "react";
 
-import { type PresenceStore, type PresencePlayer, statusDotColor } from "../net/presence.js";
+import {
+  type PresenceStore,
+  type PresencePlayer,
+  statusDotColor,
+  statusIcon,
+} from "../net/presence.js";
 
 /** Props for the player list. */
 export interface PlayerListProps {
@@ -127,6 +132,8 @@ export function PlayerList({ store }: PlayerListProps): React.JSX.Element {
               <span
                 aria-hidden="true"
                 data-testid="drift-player-list-dot"
+                data-glyph={statusIcon(p.state).glyph}
+                title={p.state}
                 style={{
                   width: 7,
                   height: 7,

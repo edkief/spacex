@@ -31,6 +31,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type * as React from "react";
 
 import { PlayerList } from "./components/PlayerList.js";
+import { RemoteCharacters } from "./components/RemoteCharacters.js";
 import { ToastStack } from "./components/ToastStack.js";
 import { ChatLog } from "./components/ChatLog.js";
 import { CanvasStage } from "./components/CanvasStage.js";
@@ -527,6 +528,7 @@ export function App(): React.JSX.Element {
         </div>
       )}
       <PlayerList store={store} />
+      <RemoteCharacters ownCallsign={client.currentCallsign} />
       <ToastStack store={store} notificationStore={notifications} />
       <ChatLog
         store={client.chatStore}

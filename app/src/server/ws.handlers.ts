@@ -492,6 +492,13 @@ export function onExitShip(conn: Connection, options: WsHandleOptions, _payload:
     return;
   }
   const result = handleDisembark(shard, { connId: conn.connId });
+  if (result.ok) {
+    // TASK-36: rebroadcast presence so every client in the system
+    // sees the player's state flip from `flying`/`docked` to
+    // `onfoot` (and the icon swap in PlayerList fires on the
+    // same frame the entity appears).
+    options.presenceRebroadcaster?.(conn.systemId ?? shard.systemId);
+  }
   if (!result.ok) {
     // Wire code map: `not-docked` -> `not-docked` (TASK-31
     // acceptance); `no-ship` / `unknown` -> `invalid-message`
@@ -552,6 +559,11 @@ export function onEnterShip(conn: Connection, options: WsHandleOptions, _payload
   }
   const result = handleEnterShip(shard, { connId: conn.connId });
   if (result.ok) {
+    // TASK-36: rebroadcast presence so every client in the system
+    // sees the player's state flip from `onfoot` back to `flying`/
+    // `docked` (and the icon swap in PlayerList fires on the same
+    // frame the character entity is removed).
+    options.presenceRebroadcaster?.(conn.systemId ?? shard.systemId);
     // The success ack was already pushed by `handleEnterShip`
     // (it owns the `shard.send(...)` so the entity switch and the
     // ack are guaranteed to land in the same frame).
