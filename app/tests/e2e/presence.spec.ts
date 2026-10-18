@@ -26,29 +26,17 @@ test("two contexts see each other in the in-system player list", async ({
   request,
   driftServer: server,
 }) => {
-  // Find a clean system to drive both contexts into. The
-  // per-worker fixture spawned a fresh DB so this is usually
-  // the probe's home system (always populated by the probe
-  // claim itself). The cap is 16; we pick any shard below
-  // that.
+  // Claim a probe callsign just to learn a galaxy systemId we
+  // can drive both contexts into. The probe never joins the
+  // shard (it's a pure HTTP claim) so the shard stays empty
+  // until the two contexts arrive — we expect the player list
+  // to converge on exactly the two contexts (no phantom third).
   const probe = await request.post(`${server.apiURL}/api/callsigns`, {
     data: { callsign: `PROBE-${Date.now().toString(36)}` },
   });
   expect(probe.status()).toBe(200);
-  const probeBody = (await probe.json()) as { token: string; homeSystemId: string };
-  const probeToken = probeBody.token;
-  const galaxyHealth = await request.get(`${server.apiURL}/api/galaxy/health`, {
-    headers: { authorization: `Bearer ${probeToken}` },
-  });
-  expect(galaxyHealth.status()).toBe(200);
-  const galaxyBody = (await galaxyHealth.json()) as {
-    shards: Array<{ systemId: string; players: number }>;
-  };
-  const homeShard = galaxyBody.shards.find((s) => s.systemId === probeBody.homeSystemId);
-  const sharedSystemId =
-    homeShard && homeShard.players < 16
-      ? homeShard.systemId
-      : (galaxyBody.shards.find((s) => s.players < 16)?.systemId ?? probeBody.homeSystemId);
+  const probeBody = (await probe.json()) as { homeSystemId: string };
+  const sharedSystemId = probeBody.homeSystemId;
   expect(sharedSystemId, "expected a system id to drive both contexts into").toBeTruthy();
 
   const contextA = await browser.newContext();

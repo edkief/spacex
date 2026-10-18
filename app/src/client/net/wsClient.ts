@@ -504,6 +504,20 @@ export class DriftClient {
     socket.addEventListener("close", this.handleClose);
     socket.addEventListener("error", this.handleError);
 
+    // Decide whether UI state should be preserved. The auto-retry
+    // path passes `preserve = isPreservable()`; `start()` always
+    // passes `false` because there's no prior disconnect.
+    //
+    // We clear *before* the handshake runs (rather than after
+    // `runJoin` resolves) so the `presence` broadcast that arrives
+    // around `enter_system` can't race with `leaveAll()` and end up
+    // wiping the freshly-applied roster. On the initial start the
+    // store is already empty, so this is a no-op snapshot emit.
+    if (!preserve) {
+      this.presence.leaveAll();
+      this.chat.clear();
+    }
+
     this.setStatus("connecting");
     // Give the socket a tick to transition to OPEN so the
     // handshake listener sees an actual `open` event before we
@@ -521,14 +535,6 @@ export class DriftClient {
     // rebuilds its predictor — every snapshot we receive from here
     // on is the canonical post-resync state.
     this.resetRemoteBuffers();
-
-    // Decide whether UI state should be preserved. The auto-retry
-    // path passes `preserve = isPreservable()`; `start()` always
-    // passes `false` because there's no prior disconnect.
-    if (!preserve) {
-      this.presence.leaveAll();
-      this.chat.clear();
-    }
   }
 
   /**

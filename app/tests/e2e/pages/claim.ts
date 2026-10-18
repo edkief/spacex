@@ -25,7 +25,10 @@ export class ClaimPage {
   readonly toastStack: Locator;
   readonly server: DriftServer;
 
-  constructor(public readonly page: Page, server: DriftServer) {
+  constructor(
+    public readonly page: Page,
+    server: DriftServer,
+  ) {
     this.canvas = page.getByTestId("drift-canvas");
     this.header = page.getByTestId("drift-header");
     this.playerList = page.getByTestId("drift-player-list");
@@ -98,7 +101,9 @@ export class ClaimPage {
     return this.page.evaluate(() => {
       const w = window as unknown as {
         __driftClient?: {
-          chatStore: { snapshot(): Array<{ id: string; author: string; text: string; ts: number }> };
+          chatStore: {
+            snapshot(): Array<{ id: string; author: string; text: string; ts: number }>;
+          };
         };
       };
       return w.__driftClient?.chatStore.snapshot() ?? [];

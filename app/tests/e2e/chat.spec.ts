@@ -61,21 +61,17 @@ test("chat: two contexts see each other's messages within 2 s", async ({
   const sentAt = Date.now();
   await claimA.sendChat("hello from A");
   await expect
-    .poll(
-      async () => (await claimB.chatSnapshot()).map((e) => e.text),
-      { timeout: 2_000 },
-    )
+    .poll(async () => (await claimB.chatSnapshot()).map((e) => e.text), { timeout: 2_000 })
     .toContain("hello from A");
   const elapsed = Date.now() - sentAt;
-  expect(elapsed, `expected chat to land within 2 s (got ${elapsed} ms)`).toBeLessThanOrEqual(2_000);
+  expect(elapsed, `expected chat to land within 2 s (got ${elapsed} ms)`).toBeLessThanOrEqual(
+    2_000,
+  );
 
   // XSS payload — survives the wire as text, no `<img>` injected.
   await claimA.sendChat("<img src=x onerror=alert(1)>");
   await expect
-    .poll(
-      async () => (await claimA.chatSnapshot()).map((e) => e.text),
-      { timeout: 5_000 },
-    )
+    .poll(async () => (await claimA.chatSnapshot()).map((e) => e.text), { timeout: 5_000 })
     .toContain("<img src=x onerror=alert(1)>");
 
   const imgCount = await claimA.chatLogScroll.locator("img").count();

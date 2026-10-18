@@ -34,8 +34,8 @@
 import * as React from "react";
 import { useEffect, useRef } from "react";
 
-/** Number of stars in the field — chosen so even a 32×32 sample has variance. */
-const STAR_COUNT = 200;
+/** Number of stars in the field — density chosen so even a small viewport patch has at least a few. */
+const STAR_COUNT = 800;
 
 /** Deterministic LCG so future determinism tests can re-seed. */
 function makeStarRng(seed: number): () => number {
@@ -65,14 +65,15 @@ interface StarfieldHandle {
  * back to a flat colour without surfacing a console error.
  */
 function initStarfield(canvas: HTMLCanvasElement, dpr: number): StarfieldHandle | null {
-  const gl = (canvas.getContext("webgl", {
-    alpha: false,
-    antialias: false,
-    depth: false,
-    stencil: false,
-    premultipliedAlpha: false,
-    preserveDrawingBuffer: true,
-  }) as WebGLRenderingContext | null) ?? null;
+  const gl =
+    (canvas.getContext("webgl", {
+      alpha: false,
+      antialias: false,
+      depth: false,
+      stencil: false,
+      premultipliedAlpha: false,
+      preserveDrawingBuffer: true,
+    }) as WebGLRenderingContext | null) ?? null;
   if (!gl) return null;
 
   // --- Vertex shader: render stars as point sprites.

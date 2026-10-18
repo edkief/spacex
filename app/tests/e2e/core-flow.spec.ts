@@ -51,9 +51,7 @@ test("core flow: auto-claim → handshake → join → canvas + player list", as
   // Player list shows the callsign + a "(you)" marker.
   const callsign = await claim.currentCallsign();
   expect(callsign, "callsign should be set after auth_ok").toMatch(/^Drift-/);
-  await expect(
-    claim.playerList.locator(`[data-callsign="${callsign}"]`),
-  ).toHaveCount(1);
+  await expect(claim.playerList.locator(`[data-callsign="${callsign}"]`)).toHaveCount(1);
   const youRow = claim.playerList.locator("[data-is-you='true']");
   await expect(youRow).toBeVisible();
   await expect(youRow).toContainText(callsign);

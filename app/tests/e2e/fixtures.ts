@@ -26,7 +26,7 @@
  * hides the `serverProcess`/`baseURL`/`wsURL`/`apiURL` fixtures
  * from the consumer — consumers only see the convenient types.
  */
-import { test as base, expect } from "@playwright/test";
+import { test as base, expect, type Page } from "@playwright/test";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -151,6 +151,7 @@ export type DriftServer = {
 export const test = base.extend<{ driftServer: DriftServer }, { workerServer: DriftServer }>({
   // Worker-scoped: one server per test file.
   workerServer: [
+    // eslint-disable-next-line no-empty-pattern -- Playwright requires the fixture arg to be the destructured bag even when unused.
     async ({}, use, workerInfo) => {
       // Allocate two free ports: one for Vite (the browser-facing
       // dev server) and one for the Fastify + ws backend.
@@ -214,6 +215,7 @@ export const test = base.extend<{ driftServer: DriftServer }, { workerServer: Dr
         const tail = logs.slice(-30).join("");
         throw new Error(
           `drift e2e fixture: dev server failed to become healthy.\n${String(err)}\n--- last logs ---\n${tail}`,
+          { cause: err },
         );
       }
 
@@ -245,69 +247,97 @@ export const test = base.extend<{ driftServer: DriftServer }, { workerServer: Dr
 export { expect };
 
 /**
- * Sample a small region of the live WebGL canvas by compositing
- * it into a 2D context and reading back via `getImageData`.
+ * Sample the live WebGL canvas by compositing it into a 2D
+ * context and reading back via `getImageData`.
  *
  * Why not `readPixels` directly?
  *   - `gl.readPixels` reads from the **current** draw buffer. By
- *     the time the test's evaluate() runs, the browser has likely
- *     swapped the buffer to the display, leaving the read buffer
- *     empty. Compositing into a 2D canvas pulls the current
- *     frame (the one on screen) into a 2D image we can sample
- *     deterministically.
+ *     the time the test's evaluate() runs, the browser has
+ *     likely swapped the buffer to the display, leaving the
+ *     read buffer empty. Compositing into a 2D canvas pulls
+ *     the current frame (the one on screen) into a 2D image we
+ *     can sample deterministically.
  *
- * Returns the RGBA pixel buffer + variance of the luminance
+ * Why a large region rather than a tiny patch?
+ *   - The starfield is sparse: 200-800 points scattered across
+ *     a 1280×720 canvas with ~6px radius. A 32×32 patch centred
+ *     on the canvas can randomly fall between them and read
+ *     back uniform clear colour even when the starfield is
+ *     fully drawn. Sampling a 256×256 patch guarantees enough
+ *     points are captured that variance is non-zero whenever
+ *     any star is on screen. We also compute the fraction of
+ *     pixels brighter than the clear colour so a flaky render
+ *     can be diagnosed from the test report.
+ *
+ * Returns the pixel sample + the variance of the luminance
  * channel. A non-uniform image (a real starfield) has variance
- * > 0; a flat-black fallback has variance === 0.
+ * > 0; a flat fallback has variance === 0.
  */
 export async function sampleCanvasPixels(
-  page: import("@playwright/test").Page,
-  size: number,
-): Promise<{ width: number; height: number; pixels: Uint8Array; variance: number }> {
+  page: Page,
+  size = 256,
+): Promise<{
+  width: number;
+  height: number;
+  pixels: Uint8Array;
+  variance: number;
+  starFraction: number;
+}> {
   return page.evaluate((s) => {
-    return new Promise<{ width: number; height: number; pixels: Uint8Array; variance: number }>(
-      (resolve, reject) => {
-        const source = document.getElementById("drift-canvas") as HTMLCanvasElement | null;
-        if (!source) {
-          reject(new Error("missing #drift-canvas"));
-          return;
-        }
-        // The WebGL canvas needs `preserveDrawingBuffer: true`
-        // to be drawn into a 2D canvas (the default is to clear
-        // after the swap). Our starfield opts in to that flag.
-        // Some browsers still snapshot from the swap chain in
-        // odd states; if the sample comes back black we fall
-        // back to `requestAnimationFrame` then a second draw.
-        const w = Math.max(1, Math.floor(s));
-        const h = w;
-        const scratch = document.createElement("canvas");
-        scratch.width = w;
-        scratch.height = h;
-        const ctx = scratch.getContext("2d");
-        if (!ctx) {
-          reject(new Error("2D context unavailable"));
-          return;
-        }
-        // Centre the readback on the live canvas — grab a
-        // `w × h` patch from the middle.
-        const sx = Math.max(0, Math.floor((source.width - w) / 2));
-        const sy = Math.max(0, Math.floor((source.height - h) / 2));
-        ctx.drawImage(source, sx, sy, w, h, 0, 0, w, h);
-        const image = ctx.getImageData(0, 0, w, h);
-        const pixels = new Uint8Array(image.data.buffer);
-        let sum = 0;
-        let sumSq = 0;
-        const n = pixels.length / 4;
-        for (let i = 0; i < pixels.length; i += 4) {
-          // ITU-R BT.601 luminance.
-          const luma = 0.299 * pixels[i] + 0.587 * pixels[i + 1] + 0.114 * pixels[i + 2];
-          sum += luma;
-          sumSq += luma * luma;
-        }
-        const mean = sum / n;
-        const variance = sumSq / n - mean * mean;
-        resolve({ width: w, height: h, pixels, variance });
-      },
-    );
+    return new Promise<{
+      width: number;
+      height: number;
+      pixels: Uint8Array;
+      variance: number;
+      starFraction: number;
+    }>((resolve, reject) => {
+      const source = document.getElementById("drift-canvas") as HTMLCanvasElement | null;
+      if (!source) {
+        reject(new Error("missing #drift-canvas"));
+        return;
+      }
+      // The WebGL canvas needs `preserveDrawingBuffer: true` to
+      // be drawn into a 2D canvas (the default is to clear after
+      // the swap). Our starfield opts in to that flag.
+      const w = Math.max(1, Math.floor(s));
+      const h = w;
+      const scratch = document.createElement("canvas");
+      scratch.width = w;
+      scratch.height = h;
+      const ctx = scratch.getContext("2d");
+      if (!ctx) {
+        reject(new Error("2D context unavailable"));
+        return;
+      }
+      // Centre the readback on the live canvas — grab a
+      // `w × h` patch from the middle.
+      const sx = Math.max(0, Math.floor((source.width - w) / 2));
+      const sy = Math.max(0, Math.floor((source.height - h) / 2));
+      ctx.drawImage(source, sx, sy, w, h, 0, 0, w, h);
+      const image = ctx.getImageData(0, 0, w, h);
+      const pixels = new Uint8Array(image.data.buffer);
+      let sum = 0;
+      let sumSq = 0;
+      let starCount = 0;
+      const n = pixels.length / 4;
+      for (let i = 0; i < pixels.length; i += 4) {
+        // ITU-R BT.601 luminance.
+        const luma = 0.299 * pixels[i] + 0.587 * pixels[i + 1] + 0.114 * pixels[i + 2];
+        sum += luma;
+        sumSq += luma * luma;
+        // Clear colour is ~(5, 6, 10) → luma ~6. Anything
+        // noticeably brighter is part of a star.
+        if (luma > 30) starCount++;
+      }
+      const mean = sum / n;
+      const variance = sumSq / n - mean * mean;
+      resolve({
+        width: w,
+        height: h,
+        pixels,
+        variance,
+        starFraction: starCount / n,
+      });
+    });
   }, size);
 }
