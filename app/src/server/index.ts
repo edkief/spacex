@@ -127,6 +127,16 @@ async function main(): Promise<void> {
     sessionSecret: serverConfig.sessionSecret,
     router,
   });
+  // TASK-7: galaxy overview endpoint — chart payload (every star +
+  // chart position + warp edges). Cached in-process; bearer-gated.
+  const { registerGalaxyOverviewRoute } = await import("./routes/galaxy-overview.js");
+  registerGalaxyOverviewRoute(app, {
+    repo,
+    sessionSecret: serverConfig.sessionSecret,
+    galaxySeed: serverConfig.galaxySeed,
+    galaxyStarCount: 32,
+    nowMs: undefined,
+  });
 
   // TASK-24: per-shard ship flush service. The interval cadence is
   // configurable via `SHARD_FLUSH_INTERVAL_MS` (default 30 s). The

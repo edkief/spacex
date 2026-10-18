@@ -1,6 +1,6 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-18 after **TASK-71** (Determinism test suite + two-client e2e comparison).
+Snapshot taken 2026-10-18 after **TASK-7** (Star chart UI: systems, travel times, occupancy).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.
@@ -40,6 +40,10 @@ PROJECT_ROOT
 │   │   │   │   ├── canonical.ts      # canonicalJson + starListChecksum (Node + browser)
 │   │   │   │   ├── system.helpers.ts # DEV_SEED, sampleStar, bigintToHex, fixture loader (shared by test files)
 │   │   │   │   ├── surface.helpers.ts # Surface fixture loader + sampling helpers (TASK-5)
+│   │   │   │   ├── travel.ts         # Travel/warp-time table + planar projection + 3-nearest-neighbour edges (TASK-7)
+│   │   │   │   ├── travel.test.ts    # 21 cases: conversions + symmetry + projection (TASK-7)
+│   │   │   │   ├── overview.ts       # buildGalaxyOverview(seed, starCount, currentSystemId) — chart payload (TASK-7)
+│   │   │   │   ├── overview.test.ts  # 9 cases: payload shape + layout determinism (TASK-7)
 │   │   │   │   ├── config-system.test.ts  # Integer-bound and weight-sum assertions (TASK-4)
 │   │   │   │   ├── planet.test.ts         # generatePlanet direct-slot probe (TASK-4)
 │   │   │   │   ├── system.test.ts         # generateSystem invariants + determinism + stats (TASK-4)
@@ -93,7 +97,13 @@ PROJECT_ROOT
 │   │   │   │   ├── PlayerList.tsx           # Bottom-left roster HUD — monospace + status dots + "(you)" marker (TASK-15)
 │   │   │   │   ├── ToastStack.tsx           # Top-right toast column — 3-visible cap + 8-deep queue + 3 s lifetime + 0.4 s fade (TASK-15)
 │   │   │   │   └── ChatLog.tsx              # Top-left chat panel — 100-message ring + Enter-toggled input + auto-escape (XSS-safe) + auto-scroll only when at-bottom (TASK-16)
-│   │   │   ├── net/             # Client prediction + reconciliation (TASK-14) + WS glue + presence store (TASK-15) + chat store (TASK-16)
+│   │   │   ├── state/           # Client state machines (TASK-7 + TASK-8)
+│   │   │   │   ├── warp.ts               # WarpStore — state machine: idle → warping-in → awaiting → warping-out → idle (TASK-7 stub; TASK-8 wires the WS flow)
+│   │   │   │   └── warp.test.ts          # 21 cases: state transitions + helpers + faulty-listener tolerance (TASK-7)
+│   │   │   ├── ui/              # Standalone full-screen UI overlays (TASK-7)
+│   │   │   │   ├── StarChart.tsx         # Fullscreen DOM/SVG galaxy map overlay — systems + edges + occupancy + Warp button (TASK-7)
+│   │   │   │   └── StarChart.test.tsx    # 15 cases: rendering + formatters + spectral colours (TASK-7)
+│   │   ├── net/             # Client prediction + reconciliation (TASK-14) + WS glue + presence store (TASK-15) + chat store (TASK-16)
 │   │   │   │   ├── prediction.ts          # ClientShipPredictor (local input → integrate → reconcile) + RemoteEntityBuffer (200 ms interp ring) + applyEntityUpdateToBuffer + simEntityFromWire + tuning constants
 │   │   │   │   ├── prediction.test.ts     # 28 cases: input stamping, bit-equality with server integrator, blend/rewind/force-snap thresholds, queue cap + age overflow, 150 ms RTT acceptance, jittery 10 Hz remote interp
 │   │   │   │   ├── presence.ts            # PresenceStore — in-system player roster Map<playerId, PresencePlayer> built from presence frames, join/leave diff events, cached snapshot for useSyncExternalStore, setOwnCallsign for "(you)" marker, toastTextFor + statusDotColor helpers (TASK-15)
@@ -153,6 +163,8 @@ PROJECT_ROOT
 │   │       ├── routes/          # REST route registrations
 │   │       │   ├── repair.ts    # POST /api/ships/repair (TASK-23) — auth + docked + cost calc + atomic withdraw + restore
 │   │       │   ├── galaxy-health.ts   # GET /api/galaxy/health (TASK-11) — auth-gated read-only stats surface (shardCount, totalPlayers, per-system players+uptime)
+│   │       │   ├── galaxy-overview.ts   # GET /api/galaxy/overview (TASK-7) — cached chart payload (every system + 3 nearest-neighbour warp edges + chart positions)
+│   │       │   ├── galaxy-overview.test.ts # 5 cases: 401 + 200 + cache + determinism (TASK-7)
 │   │       │   ├── galaxy-health.test.ts # 4 cases: 401 missing token, 401 bad token, 200 empty stats, 200 with populated shard
 │   │       │   ├── repair.test.ts # 11 cases: cost table per class + auth + not-docked + insufficient-credits + transaction rollback
 │   │       │   ├── callsigns.ts # POST /api/callsigns + GET /api/session + POST /api/session/logout (TASK-10 + TASK-66)
@@ -252,7 +264,8 @@ PROJECT_ROOT
 │   │       ├── presence.spec.ts # Playwright smoke (two browser contexts → both see each other in the in-system player list, screenshot) (TASK-15, fixture-rewritten in TASK-70)
 │   │       ├── reconnect.spec.ts# DriftClient auto-reconnect + "Reconnected" toast after forced socket close (TASK-17, fixture-rewritten in TASK-70)
 │   │       ├── render-smoke.spec.ts # Headless WebGL starfield smoke — samples 256x256 via 2D scratch canvas; asserts variance + starFraction (TASK-70)
-│   │       └── scaffold.spec.ts # Playwright smoke (canvas + /api/health) (TASK-68, fixture-rewritten in TASK-70)
+│   │       ├── scaffold.spec.ts # Playwright smoke (canvas + /api/health) (TASK-68, fixture-rewritten in TASK-70)
+│   │       ├── star-chart.spec.ts # Playwright smoke (open chart via M key + Systems button, click a node, screenshot the open chart, verify Warp button enables with the shortest-hop warp time) (TASK-7)
 │   ├── scripts/
 │   │   ├── gen-stars-fixture.ts         # Regenerate __fixtures__/stars-dev-seed.json (TASK-3)
 │   │   ├── gen-stars-full-fixture.ts    # Regenerate __fixtures__/stars-dev-seed-full.json (TASK-6)

@@ -293,6 +293,17 @@ export class DriftClient {
     return this.callsign;
   }
 
+  /**
+   * Bearer token used for the WS handshake. Exposed for the
+   * REST endpoints the UI polls (e.g. the star chart's
+   * `/api/galaxy/overview` + `/api/galaxy/health`). The token
+   * is the same one the server issued at claim time; it is
+   * cached on the client until `stop()` is called.
+   */
+  tokenSnapshot(): string | null {
+    return this.token;
+  }
+
   /** System id after `enter_system`, or `null` until then. */
   get currentSystemId(): string | null {
     return this.systemId;

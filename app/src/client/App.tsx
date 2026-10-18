@@ -1,12 +1,13 @@
 /**
- * Top-level React shell (TASK-15 + TASK-16 + TASK-17).
+ * Top-level React shell (TASK-15 + TASK-16 + TASK-17 + TASK-7).
  *
  * Mounts the canvas placeholder, the in-system roster HUD
  * (bottom-left), the join/leave toast stack (top-right), the
- * chat panel (top-left), and the "Connection lost" overlay
- * (TASK-17). The Drift client (`@client/net/wsClient`) handles
- * the WS handshake once at mount; the HUD widgets subscribe to
- * the same `PresenceStore` instance via `useSyncExternalStore`.
+ * chat panel (top-left), the "Connection lost" overlay
+ * (TASK-17), and the star chart overlay (TASK-7). The Drift
+ * client (`@client/net/wsClient`) handles the WS handshake once
+ * at mount; the HUD widgets subscribe to the same
+ * `PresenceStore` instance via `useSyncExternalStore`.
  *
  * Layout choices:
  *   - The roster HUD uses monospace + a small status dot, so the
@@ -15,13 +16,18 @@
  *     never block clicks; they fade after 3 s and auto-collapse.
  *   - The notification stream drives the "Reconnected" toast on
  *     every successful resync (TASK-17).
+ *   - The star chart is gated on the `chartOpen` flag — toggled
+ *     by the `M` key or the "Systems" header button. While open
+ *     the chart polls `/api/galaxy/health` every 5 s for live
+ *     occupancy; the polygon layout itself comes from a one-shot
+ *     fetch of `/api/galaxy/overview`.
  *   - When the DriftClient transitions to `lost` (retry budget
  *     exhausted) the App shows a full-screen overlay with a
  *     Retry button. The overlay is the only full-screen UI in
  *     v1; the spec calls out that it must NOT block the ESC menu
  *     (a future TASK-58 wires the menu).
  */
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type * as React from "react";
 
 import { PlayerList } from "./components/PlayerList.js";
@@ -31,6 +37,9 @@ import { CanvasStage } from "./components/CanvasStage.js";
 import { DriftClient } from "./net/wsClient.js";
 import { NotificationStore } from "./net/notifications.js";
 import { installDriftDebug } from "./net/driftDebug.js";
+import { StarChart, type OccupancyBySystem } from "./ui/StarChart.js";
+import { WarpStore } from "./state/warp.js";
+import type { GalaxyOverview } from "@shared/galaxy/overview.js";
 
 /**
  * The root shell. One effect drives the Drift client; the HUD
@@ -43,8 +52,23 @@ export function App(): React.JSX.Element {
   // per mount; we wire it into the client via `onResync` and the
   // DriftClient's lifecycle.
   const notifications = useMemo(() => new NotificationStore(), []);
+  // TASK-7: warp state machine (shared between the chart and the
+  // future TASK-8 warp flow). Created once per mount.
+  const warpStore = useMemo(() => new WarpStore(), []);
   const [status, setStatus] = useState(client.currentStatus);
   const [error, setError] = useState<string | null>(null);
+  // TASK-7: chart open state — toggled by the `M` key or the
+  // "Systems" header button. The chart component owns its own
+  // selection / Warp-button state internally.
+  const [chartOpen, setChartOpen] = useState(false);
+  // TASK-7: chart payload + occupancy. The overview is fetched
+  // once per chart open; occupancy is polled every 5 s while
+  // the chart is open.
+  const [overview, setOverview] = useState<GalaxyOverview | null>(null);
+  const [occupancy, setOccupancy] = useState<OccupancyBySystem>({});
+  // The bearer token used for the chart's GETs. We pull it off
+  // the live DriftClient once `auth_ok` lands; `null` until then.
+  const [token, setToken] = useState<string | null>(null);
 
   useEffect(() => {
     // Expose the client on `window` so the Playwright smoke test
@@ -83,6 +107,15 @@ export function App(): React.JSX.Element {
         ts: Date.now(),
       });
     });
+    // TASK-7: pick up the bearer token once the WS handshake
+    // completes so the chart's REST fetches (`/api/galaxy/overview`
+    // + `/api/galaxy/health`) can authenticate. We poll
+    // `currentCallsign`-equivalent state by reading the token
+    // straight off the client once `auth_ok` arrives.
+    const tokenTimer = window.setInterval(() => {
+      const t = client.tokenSnapshot();
+      if (t !== null) setToken(t);
+    }, 200);
     client.start().catch(() => {
       // Errors already surface via the onError listener; the
       // start() promise is intentionally fire-and-forget so the
@@ -92,9 +125,105 @@ export function App(): React.JSX.Element {
       offStatus();
       offError();
       offResync();
+      window.clearInterval(tokenTimer);
       void client.stop();
     };
   }, [client, notifications]);
+
+  // -----------------------------------------------------------------
+  // TASK-7: chart data fetch + 5 s occupancy poll while open.
+  // -----------------------------------------------------------------
+
+  // One-shot fetch of the full chart payload when the chart
+  // opens. Cheap on the server (cached after first hit) and
+  // stable across re-opens (server-cached forever).
+  useEffect(() => {
+    if (!chartOpen) return;
+    if (token === null) return;
+    const controller = new AbortController();
+    fetch("/api/galaxy/overview", {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`overview ${res.status}`);
+        const body = (await res.json()) as { overview: GalaxyOverview };
+        setOverview(body.overview);
+      })
+      .catch((err: unknown) => {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        // Surface as an error banner so the player sees the
+        // failure rather than a blank chart.
+        setError(`chart overview fetch failed: ${(err as Error).message}`);
+      });
+    return () => controller.abort();
+  }, [chartOpen, token]);
+
+  // 5 s polling for live occupancy. Re-runs whenever `chartOpen`
+  // flips so closing the chart stops the interval immediately.
+  useEffect(() => {
+    if (!chartOpen) return;
+    if (token === null) return;
+    let cancelled = false;
+    const tick = async (): Promise<void> => {
+      try {
+        const res = await fetch("/api/galaxy/health", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const body = (await res.json()) as {
+          shards: { systemId: string; players: number }[];
+        };
+        if (cancelled) return;
+        const next: Record<string, number> = {};
+        for (const s of body.shards) next[s.systemId] = s.players;
+        setOccupancy(next);
+      } catch {
+        // Swallow — next tick will retry. The chart gracefully
+        // degrades to zero-player counts if the poll fails.
+      }
+    };
+    void tick();
+    const id = window.setInterval(() => {
+      void tick();
+    }, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [chartOpen, token]);
+
+  // -----------------------------------------------------------------
+  // TASK-7: global keyboard handler — `M` opens the chart. `Escape`
+  // closes it (handled inside the chart as well, but a top-level
+  // fallback so the close fires even if the chart isn't focused).
+  // -----------------------------------------------------------------
+
+  const toggleChart = useCallback(() => setChartOpen((o) => !o), []);
+
+  useEffect(() => {
+    const onKey = (ev: KeyboardEvent): void => {
+      // Ignore keystrokes that target text inputs so typing
+      // "m" in the chat box doesn't open the chart.
+      const active = document.activeElement;
+      const inTextField =
+        active instanceof HTMLInputElement ||
+        active instanceof HTMLTextAreaElement ||
+        (active instanceof HTMLElement && active.isContentEditable);
+      if (inTextField) return;
+      if (ev.key === "m" || ev.key === "M") {
+        ev.preventDefault();
+        toggleChart();
+      } else if (ev.key === "Escape" && chartOpen) {
+        // Only swallow Escape when the chart is actually open;
+        // otherwise other overlays (TASK-58 menu) may need it.
+        ev.preventDefault();
+        setChartOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toggleChart, chartOpen]);
 
   const store = client.presenceStore;
 
@@ -121,9 +250,36 @@ export function App(): React.JSX.Element {
           letterSpacing: "0.18em",
           fontSize: 12,
           textTransform: "uppercase",
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
         }}
       >
-        Drift — {statusLabel(status, client.currentCallsign)}
+        <span>Drift — {statusLabel(status, client.currentCallsign)}</span>
+        {/* TASK-7: "Systems" button — opens the star chart
+            overlay. Mirrors the `M` key binding so the player
+            can use either surface. */}
+        <button
+          data-testid="drift-systems-button"
+          type="button"
+          aria-label="Open star chart"
+          aria-pressed={chartOpen ? "true" : "false"}
+          onClick={() => setChartOpen(true)}
+          style={{
+            background: "transparent",
+            border: "1px solid rgba(255, 255, 255, 0.25)",
+            color: "#e6edf3",
+            borderRadius: 3,
+            padding: "3px 8px",
+            cursor: "pointer",
+            fontSize: 10,
+            letterSpacing: "0.16em",
+            fontFamily: "inherit",
+            textTransform: "uppercase",
+          }}
+        >
+          Systems (M)
+        </button>
       </header>
       {error && (
         <div
@@ -150,6 +306,19 @@ export function App(): React.JSX.Element {
         store={client.chatStore}
         canSend={status === "online"}
         onSend={(t) => client.sendChat(t)}
+      />
+      {/* TASK-7: star chart overlay. Renders above the canvas
+          + HUD but below the connection-lost overlay. The
+          `Esc` key, the close button, and the host's `M`-key
+          toggle all flip `chartOpen`. */}
+      <StarChart
+        open={chartOpen}
+        onClose={() => setChartOpen(false)}
+        overview={overview}
+        occupancy={occupancy}
+        currentSystemId={client.currentSystemId}
+        warpStore={warpStore}
+        authToken={token}
       />
       {/* TASK-17: "Connection lost" overlay. Renders when the
           DriftClient's retry budget is exhausted. The Retry button
