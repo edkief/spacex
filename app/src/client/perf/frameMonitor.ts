@@ -130,6 +130,15 @@ export class FrameMonitor {
   private latestTriangles = 0;
   private latestEntities = 0;
 
+  /**
+   * Per-category counters — extensible telemetry for non-renderer
+   * phases (TASK-26+ uses these to track surface triangles by
+   * LOD ring, etc.). Map key is the category name; value is the
+   * latest reading. `getCategoryCount(name)` returns the most
+   * recent sample or 0.
+   */
+  private readonly categoryCounts: Map<string, number> = new Map();
+
   /** Timestamp of the previous `recordFrameTime` sample (monotonic). */
   private prevSampleTs = -1;
 
@@ -197,6 +206,28 @@ export class FrameMonitor {
   /** Push the active rendered entity count. */
   recordEntityCount(n: number): void {
     this.latestEntities = n;
+  }
+
+  /**
+   * Record a per-category counter (TASK-26+). Use this for any
+   * pipeline phase that wants to surface a number in the debug
+   * overlay or feed a budget check: surface triangles per LOD
+   * ring, skybox draw calls, particle count, etc. The category
+   * name is stable across calls so the overlay can map names
+   * to rows.
+   */
+  recordCategoryCount(name: string, value: number): void {
+    this.categoryCounts.set(name, value);
+  }
+
+  /** Read the most recent value for a category (0 if absent). */
+  getCategoryCount(name: string): number {
+    return this.categoryCounts.get(name) ?? 0;
+  }
+
+  /** All category names currently tracked (for the overlay). */
+  getCategoryNames(): readonly string[] {
+    return Array.from(this.categoryCounts.keys()).sort();
   }
 
   /**
@@ -282,6 +313,7 @@ export class FrameMonitor {
     this.latestEntities = 0;
     this.prevSampleTs = -1;
     this.budgetLastWarnedAt.clear();
+    this.categoryCounts.clear();
   }
 }
 

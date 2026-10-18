@@ -127,10 +127,18 @@ PROJECT_ROOT
 │   │   │   │   ├── threeAdapter.ts          # three.js-backed MaterialAdapter factory (mutates Color in place)
 │   │   │   │   └── ShipMeshBuilder.test.ts  # 24 cases: zone enumeration, defaults, idempotent build, in-place applyLivery, disposeShip/disposeAll
 │   │   │   ├── perf/            # In-game frame monitor + dev-only overlay (TASK-57) — 300-frame circular buffer + 2 Hz overlay poll
-│   │   │   │   ├── frameMonitor.ts          # FrameMonitor class: recordFrameTime + recordRendererInfo + recordEntityCount + budgetCheck(name, ms, budgetMs, now?) rate-limited warn hook + pickPercentile helper
-│   │   │   │   ├── frameMonitor.test.ts     # 23 cases: percentile math, rolling window wrap, FPS over 1 s, budget emission + cooldown, latest-wins renderer info, console-backed default logger
+│   │   │   │   ├── frameMonitor.ts          # FrameMonitor class: recordFrameTime + recordRendererInfo + recordEntityCount + recordCategoryCount + budgetCheck(name, ms, budgetMs, now?) rate-limited warn hook + pickPercentile helper
+│   │   │   │   ├── frameMonitor.test.ts     # 27 cases: percentile math, rolling window wrap, FPS over 1 s, budget emission + cooldown, latest-wins renderer info, per-category counters, console-backed default logger
 │   │   │   │   ├── DebugOverlay.tsx         # Dev-only top-right React panel; 2 Hz poll via setInterval; FPS/p50/p95/p99/draws/tris/ents rows with budget-threshold accents; F3-toggled via App.tsx
 │   │   │   │   └── DebugOverlay.test.tsx    # 5 cases: closed returns null, every labelled row renders, stats reflect monitor snapshot, formatter shapes, overhead benchmark (< 1 ms p95 delta amortised)
+│   │   │   ├── world/           # Surface chunk streaming pipeline (TASK-26) — 512 m render chunks, LOD mip chain, LRU cache, frame-sliced scheduler
+│   │   │   │   ├── chunks.ts                # chunkKey + chunkCoordFor + lodFor + generateChunk + ChunkLruCache(400) + TriangleBudget(400k) + buildHeightGrid + buildLodGeometry + computeActiveSet + LRU eviction
+│   │   │   │   ├── chunks.test.ts           # 48 cases: chunk math, LOD rings, LRU eviction, budget tracker, mip-chain math, 13-chunk benchmark, scripted-flight perf budget (median 2.71ms, p95 3.57ms)
+│   │   │   │   ├── frameScheduler.ts        # FrameScheduler: per-frame time-sliced executor (4 ms budget) + FIFO queue + pushFront + clear + tick (returns completed count)
+│   │   │   │   ├── frameScheduler.test.ts   # 11 cases: FIFO order, budget stop, single-task overrun, async fire-and-forget, clock-injected duration recording, completedCount
+│   │   │   │   ├── pipeline.ts              # ChunkPipeline orchestrator: setPlayerPosition + tick (active-set + scheduler + LRU + budget) + onMount/onEvict/onLodChange/onBudgetCheck callbacks + getStats() for debug overlay
+│   │   │   │   ├── pipeline.test.ts         # 13 cases: active-set population, nearest-first ordering, LOD budget recording, fast-movement 7×7 expansion, LRU eviction, mount/evict callbacks, determinism, dispose
+│   │   │   │   └── index.ts                 # Barrel re-export of the public pipeline API
 │   │   │   ├── index.html       # Vite HTML entry
 │   │   │   ├── main.tsx         # React DOM bootstrap
 │   │   │   └── public/          # Static assets served by Vite (favicon.ico)

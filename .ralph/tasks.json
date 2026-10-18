@@ -242,7 +242,7 @@
     "title": "Streaming pipeline: sectors, terrain chunks, LOD, impostors",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-26.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-27",

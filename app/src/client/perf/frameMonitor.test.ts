@@ -288,4 +288,34 @@ describe("client/perf/frameMonitor — FrameMonitor", () => {
     expect(spy).toHaveBeenCalledTimes(1);
     spy.mockRestore();
   });
+
+  it("recordCategoryCount tracks per-category telemetry (TASK-26+)", () => {
+    monitor.recordCategoryCount("surface-tris-near", 1000);
+    monitor.recordCategoryCount("surface-tris-mid", 2000);
+    monitor.recordCategoryCount("surface-tris-far", 500);
+    expect(monitor.getCategoryCount("surface-tris-near")).toBe(1000);
+    expect(monitor.getCategoryCount("surface-tris-mid")).toBe(2000);
+    expect(monitor.getCategoryCount("surface-tris-far")).toBe(500);
+    expect(monitor.getCategoryCount("missing")).toBe(0);
+  });
+
+  it("recordCategoryCount uses latest-wins semantics", () => {
+    monitor.recordCategoryCount("surface-tris-near", 100);
+    monitor.recordCategoryCount("surface-tris-near", 200);
+    expect(monitor.getCategoryCount("surface-tris-near")).toBe(200);
+  });
+
+  it("getCategoryNames returns the tracked category names sorted", () => {
+    monitor.recordCategoryCount("zzz", 1);
+    monitor.recordCategoryCount("aaa", 2);
+    monitor.recordCategoryCount("mmm", 3);
+    expect(monitor.getCategoryNames()).toEqual(["aaa", "mmm", "zzz"]);
+  });
+
+  it("reset clears the category counts", () => {
+    monitor.recordCategoryCount("surface-tris-near", 1000);
+    monitor.reset();
+    expect(monitor.getCategoryCount("surface-tris-near")).toBe(0);
+    expect(monitor.getCategoryNames()).toEqual([]);
+  });
 });
