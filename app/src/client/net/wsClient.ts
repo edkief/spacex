@@ -74,6 +74,7 @@ import {
   PROTOCOL_VERSION,
   type PayloadFor,
 } from "@shared/protocol/index.js";
+import type { Inventory } from "@shared/world/inventory.js";
 
 import { PresenceStore } from "./presence.js";
 import { ChatStore } from "./chat.js";
@@ -256,6 +257,12 @@ export class DriftClient {
   private readonly uiOpenListeners = new Set<
     (payload: { ui: string; payload: Record<string, unknown> }) => void
   >();
+  /** TASK-34: latest known on-foot inventory. The server pushes
+   *  `inventory_update` frames on every pickup / drop; the HUD
+   *  polls `getInventory()` instead of subscribing so the
+   *  polling cadence matches the existing docked-indicator + interaction-
+   *  prompt hooks (TASK-29 / TASK-33). */
+  private inventory: Inventory | null = null;
   private status: DriftClientStatus = "idle";
   private playerId: string | null = null;
   private callsign: string | null = null;
@@ -601,6 +608,41 @@ export class DriftClient {
       throw new Error("DriftClient: sendInteract requires an open socket");
     }
     this.socket.send(encodeEnvelope("interact", { targetId, action }));
+  }
+
+  /**
+   * TASK-34: send a `pickup` request for a deposit or a ground
+   * item. The server validates the target via the shard's
+   * proximity-interaction math (3 m × 30° forward cone) and
+   * replies with `inventory_update` on success.
+   */
+  sendPickup(targetId: string): void {
+    if (!this.socket || this.socket.readyState !== this.socket.OPEN) {
+      throw new Error("DriftClient: sendPickup requires an open socket");
+    }
+    this.socket.send(encodeEnvelope("pickup", { targetId }));
+  }
+
+  /**
+   * TASK-34: send a `drop` request. Spawns a ground-item entity at
+   * the character's location carrying `amount` units of
+   * `resourceType`. Server validates inventory ownership and replies
+   * with `inventory_update` on success.
+   */
+  sendDrop(resourceType: string, amount: number): void {
+    if (!this.socket || this.socket.readyState !== this.socket.OPEN) {
+      throw new Error("DriftClient: sendDrop requires an open socket");
+    }
+    this.socket.send(encodeEnvelope("drop", { resourceType, amount }));
+  }
+
+  /**
+   * TASK-34: read the latest known on-foot inventory. Returns
+   * `null` until the first `inventory_update` lands; the WeightBar
+   * HUD hides itself in that state.
+   */
+  getInventory(): Inventory | null {
+    return this.inventory;
   }
 
   /**
@@ -1081,6 +1123,20 @@ export class DriftClient {
             // swallow — faulty listener must not break the loop
           }
         }
+        return;
+      }
+      case "inventory_update": {
+        // TASK-34: server-pushed inventory change. Mirror the
+        // payload into our local cache so the WeightBar HUD
+        // observes it on its next 250 ms poll.
+        const payload = env.payload as {
+          stacks: Record<string, number>;
+          weightUsed: number;
+        };
+        this.inventory = {
+          stacks: { ...payload.stacks },
+          weightUsed: payload.weightUsed,
+        };
         return;
       }
       default:

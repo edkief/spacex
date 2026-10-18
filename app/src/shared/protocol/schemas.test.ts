@@ -123,6 +123,16 @@ const VALID_PAYLOADS: Record<MessageType, () => unknown> = {
   interact: () => ({ targetId: "node-1", action: "inspect" }),
   interact_ok: () => ({ targetId: "node-1", action: "use" }),
   ui_open: () => ({ ui: "dock", payload: { station: "alpha" } }),
+  pickup: () => ({ targetId: "node-1" }),
+  drop: () => ({ resourceType: "iron", amount: 5 }),
+  inventory_update: () => ({
+    stacks: { iron: 5 },
+    weightUsed: 5,
+    capacity: 40,
+    action: "pickup-full",
+    taken: 5,
+    remaining: 0,
+  }),
   mine: () => ({ nodeId: "node-1", duration: 2.5 }),
   sell: () => ({ resourceType: "iron", quantity: 5 }),
   buy_ship: () => ({ classId: "freighter" }),
@@ -232,6 +242,16 @@ const INVALID_PAYLOADS: Record<MessageType, () => unknown> = {
   interact: () => ({ targetId: "node-1", action: "explode" }), // bad enum
   interact_ok: () => ({ targetId: "", action: "explode" }), // empty targetId + bad enum
   ui_open: () => ({ ui: "menu", payload: { x: 1 } }), // unknown `ui`
+  pickup: () => ({ targetId: "" }), // empty
+  drop: () => ({ resourceType: "iron", amount: -3 }), // negative amount
+  inventory_update: () => ({
+    stacks: { iron: -1 }, // negative stack
+    weightUsed: 0,
+    capacity: 40,
+    action: "pickup-full",
+    taken: 0,
+    remaining: 0,
+  }),
   mine: () => ({ nodeId: "", duration: -1 }),
   sell: () => ({ resourceType: "", quantity: 0 }), // zero/negative quantity
   buy_ship: () => ({ classId: "corvette" }), // unknown class

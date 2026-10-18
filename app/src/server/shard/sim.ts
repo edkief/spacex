@@ -68,6 +68,7 @@ import { regimePlanetContexts } from "@shared/regime-planets.js";
 import { SHIP_CLASSES } from "@shared/ships.js";
 
 import { cleanupExpiredWrecks } from "./combat.js";
+import { cleanupExpiredGroundItems } from "./inventory.js";
 import { drainInput } from "./input-queue.js";
 import { TickHistogram } from "./histogram.js";
 import type {
@@ -360,6 +361,11 @@ export class SimLoop {
     //    `wreckExpiresAt` has passed. Cheap O(n) walk — wrecks are
     //    a tiny fraction of the registry at any moment.
     cleanupExpiredWrecks(shard, Date.now());
+    // 4b. Ground-item cleanup (TASK-34). Remove entities whose
+    //     `expiresAtMs` has passed. The `groundItem` kind was
+    //     added in TASK-34; despawn happens after GROUND_ITEM_TTL_MS
+    //     (300 s).
+    cleanupExpiredGroundItems(shard, Date.now());
     const tickDuration = (this.hooks.clock ?? performanceNow)() - tickStart;
     this.histogram.push(tickDuration);
 

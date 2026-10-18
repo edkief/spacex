@@ -39,6 +39,8 @@ import {
   ZERO_VELOCITY,
   defaultPosition,
 } from "./repo.js";
+import { emptyInventory, validateInventory } from "@shared/world/inventoryOps.js";
+import type { Inventory } from "@shared/world/inventory.js";
 
 /**
  * Bind player/ship/cargo query methods to the given Postgres database.
@@ -50,6 +52,8 @@ export function bindPgIdentity(db: NodePgDatabase<typeof pgSchema>): {
   createPlayer: (input: CreatePlayerInput) => Promise<PlayerRow>;
   findPlayerByCallsign: (callsign: string) => Promise<PlayerRow | null>;
   findPlayerById: (id: string) => Promise<PlayerRow | null>;
+  getInventory: (playerId: string) => Promise<Inventory>;
+  saveInventory: (playerId: string, inventory: Inventory) => Promise<Inventory>;
   getOrCreateStarterShip: (playerId: string, classId: ShipClassId) => Promise<ShipRow>;
   findShipById: (id: string) => Promise<ShipRow | null>;
   saveShipState: (id: string, patch: SaveShipStateInput) => Promise<ShipRow>;
@@ -70,6 +74,11 @@ export function bindPgIdentity(db: NodePgDatabase<typeof pgSchema>): {
             callsign: input.callsign,
             homeSystemId: input.homeSystemId,
             credits: 500,
+            // TASK-34: starting inventory is empty. The column is
+            // nullable so the loader would default to empty on a null;
+            // we set it explicitly here so the row is readable without
+            // a fallback branch.
+            inventory: emptyInventory(),
           })
           .returning();
         const first = rows[0];
@@ -96,6 +105,40 @@ export function bindPgIdentity(db: NodePgDatabase<typeof pgSchema>): {
         .where(eq(pgSchema.players.id, id))
         .limit(1);
       return rows[0] ? mapPlayer(rows[0]) : null;
+    },
+
+    async getInventory(playerId: string): Promise<Inventory> {
+      // Null → empty inventory; malformed JSON / out-of-range weight
+      // also resolves to empty (defensive — drops the bad row but
+      // keeps the player functional). Unknown player → NotFoundError.
+      const rows = await db
+        .select({ inventory: pgSchema.players.inventory })
+        .from(pgSchema.players)
+        .where(eq(pgSchema.players.id, playerId))
+        .limit(1);
+      const row = rows[0];
+      if (!row) {
+        throw new NotFoundError("Player", playerId);
+      }
+      const raw = row.inventory;
+      if (raw === null || raw === undefined) return emptyInventory();
+      if (validateInventory(raw)) return raw as Inventory;
+      return emptyInventory();
+    },
+
+    async saveInventory(playerId: string, inventory: Inventory): Promise<Inventory> {
+      if (!validateInventory(inventory)) {
+        throw new Error("saveInventory: invalid inventory shape");
+      }
+      const result = await db
+        .update(pgSchema.players)
+        .set({ inventory })
+        .where(eq(pgSchema.players.id, playerId))
+        .returning({ id: pgSchema.players.id });
+      if (result.length === 0) {
+        throw new NotFoundError("Player", playerId);
+      }
+      return inventory;
     },
 
     async getOrCreateStarterShip(playerId: string, classId: ShipClassId): Promise<ShipRow> {

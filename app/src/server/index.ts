@@ -132,6 +132,11 @@ async function main(): Promise<void> {
   ws.setShardFor((conn) =>
     conn.systemId === null ? undefined : (router.get(conn.systemId) ?? undefined),
   );
+  // TASK-34: pass the repository down to the inventory handlers
+  // (pickup / drop / interact-registry deposit entries). Same
+  // instance the boot created above so the load/save cycle hits
+  // the same SQLite file or PG pool as the rest of the server.
+  ws.setRepo(repo);
   // Register the health route now that the router exists.
   // (buildApp is intentionally not re-called; we register the route
   // directly here to avoid the double-listener cost.)

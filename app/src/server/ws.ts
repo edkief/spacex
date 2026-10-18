@@ -42,6 +42,7 @@ import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 
 import type { Shard } from "./shard/types.js";
+import type { Repository } from "./db/repo.js";
 
 import {
   ConnectionRegistry,
@@ -193,6 +194,14 @@ export interface WsHandle {
    * harness fails closed.
    */
   setWarpResolver: (resolver: WarpResolver) => void;
+  /**
+   * TASK-34: swap in the repository handle for inventory
+   * operations (pickup / drop). The repo is required by the
+   * inventory handlers; tests that don't care about inventory can
+   * leave it unset — `onPickup` / `onDrop` reject with `not-found`
+   * rather than crash so the connection stays alive.
+   */
+  setRepo: (repo: Repository) => void;
 }
 
 /** Tunable keepalive knobs. Tests override these to avoid real timers. */
@@ -262,6 +271,15 @@ export interface WsHandleOptions {
    * unit tests don't have to stub a logger.
    */
   debugLogger?: Pick<Console, "debug" | "warn" | "error">;
+  /**
+   * TASK-34: repository handle so `pickup` and `drop` handlers can
+   * load / save the player's inventory via `getInventory` /
+   * `saveInventory`. Production wires this to the live repo.
+   * Defaults to `undefined`; the inventory handlers reject with
+   * `not-found` so unit tests that don't wire a repo still see a
+   * structured error rather than a crash.
+   */
+  repo?: Repository;
 }
 
 // ---------------------------------------------------------------------------
@@ -339,6 +357,14 @@ export function attachWs(
   let warpResolverLive: WarpResolver = options.warpResolver ?? defaultWarpResolver;
   const setWarpResolver = (next: WarpResolver): void => {
     warpResolverLive = next;
+  };
+  // TASK-34: repository handle for inventory handlers. Defaults
+  // to `undefined`; the WS handler chains reject with `not-found`
+  // so a router-less test harness can't crash a test session
+  // because the repo was forgotten.
+  let repoLive: Repository | undefined = options.repo;
+  const setRepo = (next: Repository): void => {
+    repoLive = next;
   };
 
   app.server.on("upgrade", (request, socket, head) => {
@@ -445,6 +471,7 @@ export function attachWs(
       const chatAwareOptions: WsHandleOptions = {
         ...options,
         shardFor,
+        repo: repoLive,
       };
       void processRawFrame(
         c,
@@ -517,6 +544,7 @@ export function attachWs(
     setOnConnectionClose,
     setShardFor,
     setWarpResolver,
+    setRepo,
   };
 }
 

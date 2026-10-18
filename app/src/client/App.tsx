@@ -43,6 +43,7 @@ import {
   useOwnShipOnPad as useExitPromptShipOnPad,
 } from "./components/ExitShipPrompt.js";
 import { InteractionPrompt } from "./components/InteractionPrompt.js";
+import { WeightBar, useOwnInventory } from "./components/WeightBar.js";
 import { useInteractables, useLocalInteractor } from "./components/useInteractables.js";
 import {
   currentAtmosphereStateProvider,
@@ -357,6 +358,8 @@ export function App(): React.JSX.Element {
   // Hooks are fine to call both here.
   const interactables = useInteractables();
   const localInteractor = useLocalInteractor();
+  // TASK-34: own inventory (drives the WeightBar HUD).
+  const ownInventory = useOwnInventory();
 
   return (
     <div
@@ -406,6 +409,10 @@ export function App(): React.JSX.Element {
           runs the cone raycast, and shows a single "[E] …" pill
           when a candidate lands inside the 3 m × 30° forward
           cone. Hides entirely on no-match. */}
+      {/* TASK-34: on-foot inventory HUD. Bottom-right weight bar
+          (weightUsed / 40) + per-stack tooltip on hover. Hidden
+          until the first `inventory_update` frame lands. */}
+      <WeightBar inventory={ownInventory} />
       <InteractionPrompt
         interactor={localInteractor}
         interactables={interactables}

@@ -1,3 +1,57 @@
+### 2026-10-18 — Iteration 34
+- **TASK-34** On-foot inventory: carry, weight, drop → **DONE**
+  - **Shared inventory model (`app/src/shared/world/inventory.ts` + `inventoryOps.ts`).**
+    - `InventoryResourceType` union: `iron | copper | rare-earths | crystal` (TASK-37 catalog subset).
+    - `INVENTORY_WEIGHT_PER_UNIT`: iron/copper = 1, rare-earths = 2, crystal = 3.
+    - `INVENTORY_WEIGHT_CAP = 40` units (≈ 20 iron or ~13 crystal — the spec's "tuned so a mining trip fills the backpack" rule).
+    - Pure-function ops: `emptyInventory`, `addToInventory` (partial pickup at boundary), `removeFromInventory` (drop validation), `recomputeWeight`, `validateInventory` (sentinel for the persistence loader).
+    - 26 unit cases in `inventoryOps.test.ts`.
+  - **Persistence (`app/src/server/db/`).**
+    - New migration `0003_player_inventory.sql`: nullable `inventory` TEXT column on `players`.
+    - Both PG + SQLite schemas updated with `inventory: jsonb|text` matching the existing column-typing discipline.
+    - `PlayerRow.inventory: Inventory` typed from the shared module.
+    - Repository contract gained `getInventory(playerId)` and `saveInventory(playerId, inventory)`; both drivers implement them; null / malformed rows backfill to `emptyInventory()`.
+    - Player-row loader + mapper carry the inventory through; existing `findPlayerById` callers receive the populated shape.
+    - 5 new tests in `repo.players.test.ts` (empty / round-trip / 404 / restart / save 404).
+  - **Server shard (`app/src/server/shard/inventory.ts`).**
+    - `handlePickup(shard, repo, { connId, targetId })` validates regime + range + target kind, applies `addToInventory`, persists, and either reduces the in-memory amount (partial pickup) or removes the entity (full pickup).
+    - `handleDrop(shard, repo, { connId, resourceType, amount })` validates ownership, mints a `groundItem` entity at the character's pos (id: `ground:<player>:<resource>:<spawnMs>`), and persists the inventory.
+    - `makeGroundItemEntity(...)` + `cleanupExpiredGroundItems(shard, nowMs)` (300 s TTL).
+    - Sim loop (`sim.ts`) calls `cleanupExpiredGroundItems` every tick next to the wreck cleanup.
+    - Existing `interact.ts` deposit registry entry routes through `handlePickup` (passes `repo` from the WS layer; tests with `repo: null` keep the legacy "remove only" behavior).
+    - 16 unit + integration tests in `inventory.test.ts`.
+  - **Wire schema.**
+    - `EntityKindSchema` gained `groundItem`.
+    - `EntityStateSchema` gained optional `resourceType` + `amount` so deposits / ground items carry their stack on the wire.
+    - Three new message types: `PickupSchema`, `DropSchema`, `InventoryUpdateSchema` (canonical inventory + action tag + taken/remaining telemetry).
+    - `ConnSender` union gained `inventory_update`.
+    - 3 new valid + invalid fixtures in `schemas.test.ts`.
+  - **WS dispatch / handlers (`app/src/server/ws.handlers.ts` + `ws.dispatch.ts`).**
+    - `onPickup` + `onDrop` route through `handlePickup` / `handleDrop`; success replies with `inventory_update`, structured errors (`wrong-regime`, `out-of-range`, `not-found`, `overflow`, `unknown-resource`, `insufficient-amount`) match the existing wire-error pipeline.
+    - `WsHandleOptions.repo` + `setRepo` seam threads the live repository through; the boot path in `index.ts` calls `ws.setRepo(repo)`.
+  - **WS round-trip (`app/src/server/ws.inventory.test.ts`).**
+    - Three tests against a real Fastify + ws boot: drop from ALPHA, ground item registered in the shard, broadcast wire shape carries the ground item, persistence round-trip on the inventory; pickup consumes a deposit + carries the ack; wrong-regime when ship-bound (not character-bound).
+  - **Client HUD (`app/src/client/components/WeightBar.tsx`).**
+    - 120 px bottom-right strip with `Carry X/40` readout + fill bar (grey / amber at ≥70 % / red at ≥95 %).
+    - Hover tooltip lists every non-zero stack with its amount.
+    - `useOwnInventory` poll hook (250 ms cadence, same pattern as `useOwnShipOnPad` / `useInteractables`).
+    - `DriftClient.sendPickup` + `sendDrop` + `getInventory` + `inventory_update` handler; mounted in `App.tsx` next to the other on-foot overlays.
+    - 7 React Testing Library tests cover hidden state, fills, colour thresholds, and the hover tooltip path.
+  - **Persistence e2e survives simulated restart.**
+    - `repo.players.test.ts` re-reads through `findPlayerById` and asserts the inventory matches; the `inventory.test.ts` restart case exercises the same `getInventory` path the loader uses.
+  - **Acceptance criteria checklist:**
+    - `Player inventory: max 40 units of weight; items are stacks of resource types from TASK-37 catalog`: ✅ `INVENTORY_WEIGHT_CAP = 40`; weights 1/1/2/3 per unit.
+    - `Server-authoritative 'inventory' state {stacks, weightUsed} on the player; pickup adds, drop removes and spawns a ground item entity; overflow pickup is partial`: ✅ `handlePickup` consumes `addToInventory`'s boundary-returned `taken` and leaves the remainder on the entity.
+    - `Drop: creates a ground item entity, 'Take' prompt, 300 s TTL, ground items in snapshots (visible to all players in the system)`: ✅ `groundItem` kind + per-tick cleanup + wire-snapshot shape.
+    - `Inventory HUD: compact weight bar (weightUsed/40) bottom-right + item counts on hover`: ✅ `WeightBar` mounts in App.tsx, see `WeightBar.test.tsx`.
+    - `Persistence: inventory persists with the player (reconnect, server restart)`: ✅ JSON column + repo round-trip + loader replace-null-with-empty so a server upgrade lands transparently.
+    - `Unit tests: weight cap math (partial pickup), drop+re-pickup round trip, ttl expiry, persistence across simulated restart`: ✅ `inventoryOps.test.ts` + `inventory.test.ts` + `repo.players.test.ts`.
+    - `WS test: two players, one drops, other sees the ground item`: ✅ `ws.inventory.test.ts`.
+    - `npm run test green`: ✅ 1633 / 1633 unit tests pass (was 1570 → +63 across the four test files).
+  - **Files added:** `app/src/shared/world/inventory.ts` (140 lines) + `inventoryOps.ts` (180 lines) + `inventoryOps.test.ts` (270 lines) + `app/src/server/shard/inventory.ts` (310 lines) + `inventory.test.ts` (430 lines) + `app/src/server/db/migrations/sqlite/0003_player_inventory.sql` + `app/src/client/components/WeightBar.tsx` (180 lines) + `WeightBar.test.tsx` (90 lines) + `app/src/server/ws.inventory.test.ts` (430 lines) + `app/tests/e2e/inventory.spec.ts` (40 lines).
+  - **Files modified:** `app/src/server/db/schema.sqlite.ts` + `schema.pg.ts` (+`inventory` column) + `repo.sqlite.identity.ts` (+`getInventory`/`saveInventory`) + `repo.sqlite.mappers.ts` (+`readInventoryColumn`) + `repo.pg.identity.ts` (+mirror) + `repo.pg.mappers.ts` (+`readInventoryColumn`) + `repo.ts` (+`getInventory`/`saveInventory` + `Inventory` import) + `types.ts` (+`PlayerRow.inventory`) + `repo.players.test.ts` (+5 tests) + `app/src/shared/protocol/schemas.ts` (+`groundItem`/`resourceType`/`amount` + `pickup`/`drop`/`inventory_update`) + `protocol/index.ts` (+re-exports) + `protocol/schemas.test.ts` (+3 fixtures) + `app/src/server/shard/types.ts` (+`groundItem` kind + `resourceType/amount/expiresAtMs` fields + `inventory_update` in `ConnSender`) + `shard/entity.ts` (`entityToWire` branch) + `shard/sim.ts` (+cleanup) + `shard/interact.ts` (pass repo through to dispatch + groundItem registry entry + async apply) + `app/src/server/ws.ts` (+`WsHandleOptions.repo` + `setRepo` + `repoLive`) + `app/src/server/ws.handlers.ts` (+`onPickup`/`onDrop`/`sendInventoryUpdate` + async `onInteract`) + `app/src/server/ws.dispatch.ts` (+route `pickup`/`drop`) + `app/src/server/index.ts` (`ws.setRepo(repo)`) + `app/src/client/net/wsClient.ts` (+`sendPickup`/`sendDrop`/`getInventory`/`inventory_update` handler) + `app/src/client/App.tsx` (+`<WeightBar>` + `useOwnInventory`).
+  - `npx tsc --noEmit` clean, `npx eslint .` clean, `npx prettier --check .` clean, `npm run test` 1633/1633, Playwright `inventory.spec.ts` passes (DOM wiring smoke), dev server boots cleanly.
+
 ### 2026-10-18 — Iteration 33
 - **TASK-33** On-foot interaction: prompt, pick up, examine → **DONE**
   - **Wire schema (`app/src/shared/protocol/schemas.ts`).**

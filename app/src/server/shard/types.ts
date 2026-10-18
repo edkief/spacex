@@ -112,28 +112,36 @@ export interface PlayerInput {
 // ---------------------------------------------------------------------------
 
 /**
- * The flavors of entity the sim knows about (TASK-13 + TASK-31 + TASK-33).
+ * The flavors of entity the sim knows about (TASK-13 + TASK-31 + TASK-33 + TASK-34).
  *
- *   `player`    — driven by a WS connection via `pendingInput`.
- *   `ai`        — driven by the future AI state machine (TASK-46). For
- *                 TASK-13 the stub integrator advances them straight
- *                 (thrust=0, no rotation) so they sit still in the
- *                 snapshot — enough to exercise the broadcast path.
- *   `wreck`     — destroyed hulls (TASK-49); broadcast-only, no input.
- *   `character` — on-foot player bodies (TASK-31). First-class sim
- *                 entities (not client-side illusions) so multi-player
- *                 on-foot works (TASK-36) and persistence reuses the
- *                 ship pattern. Idle until TASK-32 wires walk/look.
- *   `deposit`   — surface resource nodes (TASK-33 / TASK-37). First-
- *                 class sim entities so proximity pickup propagates
- *                 via the entity_update broadcast. They never integrate
- *                 (they sit on the chunk anchor) and never have a
- *                 classId — `null` on the wire.
- *   `terminal`  — dock terminals (TASK-33 / TASK-40). Static entities
- *                 that the proximity-interact dispatch opens via the
- *                 `ui_open` server frame. Also broadcast-only.
+ *   `player`      — driven by a WS connection via `pendingInput`.
+ *   `ai`          — driven by the future AI state machine (TASK-46). For
+ *                   TASK-13 the stub integrator advances them straight
+ *                   (thrust=0, no rotation) so they sit still in the
+ *                   snapshot — enough to exercise the broadcast path.
+ *   `wreck`       — destroyed hulls (TASK-49); broadcast-only, no input.
+ *   `character`   — on-foot player bodies (TASK-31). First-class sim
+ *                   entities (not client-side illusions) so multi-player
+ *                   on-foot works (TASK-36) and persistence reuses the
+ *                   ship pattern. Idle until TASK-32 wires walk/look.
+ *   `deposit`     — surface resource nodes (TASK-33 / TASK-37). First-
+ *                   class sim entities so proximity pickup propagates
+ *                   via the entity_update broadcast. They never integrate
+ *                   (they sit on the chunk anchor) and never have a
+ *                   classId — `null` on the wire.
+ *   `terminal`    — dock terminals (TASK-33 / TASK-40). Static entities
+ *                   that the proximity-interact dispatch opens via the
+ *                   `ui_open` server frame. Also broadcast-only.
+ *   `groundItem`  — TASK-34. Items the player has dropped at their
+ *                   current position (or that survived a partial
+ *                   pickup). They appear in every snapshot, carry a
+ *                   resource type + amount, and despawn after
+ *                   `GROUND_ITEM_TTL_MS` (300 s) so an abandoned
+ *                   batch doesn't stay on the surface forever. Same
+ *                   cone raycast as deposits for re-pickup.
  */
-export type EntityKind = "player" | "ai" | "wreck" | "character" | "deposit" | "terminal";
+export type EntityKind =
+  "player" | "ai" | "wreck" | "character" | "deposit" | "terminal" | "groundItem";
 
 /**
  * The full per-entity state. Combines the flight-model's `ShipState`
@@ -204,6 +212,25 @@ export interface SimEntity {
    * docked here"). `undefined` for non-character entities.
    */
   characterOnPad?: string | null;
+  /**
+   * TASK-34: resource type carried by this entity. Set on
+   * `deposit` and `groundItem` kinds; `undefined` for everything
+   * else. The wire serializer reads this as the resource id for
+   * the `[E] Take iron x3` prompt.
+   */
+  resourceType?: string;
+  /**
+   * TASK-34: stack amount carried by this entity. Set on
+   * `deposit` and `groundItem` kinds; `undefined` for everything
+   * else. Updated in-place on a partial pickup; the next snapshot
+   * carries the reduced amount.
+   */
+  amount?: number;
+  /**
+   * TASK-34: wall-clock ms epoch at which a `groundItem` should
+   * despawn. Set on `groundItem` only; the cleanup loop reads it.
+   */
+  expiresAtMs?: number;
 }
 
 /**
@@ -359,8 +386,9 @@ export type SnapshotBroadcaster = (
  * shard currently pushes (`entity_update` from the sim loop,
  * `chat` from `broadcastChat`, `combat_event` from
  * `broadcastCombatEvent`, `ui_open` from the TASK-33 proximity
- * interaction handler); the WS layer decides how to serialise
- * each. For unit tests the tests inject a recorder.
+ * interaction handler, `inventory_update` from the TASK-34
+ * inventory handler); the WS layer decides how to serialise each.
+ * For unit tests the tests inject a recorder.
  */
 export type ConnSender = (
   connId: string,
@@ -368,7 +396,8 @@ export type ConnSender = (
     | { type: "entity_update"; payload: unknown }
     | { type: "chat"; payload: unknown }
     | { type: "combat_event"; payload: unknown }
-    | { type: "ui_open"; payload: unknown },
+    | { type: "ui_open"; payload: unknown }
+    | { type: "inventory_update"; payload: unknown },
 ) => void;
 
 /**

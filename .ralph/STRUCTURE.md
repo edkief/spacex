@@ -1,6 +1,6 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-18 after **TASK-31** (Disembark: docked ship → character entity at `ship.pos + sideOffset`; server `handleDisembark` enforces `onPad !== null`; client `ExitShipPrompt` mounts when docked; controls remap to `CHARACTER_SCHEME` via `setOnFoot(true)` on entity kind flip; `onFoot` + `not-docked` added to wire schema).
+Snapshot taken 2026-10-18 after **TASK-34** (On-foot inventory: weight-capped carry (40 u), pick-up + drop on the player; `Inventory` JSON column on `players` table via migration `0003_player_inventory.sql`; `handlePickup` / `handleDrop` + ground-item kind (`groundItem`) with 300 s TTL cleanup; `WeightBar` HUD bottom-right; `pickup` / `drop` / `inventory_update` wire frames).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.

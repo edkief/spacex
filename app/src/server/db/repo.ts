@@ -23,6 +23,7 @@ import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { type sqliteSchema } from "./schema.sqlite.js";
 import { type pgSchema } from "./schema.pg.js";
 import { CallsignTakenError, InsufficientCreditsError, NotFoundError } from "./errors.js";
+import type { Inventory } from "@shared/world/inventory.js";
 import type {
   CargoItemInput,
   CargoItemRow,
@@ -124,6 +125,24 @@ export interface Repository {
   createPlayer(input: CreatePlayerInput): Promise<PlayerRow>;
   findPlayerByCallsign(callsign: string): Promise<PlayerRow | null>;
   findPlayerById(id: string): Promise<PlayerRow | null>;
+
+  // Inventory (TASK-34)
+  /**
+   * Load the persisted on-foot inventory for a single player.
+   * Returns the empty inventory for pre-TASK-34 rows (the
+   * column is nullable). Throws `NotFoundError` for unknown
+   * players — callers should branch on the explicit error.
+   */
+  getInventory(playerId: string): Promise<Inventory>;
+  /**
+   * Replace the persisted inventory wholesale. The shard
+   * treats the player's inventory as a write-on-mutation value
+   * (every pickup / drop triggers a save) so a delta-update API
+   * isn't necessary in v1. The valid shape is the one returned
+   * by `addToInventory` / `removeFromInventory` in
+   * `@shared/world/inventoryOps`.
+   */
+  saveInventory(playerId: string, inventory: Inventory): Promise<Inventory>;
 
   // Ships
   getOrCreateStarterShip(playerId: string, classId: ShipClassId): Promise<ShipRow>;

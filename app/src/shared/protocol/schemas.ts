@@ -48,6 +48,7 @@ export const EntityKindSchema = z.enum([
   "wreck",
   "deposit",
   "terminal",
+  "groundItem",
 ]);
 export type ProtocolEntityKind = z.infer<typeof EntityKindSchema>;
 
@@ -120,6 +121,21 @@ export const EntityStateSchema = z
      * that need to gate without a switch.
      */
     onFoot: z.boolean().optional(),
+    /**
+     * TASK-34: resource id carried by a `deposit` or `groundItem`
+     * entity. Absent on ships / characters / AI / wrecks /
+     * terminals. Validated by the server-side registry against the
+     * inventory catalog at the interaction boundary, not by zod
+     * here, because the catalog can grow without a protocol bump.
+     */
+    resourceType: z.string().min(1).optional(),
+    /**
+     * TASK-34: stack amount carried by a `deposit` or `groundItem`
+     * entity. Absent on ships / characters / AI / wrecks /
+     * terminals. Decreases in-place on a partial pickup (the next
+     * 10 Hz snapshot carries the new value).
+     */
+    amount: z.number().int().positive().optional(),
   })
   .strict();
 export type ProtocolEntityState = z.infer<typeof EntityStateSchema>;
@@ -433,6 +449,62 @@ export const InteractOkSchema = z
   })
   .strict();
 
+/**
+ * `pickup` — TASK-34. Triggered by the client's HUD as an alternative
+ * to pressing `E` (e.g. a future quick-slot). Same wire semantics as
+ * `interact { targetId, action: 'use' }` against a `deposit` or
+ * `groundItem`; the server dedupes the two paths so a single
+ * `inventory_update` ack covers both.
+ */
+export const PickupSchema = z
+  .object({
+    targetId: z.string().min(1),
+  })
+  .strict();
+
+/**
+ * `drop` — TASK-34. The client requests spawning a ground item
+ * entity for `amount` units of `resourceType` at the player's
+ * on-foot position. Server validates ownership + weight and replies
+ * with an `inventory_update` ack.
+ */
+export const DropSchema = z
+  .object({
+    resourceType: z.string().min(1),
+    amount: z.number().int().positive(),
+  })
+  .strict();
+
+/**
+ * `inventory_update` — TASK-34. Server pushed when the local
+ * player's inventory changes (a pickup lands, a drop commits, or
+ * the cap is reached on a partial pickup). The wire shape is the
+ * canonical inventory from `@shared/world/inventory.ts` plus a
+ * couple of telemetry fields (`action`, `taken`, `remaining`) the
+ * client can use to render transient toast feedback without a
+ * second API call.
+ *
+ * The snapshot broadcast already publishes `entity_update` with
+ * despawned ground items — `inventory_update` is the back-channel
+ * that tells the *owning* client about their own backpack so the
+ * HUD doesn't have to mirror the snapshot it just sent.
+ */
+export const InventoryStacksSchema = z.record(z.string(), z.number().int().nonnegative());
+
+export const InventoryUpdateSchema = z
+  .object({
+    stacks: InventoryStacksSchema,
+    weightUsed: z.number().int().nonnegative(),
+    capacity: z.number().int().positive(),
+    /** What triggered this update — drives client-side toast feedback. */
+    action: z.enum(["pickup-full", "pickup-partial", "drop", "set"]),
+    /** Resources taken on the triggering event (0 for `set`). */
+    taken: z.number().int().nonnegative(),
+    /** Resources left on the source after a partial pickup (0 for full). */
+    remaining: z.number().int().nonnegative(),
+  })
+  .strict();
+
 /** `mine` — long-running extraction (TASK-38). */
 export const MineSchema = z
   .object({
@@ -618,6 +690,13 @@ export const CombatEventSchema = z.discriminatedUnion("kind", [
  */
 export type ProtocolCombatEvent = z.infer<typeof CombatEventSchema>;
 
+/**
+ * TASK-34: wire shape for `inventory_update`. Mirrors the per-frame
+ * JSON the server pushes when the local player's backpack changes
+ * (pickup / drop / cap-reached / reset).
+ */
+export type ProtocolInventoryUpdate = z.infer<typeof InventoryUpdateSchema>;
+
 // ---------------------------------------------------------------------------
 // Type registry — single source of truth for `MessageType` and `parseMessage`
 // ---------------------------------------------------------------------------
@@ -646,6 +725,9 @@ export const PAYLOAD_SCHEMAS = {
   interact: InteractSchema,
   interact_ok: InteractOkSchema,
   ui_open: UiOpenSchema,
+  pickup: PickupSchema,
+  drop: DropSchema,
+  inventory_update: InventoryUpdateSchema,
   mine: MineSchema,
   sell: SellSchema,
   buy_ship: BuyShipSchema,

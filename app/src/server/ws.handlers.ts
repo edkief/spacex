@@ -30,7 +30,10 @@ import {
 import { broadcastChat, handleDisembark, pushPlayerInput } from "./shard/index.js";
 import { handleInteract } from "./shard/interact.js";
 import type { InteractAction } from "@client/input/interaction.js";
+import { handlePickup, handleDrop } from "./shard/inventory.js";
 import { sendError, sendFrame } from "./ws.dispatch.helpers.js";
+import { INVENTORY_WEIGHT_CAP, type Inventory } from "@shared/world/inventory.js";
+import type { ProtocolInventoryUpdate } from "@shared/protocol/index.js";
 
 // ---------------------------------------------------------------------------
 // onHello
@@ -532,17 +535,22 @@ export function onExitShip(conn: Connection, options: WsHandleOptions, _payload:
  * range checks are belt-and-braces against a frame that races the
  * prompt update.
  */
-export function onInteract(conn: Connection, options: WsHandleOptions, payload: unknown): void {
+export async function onInteract(
+  conn: Connection,
+  options: WsHandleOptions,
+  payload: unknown,
+): Promise<void> {
   const shard = options.shardFor?.(conn);
   if (!shard) {
     sendError(conn, "unauthenticated", "interact requires a joined system");
     return;
   }
   const p = payload as { targetId: string; action: string };
-  const result = handleInteract(shard, {
+  const result = await handleInteract(shard, {
     connId: conn.connId,
     targetId: p.targetId,
     action: p.action as InteractAction,
+    repo: options.repo ?? null,
   });
   if (!result.ok) {
     sendError(conn, result.code, result.message);
@@ -551,6 +559,109 @@ export function onInteract(conn: Connection, options: WsHandleOptions, payload: 
   sendFrame(conn, "interact_ok", {
     targetId: result.targetId,
     action: result.action,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// onPickup / onDrop — TASK-34 inventory
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle a `pickup` frame — TASK-34. Direct pickup path
+ * (alternative to `interact { action: 'use' }` against a deposit
+ * / ground item target).
+ *
+ * The handler routes through `handlePickup` so the validation +
+ * weight-cap math share the same code path as the interact
+ * registry. On success it pushes an `inventory_update` frame so the
+ * client's HUD reflects the new shape without waiting for the next
+ * entity_update.
+ */
+export async function onPickup(
+  conn: Connection,
+  options: WsHandleOptions,
+  payload: unknown,
+): Promise<void> {
+  const shard = options.shardFor?.(conn);
+  if (!shard) {
+    sendError(conn, "unauthenticated", "pickup requires a joined system");
+    return;
+  }
+  if (!options.repo) {
+    sendError(conn, "not-found", "Inventory backend unavailable");
+    return;
+  }
+  const p = payload as { targetId: string };
+  const result = await handlePickup(shard, options.repo, {
+    connId: conn.connId,
+    targetId: p.targetId,
+  });
+  if (!result.ok) {
+    sendError(conn, result.code, result.message);
+    return;
+  }
+  sendInventoryUpdate(conn, result.inventory, {
+    action: result.remaining > 0 ? "pickup-partial" : "pickup-full",
+    taken: result.taken,
+    remaining: result.remaining,
+  });
+}
+
+/**
+ * Handle a `drop` frame — TASK-34. Spawns a ground-item entity at
+ * the caller's position and removes the resource from the
+ * inventory. On success it pushes an `inventory_update` so the
+ * client HUD reflects the new shape.
+ */
+export async function onDrop(
+  conn: Connection,
+  options: WsHandleOptions,
+  payload: unknown,
+): Promise<void> {
+  const shard = options.shardFor?.(conn);
+  if (!shard) {
+    sendError(conn, "unauthenticated", "drop requires a joined system");
+    return;
+  }
+  if (!options.repo) {
+    sendError(conn, "not-found", "Inventory backend unavailable");
+    return;
+  }
+  const p = payload as { resourceType: string; amount: number };
+  const result = await handleDrop(shard, options.repo, {
+    connId: conn.connId,
+    resourceType: p.resourceType,
+    amount: p.amount,
+  });
+  if (!result.ok) {
+    sendError(conn, result.code, result.message);
+    return;
+  }
+  sendInventoryUpdate(conn, result.inventory, {
+    action: "drop",
+    taken: result.dropped,
+    remaining: 0,
+  });
+}
+
+/**
+ * Push an `inventory_update` frame to the requesting connection.
+ * The wire shape is the canonical inventory plus a telemetry
+ * triple so the client can render transient toast feedback without
+ * a second API call.
+ */
+function sendInventoryUpdate(
+  conn: Connection,
+  inventory: Inventory,
+  meta: { action: ProtocolInventoryUpdate["action"]; taken: number; remaining: number },
+): void {
+  sendFrame(conn, "inventory_update", {
+    stacks: { ...inventory.stacks },
+    weightUsed: inventory.weightUsed,
+    capacity: INVENTORY_WEIGHT_CAP,
+    action: meta.action,
+    taken: meta.taken,
+    remaining: meta.remaining,
   });
 }
 

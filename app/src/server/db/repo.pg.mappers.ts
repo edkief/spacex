@@ -23,6 +23,20 @@ import {
   type SystemRegistryRow,
 } from "./types.js";
 import { parseDate } from "./repo.helpers.js";
+import { emptyInventory, validateInventory } from "@shared/world/inventoryOps.js";
+import type { Inventory } from "@shared/world/inventory.js";
+
+/**
+ * Read the persisted `inventory` jsonb column (or default to empty).
+ * The column is nullable for pre-TASK-34 rows; we replace null /
+ * malformed payloads with `emptyInventory()` so a server upgrade runs
+ * unmigrated rows without crashing.
+ */
+function readInventoryColumn(raw: unknown): Inventory {
+  if (raw === null || raw === undefined) return emptyInventory();
+  if (validateInventory(raw)) return raw;
+  return emptyInventory();
+}
 
 /** Map a raw players row to the driver-agnostic shape. */
 export function mapPlayer(raw: Record<string, unknown>): PlayerRow {
@@ -32,6 +46,7 @@ export function mapPlayer(raw: Record<string, unknown>): PlayerRow {
     credits: Number(raw.credits),
     homeSystemId:
       raw.homeSystemId === null || raw.homeSystemId === undefined ? null : String(raw.homeSystemId),
+    inventory: readInventoryColumn(raw.inventory),
     createdAt: parseDate(raw.createdAt),
   };
 }

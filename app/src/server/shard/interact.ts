@@ -1,5 +1,5 @@
 /**
- * Server-side proximity interaction — TASK-33.
+ * Server-side proximity interaction — TASK-33 + TASK-34.
  *
  * Mirrors the client's `interaction.ts` so the validation rules
  * stay symmetric:
@@ -13,9 +13,10 @@
  *   - Target existence: the `targetId` must resolve to an entity in
  *     the same shard. Missing targets surface as `not-found`.
  *   - Action dispatch: routed by the server's `InteractableRegistry`
- *     — `deposit → pickup`, `dock-terminal → ui-open`, `ship →
- *     enter_ship`. The registry is the *only* dispatch site; the
- *     `interact.test.ts` grep enforces that.
+ *     — `deposit → pickup` (TASK-34; calls into `handlePickup`),
+ *     `groundItem → pickup` (TASK-34), `dock-terminal → ui-open`,
+ *     `ship → enter_ship`. The registry is the *only* dispatch site;
+ *     the `interact.test.ts` grep enforces that.
  *
  * The module is intentionally stateless — `handleInteract(shard, ...)
  * is a pure function (modulo shard side effects) so the WS handler
@@ -23,13 +24,16 @@
  *
  * @see ./interact.test.ts for the acceptance criteria coverage.
  * @see ./interact.registry.test.ts for the dispatch-lint test.
+ * @see ./inventory.ts for the pickup / drop handlers.
  */
 
 import { INTERACT_RANGE_M } from "@client/input/interaction.js";
 import type { InteractAction } from "@client/input/interaction.js";
+import type { Repository } from "../db/repo.js";
 
 import type { Shard, SimEntity } from "./types.js";
 import type { EntityKind } from "./types.js";
+import { handlePickup } from "./inventory.js";
 
 // ---------------------------------------------------------------------------
 // Wire codes (TASK-33 acceptance).
@@ -75,39 +79,58 @@ export type InteractResult = InteractSuccess | InteractError;
  */
 export type InteractEffectKind = "pickup" | "ui-open" | "enter-ship" | "noop";
 
+/**
+ * Shape of a single server-registry entry's `apply` callback.
+ * Split out into a type alias so the registry can mix sync
+ * (TASK-33) and async (TASK-34 pickup) handlers without
+ * surprising callers — async handlers stay a Promise<...> shape
+ * and the dispatch chain awaits via `Promise.resolve`.
+ */
+export type ServerRegistryApplyResult = InteractEffectKind | Promise<InteractEffectKind>;
+
 // ---------------------------------------------------------------------------
 // Registry — server side
 // ---------------------------------------------------------------------------
 
 /**
  * Mirror of the client's registry entry. The server-side effect is
- * a synchronous operation (we're already inside the shard tick so
- * any DB writes need to be deferred — TASK-34 / TASK-38 land that
- * plumbing).
+ * a synchronous-ish operation (we're already inside the shard tick
+ * so DB writes happen via the repo; the registry handler awaits
+ * `handlePickup` when the interaction actually mutates inventory).
+ *
+ * TASK-34 plumbing: the entries that need repo access (deposit +
+ * groundItem pickups) receive it through the `apply` call args so
+ * the registry stays entry-local.
  */
 export interface ServerRegistryEntry {
   /**
    * Resolve the effect to apply. Receives the shard so the effect
-   * can mutate state (e.g. `removeEntity`) and the broadcasting
-   * hook so the effect can surface a `ui_open` frame.
+   * can mutate state (e.g. `removeEntity`), the repo for inventory
+   * mutations (TASK-34), and the broadcasting hook so the effect
+   * can surface a `ui_open` frame.
+   *
+   * The entry may return a `Promise` so async pickup handlers can
+   * commit the inventory update before the `interact_ok` ack ships.
    */
-  apply(args: {
-    shard: Shard;
-    connId: string;
-    target: SimEntity;
-    action: InteractAction;
-  }): InteractEffectKind;
+  apply(args: ServerRegistryApplyArgs): ServerRegistryApplyResult;
+}
+
+/**
+ * Single apply-call argument shape. Split out so the registry's
+ * `apply(...)` signature mirrors the client's prompt shape.
+ */
+export interface ServerRegistryApplyArgs {
+  shard: Shard;
+  repo: Repository | null;
+  connId: string;
+  target: SimEntity;
+  action: InteractAction;
 }
 
 export interface ServerInteractableRegistry {
   register(kind: EntityKind, entry: ServerRegistryEntry): void;
   has(kind: EntityKind): boolean;
-  apply(args: {
-    shard: Shard;
-    connId: string;
-    target: SimEntity;
-    action: InteractAction;
-  }): InteractEffectKind;
+  apply(args: ServerRegistryApplyArgs): ServerRegistryApplyResult;
 }
 
 /**
@@ -123,7 +146,7 @@ export function createServerInteractableRegistry(): ServerInteractableRegistry {
     has(kind): boolean {
       return lookup[kind] !== undefined;
     },
-    apply(args): InteractEffectKind {
+    apply(args): ServerRegistryApplyResult {
       const entry = lookup[args.target.kind];
       if (entry === undefined) return "noop";
       return entry.apply(args);
@@ -144,15 +167,35 @@ export const serverInteractableRegistry: ServerInteractableRegistry =
 // ---------------------------------------------------------------------------
 
 serverInteractableRegistry.register("deposit", {
-  apply({ shard, connId: _connId, target, action: _action }): InteractEffectKind {
-    // Stub for TASK-38: remove the deposit so every client (owning
-    // + remote) sees the entity vanish in the next snapshot. The
-    // inventory credit lands with TASK-34; for now the wire frame
-    // just teaches the renderer "this entity is gone".
-    shard.entities.delete(target.id);
-    return "pickup";
+  async apply({ shard, repo, connId, target }): Promise<InteractEffectKind> {
+    // TASK-34: hand off to the inventory handler. The handler
+    // validates range + regime itself and persists the new shape
+    // via the repo. If the repo is unavailable (test harness), fall
+    // back to the legacy "remove only" behaviour so existing tests
+    // keep working without rewriting them.
+    if (repo === null) {
+      shard.entities.delete(target.id);
+      return "pickup";
+    }
+    const result = await handlePickup(shard, repo, { connId, targetId: target.id });
+    return result.ok ? "pickup" : "noop";
   },
-});
+} satisfies ServerRegistryEntry);
+
+serverInteractableRegistry.register("groundItem", {
+  async apply({ shard, repo, connId, target }): Promise<InteractEffectKind> {
+    // TASK-34: a ground item carries an authoritative `amount` from
+    // when it was dropped; pickup consumes it the same way a deposit
+    // does. We reuse `handlePickup` so the partial-pickup math
+    // doesn't fork per kind.
+    if (repo === null) {
+      shard.entities.delete(target.id);
+      return "pickup";
+    }
+    const result = await handlePickup(shard, repo, { connId, targetId: target.id });
+    return result.ok ? "pickup" : "noop";
+  },
+} satisfies ServerRegistryEntry);
 
 serverInteractableRegistry.register("terminal", {
   apply({ shard, connId, target, action }): InteractEffectKind {
@@ -233,12 +276,22 @@ function distSq(
  *
  * Returns a discriminated result so the WS handler can convert
  * cleanly into either an `interact_ok` frame or an `error` frame.
+ *
+ * TASK-34: the registry handler for `deposit` and `groundItem` calls
+ * into `handlePickup(...)`. We thread the repo through so the async
+ * mutation lands on the same call path as the validation. Tests
+ * that don't want the DB may pass `repo: null`.
  */
-export function handleInteract(
+export async function handleInteract(
   shard: Shard,
-  args: { connId: string; targetId: string; action: InteractAction },
+  args: {
+    connId: string;
+    targetId: string;
+    action: InteractAction;
+    repo?: Repository | null;
+  },
   registry: ServerInteractableRegistry = serverInteractableRegistry,
-): InteractResult {
+): Promise<InteractResult> {
   const conn = shard.connections.get(args.connId);
   if (!conn) {
     return { ok: false, code: "not-found", message: "Connection not bound to shard" };
@@ -280,10 +333,16 @@ export function handleInteract(
       message: `Unknown interactable kind: ${target.kind}`,
     };
   }
-  const effect = registry.apply({ shard, connId: conn.connId, target, action: args.action });
+  const effect = registry.apply({
+    shard,
+    repo: args.repo ?? null,
+    connId: conn.connId,
+    target,
+    action: args.action,
+  });
   return {
     ok: true,
-    effect,
+    effect: await Promise.resolve(effect),
     targetId: args.targetId,
     action: args.action,
   };

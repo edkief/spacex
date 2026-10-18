@@ -37,6 +37,8 @@ import {
   ZERO_VELOCITY,
   defaultPosition,
 } from "./repo.js";
+import { emptyInventory, validateInventory } from "@shared/world/inventoryOps.js";
+import type { Inventory } from "@shared/world/inventory.js";
 
 /**
  * Bind player/ship/cargo query methods to the given SQLite database.
@@ -50,6 +52,8 @@ export function bindSqliteIdentity(db: BetterSQLite3Database<typeof sqliteSchema
   createPlayer: (input: CreatePlayerInput) => Promise<PlayerRow>;
   findPlayerByCallsign: (callsign: string) => Promise<PlayerRow | null>;
   findPlayerById: (id: string) => Promise<PlayerRow | null>;
+  getInventory: (playerId: string) => Promise<Inventory>;
+  saveInventory: (playerId: string, inventory: Inventory) => Promise<Inventory>;
   getOrCreateStarterShip: (playerId: string, classId: ShipClassId) => Promise<ShipRow>;
   findShipById: (id: string) => Promise<ShipRow | null>;
   saveShipState: (id: string, patch: SaveShipStateInput) => Promise<ShipRow>;
@@ -71,6 +75,11 @@ export function bindSqliteIdentity(db: BetterSQLite3Database<typeof sqliteSchema
             callsign: input.callsign,
             homeSystemId: input.homeSystemId,
             credits: 500,
+            // TASK-34: starting inventory is empty; the column is
+            // nullable so the loader replaces null with the same
+            // shape. Setting it explicitly keeps the JSON parsing
+            // well-defined for a fresh row.
+            inventory: JSON.stringify(emptyInventory()),
           })
           .run();
       } catch (err) {
@@ -81,6 +90,49 @@ export function bindSqliteIdentity(db: BetterSQLite3Database<typeof sqliteSchema
         throw new Error(`createPlayer: row vanished after insert for id=${id}`);
       }
       return row;
+    },
+
+    async getInventory(playerId: string): Promise<Inventory> {
+      // Null / missing → empty inventory (the column is nullable for
+      // pre-TASK-34 rows). Unknown player → NotFoundError so callers
+      // can branch explicitly rather than treat missing as empty.
+      const rows = await db
+        .select({ inventory: sqliteSchema.players.inventory })
+        .from(sqliteSchema.players)
+        .where(eq(sqliteSchema.players.id, playerId))
+        .limit(1);
+      const row = rows[0];
+      if (!row) {
+        throw new NotFoundError("Player", playerId);
+      }
+      const raw = row.inventory;
+      if (raw === null || raw === undefined) return emptyInventory();
+      try {
+        const parsed = JSON.parse(String(raw));
+        if (validateInventory(parsed)) return parsed;
+      } catch {
+        // fall through to empty
+      }
+      return emptyInventory();
+    },
+
+    async saveInventory(playerId: string, inventory: Inventory): Promise<Inventory> {
+      // The shard applies the operations against an authoritative
+      // in-memory copy and then persists; the save is a single UPDATE
+      // matching the TASK-63 AC ("one UPDATE per save point, no
+      // per-row fanout").
+      if (!validateInventory(inventory)) {
+        throw new Error("saveInventory: invalid inventory shape");
+      }
+      const result = await db
+        .update(sqliteSchema.players)
+        .set({ inventory: JSON.stringify(inventory) })
+        .where(eq(sqliteSchema.players.id, playerId))
+        .run();
+      if ((result.changes ?? 0) === 0) {
+        throw new NotFoundError("Player", playerId);
+      }
+      return inventory;
     },
 
     async findPlayerByCallsign(callsign: string): Promise<PlayerRow | null> {

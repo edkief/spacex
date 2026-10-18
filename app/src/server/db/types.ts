@@ -13,6 +13,7 @@
  *     the repository boundary; persistence treats them as opaque JSON.
  */
 import { z } from "zod";
+import type { Inventory as SharedInventory } from "@shared/world/inventory.js";
 
 /**
  * Ship hull classification per PRD §4.3 — only these three classes exist in
@@ -79,6 +80,12 @@ export interface PlayerRow {
   callsign: string;
   credits: number;
   homeSystemId: string | null;
+  /**
+   * TASK-34: persistent on-foot inventory. Loaded alongside the row
+   * so the in-memory play state always reflects the persisted truth.
+   * The shape is exactly `Inventory` from `@shared/world/inventory`.
+   */
+  inventory: SharedInventory;
   createdAt: Date;
 }
 

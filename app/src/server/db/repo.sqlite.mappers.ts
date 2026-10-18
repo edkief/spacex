@@ -24,6 +24,8 @@ import {
   type ShipRow,
   type SystemRegistryRow,
 } from "./types.js";
+import { emptyInventory, validateInventory } from "@shared/world/inventoryOps.js";
+import type { Inventory } from "@shared/world/inventory.js";
 import { parseDate, parseJsonField } from "./repo.helpers.js";
 
 /** Raw shape of a `players` row straight from better-sqlite3. */
@@ -32,6 +34,8 @@ export interface SqlitePlayerRaw {
   callsign: string;
   credits: number;
   homeSystemId: string | null;
+  /** TASK-34: on-foot inventory column (TEXT — JSON serialised). */
+  inventory?: string | null;
   createdAt: string;
 }
 
@@ -84,6 +88,24 @@ export interface SqliteSystemRegistryRaw {
   lastActiveAt: string;
 }
 
+/**
+ * Read the persisted `inventory` column (or default to empty). The
+ * column is nullable for pre-TASK-34 rows; the loader replaces
+ * `null` / malformed JSON with `emptyInventory()` rather than crash,
+ * so a server upgrade can run unmigrated rows without losing
+ * ownership of freshly-minted players.
+ */
+function readInventoryColumn(raw: unknown): Inventory {
+  if (raw === null || raw === undefined) return emptyInventory();
+  try {
+    const parsed = JSON.parse(String(raw));
+    if (validateInventory(parsed)) return parsed;
+  } catch {
+    // fall through
+  }
+  return emptyInventory();
+}
+
 /** Map a raw players row to the driver-agnostic shape. */
 export function mapPlayer(raw: SqlitePlayerRaw | Record<string, unknown>): PlayerRow {
   return {
@@ -92,6 +114,7 @@ export function mapPlayer(raw: SqlitePlayerRaw | Record<string, unknown>): Playe
     credits: Number(raw.credits),
     homeSystemId:
       raw.homeSystemId === null || raw.homeSystemId === undefined ? null : String(raw.homeSystemId),
+    inventory: readInventoryColumn(raw.inventory),
     createdAt: parseDate(raw.createdAt),
   };
 }

@@ -251,10 +251,16 @@ export function entityToWire(e: SimEntity): ProtocolEntityState {
   }
   // TASK-33: deposit / terminal entities — broadcast-only, no
   // ship / character fields are meaningful. `classId` is null.
-  if (e.kind === "deposit" || e.kind === "terminal") {
+  // TASK-34: deposit and groundItem carry `resourceType` + `amount`
+  // on the wire shape so the client can render the [E] Take iron x3
+  // prompt. The protocol carries them as free-form JSON fields
+  // (validated by the deposit registry on the server, not by zod)
+  // because the inventory catalog is a runtime concern, not a
+  // protocol concern.
+  if (e.kind === "deposit" || e.kind === "terminal" || e.kind === "groundItem") {
     return {
       id: e.id,
-      kind: e.kind,
+      kind: e.kind === "groundItem" ? "groundItem" : e.kind,
       pos: [e.pos.x, e.pos.y, e.pos.z],
       vel: [e.vel.x, e.vel.y, e.vel.z],
       regime:
@@ -266,6 +272,8 @@ export function entityToWire(e: SimEntity): ProtocolEntityState {
       callsign: null,
       livery: null,
       onPad: null,
+      resourceType: e.resourceType,
+      amount: e.amount,
     };
   }
   return {

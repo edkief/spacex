@@ -68,12 +68,14 @@ import { closeFloodedConnection, sendError, sendFrame } from "./ws.dispatch.help
 import {
   onAuth,
   onChat,
+  onDrop,
   onExitShip,
   onHello,
   onInput,
   onInteract,
   onJoinSystem,
   onLogout,
+  onPickup,
   onWarp,
 } from "./ws.handlers.js";
 
@@ -406,6 +408,22 @@ async function dispatch(
         // dock terminals). Failure: emit a structured `error` with
         // one of `out-of-range`, `wrong-regime`, `not-found`.
         onInteract(conn, options, payload);
+        return;
+      }
+      if (type === "pickup") {
+        // TASK-34: direct pickup path. Routes through the same
+        // `handlePickup` math as the `interact` registry but is a
+        // separate frame so the client can fire a pickup without
+        // the prompt UI (e.g. a quick-slot hotkey).
+        await onPickup(conn, options, payload);
+        return;
+      }
+      if (type === "drop") {
+        // TASK-34: drop on foot. Removes the resource from the
+        // player's inventory and spawns a ground-item entity at the
+        // character's position (TASK-34 acceptance: ground items
+        // are visible to all players in the system via the snapshot).
+        await onDrop(conn, options, payload);
         return;
       }
       // Future tasks route `mine`, `sell`, etc. to the system

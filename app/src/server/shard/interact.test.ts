@@ -148,11 +148,11 @@ function makeRegistry(): {
 }
 
 describe("shard: interact validator (TASK-33)", () => {
-  it("succeeds when target is in range", () => {
+  it("succeeds when target is in range", async () => {
     const { shard, entities } = makeRegistry();
     const conn = entities.addCharacter("c1");
     entities.addDeposit("node-1", 1, 0, 0);
-    const out = handleInteract(shard, {
+    const out = await handleInteract(shard, {
       connId: conn.connId,
       targetId: "node-1",
       action: "use",
@@ -162,12 +162,12 @@ describe("shard: interact validator (TASK-33)", () => {
     expect(out.effect).toBe("pickup");
   });
 
-  it("removes a deposit on pickup so all clients see the update next snapshot", () => {
+  it("removes a deposit on pickup so all clients see the update next snapshot", async () => {
     const { shard, entities } = makeRegistry();
     const conn = entities.addCharacter("c1");
     entities.addDeposit("node-1", 0.5, 0, 0);
     expect(shard.entities.get("node-1")).toBeDefined();
-    const out = handleInteract(shard, {
+    const out = await handleInteract(shard, {
       connId: conn.connId,
       targetId: "node-1",
       action: "use",
@@ -177,11 +177,11 @@ describe("shard: interact validator (TASK-33)", () => {
     expect(shard.entities.get("node-1")).toBeUndefined();
   });
 
-  it("rejects out-of-range as out-of-range", () => {
+  it("rejects out-of-range as out-of-range", async () => {
     const { shard, entities } = makeRegistry();
     const conn = entities.addCharacter("c1");
     entities.addDeposit("far", 10, 0, 0);
-    const out = handleInteract(shard, {
+    const out = await handleInteract(shard, {
       connId: conn.connId,
       targetId: "far",
       action: "use",
@@ -191,11 +191,11 @@ describe("shard: interact validator (TASK-33)", () => {
     expect(out.code).toBe("out-of-range");
   });
 
-  it("accepts target exactly at the 3 m boundary", () => {
+  it("accepts target exactly at the 3 m boundary", async () => {
     const { shard, entities } = makeRegistry();
     const conn = entities.addCharacter("c1");
     entities.addDeposit("edge", 3, 0, 0);
-    const out = handleInteract(shard, {
+    const out = await handleInteract(shard, {
       connId: conn.connId,
       targetId: "edge",
       action: "use",
@@ -203,11 +203,11 @@ describe("shard: interact validator (TASK-33)", () => {
     expect(out.ok).toBe(true);
   });
 
-  it("rejects just past the 3 m boundary", () => {
+  it("rejects just past the 3 m boundary", async () => {
     const { shard, entities } = makeRegistry();
     const conn = entities.addCharacter("c1");
     entities.addDeposit("edge", 3.0001, 0, 0);
-    const out = handleInteract(shard, {
+    const out = await handleInteract(shard, {
       connId: conn.connId,
       targetId: "edge",
       action: "use",
@@ -217,10 +217,10 @@ describe("shard: interact validator (TASK-33)", () => {
     expect(out.code).toBe("out-of-range");
   });
 
-  it("rejects missing target as not-found", () => {
+  it("rejects missing target as not-found", async () => {
     const { shard, entities } = makeRegistry();
     const conn = entities.addCharacter("c1");
-    const out = handleInteract(shard, {
+    const out = await handleInteract(shard, {
       connId: conn.connId,
       targetId: "ghost",
       action: "use",
@@ -230,7 +230,7 @@ describe("shard: interact validator (TASK-33)", () => {
     expect(out.code).toBe("not-found");
   });
 
-  it("rejects ship-bound entity as wrong-regime", () => {
+  it("rejects ship-bound entity as wrong-regime", async () => {
     const { shard } = makeRegistry();
     const conn: ShardConnection = {
       connId: "c1",
@@ -244,7 +244,7 @@ describe("shard: interact validator (TASK-33)", () => {
     };
     addConnection(shard, conn);
     // The character is NOT in the registry — conn.entityId is null.
-    const out = handleInteract(shard, {
+    const out = await handleInteract(shard, {
       connId: "c1",
       targetId: "n/a",
       action: "use",
@@ -255,7 +255,7 @@ describe("shard: interact validator (TASK-33)", () => {
     expect(out.code).toBe("wrong-regime");
   });
 
-  it("rejects when conn's entityId points to a ship, not a character", () => {
+  it("rejects when conn's entityId points to a ship, not a character", async () => {
     const { shard, entities } = makeRegistry();
     const conn = entities.addCharacter("c1");
     // Replace the character with a player-ship on the same conn.
@@ -277,7 +277,7 @@ describe("shard: interact validator (TASK-33)", () => {
       onPad: null,
     });
     entities.addDeposit("n", 1, 0, 0);
-    const out = handleInteract(shard, {
+    const out = await handleInteract(shard, {
       connId: "c1",
       targetId: "n",
       action: "use",
@@ -287,7 +287,7 @@ describe("shard: interact validator (TASK-33)", () => {
     expect(out.code).toBe("wrong-regime");
   });
 
-  it("dispatches dock-terminal → ui-open and pushes a ui_open frame", () => {
+  it("dispatches dock-terminal → ui-open and pushes a ui_open frame", async () => {
     const sent: Array<{ connId: string; frame: { type: string; payload: unknown } }> = [];
     const ctx: ShardSystemContext = {
       system: {} as unknown as ShardSystemContext["system"],
@@ -348,7 +348,7 @@ describe("shard: interact validator (TASK-33)", () => {
       originPlanetId: null,
       onPad: null,
     });
-    const out = handleInteract(shard, {
+    const out = await handleInteract(shard, {
       connId: "c1",
       targetId: "terminal-1",
       action: "use",
@@ -363,7 +363,7 @@ describe("shard: interact validator (TASK-33)", () => {
     expect(payload.payload.terminalId).toBe("terminal-1");
   });
 
-  it("ships through a custom registry", () => {
+  it("ships through a custom registry", async () => {
     const { shard, entities } = makeRegistry();
     const conn = entities.addCharacter("c1");
     entities.addDeposit("n", 1, 0, 0);
@@ -375,12 +375,16 @@ describe("shard: interact validator (TASK-33)", () => {
         return "pickup";
       },
     });
-    const out = handleInteract(shard, { connId: conn.connId, targetId: "n", action: "use" }, r);
+    const out = await handleInteract(
+      shard,
+      { connId: conn.connId, targetId: "n", action: "use" },
+      r,
+    );
     expect(out.ok).toBe(true);
     expect(called).toBe(1);
   });
 
-  it("returns noop when the kind has no registered entry (server-side can be permissive)", () => {
+  it("returns noop when the kind has no registered entry (server-side can be permissive)", async () => {
     const { shard } = makeRegistry();
     // Add a wreck entity — no registry entry by default.
     shard.entities.set("wreck-1", {
@@ -399,7 +403,7 @@ describe("shard: interact validator (TASK-33)", () => {
       originPlanetId: null,
       onPad: null,
     });
-    const out = handleInteract(shard, {
+    const out = await handleInteract(shard, {
       connId: "c1",
       targetId: "wreck-1",
       action: "inspect",
@@ -409,9 +413,9 @@ describe("shard: interact validator (TASK-33)", () => {
     expect(out.code).toBe("not-found");
   });
 
-  it("rejects unknown connection", () => {
+  it("rejects unknown connection", async () => {
     const { shard } = makeRegistry();
-    const out = handleInteract(shard, {
+    const out = await handleInteract(shard, {
       connId: "nope",
       targetId: "n",
       action: "use",
