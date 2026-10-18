@@ -1,5 +1,7 @@
 # Project Directory Structure
 
+Snapshot taken 2026-10-18 after **TASK-35** (Re-entry: return to ship seamlessly. Shared `enterShip.ts` with `ENTER_SHIP_RANGE_M=5` + `ENTER_SHIP_MAX_VELOCITY_U_S=1`; server `handleEnterShip` + `EnterShipResult` discriminated union; new wire codes `not-owner` / `ship-moving` / `already-in-ship`; `EnterShipOkSchema` ack frame; ship registry entry routes `action:'enter'` through `handleEnterShip`; client `EnterShipPrompt` (6 m visual range, slightly wider than server 5 m so the pill appears before the press would succeed); `sendEnterShip` + `onEnterShipOk` on DriftClient; interaction-prompt re-routes `action:'enter'` to `enter_ship` instead of `interact`. Idempotency: double `enter_ship` while already in ship → `already-in-ship`. Server `ConnSender` union widened to `enter_ship_ok`. 9 server unit + 4 WS integration + 4 schema + 2 e2e tests, full suite 1651/1651.).
+
 Snapshot taken 2026-10-18 after **TASK-34** (On-foot inventory: weight-capped carry (40 u), pick-up + drop on the player; `Inventory` JSON column on `players` table via migration `0003_player_inventory.sql`; `handlePickup` / `handleDrop` + ground-item kind (`groundItem`) with 300 s TTL cleanup; `WeightBar` HUD bottom-right; `pickup` / `drop` / `inventory_update` wire frames).
 
 ## Conventions
