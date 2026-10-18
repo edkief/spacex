@@ -1,6 +1,6 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-17 after **TASK-15** (Presence: in-system player list and toasts).
+Snapshot taken 2026-10-18 after **TASK-70** (Playwright e2e harness for the game).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.
@@ -21,8 +21,8 @@ PROJECT_ROOT
 │   ├── eslint.config.js         # Flat ESLint config + prettier integration
 │   ├── node_modules/            # Installed deps (gitignored)
 │   ├── package-lock.json
-│   ├── package.json             # Scripts: dev, build, test, typecheck, lint, snapshot:update
-│   ├── playwright.config.ts     # Playwright e2e config (base URL :3000)
+│   ├── package.json             # Scripts: dev, build, test, test:e2e, typecheck, lint, snapshot:update
+│   ├── playwright.config.ts     # Playwright e2e config — fixture spawns its own dev server per worker; chromium-1248 executablePath override (TASK-70)
 │   ├── prereqs.test.ts          # TASK-1 prerequisite guard tests
 │   ├── src/
 │   │   ├── shared/              # Wire types/utilities shared client+server
@@ -238,10 +238,17 @@ PROJECT_ROOT
 │   ├── drizzle.config.ts         # drizzle-kit config for operator-driven PG migrations
 │   ├── tests/
 │   │   └── e2e/
-│   │       ├── chat.spec.ts     # Playwright smoke (two browser contexts → both see each other's chat messages + XSS inert-text + no <img> in DOM, screenshot) (TASK-16)
-│   │       ├── livery.spec.ts   # Playwright smoke (claim → set livery → re-read + invalid-hex rejection, screenshot) (TASK-21)
-│   │       ├── presence.spec.ts # Playwright smoke (two browser contexts → both see each other in the in-system player list, screenshot) (TASK-15)
-│   │       └── scaffold.spec.ts # Playwright smoke (canvas + /api/health)
+│   │       ├── fixtures.ts      # Worker-scoped Playwright fixture: spawns `npm run dev` with PORT/API_PORT on `::1`, DB in tmp dir, GALAXY_SEED per worker; exposes `DriftServer` (baseURL/apiURL/wsURL/tmpDir/galaxySeed) + `sampleCanvasPixels(page, 256)` helper (TASK-70)
+│   │       ├── pages/
+│   │       │   └── claim.ts     # ClaimPage page object — drift-canvas/header/player-list/chat-log/toast-stack selectors + bootAndWaitForOnline/currentCallsign/joinSystem/sendChat (TASK-70)
+│   │       ├── chat.spec.ts     # Playwright smoke (two browser contexts → both see each other's chat messages + XSS inert-text + no <img> in DOM, screenshot) (TASK-16, fixture-rewritten in TASK-70)
+│   │       ├── core-flow.spec.ts# Auto-claim → handshake → join → canvas + player-list end-to-end smoke (TASK-70)
+│   │       ├── livery.spec.ts   # Playwright smoke (claim → set livery → re-read + invalid-hex rejection, screenshot) (TASK-21, fixture-rewritten in TASK-70)
+│   │       ├── prediction.spec.ts# Prediction module import smoke + browser + Node-side integrate/reconcile (TASK-14, fixture-rewritten in TASK-70)
+│   │       ├── presence.spec.ts # Playwright smoke (two browser contexts → both see each other in the in-system player list, screenshot) (TASK-15, fixture-rewritten in TASK-70)
+│   │       ├── reconnect.spec.ts# DriftClient auto-reconnect + "Reconnected" toast after forced socket close (TASK-17, fixture-rewritten in TASK-70)
+│   │       ├── render-smoke.spec.ts # Headless WebGL starfield smoke — samples 256x256 via 2D scratch canvas; asserts variance + starFraction (TASK-70)
+│   │       └── scaffold.spec.ts # Playwright smoke (canvas + /api/health) (TASK-68, fixture-rewritten in TASK-70)
 │   ├── scripts/
 │   │   ├── gen-stars-fixture.ts         # Regenerate __fixtures__/stars-dev-seed.json (TASK-3)
 │   │   ├── gen-stars-full-fixture.ts    # Regenerate __fixtures__/stars-dev-seed-full.json (TASK-6)
