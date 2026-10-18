@@ -1,6 +1,6 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-18 after **TASK-8** (Inter-system warp flow: WS warp frame + server flush/leave/join + WarpStore + WarpOverlay + WarpResolver).
+Snapshot taken 2026-10-18 after **TASK-27** (Camera handoff between flight and on-foot modes: single PerspectiveCamera rig with cockpit + on-foot modes + 600ms ease-in-out handoff path with terrain-nudge + dev-only test hook).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.
@@ -101,6 +101,16 @@ PROJECT_ROOT
 │   │   │   │   ├── controls.ts    # ControlScheme per regime + Controls class with applyRegime() swap + shouldSnapToServer() divergence rule
 │   │   │   │   └── controls.test.ts # 24 cases: scheme table + applyRegime transitions + listener fanout + divergence tolerance
 │   │   │   ├── App.tsx          # Top-level shell — mounts CanvasStage + PlayerList + ToastStack + ChatLog + DriftClient (TASK-15 + TASK-16 wired up)
+│   │   ├── camera/          # TASK-27 — single PerspectiveCamera rig for both flight + on-foot modes
+│   │   │   ├── types.ts           # Vec3Like, QuatLike, CameraMode, CameraPose, ShipState, CharacterState, HeightAtFn, CameraRigOptions
+│   │   │   ├── cameraMath.ts      # cockpitPose + onFootPose + targetPoseFor + lerpPose + expSmoothFactor + collisionNudge + easeInOutCubic + lookQuatFromPose + constants (FOV 75, handoff 600ms, 5 samples, k=8, ±80° pitch)
+│   │   │   ├── cameraMath.test.ts # 57 cases: constants + pose math + lerp + smoothing factor + easing + collision nudge (5-sample analytic terrain) + handoff path build/sample
+│   │   │   ├── handoffPath.ts     # buildHandoffPath + sampleHandoffPath + lookQuatsFromPoses (pre-sampled 5-vertex path with terrain lift + cubic ease-in-out sampling)
+│   │   │   ├── CameraRig.ts       # CameraRig class — owns the single PerspectiveCamera, applies exponential smoothing (k=8) toward live target, kicks 600ms handoff on mode change, locks input during handoff, applies heightAt nudge via planet centre
+│   │   │   ├── CameraRig.test.ts  # 36 cases: single-camera invariant + FOV + mode change → one animation + 600ms completion + reverse handoff + 100ms smoothing math + input lock + terrain lift + test hook
+│   │   │   ├── testHook.ts        # Dev-only `window.__driftCameraRig` seam (createCameraRigTestHook + install + uninstall) — tree-shaken from prod by `import.meta.env.DEV` guard
+│   │   │   ├── testHook.dom.test.ts # 3 cases: happy-dom browser-shape integration (install + full cockpit↔onfoot cycle + re-install)
+│   │   │   └── index.ts           # Barrel re-exporting CameraRig + constants + math helpers + test hook
 │   │   │   ├── components/      # UI sub-components (CanvasStage.tsx + PlayerList + ToastStack + ChatLog for TASK-15/16)
 │   │   │   │   ├── PlayerList.tsx           # Bottom-left roster HUD — monospace + status dots + "(you)" marker (TASK-15)
 │   │   │   │   ├── ToastStack.tsx           # Top-right toast column — 3-visible cap + 8-deep queue + 3 s lifetime + 0.4 s fade (TASK-15)
