@@ -57,6 +57,11 @@
 import { EventEmitter } from "node:events";
 
 import { integrateShip, type ShipInput, type ShipState } from "@shared/physics/flight.js";
+import {
+  integrateCharacter,
+  wireInputToCharacterInput,
+  type CharacterState,
+} from "@shared/physics/character.js";
 import type { ProtocolEntityState } from "@shared/protocol/index.js";
 import { regimeFor, type Regime, type RegimePlanetContext } from "@shared/regime.js";
 import { regimePlanetContexts } from "@shared/regime-planets.js";
@@ -313,18 +318,28 @@ export class SimLoop {
       }
       const entity = shard.entities.get(conn.entityId);
       if (entity === undefined) continue;
-      // TASK-31: characters are first-class sim entities but v1 has
-      // no integration — TASK-32 wires walk/look. We still tick the
-      // entity so the broadcast loop sees it; we just don't move it.
-      if (entity.kind !== "player") continue;
-      // TASK-23: a destroyed player entity stays in the registry (so
-      // reconnect can find the row), but the integration loop refuses
-      // to advance it. The double-destroy guard in
-      // `@shared/physics/damage` + the wreck spawn in `combat.ts`
-      // already published the `destroyed` event; we just stop
-      // touching the position / velocity here.
-      if (entity.hull <= 0) continue;
-      integrateEntity(entity, input, shard.context);
+      // TASK-32: dispatch by entity kind. Player ships go through
+      // the flight-model integrator; characters go through the
+      // character integrator (TASK-32). AI ships and wrecks stay
+      // inert (TASK-46 will wire the AI state machine).
+      if (entity.kind === "player") {
+        // TASK-23: a destroyed player entity stays in the registry (so
+        // reconnect can find the row), but the integration loop refuses
+        // to advance it. The double-destroy guard in
+        // `@shared/physics/damage` + the wreck spawn in `combat.ts`
+        // already published the `destroyed` event; we just stop
+        // touching the position / velocity here.
+        if (entity.hull > 0) {
+          integrateEntity(entity, input, shard.context);
+        }
+      } else if (entity.kind === "character") {
+        // TASK-32: walk/run/jump/terrain. Characters have no hull,
+        // so the destroyed-entity guard from ships doesn't apply.
+        integrateCharacterEntity(entity, input, shard.context);
+      }
+      // AI ships + wrecks are inert on the tick (TASK-46 will plug
+      // them in). They're still in the broadcast loop so clients see
+      // them on the snapshot.
       // Record the seq the server actually applied so the owning
       // client can drain its input queue on reconcile (TASK-14).
       // `lastSeq` is the conn's authoritative high-water mark — the
@@ -506,6 +521,88 @@ function integrateEntity(entity: SimEntity, input: PlayerInput, ctx: ShardSystem
     // bias the next descend.
     entity.originPlanetId = null;
   }
+}
+
+/**
+ * TASK-32: integrate one on-foot character. Mirrors the ship
+ * integration path in shape (one function per entity kind, copy
+ * fields back onto the entity, manage regime + origin-planet
+ * bookkeeping) but uses the character physics module instead of
+ * the flight model.
+ *
+ * The character integrator takes a `heightAt(x, z)` callback
+ * rather than a `PlanetAtmosphere`; we resolve that from the
+ * shard context the same way `integrateEntity` does. The
+ * `onFoot` discriminator (TASK-31) means the character carries no
+ * ship class — we don't look up `SHIP_CLASSES` for it.
+ *
+ * The character's `vel.y` is set by the integrator from gravity
+ * + jump impulse; the broadcast loop reads `entity.pos / .vel /
+ * .quat` verbatim so the snapshot stays bit-stable across runs.
+ */
+function integrateCharacterEntity(
+  entity: SimEntity,
+  input: PlayerInput,
+  ctx: ShardSystemContext,
+): void {
+  // Resolve the planet for the heightAt callback. Characters
+  // never exist in pure space (the disembark path requires a
+  // docked ship, which requires an atmosphere/surface planet),
+  // so `originPlanetId` is always non-null in practice; we
+  // guard anyway so a future task that introduces an on-foot
+  // player in a vacuum (e.g. a damaged ship interior) doesn't
+  // crash the loop.
+  const planetId = entity.originPlanetId;
+  const heightAt = planetId !== null ? (ctx.heightAtFor(planetId) ?? (() => 0)) : () => 0;
+  // The integrator's `heightAt` returns altitude *above the
+  // planet's radius*; the entity stores `pos.y` in world coords
+  // (above the planet centre), so we pass the radius through
+  // and let the integrator do the translation.
+  const planetRadius =
+    planetId !== null && ctx.planetById(planetId) ? ctx.planetById(planetId)!.radiusKm * 1000 : 0;
+
+  // Map the wire-shaped ship input to the character input axes.
+  // `thrust → moveZ`, `turn → yaw`, `pitch → moveX`,
+  // `fire → run`, `action === "jump" → jump`. The mapping is
+  // shared with the client prediction layer so server and
+  // client agree on every axis.
+  const characterInput = wireInputToCharacterInput({
+    thrust: input.thrust,
+    turn: input.turn,
+    pitch: input.pitch,
+    fire: input.fire,
+    action: input.action,
+  });
+
+  const prevState: CharacterState = {
+    pos: { x: entity.pos.x, y: entity.pos.y, z: entity.pos.z },
+    vel: { x: entity.vel.x, y: entity.vel.y, z: entity.vel.z },
+    quat: { x: entity.quat.x, y: entity.quat.y, z: entity.quat.z, w: entity.quat.w },
+    onGround: entity.regime === "surface" && Math.abs(entity.vel.y) < 1e-3,
+  };
+
+  const next = integrateCharacter(prevState, characterInput, TICK_S, heightAt, {
+    planetRadius,
+  });
+
+  entity.pos.x = next.pos.x;
+  entity.pos.y = next.pos.y;
+  entity.pos.z = next.pos.z;
+  entity.vel.x = next.vel.x;
+  entity.vel.y = next.vel.y;
+  entity.vel.z = next.vel.z;
+  entity.quat.x = next.quat.x;
+  entity.quat.y = next.quat.y;
+  entity.quat.z = next.quat.z;
+  entity.quat.w = next.quat.w;
+  // Characters always live in the surface regime — they can't be
+  // in pure space (no atmosphere), and the only on-foot entry
+  // point is disembarking from a docked ship which is in the
+  // surface regime (TASK-29 + TASK-31). We keep `entity.regime`
+  // pinned to `"surface"` for clarity (the wire already tags
+  // character entities via `kind === 'character'`, so this is
+  // belt-and-braces).
+  entity.regime = "surface";
 }
 
 /**

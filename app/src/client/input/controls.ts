@@ -145,14 +145,18 @@ export const SURFACE_SCHEME: ControlScheme = Object.freeze({
 });
 
 /**
- * TASK-31: character-mode scheme. The player has disembarked from
- * the docked ship and is now on foot. v1 ships a stub — the actual
- * walk / look / interact bindings come from TASK-32; here we only
- * need the scheme registered so the regime-to-scheme swap is
- * observable end-to-end and the disconnect path leaves the controls
- * in a defined state. The `'character'` action is the future
- * self-action (the player talks to themselves — TASK-36 multiplayer
- * voice is out of v1 scope).
+ * TASK-31 / TASK-32: character-mode scheme. The player has
+ * disembarked from the docked ship and is now on foot.
+ *
+ * v1 bindings:
+ *   - W / S → forward / back (moveZ ± 1 in the character input)
+ *   - A / D → strafe left / right (moveX ± 1)
+ *   - Space → jump (single-impulse, only honoured on ground)
+ *   - ShiftLeft → run / sprint (sends `fire: true` on the wire —
+ *     the wire's `fire` flag is unused for characters so we
+ *     overload it as the sprint flag)
+ *   - KeyE → interact (TASK-33 wires the prompt UI to this; the
+ *     binding ships here so the regime-swap is observable in v1)
  *
  * The `regime` field is a *display* hint; characters don't really
  * have a flight-model regime. We tag it `'surface'` because the
@@ -162,12 +166,12 @@ export const CHARACTER_SCHEME: ControlScheme = Object.freeze({
   id: "character",
   regime: "surface",
   keyBindings: Object.freeze([
-    // TASK-32 fills in walk/look/interact + jump. For TASK-31 the
-    // bindings are deliberately empty — the camera still follows
-    // the character but inputs to the keys do nothing (the spec's
-    // "the ship is no longer locally controllable" invariant is
-    // enforced server-side; the client only needs to know it's in
-    // character mode).
+    Object.freeze({ action: "move-forward", key: "KeyW" }),
+    Object.freeze({ action: "move-back", key: "KeyS" }),
+    Object.freeze({ action: "strafe-left", key: "KeyA" }),
+    Object.freeze({ action: "strafe-right", key: "KeyD" }),
+    Object.freeze({ action: "jump", key: "Space" }),
+    Object.freeze({ action: "run", key: "ShiftLeft" }),
     Object.freeze({ action: "interact", key: "KeyE" }),
   ] as const),
 });

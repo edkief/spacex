@@ -52,6 +52,12 @@ import {
   type ShipInput,
   type ShipState,
 } from "@shared/physics/flight.js";
+import {
+  integrateCharacter,
+  wireInputToCharacterInput,
+  type CharacterInput,
+  type CharacterState,
+} from "@shared/physics/character.js";
 import type { PlanetAtmosphere } from "@shared/physics/atmosphere.js";
 import { SHIP_CLASSES, type ShipClassId } from "@shared/ships.js";
 import { quatSlerp, vecLerp, type Quat, type Vec3 } from "@shared/physics/vec.js";
@@ -116,6 +122,11 @@ export const REMOTE_BUFFER_CAPACITY = 16;
  * `dt` is the render-frame delta the client integrated with — the
  * server uses its own fixed 1/20 s dt (TASK-13), so this is for
  * client-side bookkeeping only.
+ *
+ * TASK-32: `action` carries the wire-level `action` string (e.g.
+ * `"jump"` for on-foot characters). The ship predictor ignores
+ * it; the character predictor reads it for jump impulses. Default
+ * `null` so pre-TASK-32 callers and tests don't have to wire it.
  */
 export interface LocalInput {
   /** Monotonically increasing input seq. Starts at 1. */
@@ -128,10 +139,17 @@ export interface LocalInput {
   turn: number;
   /** Pitch axis [-1, 1]. */
   pitch: number;
-  /** Yaw axis [-1, 1] (used for roll). */
+  /** Yaw axis [-1, 1] (used for roll on ships; character
+   * predictor does not currently use this). */
   yaw: number;
+  /** Fire button (used by the character predictor as the
+   * `run` flag — the wire's `fire` boolean is unused for
+   * characters, so we overload it). Optional; default `false`. */
+  fire?: boolean;
   /** Render-frame dt in seconds. */
   dt: number;
+  /** Wire-level action string (e.g. `"jump"`). Optional. */
+  action?: string | null;
 }
 
 /**
@@ -683,6 +701,371 @@ export function characterFromWire(e: ProtocolEntityState): CharacterLite | null 
     onFoot: e.onFoot === true,
     onPad: e.onPad,
   };
+}
+
+// ---------------------------------------------------------------------------
+// ClientCharacterPredictor — TASK-32
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-entity predictor for an on-foot character. One per locally
+ * controlled character; mirrors the `ClientShipPredictor` shape so
+ * the WS layer / renderer can reuse the same call sites.
+ *
+ * Lifecycle:
+ *   1. Construct with the *server's* initial character state
+ *      (the `enter_system` / `entity_update` payload, projected
+ *      into a `CharacterLite` view).
+ *   2. On every render frame, call `step(now, nextInput)`. The
+ *      predictor stamps `seq`, queues the input for delivery,
+ *      and integrates the local predicted state via the shared
+ *      `integrateCharacter` (TASK-32).
+ *   3. On every snapshot, call `reconcile(serverState, lastAppliedSeq)`.
+ *      The predictor compares the server's authoritative position
+ *      + velocity to its locally-predicted values; if they agree
+ *      to within tolerance the predictor just drains the inputs
+ *      the server has acknowledged (`lastAppliedSeq`). Otherwise
+ *      it rewinds to the server state and replays the queue.
+ *
+ * The `heightAt` callback is the same contract the server's
+ * `integrateCharacterEntity` uses — production wires the seeded
+ * heightmap for the character's `originPlanetId`. Tests pass
+ * analytic terrain.
+ *
+ * The predicted `onGround` field is purely local (the wire shape
+ * doesn't carry it) — it's derived each tick from `pos.y`,
+ * `vel.y`, and the terrain query so client and server agree.
+ */
+export class ClientCharacterPredictor {
+  /** Last server-authoritative state we've received. */
+  private serverState: CharacterPredictorLite;
+  /** Our locally-predicted state. Updated each `step()`. */
+  private predictedState: CharacterState;
+  /** Queue of inputs since the last server ack. */
+  private queue: Map<number, LocalInput> = new Map();
+  /** The next seq the predictor will stamp on a fresh input. */
+  private nextSeq = 1;
+  /** Total inputs integrated since construction. */
+  private inputsIntegrated = 0;
+  /** Total reconcile events (one per `reconcile()` call). */
+  private reconcileCount = 0;
+  /** Total rewind-and-replay events. */
+  private rewindCount = 0;
+  /** Total blend (no-rewind) events. */
+  private blendCount = 0;
+  /** Total force-snap events (queue overflow / hard resync). */
+  private forceSnapCount = 0;
+  /** Largest correction distance observed during reconcile (units). */
+  private maxCorrectionU = 0;
+  /** Terrain query — the local integrator's `heightAt`. */
+  private readonly heightAt: (x: number, z: number) => number;
+
+  /**
+   * Build the predictor from the server's initial character state.
+   * `heightAt` is the same callback the server uses; production
+   * wires the per-planet heightmap, tests pass analytic terrain.
+   */
+  constructor(args: {
+    serverState: CharacterPredictorLite;
+    heightAt: (x: number, z: number) => number;
+  }) {
+    this.serverState = cloneCharacterLite(args.serverState);
+    this.heightAt = args.heightAt;
+    // Server doesn't transmit `onGround`. We derive it from the
+    // initial position + velocity: a character is on the ground
+    // when `vel.y` is close to 0 AND `pos.y` sits within 1 cm of
+    // the terrain. The 1 cm slack accommodates the same ground
+    // tolerance the integrator uses to clamp `pos.y` to the
+    // terrain after landing.
+    const terrainY = args.heightAt(args.serverState.pos.x, args.serverState.pos.z);
+    const onGround =
+      Math.abs(args.serverState.vel.y) < 0.01 && Math.abs(args.serverState.pos.y - terrainY) < 0.01;
+    this.predictedState = {
+      pos: { x: args.serverState.pos.x, y: args.serverState.pos.y, z: args.serverState.pos.z },
+      vel: { x: args.serverState.vel.x, y: args.serverState.vel.y, z: args.serverState.vel.z },
+      quat: {
+        x: args.serverState.quat.x,
+        y: args.serverState.quat.y,
+        z: args.serverState.quat.z,
+        w: args.serverState.quat.w,
+      },
+      onGround,
+    };
+  }
+
+  /** Read-only snapshot of the predicted state (renderer reads this). */
+  state(): CharacterPredictorLite {
+    return liteFromCharacterState(this.predictedState, this.serverState);
+  }
+
+  /** Read-only server state for the renderer to show "ghost" overlay. */
+  serverSnapshot(): CharacterPredictorLite {
+    return cloneCharacterLite(this.serverState);
+  }
+
+  /** Inputs the WS layer still needs to flush to the server. */
+  pendingInputs(): LocalInput[] {
+    return [...this.queue.values()].sort((a, b) => a.seq - b.seq);
+  }
+
+  /** Stats for the debug overlay (TASK-57). */
+  stats(): {
+    queueSize: number;
+    nextSeq: number;
+    inputsIntegrated: number;
+    reconcileCount: number;
+    rewindCount: number;
+    blendCount: number;
+    forceSnapCount: number;
+    maxCorrectionU: number;
+  } {
+    return {
+      queueSize: this.queue.size,
+      nextSeq: this.nextSeq,
+      inputsIntegrated: this.inputsIntegrated,
+      reconcileCount: this.reconcileCount,
+      blendCount: this.blendCount,
+      rewindCount: this.rewindCount,
+      forceSnapCount: this.forceSnapCount,
+      maxCorrectionU: this.maxCorrectionU,
+    };
+  }
+
+  /**
+   * Advance one render frame: stamp a fresh input, push it onto
+   * the queue, and integrate the predicted state with `input.dt`.
+   * Returns the stamped `LocalInput` so the WS layer can ship it.
+   */
+  step(args: {
+    now: number;
+    thrust: number;
+    turn: number;
+    pitch: number;
+    yaw: number;
+    fire: boolean;
+    action: string | null;
+    dt: number;
+  }): LocalInput {
+    const input: LocalInput = {
+      seq: this.nextSeq,
+      tMs: args.now,
+      thrust: args.thrust,
+      turn: args.turn,
+      pitch: args.pitch,
+      yaw: args.yaw,
+      fire: args.fire,
+      dt: args.dt,
+      action: args.action,
+    };
+    this.nextSeq += 1;
+    this.queue.set(input.seq, input);
+    this.trimQueue();
+
+    // Map wire → character input and integrate locally.
+    const characterInput = localInputToCharacterInput(input);
+    this.predictedState = integrateCharacter(
+      this.predictedState,
+      characterInput,
+      Math.max(0, input.dt),
+      this.heightAt,
+    );
+    this.inputsIntegrated += 1;
+    return input;
+  }
+
+  /**
+   * Reconcile against a server snapshot. Returns a small
+   * diagnostic the caller can surface in a debug HUD.
+   *
+   * The character uses the same Quake-III recipe as the ship:
+   *   1. Compare `serverState.pos / .vel / .quat` to the
+   *      predicted values. If both are within tolerance, this
+   *      was likely a small physics divergence and we just
+   *      drain the inputs the server has acknowledged.
+   *   2. Otherwise **rewind**: copy `serverState` into the
+   *      predicted state, then re-apply every input whose
+   *      `seq` is strictly greater than `lastAppliedSeq`.
+   *   3. If the queue overflows, drop the queue and
+   *      force-snap outright (no replay).
+   */
+  reconcile(args: {
+    now: number;
+    serverState: CharacterPredictorLite;
+    lastAppliedSeq: number | null;
+  }): {
+    mode: "blend" | "rewind" | "force-snap";
+    correctionU: number;
+  } {
+    this.reconcileCount += 1;
+    this.serverState = cloneCharacterLite(args.serverState);
+
+    const correctionU = distance(this.predictedState.pos, this.serverState.pos);
+    if (correctionU > this.maxCorrectionU) this.maxCorrectionU = correctionU;
+
+    // Drain inputs ≤ lastAppliedSeq from the queue.
+    if (args.lastAppliedSeq !== null) {
+      for (const seq of [...this.queue.keys()]) {
+        if (seq <= args.lastAppliedSeq) this.queue.delete(seq);
+      }
+    }
+
+    const withinPosTolerance = correctionU < MAX_BLEND_POS_U;
+    const withinQuatTolerance =
+      angleBetweenQuat(this.predictedState.quat, this.serverState.quat) < MAX_BLEND_ANGLE_RAD;
+
+    if (withinPosTolerance && withinQuatTolerance && this.queue.size === 0) {
+      // Adopt the server state outright (cheaper than re-integration).
+      this.predictedState = cloneCharacterStateLikeLite(this.serverState, this.heightAt);
+      this.blendCount += 1;
+      return { mode: "blend", correctionU };
+    }
+
+    if (withinPosTolerance && withinQuatTolerance) {
+      // Soft blend — keep the predicted state but replay the queue
+      // to catch divergence up to "now".
+      this.replayQueue();
+      this.blendCount += 1;
+      return { mode: "blend", correctionU };
+    }
+
+    // Out of tolerance → rewind.
+    if (this.queueOverflowed(args.now)) {
+      this.forceSnap(args.serverState);
+      return { mode: "force-snap", correctionU };
+    }
+    this.predictedState = cloneCharacterStateLikeLite(this.serverState, this.heightAt);
+    this.replayQueue();
+    this.rewindCount += 1;
+    return { mode: "rewind", correctionU };
+  }
+
+  /**
+   * Drop the queue and adopt a server state. Used after a hard
+   * reconnect (TASK-17) or internally when the queue overflows.
+   */
+  forceSnap(serverState?: CharacterPredictorLite): void {
+    const target = serverState ?? this.serverState;
+    this.serverState = cloneCharacterLite(target);
+    this.predictedState = cloneCharacterStateLikeLite(target, this.heightAt);
+    this.queue.clear();
+    this.forceSnapCount += 1;
+  }
+
+  // -----------------------------------------------------------------
+  // Internals
+  // -----------------------------------------------------------------
+
+  /** Re-apply every queued input in `seq` order. */
+  private replayQueue(): void {
+    const inputs = [...this.queue.values()].sort((a, b) => a.seq - b.seq);
+    for (const input of inputs) {
+      const characterInput = localInputToCharacterInput(input);
+      this.predictedState = integrateCharacter(
+        this.predictedState,
+        characterInput,
+        Math.max(0, input.dt),
+        this.heightAt,
+      );
+    }
+  }
+
+  /** Drop the oldest entries past `MAX_QUEUED_INPUTS`. */
+  private trimQueue(): void {
+    if (this.queue.size <= MAX_QUEUED_INPUTS) return;
+    const sorted = [...this.queue.keys()].sort((a, b) => a - b);
+    const drop = sorted.length - MAX_QUEUED_INPUTS;
+    for (let i = 0; i < drop; i++) {
+      this.queue.delete(sorted[i]!);
+    }
+  }
+
+  /** True when the queue has exceeded the size or age budget. */
+  private queueOverflowed(now: number): boolean {
+    if (this.queue.size > MAX_QUEUED_INPUTS) return true;
+    if (this.queue.size === 0) return false;
+    let oldest = Number.POSITIVE_INFINITY;
+    for (const input of this.queue.values()) {
+      if (input.tMs < oldest) oldest = input.tMs;
+    }
+    return now - oldest > MAX_QUEUED_SECONDS * 1000;
+  }
+}
+
+/**
+ * TASK-32: trimmed view of a wire `EntityState` for the character
+ * predictor. Carries only the fields the predictor reads —
+ * position / velocity / rotation plus `onFoot` for the
+ * `kind === 'character'` discriminator.
+ *
+ * Distinct from the TASK-31 `CharacterLite` (which carries the
+ * HUD-only metadata `playerId` + `callsign`) because the
+ * predictor needs the simulator fields the HUD doesn't.
+ */
+export interface CharacterPredictorLite {
+  readonly id: string;
+  readonly pos: Vec3;
+  readonly vel: Vec3;
+  readonly quat: Quat;
+  readonly onFoot: boolean;
+  readonly onPad: string | null;
+}
+
+function cloneCharacterLite(s: CharacterPredictorLite): CharacterPredictorLite {
+  return {
+    id: s.id,
+    pos: { ...s.pos },
+    vel: { ...s.vel },
+    quat: { ...s.quat },
+    onFoot: s.onFoot,
+    onPad: s.onPad,
+  };
+}
+
+function cloneCharacterStateLikeLite(
+  s: CharacterPredictorLite,
+  _heightAt: (x: number, z: number) => number,
+): CharacterState {
+  // The server doesn't transmit `onGround`. We initialise to
+  // `false` and let the next `step()` resolve it via the
+  // integrator (which calls `heightAt` to decide). This is
+  // safe because the first `step()` runs immediately after a
+  // reconcile on the renderer frame.
+  return {
+    pos: { ...s.pos },
+    vel: { ...s.vel },
+    quat: { ...s.quat },
+    onGround: false,
+  };
+}
+
+function liteFromCharacterState(
+  state: CharacterState,
+  server: CharacterPredictorLite,
+): CharacterPredictorLite {
+  return {
+    id: server.id,
+    pos: { ...state.pos },
+    vel: { ...state.vel },
+    quat: { ...state.quat },
+    onFoot: server.onFoot,
+    onPad: server.onPad,
+  };
+}
+
+/**
+ * Convert a `LocalInput` into the `CharacterInput` shape the
+ * shared character physics accepts. Centralised so the predictor
+ * and the wire-test cases agree on the mapping. Mirrors the
+ * server's `wireInputToCharacterInput`.
+ */
+export function localInputToCharacterInput(input: LocalInput): CharacterInput {
+  return wireInputToCharacterInput({
+    thrust: clamp01(input.thrust),
+    turn: clampUnit(input.turn),
+    pitch: clampUnit(input.pitch),
+    fire: Boolean(input.fire),
+    action: input.action ?? null,
+  });
 }
 
 // ---------------------------------------------------------------------------

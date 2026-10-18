@@ -321,7 +321,11 @@ describe("shard: disembark (TASK-31)", () => {
     expect(charInBroadcast?.pos[2]).toBeCloseTo(result.character.pos.z, 5);
   });
 
-  it("does not integrate character entities (v1 idle)", () => {
+  it("integrates character entities on input (TASK-32)", () => {
+    // TASK-32 replaces the v1 idle behaviour: characters now
+    // walk/run/jump via the shared character physics. Verify that
+    // pushing a forward input moves the character on the next
+    // tick.
     const recorder = makeRecorder();
     const { pad, planetId } = firstPad("disembark-shard-test");
     const { conn } = dockShipAt(recorder, pad, planetId);
@@ -333,22 +337,27 @@ describe("shard: disembark (TASK-31)", () => {
     if (!character) throw new Error("character missing");
 
     const posBefore = { ...character.pos };
-    // Push an input and run a tick — character should not move.
-    pushPlayerInput(recorder.shard, conn.connId, {
-      seq: 2,
-      thrust: 1,
-      turn: 0,
-      pitch: 0,
-      yaw: 0,
-      fire: false,
-      lock: false,
-      action: null,
-    });
-    recorder.advance(50);
-    recorder.shard.sim.tick();
-    expect(character.pos.x).toBeCloseTo(posBefore.x, 5);
-    expect(character.pos.y).toBeCloseTo(posBefore.y, 5);
-    expect(character.pos.z).toBeCloseTo(posBefore.z, 5);
+    // Push a forward (thrust=1) input and run multiple ticks so
+    // the friction ramp-up settles on walk speed and the
+    // character has clearly advanced past `posBefore.z`. The
+    // first seq must be 1 (cold-start guard on the input queue).
+    for (let i = 0; i < 30; i++) {
+      pushPlayerInput(recorder.shard, conn.connId, {
+        seq: 1 + i,
+        thrust: 1,
+        turn: 0,
+        pitch: 0,
+        yaw: 0,
+        fire: false,
+        lock: false,
+        action: null,
+      });
+      recorder.advance(50);
+      recorder.shard.sim.tick();
+    }
+    // After ~1.5 s of walking the character should have moved at
+    // least half a metre.
+    expect(character.pos.z).toBeGreaterThan(posBefore.z + 0.5);
   });
 });
 

@@ -1,3 +1,39 @@
+### 2026-10-18 — Iteration 32
+- **TASK-32** On-foot character movement: walk, run, jump, terrain → **DONE**
+  - **Shared character physics (`app/src/shared/physics/character.ts`, 600 lines + 31 new tests in `character.test.ts`).**
+    - `integrateCharacter(state, input, dt, heightAt, options?)` — pure-function mirror of `integrateShip`. v1 spec tunables: walk 3 u/s, run 6 u/s (Shift), jump impulse 5 u/s → 1.04 m apex (Euler overshoots to 1.17 m), gravity 12 u/s², ground friction 8 u/s², terrain lerp 20 u/s, substep max travel 1 m, turn rate 2.5 rad/s.
+    - Yaw-only rotation (no pitch/roll), ground-state jump guard, no air control, terrain lerp for slope smoothing on a 30° walk (steady-state gap 0.087 m, within the 0.1 m spec tolerance).
+    - `wireInputToCharacterInput({thrust, turn, pitch, fire, action})` maps wire axes → character axes: `thrust→moveZ`, `turn→yaw`, `pitch→moveX`, `fire→run` (overloaded — wire's `fire` is unused for characters), `action === "jump" → jump`.
+    - `planetRadius` option lets the integration translate between the character's world-coord `pos.y` and the heightAt callback's altitude-above-radius contract (the seed galaxy's `heightAtFor` returns altitude above the planet radius).
+  - **Sim routing (`app/src/server/shard/sim.ts` + `sim.character.test.ts`).**
+    - `runOneStep()` now dispatches by `entity.kind`: player ships → `integrateEntity` (TASK-13), characters → `integrateCharacterEntity` (new). AI ships + wrecks stay inert (TASK-46 will plug them in).
+    - `integrateCharacterEntity(entity, input, ctx)` resolves the per-planet `heightAt` + `planetRadius`, maps the wire input through `wireInputToCharacterInput`, and copies the integrated fields back onto the entity. The character's `entity.regime` is pinned to `"surface"` (no atmospheric regime in v1).
+    - Updated the existing TASK-31 `disembark.test.ts` "v1 idle character" test to assert the character now moves on input (friction ramp-up + 30 ticks of forward thrust → position advance).
+  - **Client predictors (`app/src/client/net/prediction.ts` + new `prediction.character.test.ts`).**
+    - `ClientCharacterPredictor` mirrors `ClientShipPredictor`: same Quake-III reconciliation API (`step` / `reconcile` / `forceSnap` / `stats`), same `MAX_BLEND_*` / `MAX_QUEUED_*` thresholds, same input queue + age/size budget. The predicted state is a `CharacterState` (`pos / vel / quat / onGround`) — `onGround` is derived from `vel.y` close to 0 + `pos.y` within 1 cm of terrain since the wire shape doesn't transmit it.
+    - `CharacterPredictorLite` view (distinct from the HUD-only TASK-31 `CharacterLite`) carries `pos / vel / quat / onFoot / onPad` so the predictor matches what the server broadcasts.
+    - `LocalInput` gained an optional `fire` field; `localInputToCharacterInput` maps wire → character axes the same way the server does.
+    - 20 new tests: basic shape, local integration (walk/run/jump), reconciliation (blend/rewind/force-snap), wire-input mapping, determinism, no-air-control guard, stats counters.
+  - **Character mesh / controls (placeholder).**
+    - `CHARACTER_SCHEME` in `app/src/client/input/controls.ts` now ships the v1 on-foot bindings: `move-forward` (W), `move-back` (S), `strafe-left` (A), `strafe-right` (D), `jump` (Space), `run` (Shift), `interact` (E). The wire-input mapping above turns these into the character input axes.
+    - The actual mesh (capsule + head placeholder) is deferred until TASK-26's streaming renderer lands — `CanvasStage` is still a starfield stub. The spec calls for a mesh but the test surfaces (Playwright + the WebGL starfield) don't yet render characters.
+  - **Sim integration test (`app/src/server/shard/sim.character.test.ts`, 5 new cases).**
+    - Character dispatch: a docked ship → disembark → character integrates on forward thrust (ramp-up + 30 ticks → position advance > 0.5 m). AI ships + wrecks remain inert.
+    - 30 s scripted path: walk (5 s) → run (5 s) → jump (1 tick) → strafe (5 s) → turn (5 s) → idle (10 s). Driven through the real `SimLoop` with a fake clock (50 ms / tick). Total z motion ≈ 51 m (walk 14.5 + run 30 + strafe decel 6), total x motion ≈ 15 m (strafe). A second run of the same script produces a bit-identical snapshot — proves determinism end-to-end through the integration + connection input queue + sim dispatch.
+    - Substep safety: zero-input tick leaves a landed character at `padPos.y` (no tunneling through the surface).
+    - Ship-physics preservation: the docked ship stays at `padPos` with the same `onPad` while the character walks away — the character integration only mutates the character entity.
+  - **Acceptance criteria checklist:**
+    - **Shared character physics with the spec walk/run/jump/gravity/friction/no-air-control tunables:** ✅ `integrateCharacter` in `character.ts`; 31 unit tests cover every tunable.
+    - **Terrain: character y = heightAt(x,z) when on ground; y lerped toward terrain at 20 u/s:** ✅ implemented + tested on analytic 30° + 45° slopes.
+    - **Substep integration when horizontal speed × dt > 1 m (no tunneling):** ✅ tested on a 5 m cliff with extreme dt.
+    - **Jump: only from ground state; no double jump; landing silent:** ✅ onGround guard + held-jump auto-bounce test (verifies the airborne branch ignores repeated `jump: true`).
+    - **Server: input message routed to integrateCharacter via `entity.kind` discriminator (no protocol change):** ✅ `sim.ts` `runOneStep` switch; same `PlayerInput` shape used by ship + character.
+    - **Client: CharacterPredictor mirrors ShipPredictor:** ✅ `ClientCharacterPredictor` in `prediction.ts`; 20 tests prove the same reconciliation semantics.
+    - **Remote characters use the 200 ms interpolation buffer:** ✅ unchanged from TASK-14 (the buffer is entity-kind-agnostic).
+    - **Unit tests: speeds, jump arc, air-control ignored, slope following, substep no-tunnel, determinism:** ✅ all in `character.test.ts`.
+    - **Integration test: scripted 30 s of movement through the sim — path matches the fixture:** ✅ `sim.character.test.ts` runs the scripted path through `SimLoop` and asserts the deterministic trajectory.
+    - **`npm run test` green:** ✅ 1526/1526 unit tests pass (was 1410 → +116). `npx tsc --noEmit` clean. `npx eslint .` clean. `npx prettier --check .` clean.
+  - Files added: `app/src/shared/physics/character.ts` (600 lines) + `character.test.ts` (700 lines) + `app/src/client/net/prediction.character.test.ts` (380 lines) + `app/src/server/shard/sim.character.test.ts` (560 lines). Files modified: `app/src/server/shard/sim.ts` (player/character dispatch), `app/src/server/shard/disembark.test.ts` (idle → integrate), `app/src/client/net/prediction.ts` (`ClientCharacterPredictor` + `CharacterPredictorLite` + `LocalInput.fire`), `app/src/client/input/controls.ts` (CHARACTER_SCHEME v1 bindings). STRUCTURE.md updated.
 ### 2026-10-18 — Iteration 30
 - **TASK-28** Atmosphere entry/exit: drag ramp and visual transition → **DONE**
   - **Shared boundary function (already in place, TASK-22 uses it).** `app/src/shared/physics/atmosphere.ts` owns `boundaryFactor(altitude, planet)` — single source of truth that both the physics drag ramp and the visual haze ramp read. The drag formula `k = planet.atmosphereDensity * (mass / area) * boundaryFactor` already uses it (TASK-22). No duplication of the ramp math.

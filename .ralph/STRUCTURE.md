@@ -95,6 +95,8 @@ PROJECT_ROOT
 │   │   │   │   └── atmosphere-visuals.test.ts # 27 cases: per-planet profiles + ramp continuity + density scaling + seeded galaxy assertion + determinism
 │   │   │   │   ├── flight.ts       # integrateShip(state, input, dt, regime, shipClass, planet?) + helpers
 │   │   │   │   ├── flight.test.ts  # 33 cases: space/atmo/VTOL/pad/speed cap/determinism/golden
+│   │   │   │   ├── character.ts       # TASK-32 — integrateCharacter(state, input, dt, heightAt, options) walk/run/jump/terrain; wire→character mapper
+│   │   │   │   └── character.test.ts  # 31 cases: walk/run speeds, jump arc, no-air-control, slope-following, substep, determinism, wire-input mapping
 │   │   │   │   └── __fixtures__/
 │   │   │   │       ├── README.md            # Regeneration rules for committed fixtures (TASK-22)
 │   │   │   │       └── trajectories.ts      # Golden 60s space + 30s atmo final states (TASK-22)
@@ -129,8 +131,9 @@ PROJECT_ROOT
 │   │   │   │   ├── StarChart.tsx         # Fullscreen DOM/SVG galaxy map overlay — systems + edges + occupancy + Warp button (TASK-7)
 │   │   │   │   └── StarChart.test.tsx    # 15 cases: rendering + formatters + spectral colours (TASK-7)
 │   │   ├── net/             # Client prediction + reconciliation (TASK-14) + WS glue + presence store (TASK-15) + chat store (TASK-16)
-│   │   │   │   ├── prediction.ts          # ClientShipPredictor (local input → integrate → reconcile) + RemoteEntityBuffer (200 ms interp ring) + applyEntityUpdateToBuffer + simEntityFromWire + tuning constants
+│   │   │   │   ├── prediction.ts          # ClientShipPredictor (local input → integrate → reconcile) + RemoteEntityBuffer (200 ms interp ring) + applyEntityUpdateToBuffer + simEntityFromWire + tuning constants + TASK-32 ClientCharacterPredictor (mirrors ship predictor) + CharacterPredictorLite + localInputToCharacterInput
 │   │   │   │   ├── prediction.test.ts     # 28 cases: input stamping, bit-equality with server integrator, blend/rewind/force-snap thresholds, queue cap + age overflow, 150 ms RTT acceptance, jittery 10 Hz remote interp
+│   │   │   │   ├── prediction.character.test.ts # 20 cases: character predictor local integration + reconciliation + determinism + no-air-control (TASK-32)
 │   │   │   │   ├── presence.ts            # PresenceStore — in-system player roster Map<playerId, PresencePlayer> built from presence frames, join/leave diff events, cached snapshot for useSyncExternalStore, setOwnCallsign for "(you)" marker, toastTextFor + statusDotColor helpers (TASK-15)
 │   │   │   │   ├── presence.test.ts       # 14 cases: apply/diff/leave/leaveAll, isYou stamping, listener dedupe, unsubscribe, faulty-listener tolerance, snapshot identity (TASK-15)
 │   │   │   │   ├── chat.ts                # ChatStore — 100-message ring + cached snapshot for useSyncExternalStore + applyChatFrame + seedHistory + clear; formatChatLine + formatTime helpers (TASK-16)
@@ -260,7 +263,8 @@ PROJECT_ROOT
 │   │       │   ├── registry.ts       # ShardRegistry: Map<systemId, Shard> + flushAll() for graceful shutdown (TASK-24)
 │   │       │   ├── sim.ts       # SimLoop class: 20 Hz tick, accumulator + 5-step catch-up ceiling, 10 Hz snapshot every 2nd tick, integrateShip() + heightAt3x3 cache, ship persisted-state plumbing (TASK-13); cumulative lastAppliedSeq map per player for ack (TASK-14)
 │   │       │   ├── index.ts     # createShard() factory + spawnShip/spawnAiShip + pushPlayerInput + simulateNTicks + sendEntityUpdate with lastAppliedSeq (TASK-13 + TASK-14); broadcastChat + ChatRingBufferEntry export (TASK-16); handleDisembark + spawnCharacter + DisembarkResult (TASK-31)
-│   │       │   ├── disembark.test.ts   # 7 cases: docked disembark mints character at ship.pos + sideOffset (±0.5m), ship stays docked, connection rebinds, broadcast fires, not-docked + no-ship rejections, two-client agreement, v1 idle character integration (TASK-31)
+│   │       │   ├── disembark.test.ts   # 7 cases: docked disembark mints character at ship.pos + sideOffset (±0.5m), ship stays docked, connection rebinds, broadcast fires, not-docked + no-ship rejections, two-client agreement, character integrates on input (TASK-31 + TASK-32)
+│   │       │   ├── sim.character.test.ts # 5 cases: char dispatch + scripted 30s walk/run/jump/strafe/turn/idle path (deterministic fixture) + ship physics preserved + substep safety (TASK-32)
 │   │       │   └── sim.test.ts  # 18 cases: accumulator math (1000 ticks no drift), 5-step catch-up ceiling, 10 Hz cadence, latest-input-wins, stale-seq drops, broadcast payload shape, entity kind mapping, 32 KB warning gate, histogram p50/p95/p99, 16-ship 60s benchmark p95 < 30 ms (TASK-13) + lastAppliedSeq ack map populated for owning player + empty for AI-only frames (TASK-14)
 │   │       └── db/              # Drift persistence layer (TASK-62 / TASK-63 / TASK-41)
 │   │           ├── types.ts     # PlayerRow / ShipRow / etc. + zod shapes for JSON columns
