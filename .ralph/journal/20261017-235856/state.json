@@ -1,0 +1,18 @@
+{
+  "runId": "20261017-235856",
+  "status": "interrupted",
+  "startedAt": "2026-10-17T23:58:56.668Z",
+  "updatedAt": "2026-10-18T04:43:59.565Z",
+  "maxIterations": 100,
+  "iteration": 7,
+  "taskId": "TASK-8",
+  "iterationStartedAt": "2026-10-18T02:06:10.149Z",
+  "iterationMs": 2700000,
+  "lastStatus": "provider-error",
+  "tasksPassed": 31,
+  "tasksTotal": 71,
+  "split": null,
+  "escalation": null,
+  "message": "Interrupted",
+  "pending": null
+}
