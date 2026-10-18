@@ -1,54 +1,56 @@
 /**
- * TASK-15 Playwright smoke test — multi-context presence.
+ * TASK-70 — Multi-context presence smoke.
  *
- * Boots two browser contexts, opens the Drift app in each, and
- * verifies that:
+ * Two browser contexts boot the Drift app in parallel, force
+ * each into the same clean system, and assert that:
  *
- *   1. Both contexts boot without console errors.
- *   2. After forcing both contexts to join the SAME system (the
- *      auto-claim picks a per-callsign home system that won't
- *      match), each context's player list renders a row for the
- *      other context's callsign (the "you" row is shown but the
- *      OTHER player's callsign is the one we assert on).
- *   3. The dev server's `/api/health` proxy is still reachable.
+ *   1. Both contexts reach `online` (auto-claim + handshake).
+ *   2. Each context's `presenceStore` snapshot includes the
+ *      OTHER context's callsign.
+ *   3. The DOM-rendered player list shows the other callsign.
  *
- * The dev server must already be running (`npm run dev`) before this
- * test executes; playwright.config.ts's `webServer` block handles
- * that.
+ * Acceptance:
+ *   "Two-context test: two browser contexts in one system see
+ *    each other in the presence list"
  *
- * Each browser context starts a fresh `DriftClient` so the callsign
- * claim generates a unique `Drift-<random>` callsign per context.
- * The test queries `/api/galaxy/health` for an empty shard and
- * drives both contexts into it via the `window.__driftClient`
- * debug seam exposed by the App shell.
- *
- * The test captures one screenshot per context and saves the first
- * one to `.ralph/screenshots/TASK-15-1.png` for the task log.
+ * The test claims a probe callsign first so the auth-gated
+ * `/api/galaxy/health` endpoint can return the canonical roster.
+ * We then pick a system with `players < 16` (the cap) and
+ * drive both clients into it.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
+import { ClaimPage } from "./pages/claim.js";
 
-interface DriftClientDebug {
-  presenceStore: {
-    snapshot(): Array<{ callsign: string; isYou: boolean }>;
-  };
-  joinSystem(systemId: string): Promise<void>;
-  currentCallsign: string | null;
-  currentSystemId: string | null;
-}
-
-declare global {
-  interface Window {
-    __driftClient?: DriftClientDebug;
-  }
-}
-
-test("two browser contexts see each other in the in-system player list", async ({
+test("two contexts see each other in the in-system player list", async ({
   browser,
   request,
+  driftServer: server,
 }) => {
-  // Build two isolated browser contexts. We don't share storage
-  // state — each context generates its own callsign via the Drift
-  // client's auto-claim path.
+  // Find a clean system to drive both contexts into. The
+  // per-worker fixture spawned a fresh DB so this is usually
+  // the probe's home system (always populated by the probe
+  // claim itself). The cap is 16; we pick any shard below
+  // that.
+  const probe = await request.post(`${server.apiURL}/api/callsigns`, {
+    data: { callsign: `PROBE-${Date.now().toString(36)}` },
+  });
+  expect(probe.status()).toBe(200);
+  const probeBody = (await probe.json()) as { token: string; homeSystemId: string };
+  const probeToken = probeBody.token;
+  const galaxyHealth = await request.get(`${server.apiURL}/api/galaxy/health`, {
+    headers: { authorization: `Bearer ${probeToken}` },
+  });
+  expect(galaxyHealth.status()).toBe(200);
+  const galaxyBody = (await galaxyHealth.json()) as {
+    shards: Array<{ systemId: string; players: number }>;
+  };
+  const homeShard = galaxyBody.shards.find((s) => s.systemId === probeBody.homeSystemId);
+  const sharedSystemId =
+    homeShard && homeShard.players < 16
+      ? homeShard.systemId
+      : (galaxyBody.shards.find((s) => s.players < 16)?.systemId ?? probeBody.homeSystemId);
+  expect(sharedSystemId, "expected a system id to drive both contexts into").toBeTruthy();
+
   const contextA = await browser.newContext();
   const contextB = await browser.newContext();
   const pageA = await contextA.newPage();
@@ -63,95 +65,26 @@ test("two browser contexts see each other in the in-system player list", async (
     if (msg.type() === "error") consoleErrorsB.push(msg.text());
   });
 
-  // Sanity: the dev server proxy is alive.
-  const health = await request.get("/api/health");
-  expect(health.status()).toBe(200);
-  expect(await health.json()).toMatchObject({ ok: true });
+  const claimA = new ClaimPage(pageA, server);
+  const claimB = new ClaimPage(pageB, server);
+  await Promise.all([claimA.bootAndWaitForOnline(), claimB.bootAndWaitForOnline()]);
 
-  // Find a clean system to drive both contexts into. The dev
-  // server is shared across test runs, so leaked callsigns from
-  // previous runs can pile up in the early systems. Pick a system
-  // whose `/api/galaxy/health` shard row shows `players === 0`.
-  // We claim a probe callsign first so the request is auth-gated;
-  // the probe also lands in some system (populating one shard),
-  // but we only need *some* empty shard id to drive the test.
-  const probe = await request.post("/api/callsigns", {
-    data: { callsign: `PROBE-${Math.random().toString(36).slice(2, 8)}` },
-  });
-  expect(probe.status(), `probe claim: ${await probe.text()}`).toBe(200);
-  const probeToken = (await probe.json()).token as string;
-  const galaxyHealth = await request.get("/api/galaxy/health", {
-    headers: { authorization: `Bearer ${probeToken}` },
-  });
-  expect(galaxyHealth.status()).toBe(200);
-  const galaxyBody = (await galaxyHealth.json()) as {
-    shards: Array<{ systemId: string; players: number }>;
-  };
-  const sharedSystemId = galaxyBody.shards.find((s) => s.players === 0)?.systemId;
-  expect(sharedSystemId, "could not find an empty system to use").toBeTruthy();
-
-  // Boot the app in both contexts.
-  await pageA.goto("/");
-  await pageB.goto("/");
-  await expect(pageA).toHaveTitle(/Drift/);
-  await expect(pageB).toHaveTitle(/Drift/);
-
-  // Wait until both contexts have a DriftClient + their first
-  // system joined. The header pill updates to the callsign once
-  // `auth_ok` lands.
-  await expect(pageA.getByTestId("drift-header")).toContainText(/Drift-/, {
-    timeout: 10_000,
-  });
-  await expect(pageB.getByTestId("drift-header")).toContainText(/Drift-/, {
-    timeout: 10_000,
-  });
-
-  // Wait for the debug seam to be wired up by the App's effect.
-  await pageA.waitForFunction(() => Boolean(window.__driftClient));
-  await pageB.waitForFunction(() => Boolean(window.__driftClient));
-
-  // Force both contexts into the same clean system. The WS layer
-  // accepts a `join_system` frame at any time after `auth_ok`, so
-  // the test can re-target each client post-boot. Joining a
-  // different system mid-test is what TASK-8 (warp UI) will
-  // surface to players; for the TASK-15 smoke test we drive it
-  // directly through the debug seam.
-  await pageA.evaluate((sysId) => window.__driftClient!.joinSystem(sysId), sharedSystemId);
-  await pageB.evaluate((sysId) => window.__driftClient!.joinSystem(sysId), sharedSystemId);
-
-  // Wait for both contexts' stores to converge on a 2-player roster.
-  await expect
-    .poll(
-      async () =>
-        pageA.evaluate(() =>
-          window
-            .__driftClient!.presenceStore.snapshot()
-            .map((p) => p.callsign)
-            .sort(),
-        ),
-      { timeout: 10_000 },
-    )
-    .toHaveLength(2);
-  await expect
-    .poll(
-      async () =>
-        pageB.evaluate(() =>
-          window
-            .__driftClient!.presenceStore.snapshot()
-            .map((p) => p.callsign)
-            .sort(),
-        ),
-      { timeout: 10_000 },
-    )
-    .toHaveLength(2);
-
-  // Read the callsigns each player list sees so we can assert on
-  // the DOM rendering (data-callsign attribute).
-  const callsignA = await pageA.evaluate(() => window.__driftClient!.currentCallsign);
-  const callsignB = await pageB.evaluate(() => window.__driftClient!.currentCallsign);
+  const callsignA = await claimA.currentCallsign();
+  const callsignB = await claimB.currentCallsign();
   expect(callsignA).toMatch(/^Drift-/);
   expect(callsignB).toMatch(/^Drift-/);
   expect(callsignA).not.toBe(callsignB);
+
+  // Drive both clients into the same system.
+  await Promise.all([claimA.joinSystem(sharedSystemId!), claimB.joinSystem(sharedSystemId!)]);
+
+  // Each context's store should converge on 2 players.
+  await expect
+    .poll(async () => claimA.playerListCount.textContent(), { timeout: 10_000 })
+    .toBe("2");
+  await expect
+    .poll(async () => claimB.playerListCount.textContent(), { timeout: 10_000 })
+    .toBe("2");
 
   // Each list must render the OTHER context's callsign.
   await expect(
@@ -162,30 +95,20 @@ test("two browser contexts see each other in the in-system player list", async (
   ).toHaveCount(1);
 
   // Each list also includes its own "(you)" row.
-  const youA = pageA
-    .locator(`[data-testid="drift-player-list"]`)
-    .locator(`[data-is-you="true"]`)
-    .first();
-  const youB = pageB
-    .locator(`[data-testid="drift-player-list"]`)
-    .locator(`[data-is-you="true"]`)
-    .first();
-  await expect(youA).toBeVisible();
-  await expect(youB).toBeVisible();
+  await expect(
+    pageA.locator(`[data-testid="drift-player-list"]`).locator("[data-is-you='true']"),
+  ).toHaveCount(1);
+  await expect(
+    pageB.locator(`[data-testid="drift-player-list"]`).locator("[data-is-you='true']"),
+  ).toHaveCount(1);
 
-  // The list count should be 2 (self + the other context).
-  await expect(pageA.getByTestId("drift-player-list-count")).toHaveText("2");
-  await expect(pageB.getByTestId("drift-player-list-count")).toHaveText("2");
-
-  // Capture the per-task screenshot. We snapshot contextA so the
-  // log includes one full-page image of the live UI with the
-  // toast stack + player list both populated.
+  // Capture a screenshot for the task log.
   await pageA.screenshot({
-    path: "../.ralph/screenshots/TASK-15-1.png",
+    path: "../.ralph/screenshots/TASK-70-3.png",
     fullPage: true,
   });
 
-  // Fail loudly on uncaught console errors.
+  // No uncaught console errors on either context.
   expect(consoleErrorsA, consoleErrorsA.join("\n")).toEqual([]);
   expect(consoleErrorsB, consoleErrorsB.join("\n")).toEqual([]);
 

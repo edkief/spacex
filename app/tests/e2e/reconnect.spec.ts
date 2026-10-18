@@ -1,5 +1,5 @@
 /**
- * Reconnect smoke test (TASK-17).
+ * Reconnect smoke test (TASK-17, now using the TASK-70 fixture).
  *
  * Drives the DriftClient through a forced socket close + auto-
  * reconnect. The smoke test exercises:
@@ -14,25 +14,22 @@
  *
  * The test simulates the close by reaching into the client via
  * `window.__driftClient` and calling its internal socket
- * `close()` (Playwright-friendly seam — the seam is `client`
- * field, not a public API).
+ * `close()` (Playwright-friendly seam).
  *
- * The dev server must already be running (`npm run dev`) before
- * this test executes; `playwright.config.ts`'s `webServer` block
- * handles that.
+ * The fixture spawns `npm run dev` with a random free port and
+ * a fresh sqlite DB in a tmp dir.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
 
-test("DriftClient auto-reconnects after a forced socket close", async ({ page, request }) => {
-  // Step 1: the app boots cleanly + health endpoint is reachable.
-  const health = await request.get("/api/health");
-  expect(health.status()).toBe(200);
-  await page.goto("/");
+test("DriftClient auto-reconnects after a forced socket close", async ({
+  page,
+  driftServer: server,
+}) => {
+  // Step 1: the app boots cleanly + the fixture's server is alive.
+  await page.goto(`${server.baseURL}/`);
   await expect(page.getByTestId("drift-canvas")).toBeVisible();
 
-  // Step 2: wait for the DriftClient to reach `online`. The
-  // header pill text reflects the current lifecycle status
-  // (the callsign suffix when online).
+  // Step 2: wait for the DriftClient to reach `online`.
   await expect
     .poll(
       async () =>
@@ -46,10 +43,7 @@ test("DriftClient auto-reconnects after a forced socket close", async ({ page, r
     )
     .toBe("online");
 
-  // Step 3: force-close the underlying socket via the seam. The
-  // auto-retry loop should spawn a fresh socket + resync within
-  // a few seconds (the retry budget defaults to 30 s; we don't
-  // wait anywhere near that).
+  // Step 3: force-close the underlying socket via the seam.
   await page.evaluate(() => {
     const w = window as unknown as {
       __driftClient?: { socket: WebSocket | null };
@@ -59,9 +53,8 @@ test("DriftClient auto-reconnects after a forced socket close", async ({ page, r
     sock.close(4000, "smoke-test-forced-close");
   });
 
-  // Step 4: the client should transition to `connecting` (mid-
-  // retry) and then back to `online` once the resync handshake
-  // completes.
+  // Step 4: the client should transition back to `online` once the
+  // resync handshake completes.
   await expect
     .poll(
       async () =>
@@ -75,10 +68,7 @@ test("DriftClient auto-reconnects after a forced socket close", async ({ page, r
     )
     .toBe("online");
 
-  // Step 5: the "Reconnected" toast must have appeared in the
-  // top-right column. The ToastStack renders toasts with the
-  // `data-toast-kind="info"` attribute; the text content of the
-  // most recent info toast should start with "Reconnected".
+  // Step 5: the "Reconnected" toast must have appeared.
   await expect
     .poll(
       async () => {
@@ -95,12 +85,9 @@ test("DriftClient auto-reconnects after a forced socket close", async ({ page, r
     )
     .toContain("Reconnected");
 
-  // Screenshot for the task notes. Saved under the workspace-root
-  // `.ralph/screenshots/` directory so iteration history can pick
-  // it up; the dev server's Vite root is `app/`, but the
-  // screenshot path resolves from the project root.
+  // Screenshot for the task notes.
   await page.screenshot({
-    path: "../../../../.ralph/screenshots/TASK-17-1.png",
+    path: "../.ralph/screenshots/TASK-17-1.png",
     fullPage: false,
   });
 });

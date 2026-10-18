@@ -13,6 +13,7 @@
     "start": "tsx src/server/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "snapshot:update": "tsx scripts/gen-stars-full-fixture.ts && tsx scripts/gen-system-star1-fixture.ts && tsx scripts/gen-surface-fixture.ts && tsx scripts/gen-surface-chunk10-fixture.ts && tsx scripts/gen-surface-chunk01-fixture.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . && prettier --check .",

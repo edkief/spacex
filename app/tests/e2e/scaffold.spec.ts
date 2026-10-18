@@ -1,30 +1,34 @@
 /**
- * TASK-68 scaffold smoke test.
+ * TASK-68 scaffold smoke test (now using the TASK-70 fixture).
  *
- * Verifies the end-to-end dev pipeline: Vite serves the React shell on
- * :3000, the canvas placeholder is mounted, and the Fastify `/api/health`
- * endpoint reachable via the Vite proxy returns the expected payload.
+ * Verifies the end-to-end dev pipeline: Vite serves the React
+ * shell on the random fixture port, the canvas placeholder is
+ * mounted, and the Fastify `/api/health` endpoint reachable
+ * via the Vite proxy returns the expected payload.
  *
- * The dev server must already be running (`npm run dev`) before this test
- * executes; playwright.config.ts's `webServer` block handles that.
+ * The fixture spawns `npm run dev` with a random free port and
+ * a fresh sqlite DB in a tmp dir; teardown is automatic on
+ * worker completion.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
 
-test("scaffold serves React shell with canvas + health proxy", async ({ page, request }) => {
+test("scaffold serves React shell with canvas + health proxy", async ({
+  page,
+  request,
+  driftServer: server,
+}) => {
   const consoleErrors: string[] = [];
   page.on("console", (msg) => {
-    if (msg.type() === "error") {
-      consoleErrors.push(msg.text());
-    }
+    if (msg.type() === "error") consoleErrors.push(msg.text());
   });
 
-  await page.goto("/");
+  await page.goto(`${server.baseURL}/`);
   await expect(page).toHaveTitle(/Drift/);
 
   const canvas = page.getByTestId("drift-canvas");
   await expect(canvas).toBeVisible();
 
-  const response = await request.get("/api/health");
+  const response = await request.get(`${server.apiURL}/api/health`);
   expect(response.status()).toBe(200);
   const body = (await response.json()) as { ok: boolean; galaxySeed: string };
   expect(body.ok).toBe(true);
