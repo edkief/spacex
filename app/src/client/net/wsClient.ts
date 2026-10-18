@@ -565,6 +565,25 @@ export class DriftClient {
   }
 
   /**
+   * TASK-31: send an `exit_ship` request. The server validates the
+   * ship is docked, mints a character entity, rebinds the
+   * connection, and broadcasts the character via the next
+   * `entity_update` (≤ 100 ms). The client can treat the receipt
+   * of its own character in the next snapshot as the success
+   * confirmation — there is no `exit_ship_ok` frame.
+   *
+   * Throws if the socket isn't open (i.e. the client isn't
+   * `online`). The exit-prompt UI guards against this with the
+   * online-state check + a docked-only visibility gate.
+   */
+  sendExitShip(): void {
+    if (!this.socket || this.socket.readyState !== this.socket.OPEN) {
+      throw new Error("DriftClient: sendExitShip requires an open socket");
+    }
+    this.socket.send(encodeEnvelope("exit_ship", {}));
+  }
+
+  /**
    * TASK-8: consume the canonical snapshot from a `warp_arrived`
    * frame. Updates the live `systemId`, clears stale presence /
    * chat (the target system is a fresh roster), and rebuilds the
@@ -976,7 +995,13 @@ export class DriftClient {
         const nowMs = Date.now();
         const entities = (payload as { entities: readonly unknown[] }).entities ?? [];
         for (const e of entities) {
-          const ent = e as { id: string; kind?: string; callsign?: string | null; regime?: string };
+          const ent = e as {
+            id: string;
+            kind?: string;
+            callsign?: string | null;
+            regime?: string;
+            onFoot?: boolean;
+          };
           if (!ent.id) continue;
           // TASK-25: apply the server's authoritative regime to the
           // local controls manager. The manager ignores no-op
@@ -986,6 +1011,14 @@ export class DriftClient {
           // observed but don't drive the player's input).
           if (ent.callsign && ent.callsign === this.callsign && ent.regime) {
             this.controls.applyRegime(ent.regime as Parameters<Controls["applyRegime"]>[0]);
+            // TASK-31: when the owning entity's `kind` flips to
+            // `'character'` we swap the controls into the
+            // character-mode scheme. `onFoot === true` is the
+            // wire flag the server sets on every character entity
+            // (see `entityToWire` in `@server/shard/entity.ts`).
+            // Calling `setOnFoot(false)` for a ship is a no-op so
+            // it's safe to apply on every frame.
+            this.controls.setOnFoot(ent.kind === "character");
           }
           let buf = this.remoteBuffers.get(ent.id);
           if (!buf) {

@@ -1,6 +1,6 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-18 after **TASK-28** (Atmospheric entry/exit: drag ramp shared via `boundaryFactor` + visual haze overlay + re-entry rim with full per-planet visual profile + dev-only test hook).
+Snapshot taken 2026-10-18 after **TASK-31** (Disembark: docked ship → character entity at `ship.pos + sideOffset`; server `handleDisembark` enforces `onPad !== null`; client `ExitShipPrompt` mounts when docked; controls remap to `CHARACTER_SCHEME` via `setOnFoot(true)` on entity kind flip; `onFoot` + `not-docked` added to wire schema).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.
@@ -113,7 +113,7 @@ PROJECT_ROOT
 │   │   │   ├── testHook.ts        # Dev-only `window.__driftCameraRig` seam (createCameraRigTestHook + install + uninstall) — tree-shaken from prod by `import.meta.env.DEV` guard
 │   │   │   ├── testHook.dom.test.ts # 3 cases: happy-dom browser-shape integration (install + full cockpit↔onfoot cycle + re-install)
 │   │   │   └── index.ts           # Barrel re-exporting CameraRig + constants + math helpers + test hook
-│   │   │   ├── components/      # UI sub-components (CanvasStage.tsx + PlayerList + ToastStack + ChatLog for TASK-15/16)
+│   │   │   ├── components/      # UI sub-components (CanvasStage.tsx + PlayerList + ToastStack + ChatLog + ExitShipPrompt for TASK-15/16/31)
 │   │   │   │   ├── PlayerList.tsx           # Bottom-left roster HUD — monospace + status dots + "(you)" marker (TASK-15)
 │   │   │   │   ├── ToastStack.tsx           # Top-right toast column — 3-visible cap + 8-deep queue + 3 s lifetime + 0.4 s fade (TASK-15)
 │   │   │   │   ├── ChatLog.tsx              # Top-left chat panel — 100-message ring + Enter-toggled input + auto-escape (XSS-safe) + auto-scroll only when at-bottom (TASK-16)
@@ -192,6 +192,7 @@ PROJECT_ROOT
 │   │       ├── ws.ratelimit-helpers.ts  # Shared harness helpers for rate-limit integration tests (TASK-65)
 │   │       ├── ws.ratelimit.test.ts     # Rate-limit integration: bucket + chat + escalation + isolation (TASK-65; chat paths now exercise TASK-16 surface)
 │   │       ├── ws.chat.test.ts  # 9 cases: real Fastify+ws boot verifying broadcast (sender echo) + monotonic-ts ordering + 6/10s rate-limit drop + invalid-message on empty/long/non-string + control-byte sanitization + XSS inert-text wire round-trip + enter_system.chat history seed (TASK-16)
+│   │       ├── ws.disembark.test.ts   # 3 cases: real Fastify+ws boot verifying docked disembark mints character (correct id + pos + onFoot), not-docked ship returns 'not-docked' error frame, two-client agreement on character position (TASK-31)
 │   │       ├── ws.fuzz-helpers.ts # bootFuzzHarness + openFuzzClient + collectFuzzMessages (TASK-64)
 │   │       ├── ws.fuzz-payloads.ts # 20 crafted malformed payloads + REQUIRED_FUZZ_NAMES + nestedObject/byteString builders (TASK-64)
 │   │       ├── validation-fuzz.test.ts # 6 cases: 20-payload burst + 1 MB size cap + health hammered + threshold pin (TASK-64)
@@ -258,7 +259,8 @@ PROJECT_ROOT
 │   │       │   ├── load.test.ts      # 11 cases: empty system, scoped to systemId, skip docked + opt-in, expired-wreck GC, future-wreck preservation
 │   │       │   ├── registry.ts       # ShardRegistry: Map<systemId, Shard> + flushAll() for graceful shutdown (TASK-24)
 │   │       │   ├── sim.ts       # SimLoop class: 20 Hz tick, accumulator + 5-step catch-up ceiling, 10 Hz snapshot every 2nd tick, integrateShip() + heightAt3x3 cache, ship persisted-state plumbing (TASK-13); cumulative lastAppliedSeq map per player for ack (TASK-14)
-│   │       │   ├── index.ts     # createShard() factory + spawnShip/spawnAiShip + pushPlayerInput + simulateNTicks + sendEntityUpdate with lastAppliedSeq (TASK-13 + TASK-14); broadcastChat + ChatRingBufferEntry export (TASK-16)
+│   │       │   ├── index.ts     # createShard() factory + spawnShip/spawnAiShip + pushPlayerInput + simulateNTicks + sendEntityUpdate with lastAppliedSeq (TASK-13 + TASK-14); broadcastChat + ChatRingBufferEntry export (TASK-16); handleDisembark + spawnCharacter + DisembarkResult (TASK-31)
+│   │       │   ├── disembark.test.ts   # 7 cases: docked disembark mints character at ship.pos + sideOffset (±0.5m), ship stays docked, connection rebinds, broadcast fires, not-docked + no-ship rejections, two-client agreement, v1 idle character integration (TASK-31)
 │   │       │   └── sim.test.ts  # 18 cases: accumulator math (1000 ticks no drift), 5-step catch-up ceiling, 10 Hz cadence, latest-input-wins, stale-seq drops, broadcast payload shape, entity kind mapping, 32 KB warning gate, histogram p50/p95/p99, 16-ship 60s benchmark p95 < 30 ms (TASK-13) + lastAppliedSeq ack map populated for owning player + empty for AI-only frames (TASK-14)
 │   │       └── db/              # Drift persistence layer (TASK-62 / TASK-63 / TASK-41)
 │   │           ├── types.ts     # PlayerRow / ShipRow / etc. + zod shapes for JSON columns
@@ -304,7 +306,8 @@ PROJECT_ROOT
 │   │       ├── presence.spec.ts # Playwright smoke (two browser contexts → both see each other in the in-system player list, screenshot) (TASK-15, fixture-rewritten in TASK-70)
 │   │       ├── reconnect.spec.ts# DriftClient auto-reconnect + "Reconnected" toast after forced socket close (TASK-17, fixture-rewritten in TASK-70)
 │   │       ├── render-smoke.spec.ts # Headless WebGL starfield smoke — samples 256x256 via 2D scratch canvas; asserts variance + starFraction (TASK-70)
-│       ├── atmosphere.spec.ts   # TASK-28 — Playwright smoke for the haze overlay + re-entry rim: haze ramps up at surface (terran), per-planet density >20% difference, re-entry fires above 200 u/s, screenshots
+│       ├── atmosphere.spec.ts   # TASK-28 — Playwright smoke for the haze overlay + re-entry rim
+│       ├── disembark.spec.ts  # TASK-31 — Playwright smoke for the exit-ship prompt + docked indicator wiring (full scripted flight → dock → disembark is queued behind the flight-assist harness): haze ramps up at surface (terran), per-planet density >20% difference, re-entry fires above 200 u/s, screenshots
 │   │       ├── scaffold.spec.ts # Playwright smoke (canvas + /api/health) (TASK-68, fixture-rewritten in TASK-70)
 │   │       ├── star-chart.spec.ts # Playwright smoke (open chart via M key + Systems button, click a node, screenshot the open chart, verify Warp button enables with the shortest-hop warp time) (TASK-7)
 │   │       ├── warp.spec.ts     # Playwright smoke (open chart via M, click a non-current system, click Warp, assert overlay mounts + systemId flips to target + total duration 2.5-7 s + overlay hides, screenshot pre/post) (TASK-8)

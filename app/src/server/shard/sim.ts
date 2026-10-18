@@ -312,7 +312,11 @@ export class SimLoop {
         continue;
       }
       const entity = shard.entities.get(conn.entityId);
-      if (entity === undefined || entity.kind !== "player") continue;
+      if (entity === undefined) continue;
+      // TASK-31: characters are first-class sim entities but v1 has
+      // no integration — TASK-32 wires walk/look. We still tick the
+      // entity so the broadcast loop sees it; we just don't move it.
+      if (entity.kind !== "player") continue;
       // TASK-23: a destroyed player entity stays in the registry (so
       // reconnect can find the row), but the integration loop refuses
       // to advance it. The double-destroy guard in

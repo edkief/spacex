@@ -39,6 +39,10 @@ import { AtmosphereOverlay } from "./components/AtmosphereOverlay.js";
 import { ReentryOverlay } from "./components/ReentryOverlay.js";
 import { DockedIndicator, useOwnShipOnPad } from "./components/DockedIndicator.js";
 import {
+  ExitShipPrompt,
+  useOwnShipOnPad as useExitPromptShipOnPad,
+} from "./components/ExitShipPrompt.js";
+import {
   currentAtmosphereStateProvider,
   installAtmosphereTestHook,
 } from "./components/AtmosphereState.js";
@@ -342,6 +346,10 @@ export function App(): React.JSX.Element {
   // the DriftClient's predictor (set by the server's `entity_update`
   // frames) and renders a single DOM node when non-null.
   const ownOnPad = useOwnShipOnPad();
+  // TASK-31: same value drives the exit-ship prompt's visibility.
+  // Hooks must be called at the top of the component (Rules of
+  // Hooks) — we lift the call up here instead of inside the JSX.
+  const exitPromptOnPad = useExitPromptShipOnPad();
 
   return (
     <div
@@ -368,6 +376,24 @@ export function App(): React.JSX.Element {
           local ship is on a landing pad (server reports `onPad`).
           Stub HUD — full ship HUD is TASK-51. */}
       <DockedIndicator padId={ownOnPad} />
+      {/* TASK-31: exit-ship prompt. Mounts when the local ship is
+          docked + the WS is online. On `E` press the client sends
+          `exit_ship` and the server mints a character entity. The
+          prompt hides once the player is on foot (the on-foot HUD
+          lands in TASK-52). */}
+      <ExitShipPrompt
+        padId={exitPromptOnPad}
+        enabled={status === "online"}
+        onExit={() => {
+          try {
+            client.sendExitShip();
+          } catch {
+            // The `enabled` prop already gates on `online`; a throw
+            // here means the socket dropped between the gate check
+            // and the send. Swallow so the UI stays responsive.
+          }
+        }}
+      />
       <header
         data-testid="drift-header"
         style={{

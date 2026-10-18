@@ -27,7 +27,7 @@ import {
   sanitizeChatText,
   validateChatText,
 } from "./chat.js";
-import { broadcastChat, pushPlayerInput } from "./shard/index.js";
+import { broadcastChat, handleDisembark, pushPlayerInput } from "./shard/index.js";
 import { sendError, sendFrame } from "./ws.dispatch.helpers.js";
 
 // ---------------------------------------------------------------------------
@@ -446,6 +446,57 @@ export async function onWarp(
     sendError(conn, code, (err as Error).message ?? "warp failed");
   }
   void _options;
+}
+
+// ---------------------------------------------------------------------------
+// onExitShip — TASK-31 player disembark
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle an `exit_ship` frame from a `joined`-state connection.
+ *
+ * The flow:
+ *   1. Locate the shard for this connection (via `options.shardFor`).
+ *   2. Delegate to `handleDisembark(shard, { connId })` which:
+ *      - resolves the connection's bound ship entity,
+ *      - enforces `onPad !== null` (the spec's "must be in a docked
+ *        ship" precondition),
+ *      - mints a character entity at `ship.pos + sideOffset`,
+ *      - rebinds the connection's `entityId` to the character.
+ *   3. On success: do nothing — `handleDisembark` already kicked
+ *      a snapshot via `shard.broadcast(...)` so every client sees
+ *      the character appear on the next wire frame. The owning
+ *      client's `entity_update` will switch its controls + camera
+ *      handoff (TASK-27) on receipt.
+ *   4. On rejection: send a structured `error` frame with the
+ *      resolver's code. `not-docked` and `no-ship` are the two
+ *      expected codes; an unknown code falls back to
+ *      `invalid-message` so the client gets a structured error
+ *      either way.
+ *
+ * The handler is intentionally fire-and-forget on success — there
+ * is no `exit_ship_ok` frame because the *snapshot* IS the
+ * confirmation. The owning client sees its own character in the
+ * next `entity_update` (≤ 100 ms later) and swaps the input
+ * pipeline accordingly.
+ */
+export function onExitShip(conn: Connection, options: WsHandleOptions, _payload: unknown): void {
+  const shard = options.shardFor?.(conn);
+  if (!shard) {
+    sendError(conn, "unauthenticated", "exit_ship requires a joined system");
+    return;
+  }
+  const result = handleDisembark(shard, { connId: conn.connId });
+  if (!result.ok) {
+    // Wire code map: `not-docked` -> `not-docked` (TASK-31
+    // acceptance); `no-ship` / `unknown` -> `invalid-message`
+    // (the spec's pre-existing code) so the client gets a
+    // structured error either way.
+    const code = result.code === "not-docked" ? "not-docked" : "invalid-message";
+    sendError(conn, code, result.message);
+    return;
+  }
+  // No outbound frame — the next broadcast carries the character.
 }
 
 // ---------------------------------------------------------------------------

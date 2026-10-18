@@ -124,15 +124,24 @@ export function applyCombatDamage(args: {
   if (entity.hull <= 0) {
     return EMPTY_RESULT;
   }
+  // TASK-31: characters don't take damage in v1 (no stamina /
+  // shield model). Skip the damage pipeline entirely so an
+  // accidental `applyCombatDamage` call against a character id
+  // is a no-op rather than crashing on the null classId below.
+  if (entity.kind === "character") {
+    return EMPTY_RESULT;
+  }
 
   const damageInput: {
     target: DamageTarget;
-    classId: SimEntity["classId"];
+    classId: NonNullable<SimEntity["classId"]>;
     amount: number;
     source: DamageSource;
   } = {
     target: { hull: entity.hull, shields: entity.shields },
-    classId: entity.classId,
+    // Cast: the character gate above proves `classId` is non-null
+    // for any entity that reaches this point.
+    classId: entity.classId as NonNullable<SimEntity["classId"]>,
     amount: args.amount,
     source: args.source,
   };
@@ -180,7 +189,10 @@ export function applyCombatDamage(args: {
   const wreckId = makeWreckId(entity.id);
   const wreck = makeWreckEntity({
     id: wreckId,
-    classId: entity.classId,
+    // Cast: the character gate above proves `classId` is non-null
+    // for any entity that reaches this point (only ships get
+    // wrecks — TASK-31 / TASK-49).
+    classId: entity.classId as NonNullable<SimEntity["classId"]>,
     pos: entity.pos,
     quat: entity.quat,
     wreckExpiresAt: now + WRECK_TTL_MS,

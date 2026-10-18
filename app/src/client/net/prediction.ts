@@ -654,6 +654,37 @@ export function simEntityFromWire(e: ProtocolEntityState): SimEntityLite {
   };
 }
 
+/**
+ * TASK-31: light-weight character metadata extracted from a wire
+ * `EntityState`. The full per-character snapshot lives in the
+ * remote-entity buffer (`simEntityFromWire`); this helper gives the
+ * UI a focused view (id + playerId + callsign + onFoot flag) so it
+ * can render the on-foot HUD without walking the wire shape itself.
+ */
+export interface CharacterLite {
+  readonly id: string;
+  readonly playerId: string | null;
+  readonly callsign: string | null;
+  readonly onFoot: boolean;
+  readonly onPad: string | null;
+}
+
+/**
+ * TASK-31: extract the character view from a wire entity. Returns
+ * `null` when the entity is not a character so the renderer can
+ * branch on `null` rather than checking `kind` twice.
+ */
+export function characterFromWire(e: ProtocolEntityState): CharacterLite | null {
+  if (e.kind !== "character") return null;
+  return {
+    id: e.id,
+    playerId: null,
+    callsign: e.callsign,
+    onFoot: e.onFoot === true,
+    onPad: e.onPad,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // RemoteEntityBuffer
 // ---------------------------------------------------------------------------

@@ -12,7 +12,13 @@
 import { describe, it, expect } from "vitest";
 import { type z } from "zod";
 
-import { PAYLOAD_SCHEMAS, type MessageType, type PayloadFor } from "./schemas.js";
+import {
+  PAYLOAD_SCHEMAS,
+  EntityStateSchema,
+  ErrorCodeSchema,
+  type MessageType,
+  type PayloadFor,
+} from "./schemas.js";
 import {
   parseMessage,
   ProtocolError,
@@ -70,6 +76,24 @@ const VALID_PAYLOADS: Record<MessageType, () => unknown> = {
         callsign: "TEST-ALPHA",
         livery: null,
         onPad: null,
+        // TASK-31: `onFoot` is optional and absent on ship
+        // entities. The shape still validates without it so
+        // pre-TASK-31 clients continue to work.
+      },
+      {
+        id: "char-1",
+        kind: "character",
+        pos: [2.5, 0, 0],
+        vel: [0, 0, 0],
+        regime: "surface",
+        hull: 0,
+        shields: 0,
+        targetId: null,
+        classId: null,
+        callsign: "TEST-ALPHA",
+        livery: null,
+        onPad: "pad-0-0",
+        onFoot: true,
       },
     ],
     lastAppliedSeq: { "player-1": 7 },
@@ -214,6 +238,10 @@ const INVALID_PAYLOADS: Record<MessageType, () => unknown> = {
   logout: () => ({ extra: true }), // strict forbids extra keys
   logout_ok: () => ({ callsign: "" }), // empty string rejected
   error: () => ({ code: "panic", message: "" }), // bad code + empty message
+  // TASK-31: extra VALID example for the `not-docked` code we
+  // added to the enum. The default `VALID_PAYLOADS` only carries
+  // one canonical error example; the not-docked variant is the
+  // wire code the disembark handler emits on a rejection.
   ping: () => ({ t: NaN }),
   pong: () => ({ t: NaN }),
   presence: () => ({
@@ -335,6 +363,89 @@ describe("protocol/schemas", () => {
         expect(err).toBeInstanceOf(ProtocolError);
         expect((err as ProtocolError).code).toBe("invalid-envelope");
       }
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // TASK-31: not-docked wire code + character entity shape.
+  // -------------------------------------------------------------------------
+
+  describe("not-docked error code (TASK-31)", () => {
+    it("accepts an error frame with code: 'not-docked'", () => {
+      const result = ErrorCodeSchema.safeParse("not-docked");
+      expect(result.success).toBe(true);
+    });
+
+    it("rejects an unknown error code", () => {
+      const result = ErrorCodeSchema.safeParse("panic-at-the-disc0");
+      expect(result.success).toBe(false);
+    });
+
+    it("an error frame with not-docked round-trips through parseMessage", () => {
+      const out = parseMessage("error", {
+        code: "not-docked",
+        message: "Ship is not docked",
+      });
+      expect(out.type).toBe("error");
+      expect(out.payload.code).toBe("not-docked");
+    });
+  });
+
+  describe("character entity shape (TASK-31)", () => {
+    it("accepts a character entity with onFoot: true", () => {
+      const result = EntityStateSchema.safeParse({
+        id: "char-1",
+        kind: "character",
+        pos: [2.5, 0, 0],
+        vel: [0, 0, 0],
+        regime: "surface",
+        hull: 0,
+        shields: 0,
+        targetId: null,
+        classId: null,
+        callsign: "TEST-ALPHA",
+        livery: null,
+        onPad: "pad-0-0",
+        onFoot: true,
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it("accepts a character entity without onFoot (older clients)", () => {
+      const result = EntityStateSchema.safeParse({
+        id: "char-1",
+        kind: "character",
+        pos: [2.5, 0, 0],
+        vel: [0, 0, 0],
+        regime: "surface",
+        hull: 0,
+        shields: 0,
+        targetId: null,
+        classId: null,
+        callsign: "TEST-ALPHA",
+        livery: null,
+        onPad: "pad-0-0",
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it("rejects a character entity with onFoot: 'yes' (wrong type)", () => {
+      const result = EntityStateSchema.safeParse({
+        id: "char-1",
+        kind: "character",
+        pos: [0, 0, 0],
+        vel: [0, 0, 0],
+        regime: "surface",
+        hull: 0,
+        shields: 0,
+        targetId: null,
+        classId: null,
+        callsign: null,
+        livery: null,
+        onPad: null,
+        onFoot: "yes",
+      });
+      expect(result.success).toBe(false);
     });
   });
 });

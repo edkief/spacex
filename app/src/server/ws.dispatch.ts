@@ -65,7 +65,16 @@ import type {
   WsHandleOptions,
 } from "./ws.js";
 import { closeFloodedConnection, sendError, sendFrame } from "./ws.dispatch.helpers.js";
-import { onAuth, onChat, onHello, onInput, onJoinSystem, onLogout, onWarp } from "./ws.handlers.js";
+import {
+  onAuth,
+  onChat,
+  onExitShip,
+  onHello,
+  onInput,
+  onJoinSystem,
+  onLogout,
+  onWarp,
+} from "./ws.handlers.js";
 
 // ---------------------------------------------------------------------------
 // Constants — exported so tests can reference them without hard-coding
@@ -376,6 +385,16 @@ async function dispatch(
         // wins semantics (TASK-13) and the next entity_update carries
         // `lastAppliedSeq[playerId]` so the client can reconcile.
         onInput(conn, options, payload);
+        return;
+      }
+      if (type === "exit_ship") {
+        // TASK-31: player-initiated egress from docked ship to
+        // character. Handler validates the ship is docked, mints
+        // a character entity, rebinds the connection, and forces a
+        // broadcast. Rejection paths surface as structured error
+        // frames (`not-docked`, `no-ship`); success is silent
+        // because the *next* snapshot is the confirmation.
+        onExitShip(conn, options, payload);
         return;
       }
       // Future tasks route `warp`, `interact`, etc. to the system

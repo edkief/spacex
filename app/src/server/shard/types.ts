@@ -112,16 +112,20 @@ export interface PlayerInput {
 // ---------------------------------------------------------------------------
 
 /**
- * The three flavors of ship entity the sim knows about for TASK-13.
+ * The flavors of entity the sim knows about (TASK-13 + TASK-31).
  *
- *   `player` — driven by a WS connection via `pendingInput`.
- *   `ai`     — driven by the future AI state machine (TASK-46). For
- *              TASK-13 the stub integrator advances them straight
- *              (thrust=0, no rotation) so they sit still in the
- *              snapshot — enough to exercise the broadcast path.
- *   `wreck`  — destroyed hulls (TASK-49); broadcast-only, no input.
+ *   `player`    — driven by a WS connection via `pendingInput`.
+ *   `ai`        — driven by the future AI state machine (TASK-46). For
+ *                 TASK-13 the stub integrator advances them straight
+ *                 (thrust=0, no rotation) so they sit still in the
+ *                 snapshot — enough to exercise the broadcast path.
+ *   `wreck`     — destroyed hulls (TASK-49); broadcast-only, no input.
+ *   `character` — on-foot player bodies (TASK-31). First-class sim
+ *                 entities (not client-side illusions) so multi-player
+ *                 on-foot works (TASK-36) and persistence reuses the
+ *                 ship pattern. Idle until TASK-32 wires walk/look.
  */
-export type EntityKind = "player" | "ai" | "wreck";
+export type EntityKind = "player" | "ai" | "wreck" | "character";
 
 /**
  * The full per-entity state. Combines the flight-model's `ShipState`
@@ -147,8 +151,9 @@ export interface SimEntity {
   readonly playerId: string | null;
   /** Callsign for player ships (drives HUD); null for AI/wreck. */
   readonly callsign: string | null;
-  /** Ship class — drives `integrateShip`. */
-  readonly classId: ProtocolShipClassId;
+  /** Ship class — drives `integrateShip`. `null` for characters
+   * (TASK-31) which don't carry a ship class. */
+  readonly classId: ProtocolShipClassId | null;
   /** Hull HP (broadcast verbatim in `EntityState.hull`). */
   hull: number;
   /** Shield HP (broadcast verbatim in `EntityState.shields`). */
@@ -178,6 +183,19 @@ export interface SimEntity {
    * tick and removes expired wrecks so the registry stays bounded.
    */
   wreckExpiresAt?: number;
+  /**
+   * TASK-31: when `kind === 'character'`, the id of the docked ship
+   * the player owns (so re-entry via TASK-35 can find it without an
+   * extra lookup). `undefined` for all other kinds.
+   */
+  onShipId?: string;
+  /**
+   * TASK-31: when `kind === 'character'`, the pad id the character
+   * is currently standing on (matches the ship's `onPad` at the
+   * moment of disembark so the prompt UI can keep showing "Ship is
+   * docked here"). `undefined` for non-character entities.
+   */
+  characterOnPad?: string | null;
 }
 
 /**

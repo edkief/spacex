@@ -34,8 +34,11 @@ import type { ProtocolEntityState, ProtocolShipClassId } from "@shared/protocol/
 import { ChatRingBuffer, type ChatEntry } from "../chat.js";
 
 import {
+  characterSpawnPos,
   entityToWire,
   makeAiEntity,
+  makeCharacterEntity,
+  makeCharacterId,
   makeEntityId,
   makePlayerEntity,
   makeWreckEntity,
@@ -296,6 +299,135 @@ export function spawnWreck(
 export function removeEntity(shard: Shard, entityId: string): boolean {
   return shard.entities.delete(entityId);
 }
+
+/**
+ * TASK-31: spawn a character entity on a docked ship. Idempotent —
+ * a second call returns the existing character (the spec's "one
+ * player per ship" rule means each player owns at most one character
+ * at a time).
+ *
+ * The character inherits the ship's pad id (`onPad`) so the renderer
+ * can keep showing the "Ship is docked here" prompt until the
+ * character moves away (TASK-32 wires the distance cull). The
+ * `pos` is the ship's position offset by `CHARACTER_SIDE_OFFSET_M`
+ * along the ship's local +X axis, on the pad plane.
+ */
+export function spawnCharacter(
+  shard: Shard,
+  args: {
+    playerId: string;
+    callsign: string;
+    ship: SimEntity;
+    bindConnId?: string;
+  },
+): SimEntity {
+  const id = makeCharacterId(args.playerId);
+  const existing = shard.entities.get(id);
+  if (existing !== undefined) {
+    if (args.bindConnId !== undefined) {
+      const conn = shard.connections.get(args.bindConnId);
+      if (conn) conn.entityId = id;
+    }
+    return existing;
+  }
+  const charPos = characterSpawnPos(args.ship);
+  const character = makeCharacterEntity({
+    id,
+    playerId: args.playerId,
+    callsign: args.callsign,
+    shipId: args.ship.id,
+    pos: charPos,
+    quat: args.ship.quat,
+    regime: "surface",
+    originPlanetId: args.ship.originPlanetId,
+    onPad: args.ship.onPad,
+  });
+  shard.entities.set(id, character);
+  if (args.bindConnId !== undefined) {
+    const conn = shard.connections.get(args.bindConnId);
+    if (conn) conn.entityId = id;
+  }
+  return character;
+}
+
+/**
+ * TASK-31: process a `disembark` request from a player connection.
+ *
+ * Steps (spec acceptance):
+ *   1. Look up the connection's bound entity (must be a player ship).
+ *   2. Verify the ship is docked (`onPad !== null`). Otherwise
+ *      return `{ ok: false, code: 'not-docked' }` so the WS handler
+ *      can emit a structured error frame.
+ *   3. Spawn the character entity at `ship.pos + sideOffset`.
+ *   4. Switch the connection's `entityId` from the ship to the
+ *      character so subsequent `input` frames route into the
+ *      character (TASK-32 will give the character walk/look
+ *      meaning; for v1 the character is idle).
+ *   5. Force a snapshot so every client sees the character appear
+ *      on the next broadcast (≤ 100 ms after the disembark lands).
+ *
+ * The ship entity stays in the registry — the spec calls out that
+ * "the ship remains docked and controllable-by-others state is
+ * unchanged (single player per ship in v1 — the ship simply
+ * becomes idle)". The sim loop stops integrating the ship because
+ * its connection's `entityId` now points at the character (the
+ * integration loop only touches entities whose `entityId` matches
+ * a connection's bound entity).
+ *
+ * Returns:
+ *   - `{ ok: true, ship, character }` on success.
+ *   - `{ ok: false, code: 'not-docked' | 'no-ship' | 'unknown' }`
+ *     on failure so the WS handler can map to a wire error code.
+ */
+export function handleDisembark(
+  shard: Shard,
+  args: { connId: string; nowMs?: number },
+): DisembarkResult {
+  const conn = shard.connections.get(args.connId);
+  if (!conn) return { ok: false, code: "unknown", message: "Connection not in shard" };
+  if (conn.entityId === null)
+    return { ok: false, code: "no-ship", message: "No ship bound to connection" };
+  const ship = shard.entities.get(conn.entityId);
+  if (!ship) return { ok: false, code: "no-ship", message: "Bound entity missing" };
+  if (ship.kind !== "player") {
+    return { ok: false, code: "no-ship", message: "Bound entity is not a player ship" };
+  }
+  if (ship.onPad === null || ship.onPad === undefined) {
+    return { ok: false, code: "not-docked", message: "Ship is not docked" };
+  }
+  const character = spawnCharacter(shard, {
+    playerId: conn.playerId,
+    callsign: conn.callsign,
+    ship,
+    bindConnId: conn.connId,
+  });
+  // Force a snapshot so every connection in the shard sees the
+  // character appear on the next broadcast (≤ 100 ms). Without
+  // this nudge the player could press E + alt-tab before the next
+  // 10 Hz tick and watch an empty pad for a few hundred ms.
+  const tick = shard.sim.currentTick;
+  const entities = buildSnapshotEntities(shard);
+  shard.broadcast(tick, entities, {});
+  return { ok: true, ship, character };
+}
+
+/**
+ * TASK-31: discriminated result of `handleDisembark`. The WS
+ * handler maps `code` to the wire error code so a malformed
+ * disembark surfaces as a structured `error` frame instead of a
+ * silent drop.
+ */
+export type DisembarkResult =
+  | {
+      ok: true;
+      ship: SimEntity;
+      character: SimEntity;
+    }
+  | {
+      ok: false;
+      code: "not-docked" | "no-ship" | "unknown";
+      message: string;
+    };
 
 // ---------------------------------------------------------------------------
 // Input plumbing

@@ -58,6 +58,18 @@ export const LiverySchema = z
  * Entity state — the universal shape for ships, characters, AI ships and
  * wrecks on the wire. Future tasks (TASK-13/22/45) extend the *runtime*
  * meaning of each field, but the shape is stable here.
+ *
+ * TASK-31: `onFoot` is the discriminator for character entities. Ships,
+ * AI ships, and wrecks leave it `false`/absent; characters set it
+ * `true`. The field is intentionally at the top of the shape (not on a
+ * sub-type) because the wire-level discriminator is `kind` and the
+ * character-specific extension is a single boolean — splitting the
+ * schema into a discriminated union would force every consumer to
+ * handle four branches where one boolean does the job. Existing
+ * clients (pre-TASK-31) ignore the extra key because `parseMessage`
+ * strips unknowns at the envelope layer; old servers that emit the
+ * shape without `onFoot` still validate because the field is
+ * `.optional()`.
  */
 export const EntityStateSchema = z
   .object({
@@ -78,8 +90,22 @@ export const EntityStateSchema = z
      * `(seed, planetId, chunkX, chunkZ)` — see `LandingPad.id` in
      * `@shared/galaxy/types`. Clients use the field to drive the
      * in-HUD "DOCKED" indicator (TASK-29 acceptance criterion).
+     *
+     * TASK-31: characters inherit the pad id from the ship they
+     * disembarked from (so the "Ship is docked here" prompt can keep
+     * showing until the character walks away — TASK-32 wires the
+     * distance cull).
      */
     onPad: z.string().min(1).nullable(),
+    /**
+     * TASK-31: `true` when the entity is an on-foot character.
+     * Defaults to `undefined` so the field is absent from ship /
+     * AI / wreck snapshots (no bandwidth cost on the 10 Hz
+     * broadcast). Consumers distinguish "kind === 'character'"
+     * first; `onFoot` is a convenience flag for renderer code paths
+     * that need to gate without a switch.
+     */
+    onFoot: z.boolean().optional(),
   })
   .strict();
 export type ProtocolEntityState = z.infer<typeof EntityStateSchema>;
@@ -121,7 +147,7 @@ export const PresenceEntrySchema = z
   })
   .strict();
 
-/** Structured error code (TASK-9 acceptance criteria). */
+/** Structured error code (TASK-9 + TASK-31 acceptance criteria). */
 export const ErrorCodeSchema = z.enum([
   "version-mismatch",
   "unauthenticated",
@@ -130,6 +156,10 @@ export const ErrorCodeSchema = z.enum([
   "rate-limited",
   "invalid-message",
   "unknown-type",
+  // TASK-31: disembark denied because the ship is not currently
+  // docked on a landing pad. Surfaced on `exit_ship` frames; the
+  // client renders a "Cannot disembark while flying" toast.
+  "not-docked",
 ]);
 export type ProtocolErrorCode = z.infer<typeof ErrorCodeSchema>;
 

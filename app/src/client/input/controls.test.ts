@@ -14,6 +14,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   ATMOSPHERE_SCHEME,
+  CHARACTER_SCHEME,
   Controls,
   SCHEME_BY_REGIME,
   SPACE_SCHEME,
@@ -246,5 +247,60 @@ describe("controls: divergence tolerance (TASK-25 AC #4)", () => {
     expect(msg).toContain("server=atmosphere");
     expect(msg).toContain("client=space");
     expect(msg).toContain("750 ms");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TASK-31: character-mode scheme + on-foot toggle
+// ---------------------------------------------------------------------------
+
+describe("controls: character scheme + setOnFoot (TASK-31)", () => {
+  it("the character scheme is registered in the ControlSchemeId union", () => {
+    expect(CHARACTER_SCHEME).toBeDefined();
+    expect(CHARACTER_SCHEME.id).toBe("character");
+  });
+
+  it("CHARACTER_SCHEME carries an `interact` binding for the future walk/look (TASK-32)", () => {
+    const interacts = CHARACTER_SCHEME.keyBindings.filter((b) => b.action === "interact");
+    expect(interacts.length).toBe(1);
+    expect(interacts[0]?.key).toBe("KeyE");
+  });
+
+  it("setOnFoot(true) swaps the active scheme to CHARACTER_SCHEME", () => {
+    const controls = new Controls("surface");
+    expect(controls.scheme().id).toBe("ship-surface");
+    const changed = controls.setOnFoot(true);
+    expect(changed).toBe(true);
+    expect(controls.scheme().id).toBe("character");
+    expect(controls.isOnFoot()).toBe(true);
+  });
+
+  it("setOnFoot(false) returns to the regime-mapped scheme", () => {
+    const controls = new Controls("surface");
+    controls.setOnFoot(true);
+    expect(controls.scheme().id).toBe("character");
+    controls.setOnFoot(false);
+    expect(controls.scheme().id).toBe("ship-surface");
+    expect(controls.isOnFoot()).toBe(false);
+  });
+
+  it("setOnFoot is a no-op when the state already matches", () => {
+    const controls = new Controls("surface");
+    controls.setOnFoot(true);
+    const changed = controls.setOnFoot(true);
+    expect(changed).toBe(false);
+  });
+
+  it("regime changes while on-foot keep CHARACTER_SCHEME active", () => {
+    // Sanity: a disembarked character should stay in character
+    // mode even if the server's reported regime flips (e.g. walk
+    // off the surface edge into atmosphere). The on-foot flag is
+    // orthogonal to the regime — TASK-35 (re-entry) clears it.
+    const controls = new Controls("surface");
+    controls.setOnFoot(true);
+    expect(controls.scheme().id).toBe("character");
+    controls.applyRegime("atmosphere");
+    expect(controls.scheme().id).toBe("character");
+    expect(controls.isOnFoot()).toBe(true);
   });
 });

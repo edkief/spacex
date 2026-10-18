@@ -48,12 +48,12 @@ import type { Regime } from "@shared/regime.js";
 // ---------------------------------------------------------------------------
 
 /**
- * The three control schemes the renderer swaps between. Wire-stable
- * — a future task that adds `'character'` (TASK-31) must extend the
- * union and the `keyBindings` table, but the existing ids stay the
- * same so older clients can still parse them.
+ * The four control schemes the renderer swaps between. Wire-stable
+ * — adding a new id requires extending the `keyBindings` table and
+ * the `SCHEME_BY_REGIME` map, but the existing ids stay the same
+ * so older clients can still parse them.
  */
-export type ControlSchemeId = "ship-space" | "ship-atmosphere" | "ship-surface";
+export type ControlSchemeId = "ship-space" | "ship-atmosphere" | "ship-surface" | "character";
 
 /**
  * A single binding: the wire-stable action id (consumed by the
@@ -127,21 +127,47 @@ export const ATMOSPHERE_SCHEME: ControlScheme = Object.freeze({
 });
 
 /**
- * Surface controls — character-mode STUB. TASK-31 fills in the
- * walk/look/interact bindings; for now we ship the same axis
- * set as atmosphere so the ship can lift off cleanly from a pad
- * before the character flow lands.
+ * Surface controls — docked-on-pad. While the ship sits on the pad
+ * the player can interact (TASK-33) and lift off (Space = up). The
+ * ship itself is still locally controllable via the predict-and-
+ * reconcile pipeline, so the axes here only matter for the
+ * on-pad interaction prompt + the lift-off key.
  */
 export const SURFACE_SCHEME: ControlScheme = Object.freeze({
   id: "ship-surface",
   regime: "surface",
   keyBindings: Object.freeze([
-    // Same flight axes as atmosphere so the player can lift off
-    // immediately. TASK-31 will replace these with walk/look/interact
-    // once the on-foot character mode lands.
     Object.freeze({ action: "thrust", key: "KeyW" }),
     Object.freeze({ action: "up", key: "Space" }),
     // Interact key — TASK-33 will wire the prompt UI to this.
+    Object.freeze({ action: "interact", key: "KeyE" }),
+  ] as const),
+});
+
+/**
+ * TASK-31: character-mode scheme. The player has disembarked from
+ * the docked ship and is now on foot. v1 ships a stub — the actual
+ * walk / look / interact bindings come from TASK-32; here we only
+ * need the scheme registered so the regime-to-scheme swap is
+ * observable end-to-end and the disconnect path leaves the controls
+ * in a defined state. The `'character'` action is the future
+ * self-action (the player talks to themselves — TASK-36 multiplayer
+ * voice is out of v1 scope).
+ *
+ * The `regime` field is a *display* hint; characters don't really
+ * have a flight-model regime. We tag it `'surface'` because the
+ * renderer still wants to know "this is a ground-level entity".
+ */
+export const CHARACTER_SCHEME: ControlScheme = Object.freeze({
+  id: "character",
+  regime: "surface",
+  keyBindings: Object.freeze([
+    // TASK-32 fills in walk/look/interact + jump. For TASK-31 the
+    // bindings are deliberately empty — the camera still follows
+    // the character but inputs to the keys do nothing (the spec's
+    // "the ship is no longer locally controllable" invariant is
+    // enforced server-side; the client only needs to know it's in
+    // character mode).
     Object.freeze({ action: "interact", key: "KeyE" }),
   ] as const),
 });
@@ -200,6 +226,13 @@ export interface RegimeChangeEvent {
 export class Controls {
   private current: ControlScheme;
   private listeners: Set<RegimeChangeListener> = new Set();
+  /**
+   * TASK-31: when true the manager serves `CHARACTER_SCHEME`
+   * instead of the regime-mapped scheme. Survives a regime change
+   * (the character is always "on foot" regardless of which surface
+   * or atmosphere the ship was in at the moment of disembark).
+   */
+  private onFoot = false;
 
   constructor(initialRegime: Regime = "space") {
     this.current = SCHEME_BY_REGIME[initialRegime];
@@ -226,7 +259,7 @@ export class Controls {
   applyRegime(next: Regime): boolean {
     if (next === this.current.regime) return false;
     const prev = this.current.regime;
-    this.current = SCHEME_BY_REGIME[next];
+    this.current = this.onFoot ? CHARACTER_SCHEME : SCHEME_BY_REGIME[next];
     const event: RegimeChangeEvent = {
       from: prev,
       to: next,
@@ -246,6 +279,42 @@ export class Controls {
       }
     }
     return true;
+  }
+
+  /**
+   * TASK-31: toggle on-foot (character) mode. When `true`, the
+   * active scheme is `CHARACTER_SCHEME`; when `false`, the
+   * scheme is the regime-mapped one. Fires the listener iff the
+   * scheme id actually changed.
+   *
+   * Called by the WS layer when the local entity's kind flips
+   * between `'ship'` and `'character'`. TASK-35 (re-entry) calls
+   * this with `false` on the way back into the ship.
+   */
+  setOnFoot(next: boolean): boolean {
+    if (next === this.onFoot) return false;
+    const prev = this.current.regime;
+    this.onFoot = next;
+    this.current = next ? CHARACTER_SCHEME : SCHEME_BY_REGIME[this.current.regime];
+    const event: RegimeChangeEvent = {
+      from: prev,
+      to: this.current.regime,
+      schemeId: this.current.id,
+    };
+    const snapshot = [...this.listeners];
+    for (const listener of snapshot) {
+      try {
+        listener(event);
+      } catch {
+        // swallow
+      }
+    }
+    return true;
+  }
+
+  /** True while the controls manager is in character mode. */
+  isOnFoot(): boolean {
+    return this.onFoot;
   }
 
   /**

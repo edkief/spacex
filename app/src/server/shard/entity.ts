@@ -22,10 +22,21 @@
  * @see ./types.ts for the wire-level entity shape.
  * @see ./sim.ts for the only legal mutator (`onTick`).
  */
+import { quatRotateVector, type Vec3 } from "@shared/physics/vec.js";
 import { SHIP_CLASSES, type ShipClassId } from "@shared/ships.js";
 import type { ProtocolEntityState, ProtocolShipClassId } from "@shared/protocol/index.js";
 
 import type { SimEntity } from "./types.js";
+
+/**
+ * TASK-31: lateral side-offset (in metres) applied to the character
+ * spawn position so the player emerges beside the ship's hull, not
+ * inside it. 2.5 m keeps the character clear of the 1.5 m half-width
+ * scout/freighter impostor plus a small clearance gap, while staying
+ * well inside the 20 m pad radius so the character still counts as
+ * "on the pad".
+ */
+export const CHARACTER_SIDE_OFFSET_M = 2.5;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -154,22 +165,93 @@ export function makeWreckEntity(args: {
 }
 
 /**
+ * TASK-31: mint an on-foot character entity. The character lives
+ * next to the owning player's docked ship (TASK-29 dock state is
+ * the precondition for disembark per the spec) and carries the
+ * `onShipId` so re-entry (TASK-35) can find the ship without a
+ * second lookup.
+ *
+ * Characters are first-class sim entities (not client-side
+ * illusions) so on-foot multiplayer (TASK-36) reuses the same
+ * broadcast loop and persistence reuses the ship pattern. v1 ships
+ * idle — no integration happens until TASK-32 wires walk/look.
+ *
+ * `id` is conventionally `char:<playerId>` so the entity id is
+ * stable across reconnect (the renderer can dedupe by id and the
+ * presence broadcast can reference the character without an extra
+ * round-trip).
+ */
+export function makeCharacterEntity(args: {
+  id: string;
+  playerId: string;
+  callsign: string;
+  shipId: string;
+  pos: { x: number; y: number; z: number };
+  vel?: { x: number; y: number; z: number };
+  quat?: { x: number; y: number; z: number; w: number };
+  regime?: SimEntity["regime"];
+  originPlanetId?: string | null;
+  onPad?: string | null;
+}): SimEntity {
+  return {
+    id: args.id,
+    kind: "character",
+    playerId: args.playerId,
+    callsign: args.callsign,
+    // Characters carry no ship class — the wire uses `classId: null`.
+    classId: null,
+    // Hull + shields are unused on characters (TASK-32 may repurpose
+    // them for stamina) but the field is mandatory on `SimEntity`.
+    hull: 0,
+    shields: 0,
+    targetId: null,
+    pos: { ...args.pos },
+    vel: args.vel ? { ...args.vel } : { x: 0, y: 0, z: 0 },
+    quat: args.quat ? { ...args.quat } : { x: 0, y: 0, z: 0, w: 1 },
+    regime: args.regime ?? "surface",
+    originPlanetId: args.originPlanetId ?? null,
+    // The ship's `onPad` is the character's `onPad` at the moment of
+    // disembark; the renderer keeps showing the prompt until the
+    // character moves away (TASK-32 will add distance culling).
+    onPad: args.onPad ?? null,
+    onShipId: args.shipId,
+    characterOnPad: args.onPad ?? null,
+  };
+}
+
+/**
  * Convert a `SimEntity` to the wire `EntityState` shape used by
  * `entity_update`. Centralised so the broadcast loop and the tests
  * share the same serializer and the wire contract is impossible to
  * break in just one place.
+ *
+ * TASK-31: characters carry `classId: null` + `onFoot: true` on
+ * the wire. The `onPad` field is preserved verbatim so the HUD
+ * can show the "Ship is docked here" prompt near the character.
  */
 export function entityToWire(e: SimEntity): ProtocolEntityState {
+  if (e.kind === "character") {
+    return {
+      id: e.id,
+      kind: "character",
+      pos: [e.pos.x, e.pos.y, e.pos.z],
+      vel: [e.vel.x, e.vel.y, e.vel.z],
+      regime:
+        e.regime === "atmosphere" ? "atmosphere" : e.regime === "surface" ? "surface" : "space",
+      hull: 0,
+      shields: 0,
+      targetId: null,
+      // Characters are not ships — `classId` is null on the wire.
+      classId: null,
+      callsign: e.callsign,
+      livery: null,
+      onPad: e.characterOnPad ?? null,
+      onFoot: true,
+    };
+  }
   return {
     id: e.id,
-    kind:
-      e.kind === "player"
-        ? "ship"
-        : e.kind === "ai"
-          ? "ai-ship"
-          : e.kind === "wreck"
-            ? "wreck"
-            : "character",
+    kind: e.kind === "player" ? "ship" : e.kind === "ai" ? "ai-ship" : "wreck",
     pos: [e.pos.x, e.pos.y, e.pos.z],
     vel: [e.vel.x, e.vel.y, e.vel.z],
     regime: e.regime === "atmosphere" ? "atmosphere" : e.regime === "surface" ? "surface" : "space",
@@ -185,6 +267,35 @@ export function entityToWire(e: SimEntity): ProtocolEntityState {
     // and the server treats the entity as a candidate for repair /
     // livery / cargo routes.
     onPad: e.onPad,
+  };
+}
+
+/**
+ * TASK-31: stable per-player character id. Format `char:<playerId>`
+ * so the same id is returned across reconnect and so the broadcast
+ * loop can dedupe by id without a secondary index.
+ */
+export function makeCharacterId(playerId: string): string {
+  return `char:${playerId}`;
+}
+
+/**
+ * TASK-31: lateral offset from the ship's centre to the character
+ * spawn point. The offset is along the ship's local +X axis (the
+ * "right" side in ship-local coordinates — a perpendicular to the
+ * ship's forward in the pad plane), which keeps the character on
+ * the pad regardless of the ship's heading.
+ *
+ * The pad surface is the ship pos projected onto the ground plane
+ * (i.e. y stays put — the pad is level). The implementation copies
+ * the existing ship `pos` then adds the rotated offset.
+ */
+export function characterSpawnPos(ship: SimEntity): Vec3 {
+  const offsetWorld = quatRotateVector(ship.quat, { x: CHARACTER_SIDE_OFFSET_M, y: 0, z: 0 });
+  return {
+    x: ship.pos.x + offsetWorld.x,
+    y: ship.pos.y,
+    z: ship.pos.z + offsetWorld.z,
   };
 }
 
