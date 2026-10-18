@@ -58,6 +58,8 @@ import { EventEmitter } from "node:events";
 
 import { integrateShip, type ShipInput, type ShipState } from "@shared/physics/flight.js";
 import type { ProtocolEntityState } from "@shared/protocol/index.js";
+import { regimeFor, type Regime, type RegimePlanetContext } from "@shared/regime.js";
+import { regimePlanetContexts } from "@shared/regime-planets.js";
 import { SHIP_CLASSES } from "@shared/ships.js";
 
 import { cleanupExpiredWrecks } from "./combat.js";
@@ -397,6 +399,23 @@ export class SimLoop {
  * The integrator in `@shared/physics/flight` returns a fresh
  * `ShipState`; we copy the fields back so the entity keeps its
  * identity (the `id` and per-entity metadata).
+ *
+ * TASK-25: before integration we resolve the ship's regime via
+ * `regimeFor`. The resolved regime feeds two outputs:
+ *
+ *   1. `integrateShip` — the integrator's drag / VTOL / pad branches
+ *      depend on the regime. Passing the resolved regime (rather
+ *      than `entity.regime` from the previous tick) keeps the
+ *      physics aligned with the state machine — e.g. a ship that
+ *      just crossed the atmosphere boundary feels drag this tick,
+ *      not next tick.
+ *   2. `entity.regime` / `entity.originPlanetId` — written back so
+ *      the next broadcast includes the updated regime. The two
+ *      state machine outputs the sim cares about.
+ *
+ * The function tracks regime changes via the `onRegimeChange`
+ * callback on the shard (no-op by default); production wires it
+ * to the debug logger or a future `regime_event` frame.
  */
 function integrateEntity(entity: SimEntity, input: PlayerInput, ctx: ShardSystemContext): void {
   const shipClass = SHIP_CLASSES[entity.classId as keyof typeof SHIP_CLASSES];
@@ -419,11 +438,37 @@ function integrateEntity(entity: SimEntity, input: PlayerInput, ctx: ShardSystem
     up: 0,
   };
 
+  // TASK-25: resolve the canonical regime for this tick BEFORE the
+  // physics step so the integrator uses the regime the state machine
+  // intends. The list of planets comes from the shard context; the
+  // position resolver is `@shared/regime-planets` (deterministic
+  // from `(seed, starId, orbitIndex)` so client + server agree).
+  const planetContexts = resolveRegimePlanetContexts(ctx);
+  const prevRegime: Regime = entity.regime;
+  const resolved = regimeFor(
+    { x: entity.pos.x, y: entity.pos.y, z: entity.pos.z },
+    planetContexts,
+    prevRegime,
+    { x: entity.vel.x, y: entity.vel.y, z: entity.vel.z },
+  );
+
+  // Detect a regime change for the optional shard-side hook (debug
+  // log; future TASK can wire an entity-level event frame).
+  if (resolved.regime !== prevRegime) {
+    ctx.onRegimeChange?.({
+      entityId: entity.id,
+      playerId: entity.playerId ?? undefined,
+      from: prevRegime,
+      to: resolved.regime,
+      planetId: resolved.planetId,
+    });
+  }
+
   const prevState: ShipState = {
     pos: { ...entity.pos },
     vel: { ...entity.vel },
     quat: { ...entity.quat },
-    regime: entity.regime,
+    regime: resolved.regime,
     onPad: entity.onPad ?? undefined,
   };
 
@@ -431,9 +476,9 @@ function integrateEntity(entity: SimEntity, input: PlayerInput, ctx: ShardSystem
   // atmosphere / surface and knows which planet it came from.
   // The 3×3 chunk cache is per-tick per-ship, so we just construct
   // a fresh `heightAt` wrapper here for the integration call.
-  const planet = resolvePlanetContext(entity, ctx);
+  const planet = resolvePlanetContext(entity, ctx, resolved.planetId);
 
-  const next = integrateShip(prevState, flightInput, TICK_S, entity.regime, shipClass, planet);
+  const next = integrateShip(prevState, flightInput, TICK_S, resolved.regime, shipClass, planet);
 
   entity.pos.x = next.pos.x;
   entity.pos.y = next.pos.y;
@@ -447,6 +492,51 @@ function integrateEntity(entity: SimEntity, input: PlayerInput, ctx: ShardSystem
   entity.quat.w = next.quat.w;
   entity.regime = next.regime;
   entity.onPad = next.onPad ?? null;
+  // TASK-25: persist the new origin planet so a subsequent reload
+  // rehydrates the entity into the same atmosphere / surface regime
+  // it was in when the shard last flushed (TASK-24).
+  if (resolved.planetId !== null) {
+    entity.originPlanetId = resolved.planetId;
+  } else if (resolved.regime === "space") {
+    // Pure space — clear the origin planet so a stale id doesn't
+    // bias the next descend.
+    entity.originPlanetId = null;
+  }
+}
+
+/**
+ * Build the per-tick `RegimePlanetContext[]` from the shard's
+ * `ShardSystemContext`. Cached per tick so the integration loop
+ * doesn't rebuild the list once per ship.
+ *
+ * `systemSeed` and `systemId` flow through from the shard; the
+ * deterministic layout means every peer (server, client prediction,
+ * debug overlay) reaches the same coordinates from the same input.
+ */
+function resolveRegimePlanetContexts(ctx: ShardSystemContext): RegimePlanetContext[] {
+  // Cache the result on the context so the second ship in the same
+  // tick doesn't pay the build cost. Re-derived when the context's
+  // `system` reference changes (e.g. after a hot-reload).
+  const cached = (
+    ctx as ShardSystemContext & { _regimeCache?: { sys: unknown; list: RegimePlanetContext[] } }
+  )._regimeCache;
+  if (cached && cached.sys === ctx.system) {
+    return cached.list;
+  }
+  const list = regimePlanetContexts({
+    seed: ctx.galaxySeed ?? "drift-dev-seed-001",
+    starId: ctx.system.systemId,
+    planets: ctx.system.planets,
+    heightAtFor: (id) => ctx.heightAtFor(id) ?? (() => 0),
+    atmosphereHeightFor: ctx.atmosphereHeightFor,
+  });
+  (
+    ctx as ShardSystemContext & { _regimeCache?: { sys: unknown; list: RegimePlanetContext[] } }
+  )._regimeCache = {
+    sys: ctx.system,
+    list,
+  };
+  return list;
 }
 
 /**
@@ -454,18 +544,23 @@ function integrateEntity(entity: SimEntity, input: PlayerInput, ctx: ShardSystem
  * For TASK-13 the heightAt comes straight from the system context —
  * the future streaming-pipeline task (TASK-26) replaces this with a
  * per-ship cached lookup that warms the 3×3 neighborhood.
+ *
+ * TASK-25: prefer the `resolvedPlanetId` produced by `regimeFor` so
+ * the integrator's atmosphere context matches the regime the state
+ * machine just chose. Falls back to `entity.originPlanetId` for the
+ * `null` case so a ship that just transitioned to `'space'` (and
+ * had its `originPlanetId` cleared) still resolves cleanly.
  */
-function resolvePlanetContext(entity: SimEntity, ctx: ShardSystemContext) {
-  if (entity.originPlanetId === null) return undefined;
-  if (entity.regime === "space") {
-    // Space ships don't touch a planet's atmosphere — but the
-    // heightAt lookups may still fire for ships about to descend.
-    // We accept a small expense here (one extra closure call per tick)
-    // in exchange for simpler code paths.
-  }
-  const planet = ctx.planetById(entity.originPlanetId);
+function resolvePlanetContext(
+  entity: SimEntity,
+  ctx: ShardSystemContext,
+  resolvedPlanetId: string | null,
+) {
+  const planetId = resolvedPlanetId ?? entity.originPlanetId;
+  if (planetId === null) return undefined;
+  const planet = ctx.planetById(planetId);
   if (!planet) return undefined;
-  const heightAt = ctx.heightAtFor(entity.originPlanetId) ?? (() => 0);
+  const heightAt = ctx.heightAtFor(planetId) ?? (() => 0);
   return {
     id: planet.id,
     radius: planet.radiusKm * 1000,

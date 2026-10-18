@@ -89,6 +89,12 @@ export function createShard(args: {
    * that no DB reload happened mid-flight.
    */
   generation?: number;
+  /**
+   * TASK-25: optional clock for the sim loop. Production uses
+   * `performance.now()` (default); tests inject a fake clock so
+   * `simulateNTicks(...)` actually advances the accumulator.
+   */
+  clock?: () => number;
 }): Shard {
   const events = args.events ?? new EventEmitter();
   const shard: Shard = {
@@ -127,6 +133,7 @@ export function createShard(args: {
     },
     onTick: args.onTickObserver ?? undefined,
     logger: args.logger,
+    clock: args.clock,
   });
   // Wire the sim into the shard. We construct the `Shard` shape
   // above with `sim: undefined` because `SimLoop` needs the shard

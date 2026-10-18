@@ -78,6 +78,7 @@ import {
 import { PresenceStore } from "./presence.js";
 import { ChatStore } from "./chat.js";
 import { RemoteEntityBuffer } from "./prediction.js";
+import { Controls } from "../input/controls.js";
 import type { PayloadFor as WirePayloadFor } from "@shared/protocol/index.js";
 
 /** Connection lifecycle states surfaced to the UI. */
@@ -241,6 +242,9 @@ export class DriftClient {
   private readonly chat: ChatStore;
   private readonly remoteBuffer: RemoteEntityBuffer;
   private readonly remoteBuffers = new Map<string, RemoteEntityBuffer>();
+  /** TASK-25: per-client controls manager — swaps input schemes
+   *  when the regime state machine reports a transition. */
+  private readonly controls: Controls = new Controls("space");
   private socket: WebSocket | null = null;
   /** TASK-8: warp-arrived subscriber set. */
   private readonly warpArrivedListeners = new Set<WarpArrivedListener>();
@@ -292,6 +296,13 @@ export class DriftClient {
   /** The per-entity remote buffer registry (TASK-14). */
   get remoteEntityBuffers(): Map<string, RemoteEntityBuffer> {
     return this.remoteBuffers;
+  }
+
+  /** TASK-25: the controls manager. Consumers subscribe via
+   *  `controls.onRegimeChange(...)` and read `scheme()` to know
+   *  which keys are active. */
+  get controlsManager(): Controls {
+    return this.controls;
   }
 
   /** Current lifecycle status. */
@@ -965,8 +976,17 @@ export class DriftClient {
         const nowMs = Date.now();
         const entities = (payload as { entities: readonly unknown[] }).entities ?? [];
         for (const e of entities) {
-          const ent = e as { id: string; kind?: string };
+          const ent = e as { id: string; kind?: string; callsign?: string | null; regime?: string };
           if (!ent.id) continue;
+          // TASK-25: apply the server's authoritative regime to the
+          // local controls manager. The manager ignores no-op
+          // applications, so it's safe to call on every entity in
+          // every frame; the owning player's callsign is the only
+          // one we actually swap on (other entities' regimes are
+          // observed but don't drive the player's input).
+          if (ent.callsign && ent.callsign === this.callsign && ent.regime) {
+            this.controls.applyRegime(ent.regime as Parameters<Controls["applyRegime"]>[0]);
+          }
           let buf = this.remoteBuffers.get(ent.id);
           if (!buf) {
             buf = new RemoteEntityBuffer();

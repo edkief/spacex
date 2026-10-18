@@ -226,6 +226,40 @@ export interface ShardSystemContext {
   readonly heightAtFor: (planetId: string) => ((x: number, z: number) => number) | undefined;
   /** Chunk side length in metres (informational; default 64). */
   readonly tileSizeM: number;
+  /**
+   * Galaxy seed used to seed the deterministic regime-planet
+   * position resolver (TASK-25). Defaults to the dev seed when
+   * absent so older callers don't need to be updated.
+   */
+  readonly galaxySeed?: string;
+  /**
+   * Per-planet atmosphere height override (TASK-25). When omitted
+   * the regime manager falls back to the 10 km default. Tests
+   * override this with smaller values so the boundary math can
+   * be exercised without scaling the ship to orbit altitudes.
+   */
+  readonly atmosphereHeightFor?: (planetId: string) => number;
+  /**
+   * Optional hook fired every time the regime state machine
+   * transitions a player entity (TASK-25). Used by the debug
+   * logger; production wires nothing (no `regime_event` frame yet).
+   */
+  readonly onRegimeChange?: (event: RegimeChangeEvent) => void;
+}
+
+/**
+ * Payload the sim emits whenever a player entity's regime changes.
+ * Consumers (debug overlay, future wire event) see the entity id,
+ * the player id (null for AI), the source regime, the destination
+ * regime, and the planet id (when transitioning into an
+ * atmosphere-bearing planet).
+ */
+export interface RegimeChangeEvent {
+  readonly entityId: string;
+  readonly playerId?: string;
+  readonly from: "space" | "atmosphere" | "surface";
+  readonly to: "space" | "atmosphere" | "surface";
+  readonly planetId: string | null;
 }
 
 // ---------------------------------------------------------------------------

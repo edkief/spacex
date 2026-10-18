@@ -27,6 +27,11 @@ PROJECT_ROOT
 │   ├── src/
 │   │   ├── shared/              # Wire types/utilities shared client+server
 │   │   │   ├── galaxy/          # Seed-derived galaxy geometry (TASK-3+4+5)
+│   │   │   ├── regime.ts        # TASK-25 — Regime = 'space'|'atmosphere'|'surface' + regimeFor() pure resolver + HYSTERESIS_FACTOR + SURFACE_PROXIMITY_M
+│   │   │   ├── regime.test.ts   # 33 cases: boundary math + hysteresis + forbidden transitions + determinism (node)
+│   │   │   ├── regime.parity.test.ts # happy-dom parity snapshot (node vs browser)
+│   │   │   ├── regime-planets.ts # TASK-25 — deterministic planetWorldPosition(seed, starId, orbitIndex) + regimePlanetContexts() builder for the sim
+│   │   │   ├── regime-planets.test.ts # 16 cases: position determinism + context shape + orbit spacing
 │   │   │   │   ├── types.ts          # Star, Planet, SystemGen, Biome, ResourceNode, LandingPad, SurfaceChunk (TASK-3, 4, 5)
 │   │   │   │   ├── config.ts         # GALAXY_STAR_COUNT, spectral weights, name lists (TASK-3)
 │   │   │   │   ├── config-system.ts  # Planet count, radius, AI roster, dock, resource, atmosphere bounds (TASK-4)
@@ -92,6 +97,9 @@ PROJECT_ROOT
 │   │   │   │       ├── README.md            # Regeneration rules for committed fixtures (TASK-22)
 │   │   │   │       └── trajectories.ts      # Golden 60s space + 30s atmo final states (TASK-22)
 │   │   ├── client/              # React + three.js frontend (Vite)
+│   │   │   ├── input/           # TASK-25 — controls remap per regime
+│   │   │   │   ├── controls.ts    # ControlScheme per regime + Controls class with applyRegime() swap + shouldSnapToServer() divergence rule
+│   │   │   │   └── controls.test.ts # 24 cases: scheme table + applyRegime transitions + listener fanout + divergence tolerance
 │   │   │   ├── App.tsx          # Top-level shell — mounts CanvasStage + PlayerList + ToastStack + ChatLog + DriftClient (TASK-15 + TASK-16 wired up)
 │   │   │   ├── components/      # UI sub-components (CanvasStage.tsx + PlayerList + ToastStack + ChatLog for TASK-15/16)
 │   │   │   │   ├── PlayerList.tsx           # Bottom-left roster HUD — monospace + status dots + "(you)" marker (TASK-15)

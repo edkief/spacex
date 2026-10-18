@@ -1,0 +1,21 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`regime parity > regimeFor returns identical values under happy-dom 1`] = `"atmosphere"`;
+
+exports[`regime parity > regimeFor returns identical values under happy-dom 2`] = `"parity-planet"`;
+
+exports[`regime parity > regimeFor returns identical values under happy-dom 3`] = `"surface"`;
+
+exports[`regime parity > regimeFor returns identical values under happy-dom 4`] = `"parity-planet"`;
+
+exports[`regime parity > regimeFor returns identical values under happy-dom 5`] = `"surface"`;
+
+exports[`regime parity > regimeFor returns identical values under happy-dom 6`] = `"parity-planet"`;
+
+exports[`regime parity > regimeFor returns identical values under happy-dom 7`] = `"space"`;
+
+exports[`regime parity > regimeFor returns identical values under happy-dom 8`] = `null`;
+
+exports[`regime parity > regimeFor returns identical values under happy-dom 9`] = `"space"`;
+
+exports[`regime parity > regimeFor returns identical values under happy-dom 10`] = `null`;

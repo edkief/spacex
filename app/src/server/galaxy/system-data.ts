@@ -74,6 +74,11 @@ export function buildShardContext(options: BuildShardContextOptions): ShardSyste
     planetById: (planetId: string) => planetByIdMap.get(planetId),
     heightAtFor,
     tileSizeM: 64,
+    // TASK-25: forward the galaxy seed so the regime manager can
+    // place each planet in world space (deterministic from the
+    // seed + star id). Callers that don't know the seed leave
+    // this undefined; the sim falls back to the dev seed.
+    galaxySeed: seed,
   };
 }
 
