@@ -165,6 +165,49 @@ export interface ResourceNodeStateRow {
   systemId: string | null;
 }
 
+/**
+ * Logical shape of a row in the `deposits` table — TASK-37.
+ *
+ * `pos` is the world-space deposit position (JSON). The runtime
+ * recomputes it from the seed on every read; the persisted value is
+ * kept only for debugability + so a row write is a single snapshot of
+ * the deposit's identity.
+ *
+ * `remaining` is the current stock (units). The seed-derived initial
+ * amount is recovered from the placement; the row stores only the
+ * delta so a restart resumes the same depletion state.
+ *
+ * `depositSeq` is the ordinal position of this deposit in the
+ * system's deterministic placement list. Combined with `systemId`,
+ * it's the primary key — see the `deposits` table definition.
+ */
+export interface DepositStateRow {
+  id: string;
+  systemId: string;
+  planetId: string;
+  pos: { x: number; y: number; z: number };
+  resourceId: string;
+  remaining: number;
+  discovered: boolean;
+  depositSeq: number;
+}
+
+/**
+ * Inputs accepted by `upsertDepositState`. Carries every field so the
+ * first write captures the deposit's identity (id, planet, pos,
+ * resource). Subsequent writes carry only the mutable fields.
+ */
+export interface UpsertDepositStateInput {
+  id: string;
+  systemId: string;
+  planetId: string;
+  pos: { x: number; y: number; z: number };
+  resourceId: string;
+  remaining: number;
+  discovered: boolean;
+  depositSeq: number;
+}
+
 /** Logical shape of a row in the `system_registry` table. */
 export interface SystemRegistryRow {
   systemId: string;

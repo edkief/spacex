@@ -59,6 +59,7 @@ describe("migrateSqlite()", () => {
         "sessions",
         "resource_node_state",
         "system_registry",
+        "deposits",
         "_drift_migrations",
         "players_callsign_unique",
         "ships_owner_id_idx",
@@ -67,6 +68,8 @@ describe("migrateSqlite()", () => {
         "sessions_player_id_idx",
         "sessions_expires_at_idx",
         "resource_node_state_system_id_idx",
+        "deposits_planet_id_idx",
+        "deposits_system_id_idx",
       ]),
     );
   });

@@ -20,6 +20,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   real,
   text,
   timestamp,
@@ -187,6 +188,32 @@ export const systemRegistry = pgTable("system_registry", {
   lastActiveAt: timestamp("last_active_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * Persistent deposit state — TASK-37. Mirrors the SQLite
+ * `deposits` table; see the SQLite schema for the full design
+ * notes. The Postgres twin uses `primaryKey` from
+ * `drizzle-orm/pg-core` to mirror the composite PK.
+ */
+export const deposits = pgTable(
+  "deposits",
+  {
+    id: text("id").notNull(),
+    systemId: text("system_id").notNull(),
+    planetId: text("planet_id").notNull(),
+    pos: text("pos").notNull(),
+    resourceId: text("resource_id").notNull(),
+    remaining: integer("remaining").notNull(),
+    discovered: boolean("discovered").notNull().default(false),
+    depositSeq: integer("deposit_seq").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.systemId, t.depositSeq] }),
+    index("deposits_planet_id_idx").on(t.planetId),
+    index("deposits_system_id_idx").on(t.systemId),
+    check("deposits_remaining_check", sql`${t.remaining} >= 0`),
+  ],
+);
+
 /** Aggregated Postgres schema bundle. */
 export const pgSchema = {
   players,
@@ -195,6 +222,7 @@ export const pgSchema = {
   sessions,
   resourceNodeState,
   systemRegistry,
+  deposits,
 } as const;
 
 export type PgSchema = typeof pgSchema;

@@ -490,6 +490,10 @@ describe("GalaxyRouter concurrent-spawn (AC)", () => {
       // No cross-system bleed: every entity id is anchored to this shard.
       const otherSysIds = new Set(sysIds.filter((_, i) => i !== sysIdx));
       for (const entity of shard.entities.values()) {
+        // TASK-37: skip deposit entities — their ids are the seed-
+        // derived `depositId` hex (no "entity:" prefix). Only ship
+        // entities should match the player/seed prefix.
+        if (entity.kind === "deposit") continue;
         // Each entity's `pos` is computed from the seedPlayer; we just
         // assert uniqueness by entity id prefix.
         expect(entity.id.startsWith("entity:")).toBe(true);

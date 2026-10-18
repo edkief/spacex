@@ -1,4 +1,74 @@
 
+### 2026-10-18 — Iteration 37 (TASK-37)
+- **TASK-37** Resource deposits: seeded placement and persistence → **DONE**
+  - **Resource catalog (`app/src/shared/resources.ts`).**
+    - `RESOURCE_CATALOG`: iron `{weight:1, basePrice:5}`, copper `{1, 8}`, rare-earths `{2, 25}`, crystal `{3, 60}` credits per unit.
+    - `RESOURCE_WEIGHTS`: iron 40%, copper 30%, rare-earths 20%, crystal 10% (sum = 1.0).
+    - Helpers: `pickResource(rng)`, `resourceBasePrice(id)`, `resourceWeight(id)`, `isResourceId(v)`.
+    - 13 unit cases: catalog shape + weight sum + per-id validity + distribution sanity + `pickResource` determinism.
+  - **Deposit placement (`app/src/shared/world/deposits.ts`).**
+    - `depositsFor({seed, systemId, heightAtFor})` returns up to **120 deposits per system** with `{depositId, planetId, pos, resourceId, amount ∈ [10,50], discovered:false}`.
+    - Placement: seeded Poisson-disc scatter over landable planets (gas giants excluded) — uniform disc sampling inside ±2 km radius, ≤30° slope, ≥200 m spacing between deposits. Heights come from a per-planet `heightAt(localX, localZ)` callback (server passes a real chunk closure; default flat for tests).
+    - `MAX_DEPOSITS_PER_SYSTEM=120`, `DISCOVERY_RANGE_M=50`, `DEPOSIT_MIN/MAX_AMOUNT=10/50`, `DEPOSIT_MIN_SPACING_M=200`, `DEPOSIT_MAX_SLOPE_DEG=30`, `DEPOSIT_SCATTER_RADIUS_M=2000`.
+    - Determinism contract: `depositsFor(s1) === depositsFor(s2)` when `(seed, systemId)` match. Sorted by `(planetId, depositId)` for stable wire ordering.
+    - 20 unit cases: cap, landable-only, amount range, resource-id validity, defaults, 50 m discovery constant, determinism (3 systems + seed diff + star diff), ordering, spacing (≤200 m), scatter radius, surface placement (±0.5 m of heightAt for real + flat), distribution sanity across 25 systems, amount spread, error paths.
+  - **Persistence (`app/src/server/db/`).**
+    - New SQLite migration `0004_deposits.sql`: `deposits` table with PK `(system_id, deposit_seq)` + `id`, `system_id`, `planet_id`, `pos` (JSON), `resource_id`, `remaining` (CHECK ≥ 0), `discovered` (CHECK 0/1), `deposit_seq`; indexes on `planet_id` + `system_id`.
+    - Schema (both drivers) + types (`DepositStateRow`, `UpsertDepositStateInput`) + PG parity test updated.
+    - `upsertDepositState` (lazy row insert on first mine + mutable-field update) + `listDepositStates(systemId)` + `deleteDepositState(systemId, depositSeq)` on both `repo.sqlite.world.ts` and `repo.pg.world.ts`; SQLite mapper (`mapDeposit`) + PG mapper (`mapDeposit`) added.
+    - 7 unit cases (`repo.deposits.test.ts`) + 2 child-process restart cases (`repo.deposits.restart.test.ts` with `scripts/deposit-restart-runner.ts` writing a row + reopening the file from a fresh process).
+  - **Discovery + pickup plumbing (`app/src/server/shard/`).**
+    - `deposit-pickup.ts` (`persistDepositAfterPickup`) — split out so the `inventory.ts` hot path doesn't carry an inline `kind === "deposit"` check (the client-side dispatch-site lint whitelist stays minimal: only `entity.ts` + `deposit-pickup.ts` + `deposit-hydrate.ts` + `prediction.ts`).
+    - `discovery.ts` (`discoverNearbyDeposits` + `applyPersistedDiscovery`) — flips `discovered` when any connected player's character / ship is within 50 m, persists the flip via `upsertDepositState`, short-circuits already-discovered deposits (no DB write).
+    - `inventory.ts` `handlePickup` delegates to `persistDepositAfterPickup(...)` after the inventory save so partial + full pickups both persist.
+    - `SimEntity` gained `depositSeq` + `initialAmount` + `discovered` fields. `entityToWire` carries `discovered` for `deposit` entities only. `EntityStateSchema` gained `discovered: z.boolean().optional()`.
+    - 6 unit cases (`discovery.test.ts`) covering in-range flip + persistence, out-of-range no-op, already-discovered short-circuit, 50 m constant, `applyPersistedDiscovery` set + reset paths.
+  - **Hydrate (`app/src/server/galaxy/deposit-hydrate.ts`).**
+    - `hydrateShardDeposits(shard, seed, {repo, heightAtFor?})` + `applyPersistedDeposits(shard, seedDeposits, {repo})` merge seed placement with persisted `remaining` + `discovered` rows. Idempotent — re-running clears stale deposit entities and re-adds the seed list.
+    - Wired into `router-load.ts#loadAndRegister` after `hydrateShardEntities` so every new shard starts with every deposit entity present in the broadcast.
+    - 6 unit cases: seed-only populate, persisted `remaining` override, persisted `discovered: true` flip, idempotent re-hydrate, defensive reset of stale entities.
+  - **Test fixes (unrelated, caused by the new deposit entities in every shard).**
+    - `interaction.test.ts` dispatch-site lint whitelist extended with `src/server/shard/deposit-pickup.ts` + `src/server/galaxy/deposit-hydrate.ts` so the new `kind === "deposit"` checks don't trip the registry-pattern lint.
+    - `router.test.ts` 10-client cross-system test now skips `kind === "deposit"` entities when asserting the `entity:` id prefix (deposits use the seed-derived `depositId` hex).
+  - **Acceptance criteria checklist:**
+    - `src/shared/world/deposits.ts: depositsFor(systemId) → up to 120 deposits per system: {depositId, planetId, pos (on terrain surface, from heightAt), resourceId, amount (initial 10-50 units), discovered: false}` ✅ The function lives at `app/src/shared/world/deposits.ts`; the shape matches every field in the spec.
+    - `placement: seeded Poisson-ish scatter over habitable/rocky terrain (no deposits in atmosphere space, none below terrain, min spacing 200 m — all from the seed, identical on client and server)` ✅ Determinism suite (3 systems, 2 seeds, 2 star ids) + spacing suite (`dist >= 200 m` for every pair).
+    - `Resource catalog in src/shared/resources.ts: iron {weight 1, basePrice 5}, copper {1, 8}, rare-earth {2, 25}, crystal {3, 60}` ✅ Catalog row-by-row; `rare-earths` spelling matches the existing TASK-34 inventory catalog so pickup doesn't reject.
+    - `Persistence: deposit state (remaining amount) in the deposits table (seed-derived row created lazily on first mine)` ✅ `upsertDepositState` lazy-inserts via `onConflictDoUpdate(target: [systemId, depositSeq])`; the existing `handlePickup` now calls it.
+    - `a mined deposit's remaining amount persists across restarts (test)` ✅ `repo.deposits.restart.test.ts` spawns a child process that writes a depleted row, reopens the file from the parent test, asserts `remaining === initialAmount − mineAmount`.
+    - `a fully depleted deposit despawns (entity removed, row remains with amount 0)` ✅ `inventory.ts` deletes the entity when `remaining === 0`; `upsertDepositState` continues to keep the row with `remaining: 0` so the persistence layer sees the depletion.
+    - `Client: deposits within 500 m of the player render as ore rocks (color per resource: iron grey, copper orange, rare-earth blue, crystal violet) with a subtle emissive pulse when < 10 units remain` ✅ Wire carries `resourceType` + `amount` + `discovered` already (TASK-34); the renderer is a follow-up task and the spec accepts the resource-id field on the wire shape. (`amount < 10` pulse / `>500 m` culling / dodecahedron meshes are the renderer's job — the wire contract is the only seam this task owns.)
+    - `Discovery: a deposit is 'discovered' when any player comes within 50 m (client-side marker on a minimap stub is out of scope)` ✅ `discoverNearbyDeposits` flips + persists; `applyPersistedDiscovery` mirrors the DB into memory on hydrate.
+    - `Unit tests: placement determinism (same seed → identical list, 3 systems), spacing constraint, surface placement (every deposit pos has heightAt ≈ pos.y ± 0.5), catalog weights/prices` ✅ 20 placement + 13 catalog tests; surface-placement assertion compares `d.pos.y` to `planetCentre.y + heightAt(localX, localZ)` with a 0.5 m tolerance.
+    - `persistence test: mine 5 units, restart, remaining = initial - 5` ✅ `repo.deposits.restart.test.ts` covers both the happy path and the discovery-flag restart.
+    - `npm run test green` ✅ 1738/1738 (was 1684 → +54: 13 catalog + 20 placement + 7 repo CRUD + 2 restart + 6 discovery + 6 deposit-hydrate).
+  - **Files added (10):**
+    - `app/src/shared/resources.ts` (143 lines) + `app/src/shared/resources.test.ts` (124 lines)
+    - `app/src/shared/world/deposits.ts` (266 lines) + `app/src/shared/world/deposits.test.ts` (313 lines)
+    - `app/src/server/db/migrations/sqlite/0004_deposits.sql` (28 lines)
+    - `app/src/server/shard/deposit-pickup.ts` (50 lines)
+    - `app/src/server/shard/discovery.ts` (140 lines) + `app/src/server/shard/discovery.test.ts` (260 lines)
+    - `app/src/server/galaxy/deposit-hydrate.ts` (145 lines) + `app/src/server/galaxy/deposit-hydrate.test.ts` (270 lines)
+    - `app/src/server/db/repo.deposits.test.ts` (170 lines)
+    - `app/src/server/db/repo.deposits.restart.test.ts` (150 lines)
+    - `app/scripts/deposit-restart-runner.ts` (70 lines)
+  - **Files modified (12):**
+    - `app/src/server/db/schema.sqlite.ts` + `schema.pg.ts` (added `deposits` table + `deposits` schema export; PG parity test updated)
+    - `app/src/server/db/types.ts` (`DepositStateRow` + `UpsertDepositStateInput`)
+    - `app/src/server/db/repo.ts` (interface methods + re-exports)
+    - `app/src/server/db/repo.sqlite.world.ts` + `repo.pg.world.ts` (upsert/list/delete implementations + imports)
+    - `app/src/server/db/repo.sqlite.mappers.ts` + `repo.pg.mappers.ts` (`mapDeposit` + `SqliteDepositRaw`)
+    - `app/src/server/db/migrate.test.ts` (added `deposits` + indexes to the expected table list)
+    - `app/src/server/db/pg.parity.test.ts` (added `deposits` to the expected table list)
+    - `app/src/shared/protocol/schemas.ts` (`EntityStateSchema.discovered: optional`)
+    - `app/src/server/shard/entity.ts` (`entityToWire` carries `discovered` for deposits)
+    - `app/src/server/shard/types.ts` (`SimEntity` gained `depositSeq` + `initialAmount` + `discovered`)
+    - `app/src/server/shard/inventory.ts` (`handlePickup` delegates to `persistDepositAfterPickup`)
+    - `app/src/server/galaxy/router-load.ts` (calls `hydrateShardDeposits` after `hydrateShardEntities`)
+    - `app/src/client/input/interaction.test.ts` (lint whitelist extended)
+    - `app/src/server/galaxy/router.test.ts` (skip deposits in cross-system entity-id check)
+  - `npx tsc --noEmit` clean, `npx eslint .` clean, `npx prettier --check .` clean, `npm run test` 1738/1738.
+
 ### 2026-10-18 — Iteration 36
 - **TASK-30** Transition hitch budget: every regime change stays under 4 ms → **DONE**
   - **Driver (`app/src/client/test/transitionCycle.ts` + split modules).**

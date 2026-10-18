@@ -136,6 +136,13 @@ export const EntityStateSchema = z
      * 10 Hz snapshot carries the new value).
      */
     amount: z.number().int().positive().optional(),
+    /**
+     * TASK-37: discovery flag on `deposit` entities. `true` once
+     * any player has come within `DISCOVERY_RANGE_M = 50` of the
+     * deposit (or picked it up). Absent on non-deposit entities.
+     * Default `false`; persisted via the `deposits` table.
+     */
+    discovered: z.boolean().optional(),
   })
   .strict();
 export type ProtocolEntityState = z.infer<typeof EntityStateSchema>;

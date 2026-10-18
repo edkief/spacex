@@ -29,6 +29,7 @@ import type {
   CargoItemRow,
   CreatePlayerInput,
   CreateSessionInput,
+  DepositStateRow,
   PlayerRow,
   ResourceNodeStateRow,
   SaveShipStateInput,
@@ -39,6 +40,7 @@ import type {
   ShipRow,
   ShipVelocity,
   SystemRegistryRow,
+  UpsertDepositStateInput,
   UpsertNodeStateInput,
 } from "./types.js";
 import { createSqliteRepository } from "./repo.sqlite.js";
@@ -61,6 +63,7 @@ export type {
   ShipVelocity,
   ShipLivery,
   SystemRegistryRow,
+  UpsertDepositStateInput,
   UpsertNodeStateInput,
 } from "./types.js";
 
@@ -186,6 +189,30 @@ export interface Repository {
   // Resource node state
   upsertNodeState(input: UpsertNodeStateInput): Promise<ResourceNodeStateRow>;
   listNodeStates(systemId: string): Promise<ResourceNodeStateRow[]>;
+
+  // Deposit state (TASK-37)
+  /**
+   * Insert or update the persisted state for a single deposit.
+   * The first write carries the full identity (id, planet, pos,
+   * resource); subsequent writes carry only the mutable fields
+   * (`remaining`, `discovered`). Upserts are idempotent — re-
+   * writing the same row leaves the database unchanged.
+   */
+  upsertDepositState(input: UpsertDepositStateInput): Promise<DepositStateRow>;
+  /**
+   * Fetch every persisted deposit-state row for a single system.
+   * Returns an empty list for a system that has never been mined
+   * — the seed-derived placement is the source of truth for
+   * deposits, so callers should fall back to `depositsFor()`.
+   */
+  listDepositStates(systemId: string): Promise<DepositStateRow[]>;
+  /**
+   * Delete the persisted state for a single deposit (used when a
+   * deposit is fully depleted and the entity is removed from the
+   * shard — TASK-38 keeps the row with `remaining = 0`, so this
+   * helper is reserved for the cleanup pass that the spec defers).
+   */
+  deleteDepositState(systemId: string, depositSeq: number): Promise<void>;
 
   // Sessions
   createSession(input: CreateSessionInput): Promise<SessionRow>;

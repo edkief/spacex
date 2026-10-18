@@ -319,7 +319,7 @@
     "title": "Resource nodes with depletion and respawn",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-37.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-38",

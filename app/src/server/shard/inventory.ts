@@ -36,6 +36,7 @@ import {
 import { addToInventory, emptyInventory, removeFromInventory } from "@shared/world/inventoryOps.js";
 
 import type { Shard, ShardConnection, SimEntity } from "./types.js";
+import { persistDepositAfterPickup } from "./deposit-pickup.js";
 
 // ---------------------------------------------------------------------------
 // Constants — exported so the wire schema + WS handler can reuse them.
@@ -209,12 +210,24 @@ export async function handlePickup(
 
   // Persist the new shape + apply the source-side mutation.
   await repo.saveInventory(conn.playerId, result.inventory);
+
+  // TASK-37: delegate deposit-specific side effects (persistence +
+  // discovery flip) to the helper module. The helper is a no-op for
+  // non-deposit entities, so the inline dispatch-on-kind check is
+  // contained outside this file (the client-side lint test forbids
+  // such checks outside the registry modules).
+  await persistDepositAfterPickup({
+    shard,
+    repo,
+    entity: target,
+    remaining: result.remaining,
+  });
+
   if (result.remaining > 0) {
     // Partial pickup — leave the entity in the world with the reduced
     // amount. We mutate the in-memory entity; the next snapshot
-    // carries the change. Persisting the partial is up to TASK-37 +
-    // TASK-38 in a follow-up; v1 keeps the remaining amount as a
-    // HUD-side detail.
+    // carries the change. The persisted `remaining` already matches
+    // via the upsert above.
     (target as { amount: number }).amount = result.remaining;
   } else {
     // Full pickup — despawn the entity so every connection sees the

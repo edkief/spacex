@@ -13,6 +13,7 @@ import {
   ShipQuaternionSchema,
   ShipRegimeSchema,
   ShipVelocitySchema,
+  type DepositStateRow,
   type PlayerRow,
   type ResourceNodeStateRow,
   type SessionRow,
@@ -22,7 +23,7 @@ import {
   type ShipRow,
   type SystemRegistryRow,
 } from "./types.js";
-import { parseDate } from "./repo.helpers.js";
+import { parseDate, parseJsonField } from "./repo.helpers.js";
 import { emptyInventory, validateInventory } from "@shared/world/inventoryOps.js";
 import type { Inventory } from "@shared/world/inventory.js";
 
@@ -135,5 +136,20 @@ export function mapSystemRegistry(raw: Record<string, unknown>): SystemRegistryR
     name: String(raw.name),
     shardActive: Boolean(raw.shardActive),
     lastActiveAt: parseDate(raw.lastActiveAt),
+  };
+}
+
+/** Map a raw deposits row to the driver-agnostic shape — TASK-37. */
+export function mapDeposit(raw: Record<string, unknown>): DepositStateRow {
+  const posJson = parseJsonField(raw.pos, "pos") as { x?: number; y?: number; z?: number };
+  return {
+    id: String(raw.id),
+    systemId: String(raw.systemId),
+    planetId: String(raw.planetId),
+    pos: { x: Number(posJson.x ?? 0), y: Number(posJson.y ?? 0), z: Number(posJson.z ?? 0) },
+    resourceId: String(raw.resourceId),
+    remaining: Number(raw.remaining),
+    discovered: Boolean(raw.discovered),
+    depositSeq: Number(raw.depositSeq),
   };
 }

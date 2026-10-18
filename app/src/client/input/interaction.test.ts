@@ -258,7 +258,12 @@ describe("interaction: dispatch-site lint (TASK-33)", () => {
     // not dispatch). We allow inline `kind === "..."` checks in those
     // two modules only; everywhere else, dispatch must go through the
     // registry.
-    const allowedKindRefs = new Set(["src/server/shard/entity.ts", "src/client/net/prediction.ts"]);
+    const allowedKindRefs = new Set([
+      "src/server/shard/entity.ts",
+      "src/server/shard/deposit-pickup.ts",
+      "src/server/galaxy/deposit-hydrate.ts",
+      "src/client/net/prediction.ts",
+    ]);
     for (const file of sources) {
       const rel = path.relative(clientRoot, file);
       const posixRel = rel.split(path.sep).join("/");

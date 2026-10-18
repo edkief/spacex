@@ -70,6 +70,7 @@ describe("postgres schema parity", () => {
     expect(Object.keys(pgSchema).sort()).toEqual(Object.keys(sqliteSchema).sort());
     expect(Object.keys(pgSchema).sort()).toEqual([
       "cargoItems",
+      "deposits",
       "players",
       "resourceNodeState",
       "sessions",

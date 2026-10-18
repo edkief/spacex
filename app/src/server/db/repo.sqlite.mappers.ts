@@ -15,6 +15,7 @@ import {
   ShipQuaternionSchema,
   ShipRegimeSchema,
   ShipVelocitySchema,
+  type DepositStateRow,
   type PlayerRow,
   type ResourceNodeStateRow,
   type SessionRow,
@@ -198,5 +199,32 @@ export function mapSystemRegistry(
     name: String(raw.name),
     shardActive: Boolean(raw.shardActive),
     lastActiveAt: parseDate(raw.lastActiveAt),
+  };
+}
+
+/** Raw shape of a `deposits` row straight from better-sqlite3 — TASK-37. */
+export interface SqliteDepositRaw {
+  id: string;
+  systemId: string;
+  planetId: string;
+  pos: string;
+  resourceId: string;
+  remaining: number;
+  discovered: number | boolean;
+  depositSeq: number;
+}
+
+/** Map a raw deposits row to the driver-agnostic shape. */
+export function mapDeposit(raw: SqliteDepositRaw | Record<string, unknown>): DepositStateRow {
+  const posJson = parseJsonField(raw.pos, "pos") as { x?: number; y?: number; z?: number };
+  return {
+    id: String(raw.id),
+    systemId: String(raw.systemId),
+    planetId: String(raw.planetId),
+    pos: { x: Number(posJson.x ?? 0), y: Number(posJson.y ?? 0), z: Number(posJson.z ?? 0) },
+    resourceId: String(raw.resourceId),
+    remaining: Number(raw.remaining),
+    discovered: Boolean(raw.discovered),
+    depositSeq: Number(raw.depositSeq),
   };
 }

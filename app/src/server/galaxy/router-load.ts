@@ -31,6 +31,7 @@ import { loadShipsForShard } from "../shard/load.js";
 
 import { buildShardContext, GalaxySystemNotFoundError } from "./system-data.js";
 import { hydrateShardEntities } from "./hydrate.js";
+import { hydrateShardDeposits } from "./deposit-hydrate.js";
 
 /** Maps the router exposes for shard bookkeeping. */
 export interface RouterShardMaps {
@@ -123,6 +124,10 @@ export async function loadAndRegister(systemId: string, deps: LoadAndRegisterDep
   // `entity_update`. Idempotent on entityId (`spawnShip` returns
   // the existing entry); no double-registration.
   await hydrateShardEntities(shard, specs, { repo: deps.repo });
+  // TASK-37: seed-derived deposit placement + persisted state
+  // merge. Fire-and-forget so the hydrate path stays cheap; the
+  // deposit entities land on the next broadcast cycle.
+  hydrateShardDeposits(shard, deps.galaxySeed, { repo: deps.repo });
   deps.maps.shards.set(systemId, shard);
   deps.maps.shardStartedAt.set(systemId, deps.now());
   return shard;

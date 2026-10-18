@@ -17,6 +17,7 @@ import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { sqliteSchema } from "./schema.sqlite.js";
 import type {
   CreateSessionInput,
+  DepositStateRow,
   PlayerRow,
   ResourceNodeStateRow,
   SessionRow,
@@ -24,11 +25,18 @@ import type {
   ShipLivery,
   ShipRow,
   SystemRegistryRow,
+  UpsertDepositStateInput,
   UpsertNodeStateInput,
 } from "./types.js";
 import { InsufficientCreditsError, NotFoundError } from "./errors.js";
 import { isoNow } from "./repo.helpers.js";
-import { mapNodeState, mapSession, mapShip, mapSystemRegistry } from "./repo.sqlite.mappers.js";
+import {
+  mapDeposit,
+  mapNodeState,
+  mapSession,
+  mapShip,
+  mapSystemRegistry,
+} from "./repo.sqlite.mappers.js";
 import {
   AlreadyOwnedShipError,
   DEFAULT_LIVERY,
@@ -77,6 +85,9 @@ export function bindSqliteWorld(
   getBalance: (playerId: string) => Promise<number>;
   upsertNodeState: (input: UpsertNodeStateInput) => Promise<ResourceNodeStateRow>;
   listNodeStates: (systemId: string) => Promise<ResourceNodeStateRow[]>;
+  upsertDepositState: (input: UpsertDepositStateInput) => Promise<DepositStateRow>;
+  listDepositStates: (systemId: string) => Promise<DepositStateRow[]>;
+  deleteDepositState: (systemId: string, depositSeq: number) => Promise<void>;
   createSession: (input: CreateSessionInput) => Promise<SessionRow>;
   getSession: (tokenHash: string) => Promise<SessionRow | null>;
   deleteSession: (tokenHash: string) => Promise<void>;
@@ -162,6 +173,69 @@ export function bindSqliteWorld(
         .from(sqliteSchema.resourceNodeState)
         .where(and(eq(sqliteSchema.resourceNodeState.systemId, systemId)));
       return rows.map(mapNodeState);
+    },
+
+    async upsertDepositState(input: UpsertDepositStateInput): Promise<DepositStateRow> {
+      // TASK-37: PRIMARY KEY (system_id, deposit_seq) — upsert by
+      // composite key so the first mine creates the row and
+      // subsequent mines update it in place.
+      await db
+        .insert(sqliteSchema.deposits)
+        .values({
+          id: input.id,
+          systemId: input.systemId,
+          planetId: input.planetId,
+          pos: JSON.stringify(input.pos),
+          resourceId: input.resourceId,
+          remaining: input.remaining,
+          discovered: input.discovered,
+          depositSeq: input.depositSeq,
+        })
+        .onConflictDoUpdate({
+          target: [sqliteSchema.deposits.systemId, sqliteSchema.deposits.depositSeq],
+          set: {
+            remaining: input.remaining,
+            discovered: input.discovered,
+          },
+        })
+        .run();
+      const rows = await db
+        .select()
+        .from(sqliteSchema.deposits)
+        .where(
+          and(
+            eq(sqliteSchema.deposits.systemId, input.systemId),
+            eq(sqliteSchema.deposits.depositSeq, input.depositSeq),
+          ),
+        )
+        .limit(1);
+      const first = rows[0];
+      if (!first) {
+        throw new Error(
+          `upsertDepositState: row vanished after upsert system=${input.systemId} seq=${input.depositSeq}`,
+        );
+      }
+      return mapDeposit(first);
+    },
+
+    async listDepositStates(systemId: string): Promise<DepositStateRow[]> {
+      const rows = await db
+        .select()
+        .from(sqliteSchema.deposits)
+        .where(eq(sqliteSchema.deposits.systemId, systemId));
+      return rows.map(mapDeposit);
+    },
+
+    async deleteDepositState(systemId: string, depositSeq: number): Promise<void> {
+      await db
+        .delete(sqliteSchema.deposits)
+        .where(
+          and(
+            eq(sqliteSchema.deposits.systemId, systemId),
+            eq(sqliteSchema.deposits.depositSeq, depositSeq),
+          ),
+        )
+        .run();
     },
 
     async createSession(input: CreateSessionInput): Promise<SessionRow> {

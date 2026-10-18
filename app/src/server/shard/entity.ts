@@ -274,6 +274,9 @@ export function entityToWire(e: SimEntity): ProtocolEntityState {
       onPad: null,
       resourceType: e.resourceType,
       amount: e.amount,
+      // TASK-37: deposit discovery flag on the wire. Ground items
+      // and terminals leave it absent (zod's `.optional()`).
+      discovered: e.kind === "deposit" ? (e.discovered ?? false) : undefined,
     };
   }
   return {

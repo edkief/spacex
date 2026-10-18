@@ -227,6 +227,27 @@ export interface SimEntity {
    */
   amount?: number;
   /**
+   * TASK-37: ordinal position of this deposit in the system's
+   * deterministic placement list. Used as the second half of the
+   * `deposits` PK (`(system_id, deposit_seq)`) so a mine can
+   * upsert the row. `undefined` on non-deposit entities.
+   */
+  depositSeq?: number;
+  /**
+   * TASK-37: seed-derived initial amount (the `amount` value at
+   * spawn time). Kept on the entity so partial pickups can compute
+   * the per-mine delta without re-reading the seed. `undefined`
+   * on non-deposit entities.
+   */
+  initialAmount?: number;
+  /**
+   * TASK-37: discovery flag. Flipped server-side the first time
+   * a player comes within `DISCOVERY_RANGE_M = 50` of a deposit;
+   * also auto-flips on first pickup. Defaults to `false` for
+   * un-discovered deposits. `undefined` for non-deposit entities.
+   */
+  discovered?: boolean;
+  /**
    * TASK-34: wall-clock ms epoch at which a `groundItem` should
    * despawn. Set on `groundItem` only; the cleanup loop reads it.
    */

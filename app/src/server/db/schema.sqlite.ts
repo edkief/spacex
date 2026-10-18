@@ -10,7 +10,15 @@
  * @see ./schema.pg.ts for the Postgres twin (kept shape-compatible).
  * @see ./migrations/sqlite/0001_init.sql for the runtime DDL applied on boot.
  */
-import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+  check,
+  index,
+  integer,
+  sqliteTable,
+  text,
+  uniqueIndex,
+  primaryKey,
+} from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 
 /**
@@ -178,6 +186,35 @@ const systemRegistry = sqliteTable("system_registry", {
 });
 
 /**
+ * Persistent deposit state — TASK-37. Holds the mutable deltas
+ * (`remaining`, `discovered`) for the seed-derived deposit list. A row
+ * only exists once a player has first mined / discovered a deposit;
+ * the placement itself is recomputed from the seed on every read
+ * (PRD §6: "Deposit positions are derived, not stored").
+ *
+ * Primary key is `(system_id, deposit_seq)` so the table can hold
+ * multiple deposits per system that share a seed-derived id.
+ */
+const deposits = sqliteTable(
+  "deposits",
+  {
+    id: text("id").notNull(),
+    systemId: text("system_id").notNull(),
+    planetId: text("planet_id").notNull(),
+    pos: text("pos").notNull(),
+    resourceId: text("resource_id").notNull(),
+    remaining: integer("remaining").notNull(),
+    discovered: integer("discovered", { mode: "boolean" }).notNull().default(false),
+    depositSeq: integer("deposit_seq").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.systemId, t.depositSeq] }),
+    index("deposits_planet_id_idx").on(t.planetId),
+    index("deposits_system_id_idx").on(t.systemId),
+  ],
+);
+
+/**
  * Aggregated SQLite schema bundle. The naming is stable across drivers
  * (`schema.players`, `schema.ships`, …) so the repository only depends on
  * this object shape, not on `dialect`.
@@ -189,6 +226,7 @@ export const sqliteSchema = {
   sessions,
   resourceNodeState,
   systemRegistry,
+  deposits,
 } as const;
 
 export type SqliteSchema = typeof sqliteSchema;

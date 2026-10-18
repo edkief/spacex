@@ -12,6 +12,7 @@ import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { pgSchema } from "./schema.pg.js";
 import type {
   CreateSessionInput,
+  DepositStateRow,
   PlayerRow,
   ResourceNodeStateRow,
   SessionRow,
@@ -19,11 +20,13 @@ import type {
   ShipLivery,
   ShipRow,
   SystemRegistryRow,
+  UpsertDepositStateInput,
   UpsertNodeStateInput,
 } from "./types.js";
 import { InsufficientCreditsError, NotFoundError } from "./errors.js";
 import { assertPositiveInt } from "./repo.helpers.js";
 import {
+  mapDeposit,
   mapNodeState,
   mapPlayer,
   mapShip,
@@ -63,6 +66,9 @@ export function bindPgWorld(
   getBalance: (playerId: string) => Promise<number>;
   upsertNodeState: (input: UpsertNodeStateInput) => Promise<ResourceNodeStateRow>;
   listNodeStates: (systemId: string) => Promise<ResourceNodeStateRow[]>;
+  upsertDepositState: (input: UpsertDepositStateInput) => Promise<DepositStateRow>;
+  listDepositStates: (systemId: string) => Promise<DepositStateRow[]>;
+  deleteDepositState: (systemId: string, depositSeq: number) => Promise<void>;
   createSession: (input: CreateSessionInput) => Promise<SessionRow>;
   getSession: (tokenHash: string) => Promise<SessionRow | null>;
   deleteSession: (tokenHash: string) => Promise<void>;
@@ -160,6 +166,57 @@ export function bindPgWorld(
         .from(pgSchema.resourceNodeState)
         .where(and(eq(pgSchema.resourceNodeState.systemId, systemId)));
       return rows.map(mapNodeState);
+    },
+
+    async upsertDepositState(input: UpsertDepositStateInput): Promise<DepositStateRow> {
+      // TASK-37: PRIMARY KEY (system_id, deposit_seq) — same upsert
+      // pattern as SQLite; the first mine creates the row and
+      // subsequent mines update it in place. The Postgres `pos`
+      // column is `text` (parallel to SQLite for parity), so the
+      // value is JSON-stringified before the insert.
+      const posJson = JSON.stringify(input.pos);
+      const rows = await db
+        .insert(pgSchema.deposits)
+        .values({
+          id: input.id,
+          systemId: input.systemId,
+          planetId: input.planetId,
+          pos: posJson,
+          resourceId: input.resourceId,
+          remaining: input.remaining,
+          discovered: input.discovered,
+          depositSeq: input.depositSeq,
+        })
+        .onConflictDoUpdate({
+          target: [pgSchema.deposits.systemId, pgSchema.deposits.depositSeq],
+          set: {
+            remaining: input.remaining,
+            discovered: input.discovered,
+          },
+        })
+        .returning();
+      const first = rows[0];
+      if (!first) throw new Error("upsert returned no rows");
+      return mapDeposit(first);
+    },
+
+    async listDepositStates(systemId: string): Promise<DepositStateRow[]> {
+      const rows = await db
+        .select()
+        .from(pgSchema.deposits)
+        .where(eq(pgSchema.deposits.systemId, systemId));
+      return rows.map(mapDeposit);
+    },
+
+    async deleteDepositState(systemId: string, depositSeq: number): Promise<void> {
+      await db
+        .delete(pgSchema.deposits)
+        .where(
+          and(
+            eq(pgSchema.deposits.systemId, systemId),
+            eq(pgSchema.deposits.depositSeq, depositSeq),
+          ),
+        );
     },
 
     async createSession(input: CreateSessionInput): Promise<SessionRow> {
