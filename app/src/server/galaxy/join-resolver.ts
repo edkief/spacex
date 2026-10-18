@@ -106,11 +106,16 @@ export function buildRouterJoinResolver(deps: RouterJoinResolverDeps): JoinResol
     // can extend `JoinResolverResult` to carry AI roster or sector
     // metadata without touching the resolver.
     const entities = buildSnapshotEntities(result.shard);
+    // TASK-16: include the shard's rolling chat history so a
+    // freshly-joined client can render the previous 100 messages.
+    // The history resets on shard reap (system change), so this is
+    // the canonical "current log" for the system.
+    const chat = result.shard.chatLog.snapshot();
     return {
       systemId: result.systemId,
       entities,
       nodes: [],
-      chat: [],
+      chat,
       players: [],
       serverTickHz: 20,
       snapshotTick: result.snapshotTick,

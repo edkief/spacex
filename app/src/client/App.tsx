@@ -21,6 +21,7 @@ import type * as React from "react";
 
 import { PlayerList } from "./components/PlayerList.js";
 import { ToastStack } from "./components/ToastStack.js";
+import { ChatLog } from "./components/ChatLog.js";
 import { CanvasStage } from "./components/CanvasStage.js";
 import { DriftClient } from "./net/wsClient.js";
 
@@ -105,6 +106,11 @@ export function App(): React.JSX.Element {
       )}
       <PlayerList store={store} />
       <ToastStack store={store} />
+      <ChatLog
+        store={client.chatStore}
+        canSend={status === "online"}
+        onSend={(t) => client.sendChat(t)}
+      />
     </div>
   );
 }

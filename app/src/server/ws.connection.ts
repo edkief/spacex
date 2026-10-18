@@ -25,6 +25,7 @@
 import type { WebSocket } from "ws";
 
 import type { ChatLimiter, FloodTracker, TokenBucket } from "./ratelimit.js";
+import type { ChatWindowLimiter } from "./chat.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -70,8 +71,17 @@ export interface Connection {
   bucket: TokenBucket;
   /** TASK-65: sliding-window violation counter (3 in 10 s → drop). */
   floodTracker: FloodTracker;
-  /** TASK-65: chat-specific gate (2 s gap / 280 chars / 10 per 30 s). */
+  /** TASK-65: chat-specific gate (2 s gap / 280 chars / 10 per 30 s).
+   *  Kept for TASK-65 parity; the live `chat` path uses
+   *  `chatWindowLimiter` instead (TASK-16). */
   chatLimiter: ChatLimiter;
+  /**
+   * TASK-16: chat-window limiter (5 messages per 10 s). Separate
+   * from the TASK-65 limiter so the two can coexist without one
+   * accidentally shadowing the other. Populated by `attachWs`
+   * (see `ws.ts`).
+   */
+  chatWindowLimiter: ChatWindowLimiter;
 }
 
 /**

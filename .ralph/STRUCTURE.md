@@ -87,16 +87,18 @@ PROJECT_ROOT
 │   │   │   │       ├── README.md            # Regeneration rules for committed fixtures (TASK-22)
 │   │   │   │       └── trajectories.ts      # Golden 60s space + 30s atmo final states (TASK-22)
 │   │   ├── client/              # React + three.js frontend (Vite)
-│   │   │   ├── App.tsx          # Top-level shell — mounts CanvasStage + PlayerList + ToastStack + DriftClient (TASK-15 wired up)
-│   │   │   ├── components/      # UI sub-components (CanvasStage.tsx + PlayerList + ToastStack for TASK-15)
+│   │   │   ├── App.tsx          # Top-level shell — mounts CanvasStage + PlayerList + ToastStack + ChatLog + DriftClient (TASK-15 + TASK-16 wired up)
+│   │   │   ├── components/      # UI sub-components (CanvasStage.tsx + PlayerList + ToastStack + ChatLog for TASK-15/16)
 │   │   │   │   ├── PlayerList.tsx           # Bottom-left roster HUD — monospace + status dots + "(you)" marker (TASK-15)
-│   │   │   │   └── ToastStack.tsx           # Top-right toast column — 3-visible cap + 8-deep queue + 3 s lifetime + 0.4 s fade (TASK-15)
-│   │   │   ├── net/             # Client prediction + reconciliation (TASK-14) + WS glue + presence store (TASK-15)
+│   │   │   │   ├── ToastStack.tsx           # Top-right toast column — 3-visible cap + 8-deep queue + 3 s lifetime + 0.4 s fade (TASK-15)
+│   │   │   │   └── ChatLog.tsx              # Top-left chat panel — 100-message ring + Enter-toggled input + auto-escape (XSS-safe) + auto-scroll only when at-bottom (TASK-16)
+│   │   │   ├── net/             # Client prediction + reconciliation (TASK-14) + WS glue + presence store (TASK-15) + chat store (TASK-16)
 │   │   │   │   ├── prediction.ts          # ClientShipPredictor (local input → integrate → reconcile) + RemoteEntityBuffer (200 ms interp ring) + applyEntityUpdateToBuffer + simEntityFromWire + tuning constants
 │   │   │   │   ├── prediction.test.ts     # 28 cases: input stamping, bit-equality with server integrator, blend/rewind/force-snap thresholds, queue cap + age overflow, 150 ms RTT acceptance, jittery 10 Hz remote interp
 │   │   │   │   ├── presence.ts            # PresenceStore — in-system player roster Map<playerId, PresencePlayer> built from presence frames, join/leave diff events, cached snapshot for useSyncExternalStore, setOwnCallsign for "(you)" marker, toastTextFor + statusDotColor helpers (TASK-15)
 │   │   │   │   ├── presence.test.ts       # 14 cases: apply/diff/leave/leaveAll, isYou stamping, listener dedupe, unsubscribe, faulty-listener tolerance, snapshot identity (TASK-15)
-│   │   │   │   ├── wsClient.ts            # DriftClient — WebSocket glue wrapping the Drift handshake (claim → hello → auth → join_system) + presence frame routing + post-boot joinSystem() for warp UI (TASK-15)
+│   │   │   │   ├── chat.ts                # ChatStore — 100-message ring + cached snapshot for useSyncExternalStore + applyChatFrame + seedHistory + clear; formatChatLine + formatTime helpers (TASK-16)
+│   │   │   │   ├── wsClient.ts            # DriftClient — WebSocket glue wrapping the Drift handshake (claim → hello → auth → join_system) + presence frame routing + chat frame routing + sendChat + post-boot joinSystem() for warp UI (TASK-15 + TASK-16)
 │   │   │   ├── ships/           # Paint-zone + mesh-registry logic (TASK-21)
 │   │   │   │   ├── ShipMeshBuilder.ts      # PaintZone enum + ShipPaintRegistry + MaterialAdapter interface + defaultLiveryFor + in-memory test adapter
 │   │   │   │   ├── threeAdapter.ts          # three.js-backed MaterialAdapter factory (mutates Color in place)
@@ -124,16 +126,19 @@ PROJECT_ROOT
 │   │       │   ├── load.test.ts      # 11 cases: empty system, scoped to systemId, skip docked + opt-in, expired-wreck GC, future-wreck preservation
 │   │       │   ├── registry.ts       # ShardRegistry: Map<systemId, Shard> + flushAll() for graceful shutdown (TASK-24)
 │   │       ├── ws.ts            # ws upgrade handler attached to Fastify (TASK-9; JoinResolver signature gained `connId` parameter in TASK-11 so the router can bind player entities to specific sockets)
-│   │       ├── ws.connection.ts # Connection struct + ConnectionRegistry (TASK-9, extended with bucket/floodTracker/chatLimiter in TASK-65; `connId` field added in TASK-11 so the router can bind ships to specific sockets)
+│   │       ├── ws.connection.ts # Connection struct + ConnectionRegistry (TASK-9, extended with bucket/floodTracker/chatLimiter in TASK-65 + chatWindowLimiter in TASK-16; `connId` field added in TASK-11 so the router can bind ships to specific sockets)
 │   │       ├── ws.dispatch.ts   # processRawFrame + dispatch + noteInvalidInput + noteRateViolation + INVALID_DROP_THRESHOLD=50 + MAX_MESSAGE_BYTES=64KB (TASK-9 + TASK-64 + TASK-65)
 │   │       ├── ws.dispatch.helpers.ts # sendFrame + sendError + closeFloodedConnection (TASK-65)
-│   │       ├── ws.handlers.ts   # onHello + onAuth + onJoinSystem + onChat per-state handlers (TASK-9 + TASK-65)
+│   │       ├── ws.handlers.ts   # onHello + onAuth + onJoinSystem + onChat per-state handlers (TASK-9 + TASK-65); onChat pipeline is validate→sanitize→rate-limit→broadcast (TASK-16)
 │   │       ├── ws.resolvers.ts  # defaultAuthResolver + defaultJoinResolver stubs (TASK-9)
 │   │       ├── ratelimit.ts     # TokenBucket + FloodTracker + ChatLimiter + constants (TASK-65)
 │   │       ├── ratelimit.test.ts        # Unit tests: accept/accept/reject + sliding window + chat window (TASK-65)
 │   │       ├── ratelimit.flood.test.ts  # Flood benchmark: attacker drops with code 4009 within 5 s (TASK-65)
+│   │       ├── chat.ts         # ChatRingBuffer (100-entry FIFO) + ChatWindowLimiter (5/10s sliding) + sanitizeChatText (control+bidi strip, whitespace collapse) + validateChatText (length+empty+non-string) (TASK-16)
+│   │       ├── chat.test.ts    # 24 cases: sanitize ranges + validate reasons + FIFO eviction + sliding-window reset + non-positive bounds (TASK-16)
 │   │       ├── ws.ratelimit-helpers.ts  # Shared harness helpers for rate-limit integration tests (TASK-65)
-│   │       ├── ws.ratelimit.test.ts     # Rate-limit integration: bucket + chat + escalation + isolation (TASK-65)
+│   │       ├── ws.ratelimit.test.ts     # Rate-limit integration: bucket + chat + escalation + isolation (TASK-65; chat paths now exercise TASK-16 surface)
+│   │       ├── ws.chat.test.ts  # 9 cases: real Fastify+ws boot verifying broadcast (sender echo) + monotonic-ts ordering + 6/10s rate-limit drop + invalid-message on empty/long/non-string + control-byte sanitization + XSS inert-text wire round-trip + enter_system.chat history seed (TASK-16)
 │   │       ├── ws.fuzz-helpers.ts # bootFuzzHarness + openFuzzClient + collectFuzzMessages (TASK-64)
 │   │       ├── ws.fuzz-payloads.ts # 20 crafted malformed payloads + REQUIRED_FUZZ_NAMES + nestedObject/byteString builders (TASK-64)
 │   │       ├── validation-fuzz.test.ts # 6 cases: 20-payload burst + 1 MB size cap + health hammered + threshold pin (TASK-64)
@@ -155,9 +160,9 @@ PROJECT_ROOT
 │   │       ├── shards/          # In-process shard event bus (TASK-20; future TASK-11/15 consumers)
 │   │       │   └── event-bus.ts # ShipSwapEvent + LiveryChangedEvent + ShardsBus singleton (EventEmitter + process.nextTick)
 │   │       ├── galaxy/          # Galaxy router (TASK-11 + TASK-12)
-│   │       │   ├── router.ts    # GalaxyRouter class — Map<systemId, Shard> + pending-promise collapse for concurrent spawns + 16-player cap enforcement + reapEmpty() with 60s grace timer + flushShips-on-reap + presence broadcasts on join/leave/reap + per-system generation counter + forceReap + stats() surface
-│   │       │   ├── router-types.ts # RouterConnectionContext + JoinResult + JoinRejection + RouterShardStats + RouterStats + RouterOptions (extracted from router.ts so the file stays under the AGENTS.md line cap)
-│   │       │   ├── router-load.ts # loadAndRegister — spawn a new shard + hydrate entities + bump generation; delegates to hydrateShardEntities
+│   │       │   ├── router.ts    # GalaxyRouter class — Map<systemId, Shard> + pending-promise collapse for concurrent spawns + 16-player cap enforcement + reapEmpty() with 60s grace timer + flushShips-on-reap + presence broadcasts on join/leave/reap + per-system generation counter + forceReap + stats() surface; threads connSender into every spawned shard (TASK-16)
+│   │       │   ├── router-types.ts # RouterConnectionContext + JoinResult + JoinRejection + RouterShardStats + RouterStats + RouterOptions (extracted from router.ts so the file stays under the AGENTS.md line cap); RouterOptions gained optional connSender (TASK-16)
+│   │       │   ├── router-load.ts # loadAndRegister — spawn a new shard + hydrate entities + bump generation; delegates to hydrateShardEntities; accepts optional connSender so shard.send is wired to a real WS writer (TASK-16)
 │   │       │   ├── router-connection.ts # makeShardConnection + bindConnectionToEntity — per-join bookkeeping for router.joinSystem
 │   │       │   ├── router-reap.ts # reapEmpty — sweep shards that have been empty past the grace window; flushShips + sim.stop + emit empty presence frame
 │   │       │   ├── router-lifecycle.ts # routerStart + routerShutdown — start/stop the reap sweep timer; graceful close
@@ -170,7 +175,7 @@ PROJECT_ROOT
 │   │       │   ├── router.ws-bridge.test.ts # 6 cases: real Fastify + ws round-trip verifying presence frame on join, drop on close, no-crash on never-joined, reconnect storm with same generation, presence payload shape, keepalive-terminate triggers onConnectionClose (TASK-12)
 │   │       │   ├── presence-integration.test.ts # 4 cases: 3-in-one-system vs round-trip verifying each client sees the other 2; one leaves → others update within 1 s; one joins a different system → not listed; roster updates within one snapshot of a same-system join (TASK-15)
 │   │       │   ├── system-data.ts # buildShardContext — derive SystemGen + per-planet closures from (seed, starId); GalaxySystemNotFoundError tagged error
-│   │       │   ├── join-resolver.ts # buildRouterJoinResolver — maps (systemId, callsign, connId) to router.joinSystem + repo.findPlayerByCallsign + repo.listShipsByOwner + tag errors with code field for the WS dispatcher
+│   │       │   ├── join-resolver.ts # buildRouterJoinResolver — maps (systemId, callsign, connId) to router.joinSystem + repo.findPlayerByCallsign + repo.listShipsByOwner + tag errors with code field for the WS dispatcher; seeds enter_system.chat with shard.chatLog.snapshot() (TASK-16)
 │   │       │   ├── join-resolver.test.ts # 4 cases: success + cap-full + system-not-found + missing-callsign defensive path
 │   │       │   └── index.ts     # Re-export barrel
 │   │       └── auth/            # Token codec + WS auth resolver (TASK-10)
@@ -182,7 +187,7 @@ PROJECT_ROOT
 │   │       └── shards/          # Authoritative sim runtime per system (TASK-13; future TASK-11 consumers)
 │   │       │   └── event-bus.ts # ShipSwapEvent + LiveryChangedEvent + ShardsBus singleton (EventEmitter + process.nextTick)
 │   │       └── shard/           # Per-system authoritative sim (TASK-13 + TASK-14 + TASK-24)
-│   │       │   ├── types.ts     # Shard + ShardConnection + PlayerInput + SimEntity + ShardSystemContext contracts (TASK-13) — SnapshotBroadcaster now takes lastAppliedSeq map for client reconciliation (TASK-14); SimEntity gained wreckExpiresAt? field (TASK-23) + onPad (TASK-24)
+│   │       │   ├── types.ts     # Shard + ShardConnection + PlayerInput + SimEntity + ShardSystemContext contracts (TASK-13) — SnapshotBroadcaster now takes lastAppliedSeq map for client reconciliation (TASK-14); SimEntity gained wreckExpiresAt? field (TASK-23) + onPad (TASK-24); ConnSender widened to accept entity_update|chat|combat_event (TASK-16); per-shard chatLog ring buffer (TASK-16)
 │   │       │   ├── entity.ts    # Player/AI/Wreck entity factory + entity → EntityState wire serializer (TASK-13 + TASK-23)
 │   │       │   ├── input-queue.ts # Per-connection seq-protected slot, latest-wins, stale-seq drop + counters (TASK-13)
 │   │       │   ├── histogram.ts # Ring-buffer histogram (p50/p95/p99) for per-tick duration (TASK-13)
@@ -196,7 +201,7 @@ PROJECT_ROOT
 │   │       │   ├── load.test.ts      # 11 cases: empty system, scoped to systemId, skip docked + opt-in, expired-wreck GC, future-wreck preservation
 │   │       │   ├── registry.ts       # ShardRegistry: Map<systemId, Shard> + flushAll() for graceful shutdown (TASK-24)
 │   │       │   ├── sim.ts       # SimLoop class: 20 Hz tick, accumulator + 5-step catch-up ceiling, 10 Hz snapshot every 2nd tick, integrateShip() + heightAt3x3 cache, ship persisted-state plumbing (TASK-13); cumulative lastAppliedSeq map per player for ack (TASK-14)
-│   │       │   ├── index.ts     # createShard() factory + spawnShip/spawnAiShip + pushPlayerInput + simulateNTicks + sendEntityUpdate with lastAppliedSeq (TASK-13 + TASK-14)
+│   │       │   ├── index.ts     # createShard() factory + spawnShip/spawnAiShip + pushPlayerInput + simulateNTicks + sendEntityUpdate with lastAppliedSeq (TASK-13 + TASK-14); broadcastChat + ChatRingBufferEntry export (TASK-16)
 │   │       │   └── sim.test.ts  # 18 cases: accumulator math (1000 ticks no drift), 5-step catch-up ceiling, 10 Hz cadence, latest-input-wins, stale-seq drops, broadcast payload shape, entity kind mapping, 32 KB warning gate, histogram p50/p95/p99, 16-ship 60s benchmark p95 < 30 ms (TASK-13) + lastAppliedSeq ack map populated for owning player + empty for AI-only frames (TASK-14)
 │   │       └── db/              # Drift persistence layer (TASK-62 / TASK-63 / TASK-41)
 │   │           ├── types.ts     # PlayerRow / ShipRow / etc. + zod shapes for JSON columns
@@ -231,6 +236,7 @@ PROJECT_ROOT
 │   ├── drizzle.config.ts         # drizzle-kit config for operator-driven PG migrations
 │   ├── tests/
 │   │   └── e2e/
+│   │       ├── chat.spec.ts     # Playwright smoke (two browser contexts → both see each other's chat messages + XSS inert-text + no <img> in DOM, screenshot) (TASK-16)
 │   │       ├── livery.spec.ts   # Playwright smoke (claim → set livery → re-read + invalid-hex rejection, screenshot) (TASK-21)
 │   │       ├── presence.spec.ts # Playwright smoke (two browser contexts → both see each other in the in-system player list, screenshot) (TASK-15)
 │   │       └── scaffold.spec.ts # Playwright smoke (canvas + /api/health)

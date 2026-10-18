@@ -15,8 +15,14 @@ import { PROTOCOL_VERSION } from "@shared/protocol/index.js";
 import type { Connection, ConnectionRegistry, WsConnectionState } from "./ws.connection.js";
 import { snapshotConnection } from "./ws.connection.js";
 import type { AuthResolver, JoinResolver, LogoutResolver, WsHandleOptions } from "./ws.js";
-import { chatLimitMessage } from "./ratelimit.js";
-import { closeFloodedConnection, sendError, sendFrame } from "./ws.dispatch.helpers.js";
+import {
+  chatValidationMessage,
+  chatWindowMessage,
+  sanitizeChatText,
+  validateChatText,
+} from "./chat.js";
+import { broadcastChat } from "./shard/index.js";
+import { sendError, sendFrame } from "./ws.dispatch.helpers.js";
 
 // ---------------------------------------------------------------------------
 // onHello
@@ -217,39 +223,82 @@ export async function onLogout(
 }
 
 // ---------------------------------------------------------------------------
-// onChat — TASK-65 chat limiter
+// onChat — TASK-16 system-wide chat
 // ---------------------------------------------------------------------------
 
 /**
- * Chat-specific handler (TASK-65). The chat limiter is consulted AFTER
- * the general token bucket has already accepted this frame, so by the
- * time we get here the connection is permitted to spend *one* of its
- * budget on a chat message. The chat limiter makes a finer-grained
- * decision about whether this particular message fits the chat policy.
+ * Chat-specific handler (TASK-16). The general token bucket has
+ * already accepted the frame by the time we get here; the chat
+ * pipeline runs validation → sanitization → rate-limit →
+ * broadcast (or `rate-limited` rejection).
  *
- * On accept: message is silently consumed; TASK-16 broadcasts it.
- * On reject: a structured `rate-limited` error is sent, the violation
- * is recorded against `FloodTracker`, and — if escalation fires — the
- * connection is closed with code 4009 via `closeFloodedConnection`.
+ * ## Pipeline
+ *
+ *   1. **Validate** (`validateChatText`) — the text must be a
+ *      non-empty string whose trimmed length is ≤ 200 characters.
+ *      Failures yield a structured `invalid-message` error frame;
+ *      the spec wants this on a per-frame basis so the client can
+ *      debug its own input.
+ *   2. **Sanitize** (`sanitizeChatText`) — strip control bytes +
+ *      zero-width / bidi marks, collapse whitespace. Applied BEFORE
+ *      the rate-limit so a malicious client can't pollute the log
+ *      with control bytes by typing just a few characters.
+ *   3. **Rate limit** (`conn.chatWindowLimiter`) — the per-connection
+ *      5 / 10 s sliding window. Rejections yield a `rate-limited`
+ *      error frame.
+ *   4. **Broadcast** (`broadcastChat`) — append to the shard log +
+ *      send `{type: "chat", payload: ChatEntry}` to every
+ *      connection in the shard (sender included).
+ *
+ * The pipeline is intentionally quiet on the failure paths: a
+ * malformed chat message does NOT escalate to a flood close the way
+ * a chat-limiter violation did in TASK-65's older code path. The
+ * TASK-16 spec only asks for the structured error frame.
+ *
+ * The handler reads `conn.shard` via the WS-layer wiring
+ * (`options.shardFor(conn)`). When the connection isn't in a
+ * system, we drop silently — the dispatch guard in
+ * `ws.dispatch.ts` already rejects `chat` frames from non-`joined`
+ * connections, but the seam is here for the test harness.
  */
 export function onChat(
   conn: Connection,
-  registry: ConnectionRegistry,
+  _registry: ConnectionRegistry,
   options: WsHandleOptions,
   payload: unknown,
 ): void {
-  // Type-validated by parseMessage; payload is `{ text: string }`.
-  const p = payload as { text: string };
-  const now = (options.now ?? Date.now)();
-  const result = conn.chatLimiter.check(p.text.length, now);
-  if (!result.accepted) {
-    sendError(conn, "rate-limited", chatLimitMessage(result.reason));
-    if (conn.floodTracker.noteViolation(now)) {
-      closeFloodedConnection(conn, registry);
-    }
+  // 1. Validate.
+  const v = validateChatText((payload as { text: unknown } | undefined)?.text);
+  if (!v.accepted) {
+    sendError(conn, "invalid-message", chatValidationMessage(v.reason));
+    return;
   }
-  // Accepted: TASK-16 owns the broadcast hook. No acknowledgement is
-  // sent — the server doesn't echo chat back to its author.
+  const now = (options.now ?? Date.now)();
+
+  // 2. Sanitize. Always run even on accept so the wire text matches
+  // what the rest of the shard sees (defensive: a "good" string is
+  // usually a no-op but a stray tab shouldn't survive).
+  const sanitized = sanitizeChatText(v.trimmed);
+
+  // 3. Rate limit.
+  const rl = conn.chatWindowLimiter.check(now);
+  if (!rl.accepted) {
+    sendError(conn, "rate-limited", chatWindowMessage());
+    return;
+  }
+
+  // 4. Broadcast. The connection must be in a system for the
+  // broadcast to have anywhere to send; without one the dispatch
+  // guard already rejects. We use the `shardFor` seam so tests can
+  // inject a stub.
+  const shard = options.shardFor?.(conn);
+  if (!shard) return;
+  // The author is the connection's callsign; we fall back to a
+  // sentinel so the test that bypasses the handshake still gets a
+  // populated row.
+  const author = conn.callsign ?? "UNKNOWN";
+  broadcastChat(shard, { author, text: sanitized, ts: now });
+  void _registry; // (silence unused-param; reserved for future hooks)
 }
 
 // ---------------------------------------------------------------------------

@@ -144,7 +144,14 @@ describe("ws/ratelimit general bucket (TASK-65)", () => {
 // Tests: chat limits
 // ---------------------------------------------------------------------------
 
-describe("ws/ratelimit chat limits (TASK-65)", () => {
+describe("ws/ratelimit chat limits (TASK-65 + TASK-16)", () => {
+  // NOTE: The live chat pipeline is now owned by TASK-16
+  // (`./chat.ts`): the wire-level validation step caps the
+  // post-trim length at 200 characters, and the per-connection
+  // window is 5 messages per 10 s. TASK-65's `ChatLimiter` class
+  // is still wired on the connection for its own unit tests; the
+  // WS-integration cases below exercise the TASK-16 surface so
+  // a future change to the pipeline doesn't slip past CI.
   let harness: Harness;
 
   beforeAll(async () => {
@@ -169,27 +176,32 @@ describe("ws/ratelimit chat limits (TASK-65)", () => {
     }
   });
 
-  it("rejects chat sent within the 2 s min-gap with rate-limited (too-soon)", async () => {
+  it("rejects chat that exceeds 5 messages within 10 s with rate-limited", async () => {
     const client = await openClient(harness.url);
     try {
       await reachJoined(client, "TEST-CHAT-GAP", harness);
       const errors = collect(client, 1);
-      client.send(encodeEnvelope("chat", { text: "hello" }));
-      // Wait less than the 2 s gap, then send a 2nd chat. The 2nd must
-      // come back as a `too-soon` rate-limited error.
-      await new Promise<void>((r) => setTimeout(r, 200));
-      client.send(encodeEnvelope("chat", { text: "world" }));
+      // Burst-send 6 chats back-to-back. The 6th is dropped with a
+      // `rate-limited` error (TASK-16: 5 / 10 s window).
+      for (let i = 0; i < 5; i++) {
+        client.send(encodeEnvelope("chat", { text: `msg-${i}` }));
+      }
+      client.send(encodeEnvelope("chat", { text: "msg-5" }));
       const [errRaw] = await errors;
       const err = decodeError(errRaw);
       expect(err.type).toBe("error");
       expect(err.payload.code).toBe("rate-limited");
-      expect(err.payload.message).toMatch(/min 1 message/i);
+      expect(err.payload.message).toMatch(/chat rate exceeded/i);
     } finally {
       if (client.readyState === client.OPEN) client.close();
     }
   });
 
-  it("rejects chat that exceeds 280 characters with rate-limited (too-long)", async () => {
+  it("rejects chat that exceeds 200 characters with invalid-message", async () => {
+    // The TASK-16 validation step caps the post-trim length at
+    // 200 characters; the rejection comes back as `invalid-message`
+    // (not `rate-limited`) so a malicious client can debug its own
+    // input.
     const client = await openClient(harness.url);
     try {
       await reachJoined(client, "TEST-CHAT-LONG", harness);
@@ -199,8 +211,8 @@ describe("ws/ratelimit chat limits (TASK-65)", () => {
       const [errRaw] = await errors;
       const err = decodeError(errRaw);
       expect(err.type).toBe("error");
-      expect(err.payload.code).toBe("rate-limited");
-      expect(err.payload.message).toMatch(/exceeds 280/);
+      expect(err.payload.code).toBe("invalid-message");
+      expect(err.payload.message).toMatch(/exceeds 200/);
     } finally {
       if (client.readyState === client.OPEN) client.close();
     }

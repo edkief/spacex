@@ -41,6 +41,8 @@ import { WebSocketServer, type WebSocket } from "ws";
 import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 
+import type { Shard } from "./shard/types.js";
+
 import {
   ConnectionRegistry,
   snapshotConnection,
@@ -69,6 +71,11 @@ import {
   GENERAL_BURST,
   GENERAL_RATE_LIMIT,
 } from "./ratelimit.js";
+import {
+  ChatWindowLimiter,
+  CHAT_WINDOW_MAX as CHAT_WINDOW_MAX_V16,
+  CHAT_WINDOW_MS as CHAT_WINDOW_MS_V16,
+} from "./chat.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -150,6 +157,13 @@ export interface WsHandle {
    * `createConnectionCloseHook({ router })`.
    */
   setOnConnectionClose: (hook: (conn: Connection) => void) => void;
+  /**
+   * TASK-16: swap in the `shardFor` lookup used by `onChat` to
+   * resolve a connection's shard. Production wires this to the
+   * router's `get(systemId)` lookup so the chat broadcast lands
+   * in the same shard the connection is in.
+   */
+  setShardFor: (lookup: (conn: Connection) => Shard | undefined) => void;
 }
 
 /** Tunable keepalive knobs. Tests override these to avoid real timers. */
@@ -196,6 +210,16 @@ export interface WsHandleOptions {
    * WS layer remains router-agnostic in unit tests.
    */
   onConnectionClose?: (conn: Connection) => void;
+  /**
+   * TASK-16: lookup the shard a connection belongs to so the chat
+   * pipeline can broadcast without taking a router dependency.
+   * Production wires this to `(conn) => router.get(conn.systemId)`
+   * (returning `undefined` for connections not in a system). The
+   * default is `undefined`; `onChat` short-circuits when this seam
+   * is missing so unit tests can exercise just the validation /
+   * sanitization / rate-limit branches.
+   */
+  shardFor?: (conn: Connection) => Shard | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -262,6 +286,10 @@ export function attachWs(
   const pongTimeoutMs = options.keepalive?.pongTimeoutMs ?? DEFAULT_PONG_TIMEOUT_MS;
   const maxMessageBytes = options.maxMessageBytes ?? MAX_MESSAGE_BYTES;
   const now = options.now ?? Date.now;
+  let shardFor: ((conn: Connection) => Shard | undefined) | undefined = options.shardFor;
+  const setShardFor = (next: (conn: Connection) => Shard | undefined): void => {
+    shardFor = next;
+  };
 
   app.server.on("upgrade", (request, socket, head) => {
     const url = request.url ?? "";
@@ -302,6 +330,10 @@ export function attachWs(
         CHAT_MAX_LEN,
         now,
       ),
+      // TASK-16: per-connection 5 / 10 s chat-window limiter. Lives
+      // alongside the TASK-65 limiter so the older tests still pass
+      // and so the new chat pipeline can be evolved independently.
+      chatWindowLimiter: new ChatWindowLimiter(CHAT_WINDOW_MS_V16, CHAT_WINDOW_MAX_V16, now),
     };
     registry.add(ws, conn);
 
@@ -357,7 +389,22 @@ export function attachWs(
       // swap in the real resolver after the router is constructed
       // (TASK-12). The cost is one extra closure dereference per
       // inbound message; that's negligible compared to JSON.parse.
-      void processRawFrame(c, registry, authResolver, joinResolver, logoutResolver, options, text);
+      // TASK-16: thread the (possibly re-assigned) `shardFor` lookup
+      // into the options bag so `onChat` can broadcast without the
+      // WS layer holding a router reference.
+      const chatAwareOptions: WsHandleOptions = {
+        ...options,
+        shardFor,
+      };
+      void processRawFrame(
+        c,
+        registry,
+        authResolver,
+        joinResolver,
+        logoutResolver,
+        chatAwareOptions,
+        text,
+      );
     });
   });
 
@@ -417,6 +464,7 @@ export function attachWs(
     registry,
     setJoinResolver,
     setOnConnectionClose,
+    setShardFor,
   };
 }
 

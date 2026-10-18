@@ -31,6 +31,7 @@
 import { EventEmitter } from "node:events";
 
 import type { ProtocolEntityState, ProtocolShipClassId } from "@shared/protocol/index.js";
+import { ChatRingBuffer, type ChatEntry } from "../chat.js";
 
 import {
   entityToWire,
@@ -103,6 +104,9 @@ export function createShard(args: {
     broadcast: args.broadcast,
     onTickObserver: args.onTickObserver ?? null,
     generation: args.generation ?? 1,
+    // TASK-16: per-shard chat log. Fresh per shard (reaped shards
+    // re-create from scratch so cross-system chat never leaks).
+    chatLog: new ChatRingBuffer(),
     stats: () => {
       // The shape is sealed below; this stub is replaced once `sim`
       // is constructed.
@@ -135,6 +139,7 @@ export function createShard(args: {
     sim.stop();
     shard.connections.clear();
     shard.entities.clear();
+    shard.chatLog.clear();
   };
   if (args.autoStart !== false) sim.start();
   return shard;
@@ -368,6 +373,57 @@ export function sendEntityUpdate(
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Chat helpers — TASK-16
+// ---------------------------------------------------------------------------
+
+/**
+ * Append a chat message to the shard's log AND emit a `chat` frame
+ * to every connection currently in the shard (sender included).
+ * The caller has already validated / sanitized the text and passed
+ * the per-connection rate limit.
+ *
+ * The function is transport-agnostic: it walks `shard.connections`
+ * and calls `shard.send(connId, ...)` per connection, matching the
+ * pattern the entity-update broadcast uses. The router injects
+ * `send` so the test harness can substitute a recorder.
+ *
+ * Returns the stored entry so callers (tests) can match the
+ * server-assigned id.
+ */
+export function broadcastChat(
+  shard: Shard,
+  args: { author: string; text: string; ts: number },
+): ChatRingBufferEntry {
+  const entry = shard.chatLog.append(args);
+  const frame = {
+    type: "chat",
+    payload: {
+      id: entry.id,
+      author: entry.author,
+      text: entry.text,
+      ts: entry.ts,
+    },
+  } as const;
+  // Cast to the wider `ConnSender` shape (entity_update | chat) so
+  // the same hook can drive both broadcast paths. The router wires
+  // a single function that handles both frame types.
+  const send = shard.send as (
+    connId: string,
+    frame: { type: "entity_update" | "chat"; payload: unknown },
+  ) => void;
+  for (const conn of shard.connections.values()) {
+    send(conn.connId, frame);
+  }
+  return entry;
+}
+
+/**
+ * Re-export of `ChatRingBuffer.ChatEntry` so the public surface
+ * stays co-located with the rest of the shard helpers.
+ */
+export type ChatRingBufferEntry = ChatEntry;
 
 // ---------------------------------------------------------------------------
 // Test helper — drive the sim loop manually for unit tests.

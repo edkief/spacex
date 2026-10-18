@@ -16,6 +16,7 @@ import type { Shard } from "../shard/types.js";
 import type { ShardFlushService } from "../shard/persist.js";
 
 import type { PresenceBroadcaster } from "./presence.js";
+import type { ConnSender } from "../shard/types.js";
 
 /**
  * One connection's view of the world as the router sees it. The
@@ -128,4 +129,13 @@ export interface RouterOptions {
    * protocol bumps (TASK-15) extend the roster fields in one place.
    */
   presenceBroadcaster?: PresenceBroadcaster;
+  /**
+   * TASK-16: per-connection frame sender. Wired into every shard
+   * the router spawns as `shard.send` so the chat pipeline can
+   * push `{type:'chat', payload: ChatEntry}` frames to the right
+   * socket. Also covers future per-connection broadcasts (entity
+   * updates, combat events). Defaults to a no-op when omitted so
+   * pure-router unit tests don't have to wire the WS layer.
+   */
+  connSender?: ConnSender;
 }

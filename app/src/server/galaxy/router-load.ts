@@ -25,7 +25,7 @@
 import type { EventEmitter } from "node:events";
 
 import type { Repository } from "../db/repo.js";
-import type { Shard } from "../shard/types.js";
+import type { ConnSender, Shard } from "../shard/types.js";
 import { createShard } from "../shard/index.js";
 import { loadShipsForShard } from "../shard/load.js";
 
@@ -51,6 +51,14 @@ export interface LoadAndRegisterDeps {
   logger: Pick<Console, "info" | "warn" | "error" | "debug">;
   now: () => number;
   maps: RouterShardMaps;
+  /**
+   * TASK-16: per-connection frame sender. Threaded into the shard
+   * via `createShard({ send })` so `broadcastChat()` can push
+   * `{type:'chat', payload: ChatEntry}` frames to the matching
+   * socket. When omitted, the shard gets the existing noop stub
+   * (preserves the behavior the router has had since TASK-11 / 13).
+   */
+  connSender?: ConnSender;
 }
 
 /**
@@ -97,12 +105,13 @@ export async function loadAndRegister(systemId: string, deps: LoadAndRegisterDep
   const shard: Shard = createShard({
     systemId,
     context,
-    // The router doesn't know how to send per-connection frames — it
-    // routes through the shard's `send` callback, which the WS
-    // layer registers via `attachRouter` (see below). We seed both
-    // with noops and require the WS layer to replace them with the
-    // real writers before serving frames.
-    send: () => undefined,
+    // TASK-16: the WS layer wires a real per-connection frame
+    // sender via `RouterOptions.connSender`. When omitted, the
+    // shard gets a noop stub so unit tests don't have to wire the
+    // WS layer. The same hook is responsible for entity_update +
+    // chat + combat_event frames — `ConnSender` accepts all three
+    // types via the union shape.
+    send: deps.connSender ?? (() => undefined),
     broadcast: () => undefined,
     events: deps.events,
     logger: deps.logger,

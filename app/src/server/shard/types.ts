@@ -30,6 +30,7 @@ import type { EventEmitter } from "node:events";
 
 import type { Planet, SystemGen } from "@shared/galaxy/types.js";
 import type { ProtocolEntityState, ProtocolShipClassId } from "@shared/protocol/index.js";
+import type { ChatRingBuffer } from "../chat.js";
 import type { ShipRow } from "../db/types.js";
 
 import type { SimLoop, SimLoopStats } from "./sim.js";
@@ -273,13 +274,28 @@ export type SnapshotBroadcaster = (
 
 /**
  * Connection send hook — keeps the shard transport-agnostic. The
- * router injects a function that writes an `entity_update` frame to
- * the right WS connection. For TASK-13 the tests inject a recorder.
+ * router injects a function that writes a per-connection frame to
+ * the right WS socket. The union accepts every frame type the
+ * shard currently pushes (`entity_update` from the sim loop,
+ * `chat` from `broadcastChat`, `combat_event` from
+ * `broadcastCombatEvent`); the WS layer decides how to serialise
+ * each. For unit tests the tests inject a recorder.
  */
 export type ConnSender = (
   connId: string,
-  frame: { type: "entity_update"; payload: unknown },
+  frame:
+    | { type: "entity_update"; payload: unknown }
+    | { type: "chat"; payload: unknown }
+    | { type: "combat_event"; payload: unknown },
 ) => void;
+
+/**
+ * TASK-16: chat send hook. Same shape as `ConnSender` but typed
+ * against the `chat` frame so the broadcast helper gets full
+ * inference. The router injects a function that writes the
+ * `{type:'chat', payload: ChatEntry}` frame to the matching socket.
+ */
+export type ChatSender = (connId: string, frame: { type: "chat"; payload: unknown }) => void;
 
 /**
  * Persistence hook — TASK-13 calls this once per interval (every Nth
@@ -336,6 +352,13 @@ export interface Shard {
    * generation 1; each subsequent re-spawn bumps it.
    */
   generation: number;
+  /**
+   * TASK-16: per-shard chat history (rolling 100 messages). New
+   * chats are appended via `broadcastChat()`; the buffer survives
+   * individual join/leave churn but resets when the shard itself is
+   * reaped (system change = fresh log).
+   */
+  chatLog: ChatRingBuffer;
   /** Read-only snapshot of sim loop health (p50/p95/p99 + tick count). */
   readonly stats: () => SimLoopStats;
   /** Detach every connection + stop the sim. Idempotent. */

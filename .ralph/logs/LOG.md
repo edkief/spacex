@@ -2,7 +2,61 @@
 
 `Current Status`
 =================
-**Last Updated:** 2026-10-17 22:13
+**Last Updated:** 2026-10-18 00:25
+
+### 2026-10-18 — Iteration 1
+- **TASK-16** System-wide text chat → **DONE**
+  - **Server chat utilities** — new module `app/src/server/chat.ts` (~280 lines + 24 unit tests in `chat.test.ts`):
+    - `sanitizeChatText(input)` strips ASCII controls except `\n`/`\t`, DEL (`0x7F`), zero-width characters (`U+200B-U+200F`), bidi embedding marks (`U+202A-U+202E`), BOM (`U+FEFF`), then collapses whitespace runs. XSS payloads like `<img src=x onerror=alert(1)>` survive sanitization (server keeps the angle brackets) so the React auto-escape path can render them as inert text.
+    - `validateChatText(raw)` returns a discriminated union: accepts non-empty trimmed strings ≤ 200 chars, rejects empty (incl. whitespace-only) with `reason:"empty"`, oversize with `reason:"too-long"`, non-string with `reason:"not-a-string"`.
+    - `ChatRingBuffer` — 100-entry FIFO (`CHAT_HISTORY_LIMIT`) with monotonic `chat-N` ids; `snapshot()` returns a fresh array (consumed by `enter_system.chat`); `clear()` is called by the shard on reap.
+    - `ChatWindowLimiter` — sliding window of 5 timestamps over 10 s; records timestamps on accept only (rejections don't extend the window); throws on non-positive bounds. Reused as `Connection.chatWindowLimiter` in `ws.connection.ts` so TASK-65's older `ChatLimiter` stays untouched for its dedicated tests.
+  - **Shard wiring** — `app/src/server/shard/index.ts` + `types.ts`:
+    - Per-shard `chatLog: ChatRingBuffer` constructed by `createShard` and cleared on reap.
+    - `ConnSender` type widened to accept the union `entity_update|chat|combat_event` so `broadcastChat` can write through the same hook.
+    - New `broadcastChat(shard, args)` appends to the log and emits `{type:"chat", payload: ChatEntry}` to every connection in the shard (sender echo intentional).
+  - **WS handlers** — `app/src/server/ws.handlers.ts#onChat`:
+    - Pipeline: validate (empty/too-long/non-string) → sanitize → rate-limit (5/10 s window) → broadcast.
+    - Validation failures send `{type:"error", code:"invalid-message"}`; rate-limit failures send `{type:"error", code:"rate-limited"}` with the formatted window message.
+    - Resolves the shard via `options.shardFor(conn)` (a new `WsHandle` setter the WS layer exposes); missing shard = silent drop (the dispatch guard already rejects pre-join).
+  - **WS layer plumbing** — `app/src/server/ws.ts` + `app/src/server/galaxy/ws-router-bridge.ts` + `app/src/server/galaxy/router.ts` + `app/src/server/galaxy/router-load.ts` + `app/src/server/galaxy/router-types.ts`:
+    - New `WsHandle.setShardFor` (re-assignable lookup) wires `onChat` to the shard without taking a router dependency.
+    - `Connection.chatWindowLimiter` initialised in `attachWs` with the live clock so test overrides (TASK-65 fake-now) work for chat too.
+    - New `RouterOptions.connSender` lets the router inject a real per-connection frame sender into every spawned shard. `buildConnSender({ registry })` walks `ConnectionRegistry` and writes the typed frame to the matching open socket (JSON.stringify in place so callers don't repeat the envelope shape).
+    - `app/src/server/index.ts` wires both `presenceBroadcaster` and `connSender` from the live WS registry at boot, so production chats actually reach the client.
+  - **Galaxy router integration** — `app/src/server/galaxy/join-resolver.ts` now seeds `enter_system.chat` with `shard.chatLog.snapshot()` so a freshly-joined client gets the last 100 messages from the shard's rolling log.
+  - **WS-client integration** — `app/src/client/net/wsClient.ts`:
+    - New `ChatStore` instance per `DriftClient`, exposed via `client.chatStore`.
+    - Inbound `chat` frame routed through `chat.applyChatFrame(...)` (server-assigned id keeps duplicate echos idempotent).
+    - Inbound `enter_system.chat` initialised via `chat.seedHistory(payload.chat)` (clears any prior system first).
+    - `chat.clear()` called on disconnect + on `joinSystem` re-target so messages from the previous system don't leak.
+    - New `sendChat(text)` helper writes `{type:"chat", payload:{text}}` to the open socket (throws if not online; the UI gates on the `online` status so the throw is defensive).
+  - **Chat store** — `app/src/client/net/chat.ts` (~175 lines):
+    - `ChatStore` keeps a 100-entry ring + a cached snapshot (`useSyncExternalStore` requires referential identity between events, same pattern as `PresenceStore`).
+    - `applyChatFrame` dedupes by server id; `seedHistory` replaces contents; `clear` empties; `subscribe(listener)` returns unsubscribe.
+    - Exports `formatChatLine(entry)` (`[HH:MM] CALLSIGN: text`) and `formatTime(ts)` for the React layer.
+  - **Chat UI** — `app/src/client/components/ChatLog.tsx` (~190 lines):
+    - Top-left, fixed position 280×280, monospace, dark glass background. Renders above the player list (which sits at bottom-left), below the header pill (marginTop: 56).
+    - Subscribes via `useSyncExternalStore` for the snapshot. Renders one row per entry with `data-testid="drift-chat-log-row"` + `data-author` + `data-id` for the e2e assertions.
+    - Input toggles via global `Enter` (or the `+` button in the panel header); closes on `Escape` or after send. Submit disables the Send button when the trimmed draft is empty.
+    - **Auto-scroll pinned only when at bottom** (`useLayoutEffect` + `scrollHeight - scrollTop - clientHeight ≤ 24 px` heuristic) so reading history isn't yanked back down on new messages.
+    - No `dangerouslySetInnerHTML` anywhere — JSX text auto-escape renders XSS payloads as inert text.
+    - `canSend={false}` while `status !== "online"` so a typed-and-lost message can't be silently dropped.
+  - **App shell** — `app/src/client/App.tsx` mounts `<ChatLog store={client.chatStore} canSend={status === "online"} onSend={(t) => client.sendChat(t)} />` alongside the existing presence widgets.
+  - **Protocol tweaks** — `app/src/shared/protocol/schemas.ts`:
+    - `ChatEntrySchema.text` cap tightened from 500 → 200 chars (server-side enforced after trim).
+    - `ChatSchema.text` cap kept at 500 so the wire-level parser can still emit a structured `invalid-message` instead of crashing on a hostile client.
+  - **Tests** — 33 new cases across three suites:
+    - `app/src/server/chat.test.ts` (24 cases): sanitize passthrough + control-byte strip + DEL + zero-width/bidi + whitespace collapse + XSS inert; validate accept + reject (empty/too-long/non-string + bounds); ring FIFO + 100-entry cap + fresh snapshot array + clear; window limiter accept/reject/window-slide/recorded-only-on-accept/positive-bounds/messages.
+    - `app/src/server/ws.chat.test.ts` (9 cases, real Fastify+ws boot): sender echo + cross-client broadcast; monotonic-ts ordering across 3 messages; 6th message in 10 s dropped with `rate-limited`; empty/too-long/non-string rejected with `invalid-message`; control-byte sanitization (broadcast carries `a b c`); XSS payload survives the wire as text; `enter_system.chat` seeded with the shard's rolling history for newly-joining clients.
+    - `app/src/server/ws.ratelimit.test.ts` updated: the chat-limit cases now exercise the TASK-16 surface (5/10 s window + 200-char cap with `invalid-message` rejection) so a future pipeline swap can't slip past CI.
+  - **e2e** — new `app/tests/e2e/chat.spec.ts`:
+    - Two browser contexts boot, join the same system via the `window.__driftClient` debug seam, and assert that messages sent from context A appear in context B's `chatStore.snapshot()` (and vice versa for sender echo).
+    - XSS payload `<img src=x onerror=alert(1)>` is asserted to survive the wire AND to render without an `<img>` element injected into `drift-chat-log-scroll`.
+    - Captures `.ralph/screenshots/TASK-16-1.png` showing the live UI: header pill, SYSTEM CHAT panel with three messages including the XSS payload rendered as text, IN SYSTEM player list, and three toasts. Console-error assertion on both contexts.
+  - **Vitest** — 982 cases pass (`npm test` clean), 33 new from TASK-16. **`npm run typecheck`** and **`npm run lint`** (eslint + prettier --check) both clean. **All 6 Playwright specs** pass (scaffold + presence + livery + 2 prediction + new chat).
+  - Smoke verified end-to-end via `npm run dev` (Fastify on `:3001`, Vite proxy on `:3000`):
+    - Two browser contexts opened `/`, both auto-claimed fresh `Drift-<id>` callsigns, were driven into the same clean system, and the live UI rendered the chat messages across both contexts as expected.
 
 ### 2026-10-17 — Iteration 31
 - **TASK-15** Presence: in-system player list and toasts → **DONE**

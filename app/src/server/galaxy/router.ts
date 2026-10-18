@@ -77,7 +77,7 @@ import {
 } from "@shared/galaxy/constants.js";
 
 import type { Repository } from "../db/repo.js";
-import type { Shard } from "../shard/types.js";
+import type { ConnSender, Shard } from "../shard/types.js";
 import { ShardFlushService } from "../shard/persist.js";
 
 import { GalaxySystemNotFoundError } from "./system-data.js";
@@ -189,6 +189,14 @@ export class GalaxyRouter {
    * silent (the test-only no-op path).
    */
   private readonly presenceBroadcaster: PresenceBroadcaster | undefined;
+  /**
+   * TASK-16: per-connection frame sender, threaded into every
+   * shard the router spawns via `loadAndRegister`. Lets the chat
+   * pipeline write `{type:'chat', payload: ChatEntry}` frames to
+   * the right socket. `undefined` in unit tests; the WS layer
+   * injects the real writer at boot.
+   */
+  private readonly connSender: ConnSender | undefined;
 
   constructor(options: RouterOptions) {
     if (!(options.galaxyStarCount > 0)) {
@@ -208,6 +216,7 @@ export class GalaxyRouter {
     this.logger = options.logger ?? silentLogger();
     this.now = options.now ?? Date.now;
     this.presenceBroadcaster = options.presenceBroadcaster;
+    this.connSender = options.connSender;
 
     if (!Number.isFinite(this.reapGraceMs) || this.reapGraceMs < 0) {
       throw new Error(
@@ -318,6 +327,7 @@ export class GalaxyRouter {
       events: this.events,
       logger: this.logger,
       now: this.now,
+      connSender: this.connSender,
       maps: this.shardMaps(),
     });
   }

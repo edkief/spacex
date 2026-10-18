@@ -27,7 +27,12 @@
  * @see ./router.ts for the router API.
  * @see ../ws.connection.ts for the connection shape.
  */
-import { encodeEnvelope, type MessageType, type PayloadFor } from "@shared/protocol/index.js";
+import {
+  encodeEnvelope,
+  PROTOCOL_VERSION,
+  type MessageType,
+  type PayloadFor,
+} from "@shared/protocol/index.js";
 
 import type { Connection, ConnectionRegistry } from "../ws.connection.js";
 
@@ -71,6 +76,43 @@ export function buildPresenceBroadcaster(args: {
         // Socket torn down between the readyState check and the
         // send. Swallowed — the close handler will clean up.
       }
+    }
+  };
+}
+
+/**
+ * TASK-16: per-connection frame sender wired into every shard via
+ * `RouterOptions.connSender`. Walks the live `ConnectionRegistry`
+ * to find the target socket for the requested `connId` and writes
+ * the supplied frame verbatim. Used by `broadcastChat()` /
+ * `sendEntityUpdate()` / `broadcastCombatEvent()` — the shard
+ * delegates the transport step to this closure so the shard itself
+ * stays transport-agnostic.
+ *
+ * The closure is type-narrowed to the union of frame types the
+ * shard produces (entity_update / chat / combat_event); the WS
+ * layer passes the frame through `JSON.stringify` because the
+ * shard callers already build the typed wire shape.
+ */
+export function buildConnSender(args: {
+  registry: ConnectionRegistry;
+}): (connId: string, frame: { type: string; payload: unknown }) => void {
+  const { registry } = args;
+  return (connId, frame) => {
+    // The frame is already a typed wire shape — callers build
+    // `{v: PROTOCOL_VERSION, ...frame}` then stringify. We do the
+    // stringify here so the shard callers stay free of any
+    // transport detail.
+    for (const conn of registry.values()) {
+      if (conn.connId !== connId) continue;
+      if (conn.ws.readyState !== conn.ws.OPEN) return;
+      try {
+        conn.ws.send(JSON.stringify({ v: PROTOCOL_VERSION, ...frame }));
+      } catch {
+        // Socket torn down between the readyState check and the
+        // send. Swallowed — the close handler will clean up.
+      }
+      return;
     }
   };
 }

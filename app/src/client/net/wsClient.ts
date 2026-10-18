@@ -41,6 +41,7 @@ import {
 } from "@shared/protocol/index.js";
 
 import { PresenceStore } from "./presence.js";
+import { ChatStore } from "./chat.js";
 import { RemoteEntityBuffer } from "./prediction.js";
 import type { PayloadFor as WirePayloadFor } from "@shared/protocol/index.js";
 
@@ -101,6 +102,12 @@ export interface DriftClientOptions {
    * remote buffer. Defaults to a fresh `RemoteEntityBuffer`.
    */
   remoteBuffer?: RemoteEntityBuffer;
+  /**
+   * Optional override: feed chat frames into a custom store.
+   * Tests pass a pre-seeded store; production uses the React
+   * shell's instance.
+   */
+  chatStore?: ChatStore;
   /** Optional status lifecycle observer. */
   onStatus?: StatusListener;
   /** Optional error observer. */
@@ -130,6 +137,7 @@ interface ClaimResponse {
 export class DriftClient {
   private readonly opts: DriftClientOptions;
   private readonly presence: PresenceStore;
+  private readonly chat: ChatStore;
   private readonly remoteBuffer: RemoteEntityBuffer;
   private readonly remoteBuffers = new Map<string, RemoteEntityBuffer>();
   private socket: WebSocket | null = null;
@@ -144,12 +152,18 @@ export class DriftClient {
   constructor(opts: DriftClientOptions = {}) {
     this.opts = opts;
     this.presence = opts.presenceStore ?? new PresenceStore();
+    this.chat = opts.chatStore ?? new ChatStore();
     this.remoteBuffer = opts.remoteBuffer ?? new RemoteEntityBuffer();
   }
 
   /** The presence store. The React shell subscribes via this reference. */
   get presenceStore(): PresenceStore {
     return this.presence;
+  }
+
+  /** The chat store. The React shell subscribes via this reference. */
+  get chatStore(): ChatStore {
+    return this.chat;
   }
 
   /** The remote-entity buffer (TASK-14). */
@@ -254,6 +268,7 @@ export class DriftClient {
     }
     this.socket = null;
     this.presence.leaveAll();
+    this.chat.clear();
     this.setStatus("disconnected");
   }
 
@@ -270,11 +285,32 @@ export class DriftClient {
     if (!this.socket) {
       throw new Error("DriftClient: joinSystem requires a live socket — call start() first");
     }
-    // Clear the local roster so any HUD mounted during the join
-    // doesn't render stale entries.
+    // Clear the local roster + chat so any HUD mounted during the
+    // join doesn't render stale entries from the previous system.
     this.presence.leaveAll();
+    this.chat.clear();
     await this.runJoin(this.socket, systemId);
     this.systemId = systemId;
+  }
+
+  /**
+   * Send a chat message to the server. The server validates +
+   * sanitizes + rate-limits; on accept it broadcasts a `chat`
+   * frame back to every connection in the shard (sender included)
+   * so the UI collapses on the echo. Returns once the message
+   * has been handed to the WebSocket layer — the caller can use
+   * the chat store's snapshot to confirm delivery once the echo
+   * arrives.
+   *
+   * Throws if the socket isn't open (i.e. the client isn't
+   * `online`). The `ChatLog` UI guards against this with the
+   * online-state check.
+   */
+  sendChat(text: string): void {
+    if (!this.socket || this.socket.readyState !== this.socket.OPEN) {
+      throw new Error("DriftClient: sendChat requires an open socket");
+    }
+    this.socket.send(encodeEnvelope("chat", { text }));
   }
 
   // ---------------------------------------------------------------------
@@ -377,7 +413,13 @@ export class DriftClient {
           // here — the store will receive the canonical roster
           // within a few ms. We just need to know the join was
           // accepted to resolve.
-          void (env.payload as PayloadFor<"enter_system">);
+          const payload = env.payload as PayloadFor<"enter_system">;
+          // TASK-16: seed the chat history so the freshly-joined
+          // client renders the previous 100 messages immediately.
+          // The server caps `chat` at 100 so the array is always
+          // bounded. (Earlier in `joinSystem` / `clear` we already
+          // dropped any prior entries.)
+          this.chat.seedHistory(payload.chat as unknown as Parameters<ChatStore["seedHistory"]>[0]);
           socket.removeEventListener("message", onMessage);
           resolve();
           return;
@@ -405,6 +447,16 @@ export class DriftClient {
         const payload = env.payload as PayloadFor<"presence">;
         this.opts.presenceSink?.(payload);
         this.presence.applyPresenceFrame(payload);
+        return;
+      }
+      case "chat": {
+        // TASK-16: feed the broadcast into the chat store. The
+        // server emits this frame on every accept; sender included.
+        // The outbound `ChatSchema` is just `{text}`, but the
+        // broadcast payload carries the full ChatEntry shape — we
+        // accept the broader type and let `applyChatFrame` validate.
+        const payload = env.payload as unknown as Parameters<ChatStore["applyChatFrame"]>[0];
+        this.chat.applyChatFrame(payload);
         return;
       }
       case "state_snapshot":
@@ -438,6 +490,7 @@ export class DriftClient {
 
   private handleClose = (): void => {
     this.presence.leaveAll();
+    this.chat.clear();
     this.setStatus("disconnected");
   };
 

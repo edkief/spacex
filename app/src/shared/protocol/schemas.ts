@@ -76,12 +76,20 @@ export const EntityStateSchema = z
   .strict();
 export type ProtocolEntityState = z.infer<typeof EntityStateSchema>;
 
-/** A single chat line (entry in the rolling 100-message history). */
+/**
+ * A single chat line (entry in the rolling 100-message history).
+ *
+ * `text` is the *sanitized* form the server sends; the server caps
+ * the post-trim length at 200 characters (TASK-16) so the wire
+ * shape is narrow. `id` is server-assigned and monotonic per shard
+ * (the client uses it to dedupe echos when the broadcast loop
+ * races with the original send).
+ */
 export const ChatEntrySchema = z
   .object({
     id: z.string().min(1),
     author: z.string().min(1),
-    text: z.string().min(1).max(500),
+    text: z.string().min(1).max(200),
     ts: z.number().int().finite(),
   })
   .strict();
@@ -215,7 +223,14 @@ export const EntityUpdateSchema = z
   })
   .strict();
 
-/** `chat` — outbound text message (rate-limited in TASK-65). */
+/**
+ * `chat` — outbound text message (TASK-16).
+ *
+ * The wire cap is `500` characters so a client can send an oversized
+ * payload and still receive a structured `invalid-message` rejection
+ * (TASK-64) — the 200-character post-trim cap is enforced
+ * server-side inside the chat pipeline.
+ */
 export const ChatSchema = z
   .object({
     text: z.string().min(1).max(500),

@@ -25,7 +25,11 @@ import { buildAuthResolver, buildLogoutResolver } from "./auth/resolver.js";
 import { ShardFlushService, DEFAULT_FLUSH_INTERVAL_MS } from "./shard/persist.js";
 import { GalaxyRouter } from "./galaxy/router.js";
 import { buildRouterJoinResolver } from "./galaxy/join-resolver.js";
-import { buildPresenceBroadcaster, createConnectionCloseHook } from "./galaxy/ws-router-bridge.js";
+import {
+  buildPresenceBroadcaster,
+  buildConnSender,
+  createConnectionCloseHook,
+} from "./galaxy/ws-router-bridge.js";
 import { DEFAULT_SHUTDOWN_WATCHDOG_MS } from "@shared/galaxy/constants.js";
 
 async function main(): Promise<void> {
@@ -90,6 +94,11 @@ async function main(): Promise<void> {
     // walks `registry.values()` and writes to sockets whose
     // `systemId` matches the broadcast's system.
     presenceBroadcaster: buildPresenceBroadcaster({ registry: ws.registry }),
+    // TASK-16: per-connection frame sender. Wired into every
+    // shard via `RouterOptions.connSender` so the chat pipeline
+    // (and future per-connection broadcasts: combat, etc.) can push
+    // frames to the right socket without taking a WS dependency.
+    connSender: buildConnSender({ registry: ws.registry }),
   });
   // Wire the close hook so every socket close calls
   // `router.leaveSystem(systemId, connId)`. The setters exposed on
@@ -101,6 +110,13 @@ async function main(): Promise<void> {
   // map; pre-attaching the router first ensures no joinSystem call
   // can race the broadcaster wiring.
   ws.setJoinResolver(buildRouterJoinResolver({ repo, router }));
+  // TASK-16: chat pipeline needs to look up the shard a connection
+  // belongs to so `onChat` can broadcast. The router exposes a
+  // thin `get(systemId)` lookup; we resolve it via `conn.systemId`
+  // (already populated by `onJoinSystem`).
+  ws.setShardFor((conn) =>
+    conn.systemId === null ? undefined : (router.get(conn.systemId) ?? undefined),
+  );
   // Register the health route now that the router exists.
   // (buildApp is intentionally not re-called; we register the route
   // directly here to avoid the double-listener cost.)
