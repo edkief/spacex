@@ -1,5 +1,5 @@
 /**
- * Client-side WebSocket glue (TASK-15).
+ * Client-side WebSocket glue + reconnect (TASK-15 + TASK-17).
  *
  * Wraps the `WebSocket` browser API with the Drift handshake so
  * `App.tsx` only has to instantiate one `DriftClient` per mount
@@ -18,15 +18,50 @@
  *      every `state_snapshot` / `entity_update` into the
  *      `RemoteEntityBuffer` (TASK-14).
  *
- * The client surfaces a small lifecycle hook API for the React
- * shell: `onStatusChange`, `onError`. The store is the only
- * authoritative state surface; React subscribes to it directly via
- * `useSyncExternalStore`.
+ * ## Reconnect + resync (TASK-17)
+ *
+ * When the underlying socket closes (network blip, tab sleep,
+ * server restart) the client does NOT immediately give up:
+ *
+ *   - Auto-retry with exponential backoff (1 s → 5 s) for up to
+ *     30 s of wall-clock retry budget. The retry only resumes the
+ *     session (`hello → auth → join_system`) — the callsign claim
+ *     is one-shot and re-uses the token from the original claim.
+ *   - On reconnect, the client re-runs the handshake with the
+ *     saved token. The server returns the canonical `enter_system`
+ *     snapshot for the player's current system, so the client
+ *     re-hydrates its remote-entity buffers and resyncs the
+ *     prediction engine.
+ *   - If the disconnect lasted < 60 s **and** the system id is
+ *     unchanged, the client preserves `presence` + `chat` state.
+ *     Otherwise it clears the stores so a stale roster doesn't
+ *     leak into the next session.
+ *   - On every successful resync the client fires a `reconnected`
+ *     listener (the App.tsx renders a transient "Reconnected"
+ *     toast off this hook).
+ *   - After 30 s of failed retries, the client transitions to
+ *     `"lost"` status — the App shows the "Connection lost"
+ *     overlay with a manual Retry button.
+ *
+ * ## Lifecycle
+ *
+ *   - `idle`      — constructed, no socket yet.
+ *   - `claiming`  — REST callsign claim in flight.
+ *   - `connecting` — WebSocket opening.
+ *   - `handshaking` — `hello → auth` in flight.
+ *   - `joining`   — `join_system → enter_system` in flight.
+ *   - `online`    — fully connected, receiving snapshots.
+ *   - `reconnecting` — socket closed, retrying (in-band).
+ *   - `disconnected` — user-called `stop()`.
+ *   - `lost`      — auto-reconnect budget exhausted.
+ *   - `error`     — unrecoverable error (e.g. claim failed).
  *
  * The client is pure TypeScript with no React dependency so it
- * can be unit-tested against a real Fastify server (or a mocked
- * `WebSocket`). The `createDriftClient` factory accepts a
- * `WebSocketFactory` so tests can inject a stub.
+ * can be unit-tested against a stub `WebSocket` (the
+ * `createSocket` factory accepts a stub). The
+ * `WebSocketFactory` and `Fetcher` overrides are the only seams
+ * needed to drive the reconnect state machine without a real
+ * server.
  *
  * @see ../prediction.ts for the sibling remote-entity buffer the
  *      client feeds (TASK-14).
@@ -53,7 +88,9 @@ export type DriftClientStatus =
   | "handshaking"
   | "joining"
   | "online"
+  | "reconnecting"
   | "disconnected"
+  | "lost"
   | "error";
 
 /** Lifecycle observer. */
@@ -62,11 +99,43 @@ export type StatusListener = (status: DriftClientStatus, detail?: string) => voi
 /** Error observer. */
 export type ErrorListener = (err: Error) => void;
 
+/**
+ * Resync event fired every time the client reaches `online` after
+ * a reconnect. The `preserved` flag tells the UI whether it can
+ * keep its `presence` + `chat` stores (true) or whether it should
+ * wipe them because the system changed or the disconnect lasted
+ * > 60 s (false). The App listens to this to drive its
+ * "Reconnected" toast + prediction-engine reset.
+ */
+export interface ResyncEvent {
+  /** True when chat + presence should be preserved. */
+  preserved: boolean;
+  /** The system id we just joined (may equal the previous one). */
+  systemId: string;
+  /** Wall-clock ms when the previous disconnect started. */
+  disconnectedAtMs: number;
+}
+
+/** Resync listener. */
+export type ResyncListener = (event: ResyncEvent) => void;
+
 /** Default factory — `WebSocket` from the global scope in the browser. */
 export type WebSocketFactory = (url: string) => WebSocket;
 
 /** Default HTTP fetcher — `fetch` from the global scope in the browser. */
 export type Fetcher = typeof fetch;
+
+/** Sleep function — tests inject a no-op or fast-forward fake. */
+export type Sleeper = (ms: number) => Promise<void>;
+
+/** Default options for the auto-retry loop. */
+export const DEFAULT_RETRY_INITIAL_MS = 1_000;
+/** Maximum backoff between retries (ms). */
+export const DEFAULT_RETRY_MAX_MS = 5_000;
+/** Total budget (ms) before the client gives up and goes to `lost`. */
+export const DEFAULT_RETRY_BUDGET_MS = 30_000;
+/** Window (ms) within which the client preserves UI state on reconnect. */
+export const DEFAULT_RESYNC_PRESERVE_MS = 60_000;
 
 /** Public options bag. */
 export interface DriftClientOptions {
@@ -74,6 +143,10 @@ export interface DriftClientOptions {
   createSocket?: WebSocketFactory;
   /** Override the fetch implementation for tests. */
   fetchImpl?: Fetcher;
+  /** Override the sleep implementation for tests. */
+  sleep?: Sleeper;
+  /** Override the wall clock for tests. */
+  now?: () => number;
   /** Origin to talk to (defaults to `window.location.origin`). */
   origin?: string;
   /**
@@ -108,10 +181,28 @@ export interface DriftClientOptions {
    * shell's instance.
    */
   chatStore?: ChatStore;
+  /**
+   * Optional: drop-in replacement for the remote-entity buffer
+   * registry. The default uses `Map<entityId, RemoteEntityBuffer>`
+   * keyed by `entity.id`. The resync path calls `reset()` on this
+   * registry so a reconnect tears down the old buffers; tests can
+   * pass a stub to assert the call lands.
+   */
+  remoteBufferRegistry?: { reset(): void; size(): number };
+  /** Initial backoff between retries (ms). Defaults to 1 s. */
+  retryInitialMs?: number;
+  /** Maximum backoff between retries (ms). Defaults to 5 s. */
+  retryMaxMs?: number;
+  /** Total budget (ms) before the client gives up. Defaults to 30 s. */
+  retryBudgetMs?: number;
+  /** Window (ms) within which the client preserves UI state. Defaults to 60 s. */
+  resyncPreserveMs?: number;
   /** Optional status lifecycle observer. */
   onStatus?: StatusListener;
   /** Optional error observer. */
   onError?: ErrorListener;
+  /** Optional resync observer (fires on every successful reconnect). */
+  onResync?: ResyncListener;
   /**
    * Optional: filter applied to every outbound `presence` frame
    * before it reaches the store. Defaults to identity. Tests use
@@ -131,8 +222,8 @@ interface ClaimResponse {
 }
 
 /**
- * Thin WS client wrapping the Drift handshake. See file header
- * for the lifecycle.
+ * Thin WS client wrapping the Drift handshake + reconnect loop.
+ * See file header for the lifecycle + reconnect semantics.
  */
 export class DriftClient {
   private readonly opts: DriftClientOptions;
@@ -144,16 +235,27 @@ export class DriftClient {
   private status: DriftClientStatus = "idle";
   private playerId: string | null = null;
   private callsign: string | null = null;
+  /** Token cached from the original claim; re-used on reconnect. */
   private token: string | null = null;
+  /** Home system id from the original claim. */
+  private homeSystemId: string | null = null;
   private systemId: string | null = null;
   private statusListeners = new Set<StatusListener>();
   private errorListeners = new Set<ErrorListener>();
+  private resyncListeners = new Set<ResyncListener>();
+  /** Wall-clock ms when the current socket dropped (null while online). */
+  private disconnectedAtMs: number | null = null;
+  /** System id at the moment of the last disconnect (for resync-keep detection). */
+  private lastSystemId: string | null = null;
+  /** In-flight reconnect loop, if any. */
+  private reconnectAbort: { aborted: boolean } | null = null;
 
   constructor(opts: DriftClientOptions = {}) {
     this.opts = opts;
     this.presence = opts.presenceStore ?? new PresenceStore();
     this.chat = opts.chatStore ?? new ChatStore();
     this.remoteBuffer = opts.remoteBuffer ?? new RemoteEntityBuffer();
+    this.presence.setOwnCallsign(opts.callsign ?? null);
   }
 
   /** The presence store. The React shell subscribes via this reference. */
@@ -169,6 +271,11 @@ export class DriftClient {
   /** The remote-entity buffer (TASK-14). */
   get remoteEntityBuffer(): RemoteEntityBuffer {
     return this.remoteBuffer;
+  }
+
+  /** The per-entity remote buffer registry (TASK-14). */
+  get remoteEntityBuffers(): Map<string, RemoteEntityBuffer> {
+    return this.remoteBuffers;
   }
 
   /** Current lifecycle status. */
@@ -191,6 +298,16 @@ export class DriftClient {
     return this.systemId;
   }
 
+  /** True while the auto-reconnect loop is active. */
+  get isReconnecting(): boolean {
+    return this.reconnectAbort !== null;
+  }
+
+  /** Wall-clock ms of the last disconnect (null while online). */
+  get lastDisconnectedAtMs(): number | null {
+    return this.disconnectedAtMs;
+  }
+
   /** Subscribe to status changes. Returns an unsubscribe handle. */
   onStatusChange(listener: StatusListener): () => void {
     this.statusListeners.add(listener);
@@ -208,6 +325,18 @@ export class DriftClient {
   }
 
   /**
+   * Subscribe to resync events (fires every time the client reaches
+   * `online` after a reconnect). The event carries a `preserved`
+   * flag so the listener can decide whether to wipe UI state.
+   */
+  onResyncEvent(listener: ResyncListener): () => void {
+    this.resyncListeners.add(listener);
+    return () => {
+      this.resyncListeners.delete(listener);
+    };
+  }
+
+  /**
    * Drive the full lifecycle: claim → handshake → join. Returns
    * once the client is `online` (post-`enter_system`) or throws on
    * failure. Errors are also forwarded to every registered error
@@ -215,38 +344,31 @@ export class DriftClient {
    */
   async start(): Promise<void> {
     if (this.status === "online" || this.status === "joining") return;
+    let claimed = false;
     try {
       this.setStatus("claiming");
       const claim = await this.claimCallsignWithRetry();
       this.callsign = claim.callsign;
       this.token = claim.token;
+      this.homeSystemId = claim.homeSystemId;
       this.presence.setOwnCallsign(claim.callsign);
+      claimed = true;
 
-      this.setStatus("connecting");
-      const origin = this.opts.origin ?? (typeof location !== "undefined" ? location.origin : "");
-      const wsPath = this.opts.wsPath ?? "/ws";
-      const wsUrl = origin ? `${origin.replace(/^http/, "ws")}${wsPath}` : `${wsPath}`;
-      const socket = (this.opts.createSocket ?? defaultCreateSocket)(wsUrl);
-      this.socket = socket;
-
-      // Attach the persistent message + close handlers BEFORE the
-      // handshake so presence / entity_update frames that fire
-      // during the join aren't lost (the router broadcasts the
-      // presence frame BEFORE enter_system resolves — see
-      // `router.ws-bridge.test.ts`).
-      socket.addEventListener("message", this.handleMessage);
-      socket.addEventListener("close", this.handleClose);
-
-      this.setStatus("handshaking");
-      await this.runHandshake(socket);
-
-      this.setStatus("joining");
-      const targetSystem = this.opts.systemId ?? claim.homeSystemId;
-      await this.runJoin(socket, targetSystem);
-      this.systemId = targetSystem;
+      await this.openSession(claim.homeSystemId, /* preserve */ false);
 
       this.setStatus("online");
     } catch (err) {
+      // If we managed to claim a token but the WS handshake /
+      // join_system failed, we DO NOT immediately give up — the
+      // auto-reconnect loop is the right recovery path (the token
+      // is valid and the server may simply be temporarily
+      // unreachable). We mark the session as "claimed but not
+      // online" and let `handleClose` trigger the retry.
+      if (claimed && this.token && !this.isReconnecting) {
+        this.setStatus("reconnecting", (err as Error).message);
+        this.beginReconnectLoop();
+        return;
+      }
       this.setStatus("error", (err as Error).message);
       this.emitError(err as Error);
       throw err;
@@ -259,6 +381,13 @@ export class DriftClient {
    * collapse to the empty state.
    */
   async stop(): Promise<void> {
+    // Cancel any in-flight reconnect loop so the abort flag stops
+    // a sleeping `await this.sleep(...)` from re-running the
+    // handshake after the user navigated away.
+    if (this.reconnectAbort) {
+      this.reconnectAbort.aborted = true;
+      this.reconnectAbort = null;
+    }
     if (this.socket) {
       try {
         this.socket.close(1000, "client-stop");
@@ -269,6 +398,7 @@ export class DriftClient {
     this.socket = null;
     this.presence.leaveAll();
     this.chat.clear();
+    this.resetRemoteBuffers();
     this.setStatus("disconnected");
   }
 
@@ -289,6 +419,7 @@ export class DriftClient {
     // join doesn't render stale entries from the previous system.
     this.presence.leaveAll();
     this.chat.clear();
+    this.resetRemoteBuffers();
     await this.runJoin(this.socket, systemId);
     this.systemId = systemId;
   }
@@ -313,9 +444,222 @@ export class DriftClient {
     this.socket.send(encodeEnvelope("chat", { text }));
   }
 
+  /**
+   * Send a player input frame. The server integrates the *latest*
+   * input per connection per tick; seq is for the client's own
+   * reconciliation against the server's `lastAppliedSeq` ack.
+   *
+   * Throws if the socket isn't open (i.e. the client isn't
+   * `online`). The renderer guards against this with the
+   * online-state check.
+   */
+  sendInput(input: {
+    seq: number;
+    thrust: number;
+    turn: number;
+    pitch: number;
+    yaw: number;
+    fire?: boolean;
+    lock?: boolean;
+    action?: string | null;
+  }): void {
+    if (!this.socket || this.socket.readyState !== this.socket.OPEN) {
+      throw new Error("DriftClient: sendInput requires an open socket");
+    }
+    this.socket.send(
+      encodeEnvelope("input", {
+        seq: input.seq,
+        thrust: input.thrust,
+        turn: input.turn,
+        pitch: input.pitch,
+        yaw: input.yaw,
+        fire: input.fire ?? false,
+        lock: input.lock ?? false,
+        action: input.action ?? null,
+      }),
+    );
+  }
+
   // ---------------------------------------------------------------------
   // Internals
   // ---------------------------------------------------------------------
+
+  /**
+   * Open a fresh socket, run `hello → auth → join_system`, and
+   * resolve once `enter_system` lands. Used by both `start()` (after
+   * the initial claim) and the auto-reconnect loop (which reuses
+   * the saved token).
+   *
+   * `preserve` controls whether `presence` + `chat` should survive
+   * the reconnect (true → keep, false → clear). The caller decides
+   * based on the disconnect duration + system id match.
+   */
+  private async openSession(targetSystem: string, preserve: boolean): Promise<void> {
+    const origin = this.opts.origin ?? (typeof location !== "undefined" ? location.origin : "");
+    const wsPath = this.opts.wsPath ?? "/ws";
+    const wsUrl = origin ? `${origin.replace(/^http/, "ws")}${wsPath}` : `${wsPath}`;
+    const socket = (this.opts.createSocket ?? defaultCreateSocket)(wsUrl);
+    this.socket = socket;
+    socket.addEventListener("message", this.handleMessage);
+    socket.addEventListener("close", this.handleClose);
+    socket.addEventListener("error", this.handleError);
+
+    this.setStatus("connecting");
+    // Give the socket a tick to transition to OPEN so the
+    // handshake listener sees an actual `open` event before we
+    // send `hello` (in Node, the `open` event fires on the next
+    // microtask).
+    await Promise.resolve();
+    this.setStatus("handshaking");
+    await this.runHandshake(socket);
+
+    this.setStatus("joining");
+    await this.runJoin(socket, targetSystem);
+    this.systemId = targetSystem;
+
+    // Tear down the previous remote-entity buffers before the App
+    // rebuilds its predictor — every snapshot we receive from here
+    // on is the canonical post-resync state.
+    this.resetRemoteBuffers();
+
+    // Decide whether UI state should be preserved. The auto-retry
+    // path passes `preserve = isPreservable()`; `start()` always
+    // passes `false` because there's no prior disconnect.
+    if (!preserve) {
+      this.presence.leaveAll();
+      this.chat.clear();
+    }
+  }
+
+  /**
+   * Decide whether a successful reconnect should preserve the
+   * `presence` + `chat` stores. Returns true when:
+   *
+   *   - the previous disconnect was < `resyncPreserveMs` ago, AND
+   *   - the system id at disconnect time matches the system id we
+   *     just joined (no system change), AND
+   *   - we previously reached `online` (i.e. we have a meaningful
+   *     `lastSystemId` / `lastDisconnectedAtMs` to compare against).
+   *
+   * Otherwise the client wipes the local state so a stale roster
+   * from a different system (or a 10-minute-late reconnect) doesn't
+   * leak into the next session.
+   */
+  private isPreservable(): boolean {
+    if (this.lastSystemId === null || this.disconnectedAtMs === null) return false;
+    const now = (this.opts.now ?? Date.now)();
+    const elapsed = now - this.disconnectedAtMs;
+    const window = this.opts.resyncPreserveMs ?? DEFAULT_RESYNC_PRESERVE_MS;
+    if (elapsed < 0 || elapsed > window) return false;
+    if (this.systemId !== null && this.systemId !== this.lastSystemId) return false;
+    return true;
+  }
+
+  /**
+   * Drive the auto-reconnect loop until either the socket reaches
+   * `online` (success) or the retry budget is exhausted (gives up
+   * and goes to `lost`). Idempotent: a second invocation while the
+   * first loop is still running is a no-op so `handleClose` plus
+   * `start()`'s catch path can't spawn parallel loops.
+   */
+  private beginReconnectLoop(): void {
+    if (this.reconnectAbort) return;
+    const abort = { aborted: false };
+    this.reconnectAbort = abort;
+    const sleep = this.opts.sleep ?? defaultSleep;
+    const initialMs = this.opts.retryInitialMs ?? DEFAULT_RETRY_INITIAL_MS;
+    const maxMs = this.opts.retryMaxMs ?? DEFAULT_RETRY_MAX_MS;
+    const budgetMs = this.opts.retryBudgetMs ?? DEFAULT_RETRY_BUDGET_MS;
+    const now = this.opts.now ?? Date.now;
+
+    const startedAt = now();
+    let backoff = initialMs;
+
+    const attempt = async (): Promise<void> => {
+      while (!abort.aborted) {
+        const elapsed = now() - startedAt;
+        if (elapsed >= budgetMs) {
+          // Budget exhausted — clear the abort + flip status.
+          this.reconnectAbort = null;
+          this.setStatus("lost");
+          return;
+        }
+        try {
+          // The reconnect re-uses the saved token. We need a
+          // system id to join — prefer the cached systemId; fall
+          // back to the original home system id from the claim.
+          const targetSystem = this.lastSystemId ?? this.homeSystemId;
+          if (targetSystem === null) {
+            throw new Error("DriftClient: cannot reconnect without a cached systemId");
+          }
+          if (!this.token) {
+            throw new Error("DriftClient: cannot reconnect without a saved token");
+          }
+          // Re-check the budget right before opening so a sleep
+          // that consumed the remaining budget doesn't waste a
+          // socket attempt.
+          if (now() - startedAt >= budgetMs) {
+            this.reconnectAbort = null;
+            this.setStatus("lost");
+            return;
+          }
+          this.setStatus("connecting");
+          await this.openSession(targetSystem, /* preserve */ this.isPreservable());
+          this.reconnectAbort = null;
+          this.setStatus("online");
+          // Notify resync listeners (App.tsx renders the
+          // "Reconnected" toast off this).
+          const event: ResyncEvent = {
+            preserved: this.isPreservable(),
+            systemId: targetSystem,
+            disconnectedAtMs: this.disconnectedAtMs ?? now(),
+          };
+          for (const listener of this.resyncListeners) {
+            try {
+              listener(event);
+            } catch {
+              // swallow — faulty listener must not break the loop
+            }
+          }
+          this.opts.onResync?.(event);
+          // Clear the disconnect timestamp — the next close
+          // starts a fresh measurement.
+          this.disconnectedAtMs = null;
+          this.lastSystemId = null;
+          return;
+        } catch (err) {
+          // Tear down any partial socket the openSession attempt
+          // left behind so handleClose doesn't fire mid-loop.
+          if (this.socket) {
+            try {
+              this.socket.close();
+            } catch {
+              // ignore
+            }
+            this.socket = null;
+          }
+          this.emitError(err as Error);
+          // Exponential backoff capped at `retryMaxMs`.
+          await sleep(backoff);
+          if (abort.aborted) return;
+          backoff = Math.min(maxMs, Math.floor(backoff * 1.5));
+        }
+      }
+      this.reconnectAbort = null;
+    };
+    void attempt();
+  }
+
+  /**
+   * Drop every per-entity remote buffer. Called on `enter_system`
+   * (resync) and on `stop()` so the next session starts with a
+   * clean slate.
+   */
+  private resetRemoteBuffers(): void {
+    for (const buf of this.remoteBuffers.values()) buf.clear();
+    this.remoteBuffers.clear();
+    this.opts.remoteBufferRegistry?.reset();
+  }
 
   private async claimCallsignWithRetry(): Promise<ClaimResponse> {
     const fetchImpl = this.opts.fetchImpl ?? (typeof fetch !== "undefined" ? fetch : undefined);
@@ -348,12 +692,12 @@ export class DriftClient {
 
   private runHandshake(socket: WebSocket): Promise<void> {
     return new Promise((resolve, reject) => {
-      const onOpen = () => {
+      const onOpen = (): void => {
         if (this.token) {
           socket.send(encodeEnvelope("hello", { version: PROTOCOL_VERSION }));
         }
       };
-      const onMessage = (event: MessageEvent) => {
+      const onMessage = (event: MessageEvent): void => {
         let env;
         try {
           env = decodeEnvelope(event.data as string);
@@ -370,36 +714,36 @@ export class DriftClient {
           this.playerId = payload.playerId;
           this.callsign = payload.callsign;
           this.presence.setOwnCallsign(payload.callsign);
-          socket.removeEventListener("open", onOpen);
-          socket.removeEventListener("message", onMessage);
-          socket.removeEventListener("error", onError);
           resolve();
           return;
         }
         if (env.type === "error") {
-          socket.removeEventListener("open", onOpen);
-          socket.removeEventListener("message", onMessage);
-          socket.removeEventListener("error", onError);
           reject(new Error(`handshake error: ${(env.payload as { message: string }).message}`));
           return;
         }
       };
-      const onError = (event: Event) => {
-        socket.removeEventListener("open", onOpen);
-        socket.removeEventListener("message", onMessage);
-        socket.removeEventListener("error", onError);
+      const onError = (event: Event): void => {
         reject(new Error(`socket error: ${(event as ErrorEvent).message ?? "unknown"}`));
+      };
+      // TASK-17: a mid-handshake close must reject the handshake
+      // promise so the retry loop can advance to the next
+      // backoff. Without this, a server that accepts the
+      // connection then immediately drops it would leave the
+      // handshake hanging until the retry budget exhausts.
+      const onClose = (): void => {
+        reject(new Error("handshake aborted: socket closed before auth_ok"));
       };
 
       socket.addEventListener("open", onOpen);
       socket.addEventListener("message", onMessage);
       socket.addEventListener("error", onError);
+      socket.addEventListener("close", onClose);
     });
   }
 
   private runJoin(socket: WebSocket, systemId: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      const onMessage = (event: MessageEvent) => {
+      const onMessage = (event: MessageEvent): void => {
         let env;
         try {
           env = decodeEnvelope(event.data as string);
@@ -420,12 +764,10 @@ export class DriftClient {
           // bounded. (Earlier in `joinSystem` / `clear` we already
           // dropped any prior entries.)
           this.chat.seedHistory(payload.chat as unknown as Parameters<ChatStore["seedHistory"]>[0]);
-          socket.removeEventListener("message", onMessage);
           resolve();
           return;
         }
         if (env.type === "error") {
-          socket.removeEventListener("message", onMessage);
           reject(new Error(`join error: ${(env.payload as { message: string }).message}`));
           return;
         }
@@ -489,9 +831,36 @@ export class DriftClient {
   };
 
   private handleClose = (): void => {
-    this.presence.leaveAll();
-    this.chat.clear();
-    this.setStatus("disconnected");
+    // Defensive: a `close` fired during a manual stop should NOT
+    // trigger the reconnect loop — the user's `stop()` already
+    // moved us to `disconnected`. We compare against the cancel
+    // flag we set there.
+    if (this.status === "disconnected") return;
+    // Capture the disconnect context so the resync path can decide
+    // whether to preserve UI state.
+    if (this.disconnectedAtMs === null) {
+      this.disconnectedAtMs = (this.opts.now ?? Date.now)();
+      this.lastSystemId = this.systemId;
+    }
+    // Clear the live socket ref; the reconnect loop opens a fresh
+    // one on its next iteration.
+    this.socket = null;
+    if (this.status !== "online") {
+      // We were already mid-reconnect (the previous attempt's
+      // socket closed). The reconnect loop's own `catch` already
+      // swallowed the error and is sleeping; don't double-flip
+      // the status.
+      return;
+    }
+    this.setStatus("reconnecting");
+    this.beginReconnectLoop();
+  };
+
+  private handleError = (): void => {
+    // Browser `error` events don't carry actionable context — the
+    // `close` event always fires immediately after. We let the
+    // close handler drive the reconnect; this is just a diagnostic
+    // hook for tests that want to observe the sequence.
   };
 
   private setStatus(next: DriftClientStatus, detail?: string): void {
@@ -528,6 +897,14 @@ function defaultCreateSocket(url: string): WebSocket {
   // WebSocket is a global in browsers; declare a minimal shape so
   // TypeScript doesn't error in a Node-only test environment.
   return new (globalThis as { WebSocket: new (url: string) => WebSocket }).WebSocket(url);
+}
+
+/** Default sleeper — `setTimeout`-backed Promise. */
+function defaultSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const t = setTimeout(resolve, ms);
+    t.unref?.();
+  });
 }
 
 /** 6-char hex suffix. */

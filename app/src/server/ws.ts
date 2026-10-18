@@ -220,6 +220,13 @@ export interface WsHandleOptions {
    * sanitization / rate-limit branches.
    */
   shardFor?: (conn: Connection) => Shard | undefined;
+  /**
+   * TASK-17: optional debug logger for one-shot lifecycle events
+   * (e.g. "input ignored: conn has no shard"). Production wires
+   * this to a pino / console adapter; the default is a no-op so
+   * unit tests don't have to stub a logger.
+   */
+  debugLogger?: Pick<Console, "debug" | "warn" | "error">;
 }
 
 // ---------------------------------------------------------------------------

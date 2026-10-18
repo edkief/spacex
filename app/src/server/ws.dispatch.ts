@@ -59,7 +59,7 @@ import {
 import type { Connection, ConnectionRegistry } from "./ws.connection.js";
 import type { AuthResolver, JoinResolver, LogoutResolver, WsHandleOptions } from "./ws.js";
 import { closeFloodedConnection, sendError, sendFrame } from "./ws.dispatch.helpers.js";
-import { onAuth, onChat, onHello, onJoinSystem, onLogout } from "./ws.handlers.js";
+import { onAuth, onChat, onHello, onInput, onJoinSystem, onLogout } from "./ws.handlers.js";
 
 // ---------------------------------------------------------------------------
 // Constants — exported so tests can reference them without hard-coding
@@ -349,7 +349,16 @@ async function dispatch(
         onChat(conn, registry, options, payload);
         return;
       }
-      // Future tasks route `input`, `warp`, `interact`, etc. to the system
+      if (type === "input") {
+        // TASK-17: route the player input into the per-connection
+        // seq-protected slot on the player's current shard. The
+        // shard's input queue enforces strict-monotone seq + latest-
+        // wins semantics (TASK-13) and the next entity_update carries
+        // `lastAppliedSeq[playerId]` so the client can reconcile.
+        onInput(conn, options, payload);
+        return;
+      }
+      // Future tasks route `warp`, `interact`, etc. to the system
       // shard. TASK-9 / TASK-65 accept them silently — the connection stays alive.
       return;
 

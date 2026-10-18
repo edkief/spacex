@@ -98,7 +98,9 @@ PROJECT_ROOT
 │   │   │   │   ├── presence.ts            # PresenceStore — in-system player roster Map<playerId, PresencePlayer> built from presence frames, join/leave diff events, cached snapshot for useSyncExternalStore, setOwnCallsign for "(you)" marker, toastTextFor + statusDotColor helpers (TASK-15)
 │   │   │   │   ├── presence.test.ts       # 14 cases: apply/diff/leave/leaveAll, isYou stamping, listener dedupe, unsubscribe, faulty-listener tolerance, snapshot identity (TASK-15)
 │   │   │   │   ├── chat.ts                # ChatStore — 100-message ring + cached snapshot for useSyncExternalStore + applyChatFrame + seedHistory + clear; formatChatLine + formatTime helpers (TASK-16)
-│   │   │   │   ├── wsClient.ts            # DriftClient — WebSocket glue wrapping the Drift handshake (claim → hello → auth → join_system) + presence frame routing + chat frame routing + sendChat + post-boot joinSystem() for warp UI (TASK-15 + TASK-16)
+│   │   │   │   ├── wsClient.ts            # DriftClient — WebSocket glue wrapping the Drift handshake (claim → hello → auth → join_system) + presence frame routing + chat frame routing + sendChat + post-boot joinSystem() for warp UI + auto-retry + resync (TASK-15 + TASK-16 + TASK-17)
+│   │   │   │   ├── wsClient.test.ts       # 9 cases: auto-retry on close with exponential backoff (1s→5s capped), retry-budget exhaustion → 'lost', onResync event with preserved flag (same-system vs >60s gap), stop() cancels the loop, remote-entity buffers reset on resync, happy-path status transitions, exported retry defaults (TASK-17)
+│   │   │   │   ├── notifications.ts       # NotificationStore — pub/sub for transient non-presence notifications (TASK-17 reconnect + connection-lost); subscribes the ToastStack to both the PresenceStore and the notification stream
 │   │   │   ├── ships/           # Paint-zone + mesh-registry logic (TASK-21)
 │   │   │   │   ├── ShipMeshBuilder.ts      # PaintZone enum + ShipPaintRegistry + MaterialAdapter interface + defaultLiveryFor + in-memory test adapter
 │   │   │   │   ├── threeAdapter.ts          # three.js-backed MaterialAdapter factory (mutates Color in place)

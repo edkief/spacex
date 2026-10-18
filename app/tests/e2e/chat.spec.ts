@@ -75,7 +75,8 @@ test("chat: two contexts see each other's messages in the system chat log", asyn
   // Prefer the home system if it's already spawned and has room
   // (it always is — the probe claim puts the probe there).
   const homeShard = galaxyBody.shards.find((s) => s.systemId === homeSystemId);
-  let sharedSystemId: string | undefined = homeShard && homeShard.players < 16 ? homeShard.systemId : undefined;
+  let sharedSystemId: string | undefined =
+    homeShard && homeShard.players < 16 ? homeShard.systemId : undefined;
   if (!sharedSystemId) {
     sharedSystemId = galaxyBody.shards.find((s) => s.players < 16)?.systemId;
   }

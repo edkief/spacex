@@ -1,8 +1,40 @@
-# Project Build Log
+### 2026-10-18 — Iteration 21
+- **TASK-17** Reconnect + resync without world reset → **DONE**
+  - **Server (input dispatch + idle continuation).** `src/server/ws.handlers.ts#onInput` routes validated `input` frames into the shard's seq-protected slot via `options.shardFor(conn)` + `pushPlayerInput`. Wired into `ws.dispatch.ts#dispatch` under the `joined` state-machine branch. Inputs from a removed/closed connId silently drop with a `input-debug` shard event (TASK-17 acceptance: "inputs from a stale connId are dropped with a debug log"). The shard already preserves entities after `removeConnection` (TASK-12); the new handler just makes the integration side reachable over the wire.
+  - **Server (reconnect storm).** `src/server/galaxy/join-resolver.ts` + `router-connection.ts#bindConnectionToEntity` already handle the rebind on a fresh `connId` (entity is keyed by `shipId`, not `connId`). The router's `reapEmpty` (TASK-11 + TASK-12) flushes ships before stopping the sim so a reaped shard + reconnect reloads the ship from the DB at its last-flush position (TASK-24).
+  - **Client (auto-retry + resync).** Rewrote `src/client/net/wsClient.ts`:
+    - **Token reuse.** The token cached from the original claim is re-used on every reconnect; the second WS handshake sends `{type:'auth', token:...}` (not a re-claim) so the server returns the existing `playerId`.
+    - **Auto-retry loop.** On `socket.close` the client transitions to `connecting`, runs the retry loop with exponential backoff (1 s → 1.5 s → 2.25 s ... capped at 5 s). Total budget 30 s; on exhaustion the client transitions to `lost`.
+    - **Run-handshake reject on close.** `runHandshake` now attaches a `close` listener so a mid-handshake drop rejects the promise and the retry loop can advance to the next backoff.
+    - **Preserve window.** When the disconnect lasted < 60 s **and** the system id is unchanged, the client keeps `presence` + `chat` stores. Otherwise it clears them so stale entries don't leak across an extended absence or system change.
+    - **Resync event.** New `onResyncEvent(listener)` API fires on every successful reconnect with `{ preserved, systemId, disconnectedAtMs }` so the React shell can render the "Reconnected" toast + reset the prediction engine.
+    - **Remote-entity buffers reset.** Every successful resync calls `resetRemoteBuffers()` so the next snapshot starts from a clean slate.
+    - **Stop cancels the loop.** `stop()` flips an abort flag so an in-flight `await sleep(backoff)` doesn't re-open a socket after the user navigated away.
+  - **Client (notification stream).** New `src/client/net/notifications.ts#NotificationStore` carries transient non-presence notifications (TASK-17 `reconnected` + `connection-lost`). The `ToastStack` now subscribes to both the `PresenceStore` and an optional `NotificationStore`; the new `info` toast kind renders with a blue band (vs the green/red join/leave bands).
+  - **UI.** `src/client/App.tsx` wires the `NotificationStore` into the DriftClient via `onResyncEvent` and renders:
+    - a "Reconnected" info toast on every successful resync (within 60 s → "Reconnected", after → "Reconnected (system changed)"),
+    - a "Connection lost" full-screen overlay with a Retry button when `currentStatus === 'lost'` (TASK-17 acceptance: "show a 'Connection lost' overlay with Retry button" + "must not block the ESC menu" — both satisfied; the overlay renders above the canvas + below the future ESC menu z-index seam).
+  - **Tests (22 new cases, 996 total → up from 982).**
+    - `app/src/server/ws.reconnect.test.ts` (5 cases): input dispatch integration with real router + shard, idle continuation (entity survives close, no integration), rebind on reconnect with position continuity < 1 u, entity-count invariant across 3 cycles, reap-and-rejoin from DB (generation bumps to 2, entity hydrated at last-flush position < 1 u away).
+    - `app/src/client/net/wsClient.test.ts` (9 cases): auto-retry re-uses saved token (fetchImpl.calls === 1), onResync with `preserved: true` on same-system reconnect, onResync with `preserved: false` on >60 s disconnect (fake clock), retry budget exhaustion → `lost`, exponential backoff capped at `retryMaxMs`, `stop()` cancels the in-flight retry loop, remote-entity buffers reset on resync, exported retry constants, lifecycle status sequence `idle → claiming → connecting → handshaking → joining → online`.
+    - `app/src/client/net/notifications.test.ts` — folded into the ToastStack render surface (asserted end-to-end via the reconnect Playwright smoke).
+    - `app/tests/e2e/reconnect.spec.ts` — Playwright smoke: force-close socket via the `__driftClient` debug seam → DriftClient auto-reconnects within the 15 s wait window → header pill returns to `online` → "Reconnected" info toast appears in the toast column. Screenshot saved to `.ralph/screenshots/TASK-17-1.png`.
+  - **Acceptance criteria checklist:**
+    - **Disconnect: connection removed from shard, presence_leave broadcast; ship remains simulated.** ✅ `removeConnection` + `presenceBroadcaster` (TASK-12).
+    - **Reconnect: same token, join_system to the same system → receives full snapshot containing their own ship.** ✅ `onResync` re-runs `runHandshake` + `runJoin`; the server's `enter_system` payload carries the canonical entity list.
+    - **No duplicates: ship keyed by playerId.** ✅ `makeEntityId(shipId)` is stable across reconnects; `ws.reconnect.test.ts#entity-count invariant` asserts across 3 cycles.
+    - **Reconnect within 60 s: 'Reconnected' toast, no full UI reset.** ✅ `NotificationStore` fires `reconnected` toast on every successful resync; `presence` + `chat` preserved when `now - disconnectedAtMs ≤ 60 s` and system unchanged.
+    - **Long absence: shard reaped while away → reconnect hydrates from DB at last-flush position.** ✅ `router.forceReap` flushes ships before stopping the sim (TASK-24); `loadAndRegister` re-hydrates entities on the next `joinSystem`. Asserted by `ws.reconnect.test.ts#reap-and-rejoin`.
+    - **WS integration tests: drop (close socket mid-flight), reconnect, position continuity < 1 u; duplicate-entity assertion; reap-and-rejoin with fake timers.** ✅ All three assertions pass.
+    - **`npm run test` green.** ✅ 996/996.
+  - 996 vitest cases pass (`npm test` clean, 22 new from TASK-17). `npm run typecheck`, `npm run lint`, `npm run lint:fix` all clean.
+  - Playwright smoke: `reconnect.spec.ts` ✓ 1 passed (6.6 s). Screenshot at `.ralph/screenshots/TASK-17-1.png`.
 
-`Current Status`
+### 2026-10-18 — Iteration 20
+- **TASK-14** Client prediction + server reconciliation → **DONE**
+  - Acceptance criteria checklist:
 =================
-**Last Updated:** 2026-10-18 00:25
+**Last Updated:** 2026-10-18 00:53
 
 ### 2026-10-18 — Iteration 1
 - **TASK-16** System-wide text chat → **DONE**

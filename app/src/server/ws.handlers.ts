@@ -21,7 +21,7 @@ import {
   sanitizeChatText,
   validateChatText,
 } from "./chat.js";
-import { broadcastChat } from "./shard/index.js";
+import { broadcastChat, pushPlayerInput } from "./shard/index.js";
 import { sendError, sendFrame } from "./ws.dispatch.helpers.js";
 
 // ---------------------------------------------------------------------------
@@ -299,6 +299,65 @@ export function onChat(
   const author = conn.callsign ?? "UNKNOWN";
   broadcastChat(shard, { author, text: sanitized, ts: now });
   void _registry; // (silence unused-param; reserved for future hooks)
+}
+
+// ---------------------------------------------------------------------------
+// onInput — TASK-17 player input → shard input slot
+// ---------------------------------------------------------------------------
+
+/**
+ * TASK-17: route a validated `input` frame into the per-connection
+ * input slot on the player's current shard. The dispatcher
+ * pre-checks the state-machine (`conn.state === 'joined'` +
+ * `conn.systemId !== null`) so by the time we reach here the
+ * connection is in a system.
+ *
+ * The handler is intentionally silent on success — the client
+ * already predicted locally (TASK-14) and the server only needs
+ * to integrate the *latest* input on the next tick. The next
+ * `entity_update` carries `lastAppliedSeq[playerId]` so the
+ * client can drain its input queue on reconcile.
+ *
+ * ## Stale inputs (TASK-17 acceptance)
+ *
+ * If the lookup misses (the player has not joined a system yet,
+ * or has just been dropped from the shard by a close/timeout),
+ * `pushPlayerInput` returns `{ accepted: false, reason:
+ * 'malformed' }` and the input is dropped. We emit a debug-level
+ * `input-debug` event so an operator can confirm the slot is
+ * healthy without spamming the log every frame.
+ *
+ * ## seq-protected slot
+ *
+ * The shard's input queue enforces a strict monotone `seq`:
+ * first input must be `seq === 1` (cold-start guard), subsequent
+ * inputs require `seq > lastSeq`. Stale frames increment
+ * `staleDrops` on the connection for diagnostics.
+ *
+ * @see ../shard/input-queue.ts for the seq-protected slot.
+ * @see ../shard/index.ts#pushPlayerInput for the wrapper.
+ */
+export function onInput(conn: Connection, options: WsHandleOptions, payload: unknown): void {
+  const shard = options.shardFor?.(conn);
+  if (!shard) {
+    // Defensive: the dispatcher should already reject inputs from
+    // non-joined connections. If a malformed frame slips through
+    // (e.g. an integration test wires only the chat path), silently
+    // drop with a debug marker.
+    options.debugLogger?.debug?.(`[drift-ws] input ignored: conn ${conn.connId} has no shard`);
+    return;
+  }
+  const result = pushPlayerInput(shard, conn.connId, payload as never);
+  if (!result.accepted) {
+    // Stale-seq or malformed. The queue already incremented
+    // `staleDrops`; surface the reason through the shard's event
+    // bus so an operator can grep for it.
+    shard.events.emit("input-debug", {
+      connId: conn.connId,
+      seq: (payload as { seq?: number }).seq,
+      reason: result.reason,
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
