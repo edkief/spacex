@@ -61,7 +61,7 @@ export interface FrameSchedulerOptions {
  * half-generated) but records the overrun via `lastOverrunMs`.
  */
 export class FrameScheduler {
-  readonly budgetMs: number;
+  private _budgetMs: number;
   private readonly queue: FrameTask[] = [];
   private readonly clock: ChunkClock;
   /** `true` between `tickStart()` and `tickEnd()` so tests can assert. */
@@ -72,8 +72,27 @@ export class FrameScheduler {
   completedCount = 0;
 
   constructor(opts: FrameSchedulerOptions = {}) {
-    this.budgetMs = opts.budgetMs ?? 4;
+    this._budgetMs = opts.budgetMs ?? 4;
     this.clock = opts.clock ?? defaultChunkClock;
+  }
+
+  /** Per-frame slice budget (ms). Tests / benchmarks may
+   *  override this at runtime via `setBudgetMs` to drain the
+   *  scheduler faster during pre-warm. */
+  get budgetMs(): number {
+    return this._budgetMs;
+  }
+
+  /** Mutate the per-frame budget. Use sparingly — production
+   *  code should never change the budget at runtime; the seam
+   *  exists for the TASK-30 transition-cycle pre-warm. */
+  setBudgetMs(ms: number): void {
+    if (!Number.isFinite(ms) || ms < 0) {
+      throw new RangeError(
+        `FrameScheduler.setBudgetMs: ms must be a non-negative finite number, got ${ms}`,
+      );
+    }
+    this._budgetMs = ms;
   }
 
   /** Number of pending tasks (does not count the currently-running one). */
@@ -137,7 +156,7 @@ export class FrameScheduler {
         // Budget check — if this task blew the budget we stop
         // the frame but record the overrun so the perf hook can
         // warn once per cooldown.
-        const budgetRemaining = this.budgetMs - (taskEnd - start);
+        const budgetRemaining = this._budgetMs - (taskEnd - start);
         if (budgetRemaining <= 0) {
           this.lastOverrunMs = Math.max(this.lastOverrunMs, elapsed);
           break;

@@ -1,5 +1,7 @@
 # Project Directory Structure
 
+Snapshot taken 2026-10-18 after **TASK-30** (Transition hitch budget: every regime change stays under 4 ms. Dev-only scripted-cycle benchmark driver in `app/src/client/test/` split across 7 modules (transitionCycle.ts + types + constants + phases registry + flight phases + onfoot phases + baseline + helpers + warmup) — 10 phases (space → atmosphere → surface → disembark → walk → re-enter → atmosphere → space) each with `(setup, work, teardown)` triple; per-frame `{transition, frameIndex, baselineMs, measuredMs, deltaMs}` reports; baseline + delta methodology over 200 idle frames; p99 < 4 ms assertion for the CI fast-cycle test; no-pull < 100 ms hard gate; `npm run bench:transitions` runs 3 warmup + 5 measured cycles with repeatability variance check (soft-warn on dev machines, hard gate on TASK-61 reference hardware); `FrameScheduler.setBudgetMs(ms)` runtime budget setter for the pre-warm cache drain. FrameMonitor budgetCheck is the shared seam. 16 unit tests, 1667/1667 total pass.).
+
 Snapshot taken 2026-10-18 after **TASK-35** (Re-entry: return to ship seamlessly. Shared `enterShip.ts` with `ENTER_SHIP_RANGE_M=5` + `ENTER_SHIP_MAX_VELOCITY_U_S=1`; server `handleEnterShip` + `EnterShipResult` discriminated union; new wire codes `not-owner` / `ship-moving` / `already-in-ship`; `EnterShipOkSchema` ack frame; ship registry entry routes `action:'enter'` through `handleEnterShip`; client `EnterShipPrompt` (6 m visual range, slightly wider than server 5 m so the pill appears before the press would succeed); `sendEnterShip` + `onEnterShipOk` on DriftClient; interaction-prompt re-routes `action:'enter'` to `enter_ship` instead of `interact`. Idempotency: double `enter_ship` while already in ship → `already-in-ship`. Server `ConnSender` union widened to `enter_ship_ok`. 9 server unit + 4 WS integration + 4 schema + 2 e2e tests, full suite 1651/1651.).
 
 Snapshot taken 2026-10-18 after **TASK-34** (On-foot inventory: weight-capped carry (40 u), pick-up + drop on the player; `Inventory` JSON column on `players` table via migration `0003_player_inventory.sql`; `handlePickup` / `handleDrop` + ground-item kind (`groundItem`) with 300 s TTL cleanup; `WeightBar` HUD bottom-right; `pickup` / `drop` / `inventory_update` wire frames).
@@ -126,6 +128,17 @@ PROJECT_ROOT
 │   │   │   │   ├── AtmosphereOverlay.test.tsx # 14 cases: provider snapshot → DOM data attributes (renderToStaticMarkup)
 │   │   │   │   ├── ReentryOverlay.tsx        # TASK-28 — orange rim + inset box-shadow when descent > 200 u/s inside the boundary band (cosmetic only)
 │   │   │   │   └── AtmosphereState.ts        # TASK-28 — dev-only test hook (`window.__driftAtmosphereState`) + module-level mutable state + listeners
+│   │   │   ├── test/             # Dev-only scripted-cycle benchmark harness (TASK-30) — 10 phases, p99 < 4 ms assertion, action-reports per frame
+│   │   │   │   ├── transitionCycle.ts          # Driver — runCycle(opts) walks every phase + aggregates the CycleReport
+│   │   │   │   ├── transitionCycle.types.ts    # Public CycleReport / PhaseReport / PhaseFrame types + CycleState seam
+│   │   │   │   ├── transitionCycle.constants.ts # TRANSITION_BUDGET_MS=4 + NO_PULL_THRESHOLD_MS=100 + REPEATABILITY_VARIANCE_PCT=20 + BASELINE_FRAMES=200 + SIM_DT_S=1/60
+│   │   │   │   ├── transitionCycle.phases.ts    # ReadonlyMap<PhaseName, PhaseWork> registry (single barrel)
+│   │   │   │   ├── transitionCycle.phases.flight.ts  # Phases 1-5 + 9-10 (ship-side, cockpit mode): tickShipFrame helper + 7 descriptors
+│   │   │   │   ├── transitionCycle.phases.onfoot.ts  # Phases 6-8 (on-foot, character mode + camera hand-offs): 3 descriptors
+│   │   │   │   ├── transitionCycle.baseline.ts # measureBaseline — 200 idle frames + mean/p95 baseline
+│   │   │   │   ├── transitionCycle.helpers.ts  # resolveFixtures + pickPercentile + defaultClock + BENCH_SHIP_CLASS
+│   │   │   │   ├── transitionCycle.warmup.ts   # JIT warmup (200 ticks) + chunk pre-warm at 5×5 + 7×7 (setBudgetMs seam)
+│   │   │   │   └── transitionCycle.test.ts     # 16 cases: phase order + p99 budget + no-pull + repeatability
 │   │   │   ├── state/           # Client state machines (TASK-7 + TASK-8)
 │   │   │   │   ├── warp.ts               # WarpStore — state machine: idle → warping-in → awaiting → warping-out → idle (TASK-7 stub; TASK-8 wires the WS flow)
 │   │   │   │   └── warp.test.ts          # 21 cases: state transitions + helpers + faulty-listener tolerance (TASK-7)

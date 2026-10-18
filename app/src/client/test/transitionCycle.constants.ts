@@ -1,0 +1,51 @@
+/**
+ * Public constants for the transition-cycle benchmark (TASK-30).
+ *
+ * Split out of `transitionCycle.ts` so the driver file stays
+ * under the AGENTS.md 300-line cap. Every number here is part
+ * of the spec's contract; tests + the bench script import them
+ * directly so a future tune lands in one place.
+ */
+
+/**
+ * The spec's hard budget: every transition phase adds at most 4 ms
+ * to the baseline frame time. Used by both the per-frame assertion
+ * in `runCycle` and the bench's headline number.
+ */
+export const TRANSITION_BUDGET_MS = 4;
+
+/**
+ * The no-pull ceiling (spec acceptance: "no frame > 100 ms"). A
+ * single frame > 100 ms is almost always a GC spike or a chunk
+ * stall; the benchmark flags it so the culprit phase is named.
+ */
+export const NO_PULL_THRESHOLD_MS = 100;
+
+/**
+ * Maximum variance across repeated runs the bench accepts (spec:
+ * "variance < 20 % — flakiness check in the test itself"). The
+ * variance is computed over the per-run worst-delta array.
+ */
+export const REPEATABILITY_VARIANCE_PCT = 20;
+
+/**
+ * Baseline-sample duration (simulated frames). Spec: "Run the scene
+ * idle for 3 s to establish baseline p50/p95". At 60 Hz that's 180
+ * frames; we sample 200 to leave a small margin.
+ */
+export const BASELINE_FRAMES = 200;
+
+/**
+ * Number of frames each phase runs for. Tuned to be longer than
+ * the worst phase (the 600 ms handoff at 60 Hz = 36 frames) so
+ * the per-phase worst-delta statistic is stable.
+ */
+export const PHASE_FRAMES_DEFAULT = 60;
+
+/**
+ * Per-frame wall-clock delta used by the simulated render loop.
+ * 1/60 s ≈ 16.67 ms. We pass `dt` to `integrateShip` /
+ * `integrateCharacter` so the cycle exercises the real physics
+ * integration at 60 Hz.
+ */
+export const SIM_DT_S = 1 / 60;

@@ -17,7 +17,8 @@
     "snapshot:update": "tsx scripts/gen-stars-full-fixture.ts && tsx scripts/gen-system-star1-fixture.ts && tsx scripts/gen-surface-fixture.ts && tsx scripts/gen-surface-chunk10-fixture.ts && tsx scripts/gen-surface-chunk01-fixture.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . && prettier --check .",
-    "lint:fix": "eslint --fix . && prettier --write ."
+    "lint:fix": "eslint --fix . && prettier --write .",
+    "bench:transitions": "tsx scripts/bench-transitions.ts"
   },
   "dependencies": {
     "@types/pg": "^8.23.1",
