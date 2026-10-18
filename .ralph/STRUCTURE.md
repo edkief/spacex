@@ -1,6 +1,6 @@
 # Project Directory Structure
 
-Snapshot taken 2026-10-18 after **TASK-70** (Playwright e2e harness for the game).
+Snapshot taken 2026-10-18 after **TASK-71** (Determinism test suite + two-client e2e comparison).
 
 ## Conventions
 - Dotfiles (`.env*`, `.git*`, `.mcp.json`, `.eslintrc*`, …) are excluded.
@@ -52,6 +52,7 @@ PROJECT_ROOT
 │   │   │   │   ├── snapshots.test.ts      # Full galaxy / system / surface deep-equal suite (TASK-6)
 │   │   │   │   ├── snapshots.mutation.test.ts # Mutation-detection suite (TASK-6)
 │   │   │   │   ├── snapshots.helpers.ts   # Snapshot suite helpers + mutated generator (TASK-6)
+│   │   │   │   ├── properties.test.ts     # Property-style determinism suite: 10 seeds × 10 stars + 200 random (planet, chunk) pairs (TASK-71)
 │   │   │   │   └── __fixtures__/
 │   │   │   │       ├── README.md          # Regeneration rules for committed fixtures (TASK-6)
 │   │   │   │       ├── stars-dev-seed.json          # First-25 + checksum parity fixture (TASK-3)
@@ -101,6 +102,8 @@ PROJECT_ROOT
 │   │   │   │   ├── wsClient.ts            # DriftClient — WebSocket glue wrapping the Drift handshake (claim → hello → auth → join_system) + presence frame routing + chat frame routing + sendChat + post-boot joinSystem() for warp UI + auto-retry + resync (TASK-15 + TASK-16 + TASK-17)
 │   │   │   │   ├── wsClient.test.ts       # 9 cases: auto-retry on close with exponential backoff (1s→5s capped), retry-budget exhaustion → 'lost', onResync event with preserved flag (same-system vs >60s gap), stop() cancels the loop, remote-entity buffers reset on resync, happy-path status transitions, exported retry defaults (TASK-17)
 │   │   │   │   ├── notifications.ts       # NotificationStore — pub/sub for transient non-presence notifications (TASK-17 reconnect + connection-lost); subscribes the ToastStack to both the PresenceStore and the notification stream
+│   │   │   │   ├── driftDebug.ts          # Dev-only `window.__DRIFT__` API: requestGalaxySeed + regenerateStarChart + regenerateSystem + regenerateSurfaceChunk (TASK-71); tree-shaken from production builds by `import.meta.env.DEV` guard
+│   │   │   │   ├── driftDebug.test.ts     # 9 cases: cache lifecycle + override seam + installDriftDebug + determinism of regen* APIs (TASK-71)
 │   │   │   ├── ships/           # Paint-zone + mesh-registry logic (TASK-21)
 │   │   │   │   ├── ShipMeshBuilder.ts      # PaintZone enum + ShipPaintRegistry + MaterialAdapter interface + defaultLiveryFor + in-memory test adapter
 │   │   │   │   ├── threeAdapter.ts          # three.js-backed MaterialAdapter factory (mutates Color in place)
@@ -243,6 +246,7 @@ PROJECT_ROOT
 │   │       │   └── claim.ts     # ClaimPage page object — drift-canvas/header/player-list/chat-log/toast-stack selectors + bootAndWaitForOnline/currentCallsign/joinSystem/sendChat (TASK-70)
 │   │       ├── chat.spec.ts     # Playwright smoke (two browser contexts → both see each other's chat messages + XSS inert-text + no <img> in DOM, screenshot) (TASK-16, fixture-rewritten in TASK-70)
 │   │       ├── core-flow.spec.ts# Auto-claim → handshake → join → canvas + player-list end-to-end smoke (TASK-70)
+│   │       ├── determinism.spec.ts # Two-client star-chart + planet-list + surface-chunk comparison via window.__DRIFT__ + 3-consecutive-run stability check (TASK-71)
 │   │       ├── livery.spec.ts   # Playwright smoke (claim → set livery → re-read + invalid-hex rejection, screenshot) (TASK-21, fixture-rewritten in TASK-70)
 │   │       ├── prediction.spec.ts# Prediction module import smoke + browser + Node-side integrate/reconcile (TASK-14, fixture-rewritten in TASK-70)
 │   │       ├── presence.spec.ts # Playwright smoke (two browser contexts → both see each other in the in-system player list, screenshot) (TASK-15, fixture-rewritten in TASK-70)

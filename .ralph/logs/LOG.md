@@ -1,3 +1,31 @@
+### 2026-10-18 — Iteration 23
+- **TASK-71** Determinism test suite + two-client e2e comparison → **DONE**
+  - **Property suite (`app/src/shared/galaxy/properties.test.ts`, 4 new cases).**
+    - **Scenario 1 — 10 seeds × 10 random stars.** A fixed meta-seed (`0x71a5e1d ^ 0xc0ffee`) drives an LCG that picks 10 distinct galaxy seeds, then 10 random star indices per seed. Each (seed, star) pair calls `generateSystemFromStar` twice and asserts `toEqual`, with a `canonicalJson` byte-equal guard and a `firstDivergentPath` error pointer.
+    - **Scenario 2 — 200 random (planet, chunk) pairs.** The committed dev-seed galaxy is used to enumerate planets; a meta-RNG picks 200 (planet, chunkX, chunkZ) triples, `generateSurfaceChunk` is run twice for each, and a focused slice (resource-node IDs sorted, node positions sorted, pad IDs sorted, pad positions sorted, biome, heightmap 64-bit hash via `hash2`) is compared with `canonicalJson`. First divergence names the offending (planet, chunk) + field.
+    - **Cross-check — committed snapshot reproducibility.** The third test re-pulls `stars-dev-seed-full.json` and a surface fixture and asserts the generator reproduces them byte-for-byte, so the property suite and the locked snapshot suite can never silently desync.
+  - **Dev-only debug seam (`app/src/client/net/driftDebug.ts`).**
+    - `DriftDebugAPI` exposes `requestGalaxySeed()` (fetches and caches from `/api/health`), `regenerateStarChart(count?)`, `regenerateSystem(starId)`, `regenerateSurfaceChunk(planetId, chunkX, chunkZ)`.
+    - The implementation imports `generateStars`, `generateSystemFromStar`, `generateSurfaceChunk` from `@shared/galaxy/*` so two clients fetching the same `galaxySeed` produce byte-equal output without involving the network or shared state.
+    - **`installDriftDebug()` guarded by `import.meta.env.DEV`** — Vite tree-shakes the entire module body out of production builds (verified: `npm run build` produces a 346 KB bundle that contains zero occurrences of `__DRIFT__`, `generateStars`, or `generateSystemFromStar`; deterministic hex grep finds 0 hits).
+    - `vite-env.d.ts` ambient declaration for `import.meta.env` (DEV/PROD/MODE/BASE_URL).
+    - Cache overrides (`overrideCachedGalaxySeed`, `resetCachedGalaxySeed`) for test only.
+  - **App wiring (`app/src/client/App.tsx`).** `installDriftDebug()` is now called inside the same `useEffect` that wires `window.__driftClient`; the dev-only seam is a no-op in production because Vite replaces `import.meta.env.DEV` with `false` and dead-code-eliminates the call entirely.
+  - **Unit coverage (`app/src/client/net/driftDebug.test.ts`, 9 cases).** Cache lifecycle (override → fetch, reset → re-fetch, no double-fetch on cache hit), `installDriftDebug` idempotency, deterministic re-derivation of stars + systems + surface chunks through the API, and clear errors for unknown starId / planetId.
+  - **Two-client e2e (`app/tests/e2e/determinism.spec.ts`).**
+    - **Primary scenario.** Two browser contexts boot against the TASK-70 fixture, both wait for `window.__DRIFT__` to be installed, fetch the same `galaxySeed` from `/api/health`, then regenerate:
+      - the full 200-star chart (compared by JSON), 
+      - `SystemGen` for the first star AND the 50th star (different RNG streams), 
+      - one surface chunk `(0,0)` of the system's first planet.
+      No console errors fire; the test fails loudly if a single byte differs.
+    - **Stability — 3 consecutive runs.** A nested `describe` runs the star chart + one `SystemGen` comparison 3 times back-to-back against the same worker-scoped server. All three runs must produce identical output; flake-free by construction (only seed-derived values are compared, never wall-clock or socket-round-trip data).
+  - **Acceptance criteria checklist:**
+    - **Property test: 10 random seeds, 10 random stars each, generateSystem stable across two invocations** ✅ `properties.test.ts#two independent invocations produce byte-equal SystemGen objects`. 100 (seed, star) cases exercised.
+    - **Property test: 200 random (planet, chunk) pairs, identical nodeId sets + positions** ✅ `properties.test.ts#two independent generateSurfaceChunk() invocations produce identical slices`. 200 (planet, chunk) cases exercised.
+    - **E2E: two browser contexts, request star chart + one system's planet list, deep-compare** ✅ `determinism.spec.ts#two contexts regenerate identical star chart + planet list from the same seed`.
+    - **E2E: client-side chart matches server-provided seed via `/api/health`** ✅ The same test pulls `galaxySeed` from `/api/health` on both contexts AND from the debug hook, and asserts all three agree (fixture's `driftServer.galaxySeed` is the third anchor).
+    - **All tests green in `npm run test` and the e2e suite; no flakiness across 3 consecutive runs** ✅ 1009/1009 unit tests pass; 13/13 e2e tests pass; the e2e stability run repeated 3× (× 3 internal sub-runs = 9 invocations) with zero flakes.
+1. Unit + e2e summary: 1009 vitest cases pass; 13 Playwright cases pass (4 of those are the new determinism cases — 1 primary + 3 stability sub-runs).
 ### 2026-10-18 — Iteration 22
 - **TASK-70** Playwright e2e harness for the game → **DONE**
   - **Fixture (`app/tests/e2e/fixtures.ts`).** Worker-scoped Playwright fixture that spawns `npm run dev` with PORT + API_PORT on the `::1` loopback (Vite binds only `[::1]` on this host), DB_PATH under a `mkdtempSync('drift-e2e-')` tmp dir, GALAXY_SEED=`E2E-<worker>-<ts>`, SESSION_SECRET fallback to the prereq value, and tears the child + tmp dir down on test-file completion. Exposes `DriftServer { baseURL, apiURL, wsURL, tmpDir, galaxySeed }` to specs. Also exports `sampleCanvasPixels(page, 256)` which composites a 256×256 patch of the live WebGL canvas into a 2D scratch canvas and returns `{ width, height, pixels, variance, starFraction }` for the render-smoke assertion.

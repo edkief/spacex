@@ -30,6 +30,7 @@ import { ChatLog } from "./components/ChatLog.js";
 import { CanvasStage } from "./components/CanvasStage.js";
 import { DriftClient } from "./net/wsClient.js";
 import { NotificationStore } from "./net/notifications.js";
+import { installDriftDebug } from "./net/driftDebug.js";
 
 /**
  * The root shell. One effect drives the Drift client; the HUD
@@ -51,6 +52,13 @@ export function App(): React.JSX.Element {
     // system). Production builds can ship the same code path —
     // `window.__driftClient` is a debug seam, not a public API.
     (globalThis as { __driftClient?: DriftClient }).__driftClient = client;
+
+    // TASK-71: install the dev-only debug surface (`window.__DRIFT__`)
+    // so the two-client e2e can re-derive the galaxy chart from the
+    // same `galaxySeed` the server uses. The implementation
+    // (`net/driftDebug.ts`) is tree-shaken from production builds by
+    // an `import.meta.env.DEV` guard — never installed outside dev.
+    installDriftDebug();
 
     const offStatus = client.onStatusChange((next) => {
       setStatus(next);
