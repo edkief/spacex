@@ -163,6 +163,14 @@ const VALID_PAYLOADS: Record<MessageType, () => unknown> = {
   exit_ship: () => ({}),
   enter_ship: () => ({}),
   enter_ship_ok: () => ({ shipId: "ship-test-1" }),
+  sell_ok: () => ({
+    resourceType: "iron",
+    quantity: 5,
+    sold: 5,
+    earned: 25,
+    newBalance: 525,
+    source: "hold",
+  }),
   repair: () => ({}),
   logout: () => ({}),
   logout_ok: () => ({ callsign: "TEST-ALPHA" }),
@@ -298,6 +306,14 @@ const INVALID_PAYLOADS: Record<MessageType, () => unknown> = {
   exit_ship: () => ({ extra: true }), // strict forbids extra keys
   enter_ship: () => ({ extra: true }),
   enter_ship_ok: () => ({ shipId: "" }), // empty shipId rejected
+  sell_ok: () => ({
+    resourceType: "iron",
+    quantity: 0,
+    sold: 0,
+    earned: 0,
+    newBalance: -1,
+    source: "sideways",
+  }),
   repair: () => ({ shipId: "" }),
   logout: () => ({ extra: true }), // strict forbids extra keys
   logout_ok: () => ({ callsign: "" }), // empty string rejected

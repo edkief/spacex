@@ -33,6 +33,7 @@ import type { InteractAction } from "@client/input/interaction.js";
 import { handlePickup, handleDrop } from "./shard/inventory.js";
 import { handleMineStart, handleMineStop, pushMiningUpdate } from "./shard/mining.js";
 import { handleCargoTransfer, pushCargoUpdate } from "./shard/cargo.js";
+import { handleSell } from "./shard/sell.js";
 import { sendError, sendFrame } from "./ws.dispatch.helpers.js";
 import { INVENTORY_WEIGHT_CAP, type Inventory } from "@shared/world/inventory.js";
 import type { ProtocolInventoryUpdate } from "@shared/protocol/index.js";
@@ -849,6 +850,97 @@ export async function onCargoTransfer(
     transferred: result.transferred,
     remaining: result.remaining,
     action: result.direction === "inv" ? "move-to-hold" : "move-to-inventory",
+  });
+}
+
+// ---------------------------------------------------------------------------
+// onSell — TASK-40 dock sell action
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle a `sell { resourceType, quantity, source? }` frame from a
+ * `joined`-state connection.
+ *
+ * The flow:
+ *   1. Locate the shard (via `options.shardFor`).
+ *   2. Delegate to `handleSell(shard, repo, args)` which:
+ *      - resolves the bound entity (ship or character),
+ *      - validates "at a station":
+ *          * ship → must be docked (`onPad !== null`),
+ *          * character → must be within 10 m of a docked ship's
+ *            terminal position,
+ *      - reads the inventory + cargo from the DB,
+ *      - computes the new stacks via the pure `sellStack(...)`,
+ *      - adds credits via the atomic `repo.addCredits(...)` (TASK-41
+ *        compare-and-swap guard),
+ *      - persists the new shape (inventory or cargo).
+ *   3. On success: emit `sell_ok` carrying the sold + earned +
+ *      newBalance + source so the client HUD can render the
+ *      "+240 cr" floating text on the same frame.
+ *   4. On rejection: emit a structured `error` frame. Codes map to
+ *      wire error codes as follows:
+ *        - `not-at-station`  → `not-at-station`
+ *        - `not-docked`      → `not-docked`
+ *        - `unknown-resource` → `invalid-message`
+ *        - `insufficient`    → `insufficient`
+ *        - `invalid-amount`  → `invalid-message`
+ *        - `not-found`       → `not-found`
+ */
+export async function onSell(
+  conn: Connection,
+  options: WsHandleOptions,
+  payload: unknown,
+): Promise<void> {
+  const shard = options.shardFor?.(conn);
+  if (!shard) {
+    sendError(conn, "unauthenticated", "sell requires a joined system");
+    return;
+  }
+  if (!options.repo) {
+    sendError(conn, "not-found", "Sell backend unavailable");
+    return;
+  }
+  const p = payload as {
+    resourceType: string;
+    quantity: number;
+    source?: "inv" | "hold";
+  };
+  const result = await handleSell(shard, options.repo, {
+    connId: conn.connId,
+    resourceType: p.resourceType,
+    amount: p.quantity,
+    source: p.source,
+  });
+  if (!result.ok) {
+    let wireCode:
+      "not-at-station" | "not-docked" | "insufficient" | "invalid-message" | "not-found";
+    switch (result.code) {
+      case "not-at-station":
+        wireCode = "not-at-station";
+        break;
+      case "not-docked":
+        wireCode = "not-docked";
+        break;
+      case "insufficient":
+        wireCode = "insufficient";
+        break;
+      case "not-found":
+        wireCode = "not-found";
+        break;
+      default:
+        wireCode = "invalid-message";
+        break;
+    }
+    sendError(conn, wireCode, result.message);
+    return;
+  }
+  sendFrame(conn, "sell_ok", {
+    resourceType: result.resourceType,
+    quantity: result.requested,
+    sold: result.sold,
+    earned: result.earned,
+    newBalance: result.newBalance,
+    source: result.source,
   });
 }
 

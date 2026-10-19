@@ -337,10 +337,10 @@
   },
   {
     "id": "TASK-40",
-    "title": "Dock selling: deliver cargo for credits",
-    "category": "api-endpoint",
+    "title": "Dock sales: sell cargo for credits at stations",
+    "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-40.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-42",

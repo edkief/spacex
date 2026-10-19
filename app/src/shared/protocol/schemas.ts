@@ -231,6 +231,15 @@ export const ErrorCodeSchema = z.enum([
   // this code so the client can distinguish "double-press" from
   // a real rejection.
   "already-in-ship",
+  // TASK-40: dock sell denied because the player is not at a
+  // station. Either the bound entity isn't a ship / isn't on a
+  // pad, or the character is > 10 m from a docked ship's
+  // terminal. Surfaces on `sell` frames.
+  "not-at-station",
+  // TASK-40: dock sell denied because the source stack is
+  // smaller than the requested amount. The client UI surfaces
+  // a "Cannot sell X; only Y in hold" toast.
+  "insufficient",
 ]);
 export type ProtocolErrorCode = z.infer<typeof ErrorCodeSchema>;
 
@@ -599,11 +608,48 @@ export const MiningUpdateSchema = z
   })
   .strict();
 
-/** `sell` — dock sell action (TASK-40). */
+/**
+ * `sell` — dock sell action (TASK-40).
+ *
+ * The client sends `{ resourceType, quantity, source? }` after
+ * confirming "I'm at the station". The server validates "at a
+ * station" against the bound entity (ship → must be `onPad !== null`,
+ * character → must be within 10 m of a docked ship's terminal) and
+ * debits the source stack (cargo hold or on-foot inventory) by
+ * `quantity * basePrice` worth of credits.
+ *
+ * The `source` field is OPTIONAL — the server defaults it from the
+ * bound entity kind (ship → `'hold'`, character → `'inv'`). A
+ * mismatched explicit `source` surfaces as `invalid-amount` (the
+ * caller is trying to sell from a side they aren't physically
+ * associated with).
+ */
 export const SellSchema = z
   .object({
     resourceType: z.string().min(1),
     quantity: z.number().int().positive(),
+    source: z.enum(["inv", "hold"]).optional(),
+  })
+  .strict();
+
+/**
+ * `sell_ok` — server-only ack for `sell` (TASK-40).
+ *
+ * Carries the credit + stack deltas so the client HUD can render
+ * the "+240 cr" floating text on the same frame the credits
+ * counter updates. `newBalance` is the post-credit balance; the
+ * client should also receive a follow-up `inventory_update` /
+ * `cargo_update` carrying the new source shape if it subscribes
+ * to those streams.
+ */
+export const SellOkSchema = z
+  .object({
+    resourceType: z.string().min(1),
+    quantity: z.number().int().positive(),
+    sold: z.number().int().nonnegative(),
+    earned: z.number().int().nonnegative(),
+    newBalance: z.number().int().nonnegative(),
+    source: z.enum(["inv", "hold"]),
   })
   .strict();
 
@@ -915,6 +961,7 @@ export const PAYLOAD_SCHEMAS = {
   mine_stop: MineStopSchema,
   mining_update: MiningUpdateSchema,
   sell: SellSchema,
+  sell_ok: SellOkSchema,
   cargo_transfer: CargoTransferSchema,
   cargo_update: CargoUpdateSchema,
   buy_ship: BuyShipSchema,

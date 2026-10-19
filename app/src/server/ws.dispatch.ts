@@ -80,6 +80,7 @@ import {
   onMine,
   onMineStop,
   onPickup,
+  onSell,
   onWarp,
 } from "./ws.handlers.js";
 
@@ -473,8 +474,15 @@ async function dispatch(
         await onCargoTransfer(conn, options, payload);
         return;
       }
-      // Future tasks route `sell`, etc. to the system
-      // shard. TASK-9 / TASK-65 accept them silently — the connection stays alive.
+      // TASK-40: dock sell action. The handler validates
+      // "at a station" (docked ship OR character within 10 m of
+      // a docked ship's terminal), debits the source stack
+      // (inventory or cargo), and credits the player the earned
+      // amount (atomic via TASK-41). Success: emit `sell_ok`
+      // carrying the sold + earned + newBalance + source.
+      // Failure: emit `not-at-station` / `not-docked` /
+      // `insufficient` / `invalid-message`.
+      await onSell(conn, options, payload);
       return;
 
     case "closed":

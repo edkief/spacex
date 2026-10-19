@@ -165,6 +165,30 @@ async function main(): Promise<void> {
     galaxyStarCount: 32,
     nowMs: undefined,
   });
+  // TASK-40: dock sell endpoint — needs the live WS registry
+  // + the router so the route can locate the player's shard for
+  // the proximity / regime check. Registered after both are
+  // wired so the closure captures live references.
+  const { registerSellRoute } = await import("./routes/sell.js");
+  registerSellRoute(app, {
+    repo,
+    sessionSecret: serverConfig.sessionSecret,
+    nowMs: undefined,
+    connIdForPlayer: (playerId) => {
+      for (const conn of ws.registry.values()) {
+        if (conn.playerId === playerId) return conn.connId;
+      }
+      return null;
+    },
+    shardFor: (playerId) => {
+      for (const conn of ws.registry.values()) {
+        if (conn.playerId !== playerId) continue;
+        if (conn.systemId === null) continue;
+        return router.get(conn.systemId) ?? null;
+      }
+      return null;
+    },
+  });
 
   // TASK-24: per-shard ship flush service. The interval cadence is
   // configurable via `SHARD_FLUSH_INTERVAL_MS` (default 30 s). The

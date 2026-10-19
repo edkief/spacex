@@ -264,6 +264,20 @@ export class DriftClient {
    *  camera + controls synchronously without waiting for the
    *  next `entity_update` broadcast. */
   private readonly enterShipOkListeners = new Set<(payload: { shipId: string }) => void>();
+  /** TASK-40: sell_ok subscriber set (dock-sell ack). Fired when
+   *  the server commits the credit add + stack debit. The owning
+   *  client listens so the dock panel can render the "+N cr"
+   *  floating text + bump the credits counter on the same frame. */
+  private readonly sellOkListeners = new Set<
+    (payload: {
+      resourceType: string;
+      quantity: number;
+      sold: number;
+      earned: number;
+      newBalance: number;
+      source: "inv" | "hold";
+    }) => void
+  >();
   /**
    * TASK-38: mining-update echoes — server-driven radial progress
    * (0..1500 ms within a cadence) + `state` (mining / paused-full /
@@ -788,6 +802,51 @@ export class DriftClient {
       throw new Error("DriftClient: sendCargoTransfer requires an open socket");
     }
     this.socket.send(encodeEnvelope("cargo_transfer", { resourceId, amount, from }));
+  }
+
+  /**
+   * TASK-40: fire a `sell` frame at the dock. The server
+   * validates "at a station" (docked ship OR on-foot within
+   * 10 m of a docked ship's terminal), debits the source
+   * stack, and credits the earned amount. The `source` field
+   * is OPTIONAL — the server infers it from the bound entity
+   * (ship → `'hold'`, character → `'inv'`).
+   *
+   * The ack (`sell_ok`) is fan-out to subscribers registered
+   * via `onSellOk`.
+   */
+  sendSell(resourceType: string, quantity: number, source?: "inv" | "hold"): void {
+    if (!this.socket || this.socket.readyState !== this.socket.OPEN) {
+      throw new Error("DriftClient: sendSell requires an open socket");
+    }
+    const payload: { resourceType: string; quantity: number; source?: "inv" | "hold" } = {
+      resourceType,
+      quantity,
+    };
+    if (source !== undefined) payload.source = source;
+    this.socket.send(encodeEnvelope("sell", payload));
+  }
+
+  /**
+   * TASK-40: subscribe to `sell_ok` frames. Returns an
+   * unsubscribe function. The DockPanel mounts this listener
+   * to surface the "+N cr" floating text + bump the credits
+   * counter on the same frame the server commits.
+   */
+  onSellOk(
+    listener: (payload: {
+      resourceType: string;
+      quantity: number;
+      sold: number;
+      earned: number;
+      newBalance: number;
+      source: "inv" | "hold";
+    }) => void,
+  ): () => void {
+    this.sellOkListeners.add(listener);
+    return () => {
+      this.sellOkListeners.delete(listener);
+    };
   }
 
   /**
@@ -1378,6 +1437,30 @@ export class DriftClient {
           stacks: { ...payload.inventory.stacks },
           weightUsed: payload.inventory.weightUsed,
         };
+        return;
+      }
+      case "sell_ok": {
+        // TASK-40: server-pushed dock-sell ack. Fan out to
+        // subscribers so the dock panel can render the "+N cr"
+        // floating text + bump the credits counter on the same
+        // frame the server commits. The payload mirrors the
+        // shape of `SellOkSchema` so subscribers get typed
+        // access to `sold` / `earned` / `newBalance` / `source`.
+        const payload = env.payload as {
+          resourceType: string;
+          quantity: number;
+          sold: number;
+          earned: number;
+          newBalance: number;
+          source: "inv" | "hold";
+        };
+        for (const listener of this.sellOkListeners) {
+          try {
+            listener(payload);
+          } catch {
+            // swallow — faulty listener must not break the loop
+          }
+        }
         return;
       }
       default:

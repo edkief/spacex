@@ -623,3 +623,36 @@
     - "Unit tests: capacity math per class, atomic transfer (partial when hold nears cap), persistence + warp round trip; WS tests: transfer round trip, invalid transfers (not own ship, not docked, insufficient), two players can't touch each other's holds" ✅ 27 + 9 = 36 cargo-specific cases; `cargo.test.ts` covers capacity math, atomic partial, persistence, two-player isolation; `ws.cargo.test.ts` covers all WS round-trips.
     - "npm run test green" ✅ 1811/1811 (was 1738 + 27 cargo unit + 9 WS cargo + 5 schema tests = 1779, then + 6 misc tests added in interim → 1811 baseline).
     - `npx tsc --noEmit` clean; `npx eslint` clean; `npx prettier --check` clean.
+
+### 2026-10-19 — Iteration 40 (TASK-40)
+- **TASK-40** Dock sales: sell cargo for credits at stations → **DONE**
+  - **Shared price model (`app/src/shared/world/sellOps.ts`).**
+    - Pure-function math: `priceFor(id)` (catalog base price), `sellStack({stacks,id,amount})` (caps at owned, returns `{sold, earned, remaining}`), `totalSellable(...)` (inv+hold combined), `recomputeCargoWeightAfterSell` / `recomputeInventoryWeightAfterSell` (rebuild weight after debit), `isSellableResourceType` predicate.
+    - The catalog row in `app/src/shared/resources.ts` is the single source of truth — no per-station variation in v1, documented.
+  - **Sharded handler (`app/src/server/shard/sell.ts`).**
+    - `handleSell(shard, repo, args)` validates "at a station": in-ship (`ship.onPad !== null`, else `not-docked`) OR on-foot (character within `SELL_TERMINAL_RANGE_M=10` of a docked ship's terminal position, else `not-at-station`). Defensive guards for `unknown-resource` / `invalid-amount` / `insufficient` / `not-found` (with source-mismatch check).
+    - Reads inventory + cargo from the DB, computes the new shapes via the pure ops, atomically adds credits via `repo.addCredits(...)` (TASK-41 compare-and-swap guard), then persists the new shape (inventory or cargo) via `saveInventory` / `saveShipState`. Both writes commit before the `sell_ok` ack ships.
+    - Spec: partial sales are NOT supported — `remaining > 0` surfaces as `insufficient` (422) so the UI can surface the toast without losing the player's intent.
+  - **Wire protocol (`app/src/shared/protocol/schemas.ts`).**
+    - `SellSchema` gained the optional `source` field (`'inv' | 'hold'`).
+    - New `SellOkSchema` carries `{resourceType, quantity, sold, earned, newBalance, source}` for the server ack.
+    - `ErrorCodeSchema` gained `'not-at-station'` and `'insufficient'`.
+    - Both schemas registered in `PAYLOAD_SCHEMAS`.
+  - **WS handler (`app/src/server/ws.handlers.ts` + `ws.dispatch.ts`).**
+    - New `onSell(conn, options, payload)` handler routes through `handleSell`; emits `sell_ok` on success or a structured `error` on rejection with wire-code mapping (`not-at-station` / `not-docked` / `insufficient` / `not-found` / `invalid-message`).
+    - `ws.dispatch.ts` routes `sell` frames in the `joined` state.
+    - `DriftClient.sendSell(resourceType, quantity, source?)` + `onSellOk(...)` seam on the client.
+  - **REST route (`app/src/server/routes/sell.ts`).**
+    - `POST /api/ships/sell {resourceId, amount, source: 'inv' | 'hold'}` with bearer auth. Resource id is checked against the catalog BEFORE the shard lookup (so unknown-resource surfaces as 400, not 409). Returns `{sold, earned, newBalance, resourceType, source}`. Maps `handleSell` rejection codes to HTTP statuses (`not-docked` / `not-at-station` → 409, `insufficient` → 422, `unknown-resource` / `invalid-amount` → 400, `not-found` → 404, auth missing → 401).
+    - Registered from `app/src/server/index.ts` after the WS layer + router are built; shares the `connIdForPlayer` + `shardFor` resolvers with the chat/presence paths.
+  - **Dock UI (`app/src/client/components/DockPanel.tsx`).**
+    - Modal panel with three tabs (Sell active, Ships/Repair stubs for TASK-53). Sell tab renders a resource table with the base price column + sellable amount (hold + inventory combined) + per-row "Sell 1" / "Sell all" buttons. Right rail: credits counter + recent sales log. Floating "+N cr" text on each successful sale (1 s fade via `drift-mining-float` keyframe).
+    - Mounted in `app/src/client/App.tsx` via the `ui_open { ui: "dock" }` server directive (TASK-33). Credits counter also polls `/api/players/me` once per second so the right rail is fresh on every modal mount.
+  - **Tests + e2e.**
+    - 13 sellOps cases: priceFor / isSellableResourceType / sellStack (math + partial + non-mutation) / totalSellable / weight recomputation.
+    - 13 sell handler cases: price math (iron 5, copper 8, crystal 60) / source selection (`hold` for ship, `inv` for character, mismatch rejection) / validation (not-docked, not-at-station > 10 m, unknown-resource, invalid-amount, insufficient) / persistence (hold sale round-trip + inventory sale round-trip).
+    - 6 WS round-trip cases: happy in-ship, happy on-foot, not-docked, not-at-station, insufficient, **the money test** ("mine 10 iron → load to hold → dock → sell → credits = 500 + 10*5 = 550" + hold drained to 0).
+    - 7 REST cases: in-ship happy, on-foot happy, 401 unauth, 400 unknown-resource, 409 not-docked, 422 insufficient, 409 not-at-station.
+    - 3 Playwright e2e: page-mounts-cleanly, REST validation surface, screenshot capture.
+    - `npm run test`: 1852/1852 (was 1811 → +13 sellOps + 13 sell + 6 ws.sell + 7 routes.sell + 2 schema + 0 e2e counted here = 1852). `npx tsc --noEmit` clean, `npx eslint` clean, `npx prettier --check` clean.
+    - Screenshot: `.ralph/screenshots/TASK-40-1.png` (dock panel + "+25 cr" floating text + recent sales log).

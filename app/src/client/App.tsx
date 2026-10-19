@@ -47,6 +47,7 @@ import { EnterShipPrompt, useEnterShipState } from "./components/EnterShipPrompt
 import { InteractionPrompt } from "./components/InteractionPrompt.js";
 import { WeightBar, useOwnInventory } from "./components/WeightBar.js";
 import { CargoPanel, useOwnCargo } from "./components/CargoPanel.js";
+import { DockPanel } from "./components/DockPanel.js";
 import { RadialMiningProgress } from "./components/RadialMiningProgress.js";
 import { useMiningState } from "./components/useMiningState.js";
 import { useInteractables, useLocalInteractor } from "./components/useInteractables.js";
@@ -220,6 +221,51 @@ export function App(): React.JSX.Element {
       const t = client.tokenSnapshot();
       if (t !== null) setToken(t);
     }, 200);
+    // TASK-40: poll the player's credit balance via
+    // `/api/players/me`. Cheap on the server (single
+    // `findPlayerById` row read); the cadence mirrors the
+    // weight-bar + cargo-poll loops so the dock panel renders
+    // a fresh balance on the same frame the modal mounts.
+    const creditsTimer = window.setInterval(async () => {
+      const t = client.tokenSnapshot();
+      if (t === null) return;
+      try {
+        const res = await fetch("/api/players/me", {
+          headers: { Authorization: `Bearer ${t}` },
+        });
+        if (!res.ok) return;
+        const body = (await res.json()) as { credits: number };
+        setCreditsBalance(body.credits);
+      } catch {
+        // swallow — a transient network glitch shouldn't break the HUD
+      }
+    }, 1_000);
+    // TASK-40: subscribe to `ui_open` server frames so the dock
+    // panel can mount when the player presses `E` on a
+    // dock-terminal interactable. Only the `dock` ui tag is
+    // honoured today; future terminals will extend the union.
+    const offUiOpen = client.onUiOpen((payload) => {
+      if (payload.ui === "dock") {
+        setDockPanelOpen(true);
+      }
+    });
+    // TASK-40: subscribe to `sell_ok` frames so the credits
+    // counter bumps on the same frame the server commits the
+    // credit add. The DockPanel also listens to flip its own
+    // "+N cr" floating text; the counter update lives here so
+    // the right rail renders the post-sale balance without
+    // waiting for the next `/api/players` poll.
+    const offSellOk = client.onSellOk((payload) => {
+      setCreditsBalance(payload.newBalance);
+    });
+    // TASK-40 (dev seam): expose a `forceDockPanelOpen()`
+    // helper so the e2e screenshot can open the panel without
+    // driving a full WS interact flow. Dev-only — production
+    // builds never set this seam.
+    if (import.meta.env.DEV) {
+      (globalThis as { __driftForceDockPanel?: () => void }).__driftForceDockPanel = () =>
+        setDockPanelOpen(true);
+    }
     client.start().catch(() => {
       // Errors already surface via the onError listener; the
       // start() promise is intentionally fire-and-forget so the
@@ -231,7 +277,10 @@ export function App(): React.JSX.Element {
       offResync();
       offWarp();
       offWarpRejected();
+      offUiOpen();
+      offSellOk();
       window.clearInterval(tokenTimer);
+      window.clearInterval(creditsTimer);
       void client.stop();
     };
   }, [client, notifications]);
@@ -377,6 +426,17 @@ export function App(): React.JSX.Element {
   // docked ship with the "Open cargo" prompt; the panel's
   // `Esc` close button resets it.
   const [cargoPanelOpen, setCargoPanelOpen] = useState(false);
+  // TASK-40: open state for the dock sell panel. The server
+  // emits `ui_open { ui: "dock" }` when the player presses `E`
+  // on a dock-terminal interactable (TASK-33 + TASK-40). The
+  // client owns rendering; the host shell toggles `open` from a
+  // single source (the `ui_open` listener below).
+  const [dockPanelOpen, setDockPanelOpen] = useState(false);
+  // TASK-40: live credit balance. Mirrors the value the server
+  // reports via `sell_ok` (or `/api/players` for the initial read).
+  // The DockPanel renders it in the right rail so the player
+  // sees the count tick up on every sell.
+  const [creditsBalance, setCreditsBalance] = useState(0);
   // TASK-38: mining state — server-timed radial progress driven
   // by `mining_update` echoes. The hook is independent of the
   // WS online state so a connection drop cancels the radial via
@@ -470,6 +530,23 @@ export function App(): React.JSX.Element {
         cargo={ownCargo}
         open={cargoPanelOpen}
         onClose={() => setCargoPanelOpen(false)}
+      />
+      {/* TASK-40: dock sell modal. Opens via the server's
+          `ui_open { ui: "dock" }` directive when the player
+          presses `E` on a dock-terminal interactable. The
+          Sell tab lists every deposit resource with its base
+          price + the player's combined sellable amount (hold
+          + inventory) + per-row "Sell 1" / "Sell all" buttons.
+          A floating "+N cr" appears on each successful sale;
+          the credits counter on the right rail updates via
+          the `sell_ok` subscription. */}
+      <DockPanel
+        client={status === "online" ? client : null}
+        inventory={ownInventory}
+        cargo={ownCargo}
+        balance={creditsBalance}
+        open={dockPanelOpen}
+        onClose={() => setDockPanelOpen(false)}
       />
       <InteractionPrompt
         interactor={localInteractor}
