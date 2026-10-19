@@ -47,9 +47,9 @@
  */
 import { applyDamage, type DamageTarget } from "@shared/physics/damage.js";
 import type { DamageSource } from "@shared/physics/damage.js";
-import type { ProtocolCombatEvent } from "@shared/protocol/index.js";
 
 import { makeWreckEntity, makeWreckId } from "./entity.js";
+import { broadcastCombatEvent } from "./combat-events.js";
 import type { Shard, SimEntity } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -87,6 +87,11 @@ export const WRECK_TTL_MS = WRECK_TTL_S * 1000;
  *   - Broadcasts a `combat_event` with `kind: 'damaged'` (always)
  *     and, if this call destroyed the target, a second
  *     `combat_event` with `kind: 'destroyed'`.
+ *   - TASK-42: when `sourceEntityId` is supplied AND `source.kind
+ *     === 'player'`, the destroying call also broadcasts a
+ *     `combat_event` with `kind: 'kill'`. The `kill` event carries
+ *     the attacker's callsign so the killer can show up in
+ *     post-combat recaps without a server-side lookup.
  *
  * The function is a no-op if the target does not exist on the shard
  * (returns `{shieldHit:0, hullHit:0, destroyed:false, ...,
@@ -109,6 +114,24 @@ export function applyCombatDamage(args: {
    * `Date.now()`. Tests inject a fake clock.
    */
   nowMs?: number;
+  /**
+   * TASK-42: entity id of the source. Required for `kill` event
+   * attribution — the `damage.source.id` is the callsign/roster
+   * id (a *human-readable* handle), while this is the entity id
+   * (the *technical* handle the HUD uses to dedupe and the
+   * renderer uses to find the killer's impostor). When the
+   * weapon handler can resolve it, supply it here. The wreck
+   * spawn also stores it on the wreck entity (TASK-49).
+   */
+  sourceEntityId?: string;
+  /**
+   * TASK-42: weapon that landed the hit. Forwarded onto the
+   * wreck so the skull tooltip can mention it. Required for
+   * `kill` events (the protocol's `kill` schema currently carries
+   * `attacker / target / tick`; the weapon-specific tooltip lives
+   * on the wreck).
+   */
+  weapon?: "laser" | "missile";
 }): ApplyCombatDamageResult {
   const shard = args.shard;
   const entity = shard.entities.get(args.targetId);
@@ -151,6 +174,22 @@ export function applyCombatDamage(args: {
   // Apply the damage to the live entity in place.
   entity.hull = result.newHull;
   entity.shields = result.newShields;
+
+  // TASK-42: build the kill attribution once so both the wreck
+  // entity and the optional `kill` event can reuse it. Only
+  // builds when the caller supplied a source entity id AND a
+  // weapon — the wreck needs both to render the skull tooltip
+  // (TASK-49). Missing attribution is a non-fatal no-op for the
+  // kill event (the `destroyed` event still fires either way).
+  const killer:
+    { entityId: string; kind: "player" | "ai"; weapon: "laser" | "missile" } | undefined =
+    args.sourceEntityId !== undefined && args.weapon !== undefined
+      ? {
+          entityId: args.sourceEntityId,
+          kind: args.source.kind,
+          weapon: args.weapon,
+        }
+      : undefined;
 
   // Always broadcast the `damaged` event (the spec calls for "Damage
   // events ... broadcast as combat_event to the whole shard" for any
@@ -196,6 +235,13 @@ export function applyCombatDamage(args: {
     pos: entity.pos,
     quat: entity.quat,
     wreckExpiresAt: now + WRECK_TTL_MS,
+    // TASK-42: propagate kill attribution onto the wreck so
+    // TASK-49 can render the skull marker with the right
+    // tooltip. `killer` is `undefined` when the caller didn't
+    // supply a sourceEntityId — those wrecks render without an
+    // attribution flag (rare — typically a future TASK-48
+    // environmental hazard).
+    killer,
   });
   shard.entities.set(wreckId, wreck);
 
@@ -212,6 +258,22 @@ export function applyCombatDamage(args: {
     source: { kind: args.source.kind, id: args.source.id },
     tick: args.tick,
   });
+
+  // TASK-42: fire a `kill` event whenever the source is a player
+  // AND the wreck has a killer record. AI-on-AI kills don't emit
+  // (the post-combat recap is the *player* kill log, not a
+  // generic kill log). The `attacker` is the callsign so the
+  // HUD can show "Killer: <callsign>" without a second lookup;
+  // when the weapon handler doesn't supply a source, this
+  // branch is skipped and only `destroyed` fires.
+  if (killer?.kind === "player") {
+    broadcastCombatEvent(shard, {
+      kind: "kill",
+      attacker: args.source.id,
+      target: entity.id,
+      tick: args.tick,
+    });
+  }
 
   return {
     shieldHit: result.shieldHit,
@@ -253,57 +315,8 @@ export interface ApplyCombatDamageResult {
 }
 
 // ---------------------------------------------------------------------------
-// Wreck cleanup
+// Source factories — used by tests + future AI code (TASK-46).
 // ---------------------------------------------------------------------------
-
-/**
- * Remove any `kind: 'wreck'` entity whose `wreckExpiresAt` has
- * passed. Called once per tick by `SimLoop.runOneStep`. No-op if
- * the registry contains no expired wrecks.
- *
- * Returns the number of wrecks removed (for tests + ops dashboards).
- */
-export function cleanupExpiredWrecks(shard: Shard, nowMs: number): number {
-  let removed = 0;
-  for (const [id, entity] of shard.entities) {
-    if (entity.kind !== "wreck") continue;
-    if (entity.wreckExpiresAt === undefined) continue;
-    if (entity.wreckExpiresAt > nowMs) continue;
-    shard.entities.delete(id);
-    removed += 1;
-  }
-  return removed;
-}
-
-// ---------------------------------------------------------------------------
-// Combat event broadcast
-// ---------------------------------------------------------------------------
-
-/**
- * Push one `combat_event` frame to every connection in the shard
- * via the shard's `send` hook. The shard is transport-agnostic; this
- * just walks `shard.connections` and calls `send` for each.
- *
- * Failures from a single connection do not stop the broadcast — a
- * dead client shouldn't take out a combat alert for everyone else.
- *
- * The frame type is asserted via `unknown` because the shard's
- * `send` hook was originally typed for `entity_update` only; combat
- * events are a distinct message type that flows through the same
- * transport. The router unwraps the frame into the wire shape.
- */
-export function broadcastCombatEvent(shard: Shard, event: ProtocolCombatEvent): void {
-  for (const conn of shard.connections.values()) {
-    try {
-      shard.send(conn.connId, {
-        type: "combat_event",
-        payload: event,
-      } as unknown as Parameters<typeof shard.send>[1]);
-    } catch {
-      // Swallow per-connection errors — the broadcast is best-effort.
-    }
-  }
-}
 
 /**
  * Convenience: a damage source tagged with a class id. Used by
@@ -320,3 +333,12 @@ export function aiSource(id: string): DamageSource {
 export function playerSource(id: string): DamageSource {
   return { kind: "player", id };
 }
+
+// ---------------------------------------------------------------------------
+// Re-exports — companion module hosts the broadcast + cleanup helpers
+// that were extracted in TASK-42 so this file could absorb the
+// resolveHit LOS logic without exceeding the AGENTS.md 200-300 LOC
+// cap. The barrel re-export keeps existing imports stable.
+// ---------------------------------------------------------------------------
+
+export { broadcastCombatEvent, cleanupExpiredWrecks } from "./combat-events.js";

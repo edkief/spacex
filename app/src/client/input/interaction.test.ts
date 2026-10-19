@@ -262,6 +262,7 @@ describe("interaction: dispatch-site lint (TASK-33)", () => {
       "src/server/shard/entity.ts",
       "src/server/shard/deposit-pickup.ts",
       "src/server/galaxy/deposit-hydrate.ts",
+      "src/server/shard/combat.resolve.ts",
       "src/client/net/prediction.ts",
     ]);
     for (const file of sources) {

@@ -201,6 +201,31 @@ export interface SimEntity {
    */
   wreckExpiresAt?: number;
   /**
+   * TASK-42: id of the entity that landed the killing blow (the
+   * `combat_event`'s `source.id` propagated through `resolveHit`).
+   * Consumed by TASK-49 to render the skull marker on the wreck
+   * impostor. Set on `kind === 'wreck'` only; `undefined` for
+   * every other kind. We store the source *entity id* (not the
+   * callsign) so the renderer can resolve the attribution via the
+   * registry on demand without a second broadcast.
+   */
+  killerEntityId?: string;
+  /**
+   * TASK-42: discriminated kind of the source that landed the
+   * killing blow. Mirrors the `DamageSource.kind` field so the
+   * HUD can show "AI kill" vs "Player kill" without a second
+   * lookup. Set alongside `killerEntityId`; `undefined` for
+   * wrecks destroyed by future env hazards that don't carry a
+   * source (e.g. asteroid collision).
+   */
+  killerKind?: "player" | "ai";
+  /**
+   * TASK-42: weapon used to land the killing blow. Stored so the
+   * skull tooltip can read "destroyed by <killer>'s <weapon>". Set
+   * alongside `killerEntityId`; `undefined` for non-combat deaths.
+   */
+  killerWeapon?: "laser" | "missile";
+  /**
    * TASK-31: when `kind === 'character'`, the id of the docked ship
    * the player owns (so re-entry via TASK-35 can find it without an
    * extra lookup). `undefined` for all other kinds.

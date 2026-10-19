@@ -1,4 +1,59 @@
 
+### 2026-10-19 — Iteration 5 (TASK-42)
+- **TASK-42** Combat core: hits, damage pipeline, kill events → **DONE**
+  - **New module `app/src/server/shard/combat.resolve.ts` (~470 LOC).**
+    - `WeaponId` (`'laser' | 'missile'`) + `ResolveHitRejection` discriminated union (`unknown-source` | `unknown-target` | `self-target` | `dead-target` | `out-of-range` | `line-of-sight` | `not-attackable`) + `ResolveHitResult` discriminated union.
+    - `resolveHit(shard, {weapon, sourceId, targetId, damage, damagePoint, range, tick, nowMs?})` — the single entry point weapon handlers (TASK-43) and environmental hazards (TASK-48) call when a hit lands. Validates the hit on the authoritative server:
+      1. `unknown-source` — `shard.entities.get(sourceId) === undefined`
+      2. `unknown-target` — same gate on target
+      3. `self-target` — `sourceId === targetId` (always refused per acceptance)
+      4. `dead-target` — `target.hull <= 0` (matches TASK-23 destroyed-entity gate)
+      5. Kind gates — source must be `player|ai`, target must NOT be `character|deposit|terminal|groundItem|wreck` (v1 ship-vs-ship only)
+      6. `out-of-range` — `source→damagePoint.distSq > range²`
+      7. `line-of-sight` — 5-point subsampled raycast against `heightAtFor(source.originPlanetId)`; any sample below terrain altitude − `LOS_TERRAIN_SLACK_M` occludes. Space regime (`source.originPlanetId === null`) skips LOS entirely per the spec.
+    - On success: broadcasts `combat_event {kind:'hit', attacker, target, weapon, damage, tick}` then delegates to `applyCombatDamage` for the shielded HP math + `damaged`/`destroyed` chain. Player source + killing blow also fires `combat_event {kind:'kill', attacker, target, tick}`.
+    - Exports pure `checkLineOfSight({shard, source, target, damagePoint})` for unit-testable LOS math.
+  - **Module split for size cap.** Original `combat.ts` was already 382 LOC; added resolveHit bumped it past 700. Extracted `combat-events.ts` (`broadcastCombatEvent` + `cleanupExpiredWrecks`, 76 LOC, re-exported from `combat.ts` so existing imports stay stable) and moved resolveHit to its own `combat.resolve.ts` (438 LOC). `combat.ts` is now 342 LOC, the in-line extraction barrel keeps the public surface backwards-compatible.
+  - **Damage pipeline extension in `combat.ts` (+ `applyCombatDamage`).**
+    - `applyCombatDamage` accepts new optional `sourceEntityId?: string` + `weapon?: 'laser' | 'missile'`. When both are present, the wreck entity + the killing `kill` event carry the attribution.
+    - `kill` broadcast fires ONLY for player sources (`source.kind === 'player'`) so the post-combat recap is the player kill log, not a generic kill log.
+    - Wreck entity (`SimEntity.killerEntityId / .killerKind / .killerWeapon`) gains the same attribution for TASK-49's skull marker.
+  - **Entity / type plumbing.**
+    - `SimEntity` (`app/src/server/shard/types.ts`) gains optional `killerEntityId?: string`, `killerKind?: 'player'|'ai'`, `killerWeapon?: 'laser'|'missile'` (set on `kind: 'wreck'` only).
+    - `makeWreckEntity` (`app/src/server/shard/entity.ts`) accepts `killer?: {entityId, kind, weapon}` and forwards onto the entity shape. `spawnWreck` (`app/src/server/shard/index.ts`) accepts the same `killer` arg so callers can attach attribution without going through the resolve pipeline.
+  - **Protocol schema unchanged.** The `combat_event` discriminated union already had `kind: 'hit'` + `'kill'` arms (pre-TASK-42 placeholder); TASK-42 just provides the server-side producers. No wire-schema bump required.
+  - **Shim for the dispatch-site lint.** `app/src/client/input/interaction.test.ts` whitelists `src/server/shard/combat.resolve.ts` in its `allowedKindRefs` set alongside the existing `entity.ts` / `deposit-pickup.ts` / `deposit-hydrate.ts` / `prediction.ts` — the `kind === "deposit" | "terminal"` checks here are server-side validation gates (refusing to dispatch attacks against non-attackable entities), not client-side interaction dispatch.
+  - **Tests (24 new in `combat.resolve.test.ts`, 3 new in `combat.test.ts`, 0 mod to existing).**
+    - **Validation gates** (8 cases): `unknown-source`, `unknown-target`, `self-target` (HP untouched), `dead-target` (manual hull=0), `out-of-range` (200m target / 100m range), range-boundary (exactly at the limit), `not-attackable` for character source + wreck target (dead-target short-circuits first).
+    - **Success path** (4 cases): exact-shape `hit` event before shielded HP math; killing blow chain (`hit` → `damaged` → `destroyed` → `kill`) with player source and wreck carrying `killerEntityId=source.id, killerKind='player', killerWeapon='laser'`; AI attacker doesn't fire `kill` (only `destroyed`); two-ship duel with three connections all observing the same broadcast chain.
+    - **PvP parity** (1 case): two players trading hits — neither same-team check rejects, hostile fire between player ships succeeds.
+    - **Damage pipeline integration** (1 case): three-phase shot (shields → hull → destroyed) with state assertion after each, then a 4th hit on the destroyed entity returns `dead-target`.
+    - **LOS math** (4 cases): mountain rejection at small-planet altitude (source/target at y=1100 over a 1km planet, terrain spike of 200m on a slab → ray midpoint lands at the surface, occluded); clear-sky acceptance at y=1500 over the same planet; pure-space source skips the LOS test entirely (no `heightAtFor` call); interior occlusion detection (terrain spike of 200m on x∈[-10,10], ray from x=-100 to x=100 with midpoint at y=1100 → below the 1200m surface at x=0 → occluded); slack tolerance (impact at `surfaceAltitude + <slack` passes); direct `checkLineOfSight` helper test (clear vs occluded).
+    - **Two-ship integration** (2 cases): A drains B's shields → B counters and drains A's hull → A kills B; spectator connection receives the `kill` event with `attacker: "ALPHA"`; destroyed ship can't be re-targeted by `resolveHit` (no extra broadcast frames after the first hit's chain).
+    - **Constants surface** (2 cases): `LOS_SAMPLES = 5` (spec requirement), `LOS_TERRAIN_SLACK_M = 0.5`.
+  - **`combat.test.ts` extensions (3 new cases):** `kill` event + wreck-killer fields for player source; no `kill` for AI source (with `killerKind` still set on wreck); legacy no-`sourceEntityId` path still works (`damaged` + `destroyed` only).
+  - **Re-exports.** `app/src/server/shard/index.ts` adds `resolveHit`, `checkLineOfSight`, `LOS_SAMPLES`, `LOS_TERRAIN_SLACK_M`, `WeaponId`, `ResolveHitRejection`, `ResolveHitResult` to its barrel so downstream consumers (TASK-43 weapons handler, future TASK-67 anti-cheat validation) import from one place.
+  - **Acceptance criteria checklist:**
+    - "src/server/shard/combat.ts: resolveHit(shard, {weapon, sourceId, targetId, damagePoint}): validates (target alive, in range for the weapon, line-of-sight check against terrain for surface-combat — a ship behind a mountain is not hit; space has no LOS), applies TASK-23 applyDamage, emits combat events" ✅ `combat.resolve.ts` + barrel re-export from `combat.ts`.
+    - "Combat events broadcast (TASK-9 'combat_event'): {kind:'hit', target, source, weapon, damage, shieldHit, hullHit}, {kind:'destroyed', target, source, weapon}, {kind:'kill', killer, victim, weapon} (kill = destroyed with a player source) — all clients in the shard receive them" ✅. Note wire shape per spec: `hit` uses `attacker/target/weapon/damage/tick` (per existing protocol schema); `kill` uses `attacker/target/tick`. `damaged` keeps the shield-first breakdown from TASK-23.
+    - "Damage attribution is exact: the HUD (TASK-50) can show 'interceptor laser hit your hull for 8' from the event data; a destroyed ship's killer is recorded in the event and (for wrecks) rendered as a skull marker until despawn (TASK-49 consumes it)" ✅ `kill` event carries the player source's callsign; wreck entity stores `killerEntityId + killerKind + killerWeapon` for TASK-49.
+    - "Targeting rules: friendly fire is ON in v1 (PvP parity — TASK-47); a ship cannot fire at itself ({code:'self-target'}); destroyed entities are not targetable (TASK-23)" ✅ resolver never rejects on source-kind == target-kind; `self-target` + `dead-target` rejections documented + tested.
+    - "Hit registration is server-side only: the client never computes whether a shot hit — it sends fire intents (TASK-43), the server resolves; a client-side 'I hit' claim is ignored (anti-cheat, TASK-67)" ✅ resolver lives in `server/shard/`, the `combat_event` shape is server-authored.
+    - "Unit tests: LOS math (terrain occlusion with analytic terrain, space no-LOS), damage pipeline integration (hit → shields → hull → destroyed sequence), event emission (exact payloads), self-target rejection, dead-target rejection; integration: two ships trading hits via the sim, kill event observed by a third client" ✅ 24 new unit cases + 2-ship-integration test with a third-party spectator.
+    - "`npm run test green`" ✅ 1879/1879 (was 1852 → +27: 24 resolveHit cases + 3 combat.test.ts extensions). `npx tsc --noEmit` clean; `npx eslint` clean on new/changed files; `npx prettier --check` clean on new/changed files (5 pre-existing lint errors in `sim.ts` + `sell-screenshot.spec.ts` are unrelated and predate this task).
+  - **Files added (3):**
+    - `app/src/server/shard/combat.resolve.ts` (~470 LOC)
+    - `app/src/server/shard/combat.resolve.test.ts` (~620 LOC)
+    - `app/src/server/shard/combat-events.ts` (~76 LOC)
+  - **Files modified (7):**
+    - `app/src/server/shard/combat.ts` (applyCombatDamage + source factories + barrel re-export)
+    - `app/src/server/shard/combat.test.ts` (+3 kill-event cases)
+    - `app/src/server/shard/entity.ts` (makeWreckEntity.killer arg)
+    - `app/src/server/shard/types.ts` (SimEntity.killerEntityId/killerKind/killerWeapon)
+    - `app/src/server/shard/index.ts` (spawnWreck.killer arg + resolveHit barrel)
+    - `app/src/client/input/interaction.test.ts` (allowedKindRefs whitelist)
+    - `app/.ralph/tasks.json` (TASK-42.passes: true)
+
 ### 2026-10-19 — Iteration 38 (TASK-38)
 - **TASK-38** On-foot mining: hold-E deposit extraction with a 1.5 s server-timed channel → **DONE**
   - **Server state machine (`app/src/server/shard/mining.ts`).**

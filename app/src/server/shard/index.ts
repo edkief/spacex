@@ -295,6 +295,16 @@ export function spawnWreck(
     quat?: { x: number; y: number; z: number; w: number };
     sourceEntityId?: string;
     nowMs?: number;
+    /**
+     * TASK-42: kill attribution. Forwarded to the wreck entity
+     * so TASK-49's skull marker + the kill event can carry the
+     * source without a second lookup.
+     */
+    killer?: {
+      entityId: string;
+      kind: "player" | "ai";
+      weapon: "laser" | "missile";
+    };
   },
 ): SimEntity {
   const now = args.nowMs ?? Date.now();
@@ -307,6 +317,7 @@ export function spawnWreck(
     pos: args.pos,
     quat: args.quat,
     wreckExpiresAt: now + WRECK_TTL_MS,
+    killer: args.killer,
   });
   shard.entities.set(id, wreck);
   return wreck;
@@ -860,6 +871,15 @@ export {
   aiSource,
   playerSource,
 } from "./combat.js";
+export {
+  resolveHit,
+  checkLineOfSight,
+  LOS_SAMPLES,
+  LOS_TERRAIN_SLACK_M,
+  type WeaponId,
+  type ResolveHitRejection,
+  type ResolveHitResult,
+} from "./combat.resolve.js";
 export { enqueueInput, STALE_LOG_THRESHOLD } from "./input-queue.js";
 export { TickHistogram, DEFAULT_CAPACITY } from "./histogram.js";
 export { SimLoop } from "./sim.js";

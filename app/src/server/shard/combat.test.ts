@@ -294,6 +294,130 @@ describe("applyCombatDamage — combat_event broadcast", () => {
     });
   });
 
+  // TASK-42: kill event + wreck killer attribution. The
+  // `applyCombatDamage` path gains a `sourceEntityId` parameter
+  // that triggers the `kill` event for player sources and tags
+  // the wreck with the killer's entity id + kind + weapon.
+  it("emits a 'kill' event when a player-source killing blow supplies sourceEntityId", () => {
+    const attacker = spawnShip(recorder.shard, {
+      shipId: "attacker",
+      playerId: "p-1",
+      callsign: "ALPHA",
+      classId: "scout",
+      hull: 100,
+      shields: 50,
+      pos: { x: 0, y: 0, z: 0 },
+    });
+    const ship = spawnShip(recorder.shard, {
+      shipId: "ship-1",
+      playerId: "p-2",
+      callsign: "BRAVO",
+      classId: "scout",
+      hull: 100,
+      shields: 50,
+      pos: { x: 0, y: 0, z: 0 },
+    });
+    const conn = makeConnection({ connId: "conn-a" });
+    addConnection(recorder.shard, conn);
+
+    const out = applyCombatDamage({
+      shard: recorder.shard,
+      targetId: ship.id,
+      amount: 150,
+      source: playerSource("ALPHA"),
+      tick: 1,
+      sourceEntityId: attacker.id,
+      weapon: "laser",
+    });
+    expect(out.destroyed).toBe(true);
+
+    // 2 events per connection: damaged + destroyed + kill.
+    const events = combatEventsSent(recorder);
+    expect(events.map((e) => e.kind)).toEqual(["damaged", "destroyed", "kill"]);
+    const killEvent = events.find((e) => e.kind === "kill");
+    expect(killEvent).toEqual({
+      kind: "kill",
+      attacker: "ALPHA",
+      target: ship.id,
+      tick: 1,
+    });
+
+    // Wreck carries killer attribution for TASK-49 skull marker.
+    const wreck = recorder.shard.entities.get(`wreck:${ship.id}`);
+    expect(wreck).toBeDefined();
+    expect(wreck!.killerEntityId).toBe(attacker.id);
+    expect(wreck!.killerKind).toBe("player");
+    expect(wreck!.killerWeapon).toBe("laser");
+  });
+
+  it("does NOT emit a 'kill' event when the killer is an AI source", () => {
+    // AI kills don't surface on the player kill log; only
+    // `destroyed` fires.
+    const ship = spawnShip(recorder.shard, {
+      shipId: "ship-1",
+      playerId: "p-1",
+      callsign: "ALPHA",
+      classId: "scout",
+      hull: 100,
+      shields: 50,
+      pos: { x: 0, y: 0, z: 0 },
+    });
+    const conn = makeConnection({ connId: "conn-a" });
+    addConnection(recorder.shard, conn);
+
+    applyCombatDamage({
+      shard: recorder.shard,
+      targetId: ship.id,
+      amount: 150,
+      source: aiSource("rogue-1"),
+      tick: 1,
+      sourceEntityId: "ai-rogue",
+      weapon: "laser",
+    });
+
+    const events = combatEventsSent(recorder);
+    expect(events.map((e) => e.kind)).toEqual(["damaged", "destroyed"]);
+    // The wreck still carries the AI killer attribution so
+    // TASK-49 can render the impostor with the right tooltip.
+    const wreck = recorder.shard.entities.get(`wreck:${ship.id}`);
+    expect(wreck).toBeDefined();
+    expect(wreck!.killerEntityId).toBe("ai-rogue");
+    expect(wreck!.killerKind).toBe("ai");
+  });
+
+  it("does NOT emit a 'kill' event when the source omitted sourceEntityId (legacy path)", () => {
+    // Backwards-compat: pre-TASK-42 callers that don't supply
+    // a source entity id still get the `damaged` + `destroyed`
+    // chain but no `kill`. The wreck carries no killer
+    // attribution in that case.
+    const ship = spawnShip(recorder.shard, {
+      shipId: "ship-1",
+      playerId: "p-1",
+      callsign: "BRAVO",
+      classId: "scout",
+      hull: 100,
+      shields: 50,
+      pos: { x: 0, y: 0, z: 0 },
+    });
+    const conn = makeConnection({ connId: "conn-a" });
+    addConnection(recorder.shard, conn);
+
+    applyCombatDamage({
+      shard: recorder.shard,
+      targetId: ship.id,
+      amount: 150,
+      source: playerSource("attacker"),
+      tick: 1,
+      // no sourceEntityId \u2014 legacy behaviour.
+    });
+
+    const events = combatEventsSent(recorder);
+    expect(events.map((e) => e.kind)).toEqual(["damaged", "destroyed"]);
+    const wreck = recorder.shard.entities.get(`wreck:${ship.id}`);
+    expect(wreck).toBeDefined();
+    expect(wreck!.killerEntityId).toBeUndefined();
+  });
+
   it("broadcasts a 'destroyed' event alongside the killing blow's 'damaged' event", () => {
     const ship = spawnShip(recorder.shard, {
       shipId: "ship-1",

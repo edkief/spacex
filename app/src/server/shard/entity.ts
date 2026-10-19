@@ -153,6 +153,14 @@ export function makeAiEntity(args: {
  * `wreckExpiresAt` is set in ms-from-epoch so the cleanup loop
  * can use a single `Date.now()` comparison rather than tracking
  * ticks.
+ *
+ * TASK-42: optional kill attribution. When a `killer` is supplied
+ * we store its entity id, kind, and weapon on the wreck so TASK-49
+ * can draw the skull marker with the right tooltip without going
+ * back to a log. The killer survives a fresh context reload
+ * because the entity registry carries the killer for the full
+ * 600 s wreck TTL — long enough for any client to scrub the
+ * recent-kills log.
  */
 export function makeWreckEntity(args: {
   id: string;
@@ -160,6 +168,16 @@ export function makeWreckEntity(args: {
   pos: { x: number; y: number; z: number };
   quat?: { x: number; y: number; z: number; w: number };
   wreckExpiresAt: number;
+  /**
+   * TASK-42: who landed the killing blow. Required for any wreck
+   * created by `resolveHit` because the kill event + the
+   * renderer-assigned skull both need the attribution.
+   */
+  killer?: {
+    entityId: string;
+    kind: "player" | "ai";
+    weapon: "laser" | "missile";
+  };
 }): SimEntity {
   return {
     id: args.id,
@@ -177,6 +195,13 @@ export function makeWreckEntity(args: {
     originPlanetId: null,
     onPad: null,
     wreckExpiresAt: args.wreckExpiresAt,
+    // TASK-42: propagate the kill attribution onto the wreck so
+    // TASK-49's skull marker has a stable source. Defaults to
+    // `undefined` so the v1 TASK-23 paths that pre-date this
+    // change continue to compile without passing the new field.
+    killerEntityId: args.killer?.entityId,
+    killerKind: args.killer?.kind,
+    killerWeapon: args.killer?.weapon,
   };
 }
 
