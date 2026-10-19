@@ -62,6 +62,9 @@ import { StarChart, type OccupancyBySystem } from "./ui/StarChart.js";
 import { WarpStore } from "./state/warp.js";
 import { DebugOverlay } from "./perf/DebugOverlay.js";
 import { FrameMonitor } from "./perf/frameMonitor.js";
+import { WeaponHud } from "./components/WeaponHud.js";
+import { WeaponFxHud } from "./components/WeaponFxHud.js";
+import { WeaponFxLayer } from "./fx/weapons.js";
 import type { GalaxyOverview } from "@shared/galaxy/overview.js";
 
 /**
@@ -85,6 +88,11 @@ export function App(): React.JSX.Element {
   // is still constructed (cheap — a 300-slot Float64Array) so future
   // instrumentation work doesn't have to fork the import graph.
   const frameMonitor = useMemo(() => new FrameMonitor(), []);
+  // TASK-43: weapon FX layer. Owned by the top-level shell so
+  // every component that receives `combat_event` frames can
+  // route them into the FX layer without re-creating the
+  // active flash / tracer / impact arrays.
+  const weaponFx = useMemo(() => new WeaponFxLayer(), []);
   const [status, setStatus] = useState(client.currentStatus);
   const [error, setError] = useState<string | null>(null);
   // TASK-7: chart open state — toggled by the `M` key or the
@@ -258,6 +266,16 @@ export function App(): React.JSX.Element {
     const offSellOk = client.onSellOk((payload) => {
       setCreditsBalance(payload.newBalance);
     });
+    // TASK-43: route `fire_ok` frames into the FX layer so
+    // accepted fires spawn the muzzle flash + missile tracer.
+    // Denied fires surface no FX (the layer's `handleFireOk`
+    // returns early on `kind === 'denied'`).
+    const offFireOk = client.onFireOk((payload) => {
+      weaponFx.handleFireOk(payload, {
+        ownCallsign: client.currentCallsign ?? null,
+        worldToScreen: () => null,
+      });
+    });
     // TASK-40 (dev seam): expose a `forceDockPanelOpen()`
     // helper so the e2e screenshot can open the panel without
     // driving a full WS interact flow. Dev-only — production
@@ -279,6 +297,7 @@ export function App(): React.JSX.Element {
       offWarpRejected();
       offUiOpen();
       offSellOk();
+      offFireOk();
       window.clearInterval(tokenTimer);
       window.clearInterval(creditsTimer);
       void client.stop();
@@ -720,6 +739,20 @@ export function App(): React.JSX.Element {
           `toggleDebugOverlay` handler registered below; hidden in
           production builds via `import.meta.env.DEV`. */}
       {devMode && <DebugOverlay monitor={frameMonitor} open={debugOverlayOpen} />}
+      {/* TASK-43: weapon FX overlay (laser flashes, missile tracers,
+          impact flashes + 2 px screen shake). Mounts unconditionally
+          because the FX layer is a no-op until `fire_ok` /
+          `combat_event` frames land. The component polls the layer
+          at 30 Hz so flashes animate smoothly without flooding
+          React with state updates. */}
+      <WeaponFxHud layer={weaponFx} />
+      {/* TASK-43: weapon HUD stub (active weapon name + energy bar +
+          lockout indicator). The full HUD is TASK-50; for now this
+          proves the energy + weapon-selector wiring without
+          colliding with the existing weight-bar / cargo-panel
+          hooks. Mounts only when a snapshot is available so the
+          HUD doesn't flicker mid-handshake. */}
+      <WeaponHud client={client} />
       {/* TASK-17: "Connection lost" overlay. Renders when the
           DriftClient's retry budget is exhausted. The Retry button
           re-runs `start()` which re-claims a fresh token (the

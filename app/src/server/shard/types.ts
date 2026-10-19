@@ -113,7 +113,7 @@ export interface PlayerInput {
 // ---------------------------------------------------------------------------
 
 /**
- * The flavors of entity the sim knows about (TASK-13 + TASK-31 + TASK-33 + TASK-34).
+ * The flavors of entity the sim knows about (TASK-13 + TASK-31 + TASK-33 + TASK-34 + TASK-43).
  *
  *   `player`      — driven by a WS connection via `pendingInput`.
  *   `ai`          — driven by the future AI state machine (TASK-46). For
@@ -140,9 +140,23 @@ export interface PlayerInput {
  *                   `GROUND_ITEM_TTL_MS` (300 s) so an abandoned
  *                   batch doesn't stay on the surface forever. Same
  *                   cone raycast as deposits for re-pickup.
+ *   `missile`     — TASK-43 homing projectile. First-class sim entity
+ *                   (broadcast via `entity_update` like every other
+ *                   kind), but never driven by a connection. Spawned
+ *                   by `handleFire`, integrated by the sim tick (turns
+ *                   toward its target each step), and removed when the
+ *                   TTL expires or the contact check lands. Carries
+ *                   no `classId` (wire uses `null`).
  */
 export type EntityKind =
-  "player" | "ai" | "wreck" | "character" | "deposit" | "terminal" | "groundItem";
+  | "player"
+  | "ai"
+  | "wreck"
+  | "character"
+  | "deposit"
+  | "terminal"
+  | "groundItem"
+  | "missile";
 
 /**
  * The full per-entity state. Combines the flight-model's `ShipState`
@@ -177,6 +191,54 @@ export interface SimEntity {
   shields: number;
   /** Current target id (TASK-44 fills this in). */
   targetId: string | null;
+  /**
+   * TASK-43: weapon energy reservoir (0..ENERGY_MAX). Set on
+   * `kind: 'player' | 'ai'` only. Regenerates at
+   * `ENERGY_REGEN_PER_SECOND` per real-second wall clock;
+   * consumed by `handleFire` on accepted laser/missile fires.
+   * The server pushes the live value to the owning client via
+   * the `weapon_state` frame on every accepted/denied fire.
+   * `undefined` on every other kind.
+   */
+  energy?: number;
+  /**
+   * TASK-43: currently equipped weapon (`'laser' | 'missile'`).
+   * Set on `kind: 'player' | 'ai'` only. The server updates
+   * this on `select_weapon` frames (the `1` / `2` keys) and
+   * broadcasts the new value via `weapon_state`. A connection
+   * trying to fire an un-equipped weapon surfaces
+   * `weapon-not-equipped`. `undefined` on every other kind.
+   */
+  activeWeapon?: "laser" | "missile";
+  /**
+   * TASK-43: wall-clock ms timestamp at which the connection's
+   * anti-spam weapon lockout expires. `undefined` / `0` when
+   * the connection is not in a lockout. The lockout fires when
+   * the player exceeds `WEAPON_LOCK_THRESHOLD_PER_SECOND` fires
+   * in any 1 s window (TASK-43 spec). Tracked on the player
+   * entity so it persists across warp + reconnect (the lockout
+   * is the *player's*, not the ship entity's, but a single-
+   * player-per-ship v1 keeps the two co-located on the entity).
+   * `undefined` on every other kind.
+   */
+  weaponLockedUntilMs?: number;
+  /**
+   * TASK-43: monotonic millisecond counter tracking the
+   * connection's weapon-fire attempts. Used by the lockout
+   * detector (the threshold test is "30 fires in any 1 s
+   * window" — a rolling window of these timestamps). Reset on
+   * lockout trigger. `undefined` on every other kind.
+   */
+  weaponFireLog?: number[];
+  /**
+   * TASK-43: per-weapon cooldown timestamps (ms epoch). Map
+   * of `weapon → last accepted fire timestamp`. The next
+   * accepted fire for that weapon must be ≥
+   * `lastAccepted + cooldownMs(weapon)` ms later. Cleared on
+   * weapon-locked (the lockout outranks the per-weapon
+   * cooldown). `undefined` on every other kind.
+   */
+  weaponCooldownMs?: { laser: number; missile: number };
   /**
    * Current flight-model position. Lives next to the entity so the
    * tick loop has one place to look. `originPlanetId` / `regime` are
@@ -287,6 +349,48 @@ export interface SimEntity {
    * `groundItem` / `wreck` (a wreck doesn't carry cargo by spec).
    */
   cargo?: CargoHold;
+  /**
+   * TASK-43: wall-clock ms timestamp at which this missile
+   * should despawn. Set on `kind: 'missile'` only; the cleanup
+   * loop reads it. Equivalent to the wreck TTL but using
+   * `expiresAtMs` rather than the wreck-only field name so the
+   * two lifecycles stay decoupled.
+   */
+  missileExpiresAt?: number;
+  /**
+   * TASK-43: id of the entity that fired this missile. Used by
+   * the contact resolver to attribute the kill (`applyCombatDamage`
+   * → `sourceEntityId` propagation). `undefined` on every
+   * other kind.
+   */
+  missileSourceId?: string;
+  /**
+   * TASK-43: target id the missile is homing on. `null` when
+   * the missile has no target (it flies straight, despawns on
+   * TTL — the spec accepts this as a degraded case). Set on
+   * `kind: 'missile'` only.
+   */
+  missileTargetId?: string | null;
+  /**
+   * TASK-43: missile damage on direct hit (matches the
+   * `MISSILE_STATS.damage` value at fire time). Carried on the
+   * entity so the contact resolver can apply the right number
+   * without re-reading the catalog. `undefined` on every
+   * other kind.
+   */
+  missileDamage?: number;
+  /**
+   * TASK-43: splash damage for *other* entities within the
+   * splash radius. A direct hit takes `missileDamage`, others
+   * take `missileSplashDamage`. `undefined` on every other kind.
+   */
+  missileSplashDamage?: number;
+  /**
+   * TASK-43: splash radius in metres. Anything within this
+   * radius of the impact point takes splash damage. `undefined`
+   * on every other kind.
+   */
+  missileSplashRadius?: number;
 }
 
 /**
@@ -457,7 +561,9 @@ export type ConnSender = (
     | { type: "inventory_update"; payload: unknown }
     | { type: "enter_ship_ok"; payload: unknown }
     | { type: "mining_update"; payload: unknown }
-    | { type: "cargo_update"; payload: unknown },
+    | { type: "cargo_update"; payload: unknown }
+    | { type: "fire_ok"; payload: unknown }
+    | { type: "weapon_state"; payload: unknown },
 ) => void;
 
 /**

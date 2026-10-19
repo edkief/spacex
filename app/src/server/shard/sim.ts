@@ -70,6 +70,7 @@ import { SHIP_CLASSES } from "@shared/ships.js";
 import { cleanupExpiredWrecks } from "./combat.js";
 import { cleanupExpiredGroundItems } from "./inventory.js";
 import { advanceMining, pushMiningUpdate } from "./mining.js";
+import { advanceMissiles, energyRegenFor } from "./weapons.js";
 import { drainInput } from "./input-queue.js";
 import { TickHistogram } from "./histogram.js";
 import type {
@@ -454,6 +455,21 @@ export class SimLoop {
     //     added in TASK-34; despawn happens after GROUND_ITEM_TTL_MS
     //     (300 s).
     cleanupExpiredGroundItems(shard, Date.now());
+    // 4c. Missile advancement (TASK-43). Advance every active
+    //     missile homing step, despawn on TTL, apply contact +
+    //     splash on impact. The homing turn is 1.5 rad/s, the
+    //     projectile speed 120 u/s. Uses the same clock the
+    //     tick reads so test fixtures can drive homing with a
+    //     fake timer.
+    advanceMissiles(shard, this.hooks.clock ? this.hooks.clock() : Date.now());
+    // 4d. Energy regen (TASK-43). Each player / AI ship regens
+    //     10 / s of weapon energy so a player who runs dry
+    //     recovers within 10 s of idle.
+    for (const e of shard.entities.values()) {
+      if (e.kind !== "player" && e.kind !== "ai") continue;
+      if (e.energy === undefined) continue;
+      energyRegenFor(e, TICK_S, Date.now());
+    }
     const tickDuration = (this.hooks.clock ?? performanceNow)() - tickStart;
     this.histogram.push(tickDuration);
 

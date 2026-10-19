@@ -47,6 +47,7 @@ import {
   makeWreckId,
 } from "./entity.js";
 import { WRECK_TTL_MS } from "./combat.js";
+import { initWeaponState } from "./weapons.js";
 import { enqueueInput } from "./input-queue.js";
 import { SimLoop } from "./sim.js";
 import type {
@@ -254,6 +255,7 @@ export function spawnShip(
     const conn = shard.connections.get(args.bindConnId);
     if (conn) conn.entityId = id;
   }
+  initWeaponState(entity);
   return entity;
 }
 
@@ -274,6 +276,7 @@ export function spawnAiShip(
   if (existing !== undefined) return existing;
   const entity = makeAiEntity(args);
   shard.entities.set(args.id, entity);
+  initWeaponState(entity);
   return entity;
 }
 
@@ -880,6 +883,17 @@ export {
   type ResolveHitRejection,
   type ResolveHitResult,
 } from "./combat.resolve.js";
+export {
+  handleFire,
+  handleSelectWeapon,
+  initWeaponState,
+  advanceMissiles,
+  energyRegenFor,
+  isLocked,
+  recordFireAttempt,
+  type FireResult,
+  type WeaponConnState,
+} from "./weapons.js";
 export { enqueueInput, STALE_LOG_THRESHOLD } from "./input-queue.js";
 export { TickHistogram, DEFAULT_CAPACITY } from "./histogram.js";
 export { SimLoop } from "./sim.js";

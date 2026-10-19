@@ -70,7 +70,9 @@ interface ShardLike {
         | "inventory_update"
         | "enter_ship_ok"
         | "mining_update"
-        | "cargo_update";
+        | "cargo_update"
+        | "fire_ok"
+        | "weapon_state";
       payload: unknown;
     },
   ) => void;
@@ -141,7 +143,7 @@ async function boot(): Promise<Harness> {
   const shard: ShardLike = {
     systemId: "sys-mining",
     entities,
-    send: (
+    send: ((
       connId: string,
       frame: {
         type: string;
@@ -149,7 +151,7 @@ async function boot(): Promise<Harness> {
       },
     ): void => {
       sentFrames.push({ connId, frame });
-    },
+    }) as ShardLike["send"],
     broadcast: () => undefined,
     sim: { currentTick: 1 },
     connections,

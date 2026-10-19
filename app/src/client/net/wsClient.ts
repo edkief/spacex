@@ -76,6 +76,7 @@ import {
 } from "@shared/protocol/index.js";
 import type { Inventory } from "@shared/world/inventory.js";
 import type { CargoHold } from "@shared/world/cargo.js";
+import type { WeaponId } from "@shared/weapons.js";
 
 import { PresenceStore } from "./presence.js";
 import { ChatStore } from "./chat.js";
@@ -101,6 +102,20 @@ export type StatusListener = (status: DriftClientStatus, detail?: string) => voi
 
 /** Error observer. */
 export type ErrorListener = (err: Error) => void;
+
+/**
+ * TASK-43: live weapon state snapshot (active weapon,
+ * energy reservoir, anti-spam lockout). Mirrors the wire
+ * `weapon_state` shape so the HUD can subscribe via
+ * `getWeaponState()` without depending on the protocol
+ * module directly.
+ */
+export interface WeaponStateSnapshot {
+  activeWeapon: WeaponId;
+  energy: number;
+  locked: boolean;
+  lockedUntilMs: number;
+}
 
 /**
  * Resync event fired every time the client reaches `online` after
@@ -305,6 +320,27 @@ export class DriftClient {
    *  `getCargo()` instead of subscribing so the polling cadence
    *  matches the existing weight-bar / inventory hooks (TASK-34). */
   private cargo: CargoHold | null = null;
+  /** TASK-43: latest known weapon state (active weapon, energy,
+   *  lockout). The server pushes `weapon_state` frames on every
+   *  accepted or denied fire; the WeaponHud polls
+   *  `getWeaponState()` so the polling cadence matches the
+   *  existing weight-bar / cargo-poll loops (250 ms). */
+  private weaponState: WeaponStateSnapshot | null = null;
+  /** TASK-43: `fire_ok` subscriber set. Fired on every accepted
+   *  laser fire (muzzle spark) and every missile spawn
+   *  (tracer starts here) AND every denial (the FX layer
+   *  ignores denials — denied fires surface no FX per the
+   *  spec). */
+  private readonly fireOkListeners = new Set<
+    (payload: {
+      weapon: "laser" | "missile";
+      kind: "laser" | "missile" | "denied";
+      damage: number;
+      projectileId: string | null;
+      energy: number;
+      denialCode: string | null;
+    }) => void
+  >();
   private status: DriftClientStatus = "idle";
   private playerId: string | null = null;
   private callsign: string | null = null;
@@ -865,6 +901,68 @@ export class DriftClient {
    */
   getCargo(): CargoHold | null {
     return this.cargo;
+  }
+
+  /**
+   * TASK-43: read the latest known weapon state (active
+   * weapon, energy, lockout). Returns `null` until the first
+   * `weapon_state` lands; the WeaponHud hides itself in that
+   * state. The HUD polls at 250 ms cadence (matches the
+   * WeightBar / CargoPanel pattern).
+   */
+  getWeaponState(): WeaponStateSnapshot | null {
+    return this.weaponState;
+  }
+
+  /**
+   * TASK-43: send a weapon fire intent. The server is the
+   * source of truth for rate / energy / range / LOS; denied
+   * fires surface as an `error` frame (no FX).
+   */
+  sendFire(args: { weapon: "laser" | "missile"; targetId?: string | null }): void {
+    if (!this.socket || this.socket.readyState !== this.socket.OPEN) {
+      throw new Error("DriftClient: sendFire requires an open socket");
+    }
+    this.socket.send(
+      encodeEnvelope("fire", { weapon: args.weapon, targetId: args.targetId ?? null }),
+    );
+  }
+
+  /**
+   * TASK-43: switch the active weapon (the `1` / `2` keys).
+   * The server records the new active weapon + pushes a
+   * `weapon_state` so the HUD selector flips on the same
+   * frame.
+   */
+  sendSelectWeapon(weapon: "laser" | "missile"): void {
+    if (!this.socket || this.socket.readyState !== this.socket.OPEN) {
+      throw new Error("DriftClient: sendSelectWeapon requires an open socket");
+    }
+    this.socket.send(encodeEnvelope("select_weapon", { weapon }));
+  }
+
+  /**
+   * TASK-43: subscribe to `fire_ok` server frames. The
+   * listener fires on every accepted weapon fire (laser
+   * instant / missile spawn) and on every denial (`kind:
+   * 'denied'`). The FX layer uses the accepted path to
+   * trigger the muzzle flash + tracer; denied fires surface
+   * no FX per the spec.
+   */
+  onFireOk(
+    listener: (payload: {
+      weapon: "laser" | "missile";
+      kind: "laser" | "missile" | "denied";
+      damage: number;
+      projectileId: string | null;
+      energy: number;
+      denialCode: string | null;
+    }) => void,
+  ): () => void {
+    this.fireOkListeners.add(listener);
+    return () => {
+      this.fireOkListeners.delete(listener);
+    };
   }
 
   /**
@@ -1461,6 +1559,50 @@ export class DriftClient {
             // swallow — faulty listener must not break the loop
           }
         }
+        return;
+      }
+      case "fire_ok": {
+        // TASK-43: server-pushed fire ack. The firing client
+        // receives this on every accepted laser fire (muzzle
+        // spark fires here), every missile spawn (tracer
+        // starts here), AND every denial (the FX layer ignores
+        // denials — denied fires surface no FX per the spec).
+        // The shape mirrors `FireOkSchema` so subscribers get
+        // typed access to `kind` / `damage` / `projectileId` /
+        // `energy` / `denialCode`.
+        const payload = env.payload as {
+          weapon: "laser" | "missile";
+          kind: "laser" | "missile" | "denied";
+          damage: number;
+          projectileId: string | null;
+          energy: number;
+          denialCode: string | null;
+        };
+        for (const listener of this.fireOkListeners) {
+          try {
+            listener(payload);
+          } catch {
+            // swallow
+          }
+        }
+        return;
+      }
+      case "weapon_state": {
+        // TASK-43: server-pushed weapon state update. The HUD
+        // polls `getWeaponState()` so we just cache the latest
+        // snapshot here.
+        const payload = env.payload as {
+          activeWeapon: "laser" | "missile";
+          energy: number;
+          locked: boolean;
+          lockedUntilMs: number;
+        };
+        this.weaponState = {
+          activeWeapon: payload.activeWeapon,
+          energy: payload.energy,
+          locked: payload.locked,
+          lockedUntilMs: payload.lockedUntilMs,
+        };
         return;
       }
       default:

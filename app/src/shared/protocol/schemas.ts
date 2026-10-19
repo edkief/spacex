@@ -36,10 +36,13 @@ export type ProtocolShipClassId = z.infer<typeof ShipClassIdSchema>;
 /** Entity kind tag (one shape for snapshot, entity_update, presence). */
 /**
  * The kinds of entity the wire recognises (TASK-33 added
- * `deposit` + `terminal` for proximity interaction). Ship /
+ * `deposit` + `terminal` for proximity interaction; TASK-43
+ * added `missile` for the homing-projectile broadcast). Ship /
  * character / ai-ship / wreck predate this. The server-side
  * `EntityKind` (in `@server/shard/types`) is a separate union
- * that includes the unrendered `player` (maps to `ship` here).
+ * that includes the unrendered `player` (maps to `ship` here)
+ * and `missile` for `missile` (homing projectiles share the
+ * broadcast shape but are short-lived broadcast-only entities).
  */
 export const EntityKindSchema = z.enum([
   "ship",
@@ -49,6 +52,7 @@ export const EntityKindSchema = z.enum([
   "deposit",
   "terminal",
   "groundItem",
+  "missile",
 ]);
 export type ProtocolEntityKind = z.infer<typeof EntityKindSchema>;
 
@@ -240,6 +244,26 @@ export const ErrorCodeSchema = z.enum([
   // smaller than the requested amount. The client UI surfaces
   // a "Cannot sell X; only Y in hold" toast.
   "insufficient",
+  // TASK-43: player tried to fire a weapon but the ship has
+  // less energy than the weapon's cost. The wire shape carries
+  // no `amount`; the HUD reads the live `energy` field off the
+  // owning ship entity and surfaces a "LOW ENERGY" prompt.
+  "low-energy",
+  // TASK-43: anti-spam lockout. A connection firing more than
+  // 30 weapons per second is locked out for 5 s. The server
+  // queues no shots during the lockout and every shot attempt
+  // surfaces this code until the timer expires.
+  "weapon-locked",
+  // TASK-43: the chosen weapon is not equipped on this ship's
+  // loadout (e.g. a scout firing missiles). Surfaced on `fire`
+  // frames so the HUD can render a "weapon not equipped" toast.
+  "weapon-not-equipped",
+  // TASK-43: fire intent without a target (the resolver rejects
+  // with `unknown-target`). Distinct from `not-found` so the HUD
+  // can render a "no target locked" prompt rather than "missing
+  // entity" — the typical case is the lock-on target evaporated
+  // between fire-decision and fire-arrival.
+  "no-target",
 ]);
 export type ProtocolErrorCode = z.infer<typeof ErrorCodeSchema>;
 
@@ -366,6 +390,139 @@ export const InputSchema = z
     fire: z.boolean(),
     lock: z.boolean(),
     action: z.string().min(1).max(64).nullable(),
+  })
+  .strict();
+
+/**
+ * `fire` — TASK-43 weapon-fire intent (client → server).
+ *
+ * Distinct from the `input.fire` boolean because the v1 weapon
+ * system is rich enough to warrant its own frame:
+ *
+ *   - `weapon`  — which weapon the player is firing. The server
+ *                 resolves per-loadout availability (a scout firing
+ *                 `missile` surfaces `weapon-not-equipped`).
+ *   - `targetId` — optional locked target id. Missiles home on
+ *                 this target; lasers resolve to the first entity
+ *                 inside `range` (no leading required, so the
+ *                 `targetId` is purely advisory on the laser path).
+ *                 Absent / `null` means "no lock" — both weapons
+ *                 are legal but the missile can't home and the
+ *                 laser resolves at the first entity in front of
+ *                 the ship's nose.
+ *
+ * The server is the single source of truth for rate / energy /
+ * range / LOS / target validity; the client's fire intent is a
+ * hint, not a claim. A client sending `fire` faster than the
+ * weapon's `rate` gains nothing — denied fires cost no energy
+ * and surface no FX (TASK-43 acceptance).
+ */
+export const FireSchema = z
+  .object({
+    weapon: z.enum(["laser", "missile"]),
+    targetId: z.string().min(1).nullable().optional(),
+  })
+  .strict();
+
+/**
+ * `fire_ok` — TASK-43 server-only ack for `fire`.
+ *
+ * Returns the resolved fire so the client can render the FX
+ * synchronously with the server's `combat_event` (a laser
+ * returns `kind: 'laser'` immediately; a missile returns
+ * `kind: 'missile'` with a `projectileId` so the client can
+ * track the projectile through snapshots).
+ *
+ *   - `kind: 'laser'`   — instant ray. `damage` is what the
+ *                         resolver applied (0 on a missed shot,
+ *                         otherwise the weapon's `damage`). The
+ *                         muzzle spark fires synchronously.
+ *   - `kind: 'missile'` — projectile entity spawned. The
+ *                         `projectileId` matches the missile's
+ *                         `SimEntity.id` so the client can
+ *                         interpolate the tracer until the
+ *                         snapshot (≤ 100 ms later) carries the
+ *                         same id.
+ *   - `kind: 'denied'`  — fire rejected (rate / energy /
+ *                         weapon-locked / range / weapon-not-
+ *                         equipped / self-target / no-target).
+ *                         Client HUD must NOT render any FX on
+ *                         this path — the spec is explicit
+ *                         ("a denied fire shows no FX").
+ *
+ * The server still broadcasts a `combat_event { kind: 'hit' }`
+ * for accepted laser hits; the ack is purely so the firing
+ * client can synchronise its muzzle spark with the broadcast.
+ */
+export const FireOkSchema = z
+  .object({
+    weapon: z.enum(["laser", "missile"]),
+    kind: z.enum(["laser", "missile", "denied"]),
+    /** Damage applied (laser hit; 0 if the laser missed). */
+    damage: z.number().finite().nonnegative(),
+    /** Missile projectile id (`kind === 'missile'` only). */
+    projectileId: z.string().min(1).nullable(),
+    /** Energy remaining after this fire (or unchanged on deny). */
+    energy: z.number().finite().nonnegative(),
+    /** Code on `kind === 'denied'` — surfaces as a wire error code. */
+    denialCode: z
+      .enum([
+        "rate-limited",
+        "low-energy",
+        "weapon-locked",
+        "weapon-not-equipped",
+        "out-of-range",
+        "not-attackable",
+        "self-target",
+        "no-target",
+        "unknown",
+      ])
+      .nullable(),
+  })
+  .strict();
+
+/**
+ * `weapon_state` — TASK-43 server → owning client broadcast of
+ * the local player's energy + active weapon + lockout state.
+ *
+ * Lives on its own frame (rather than being jammed into the
+ * `entity_update` payload) because:
+ *
+ *   - the cadence is independent of the 10 Hz snapshot (the
+ *     server pushes this whenever energy crosses a tick boundary
+ *     or the lockout state changes — typically every shot),
+ *   - a denied fire would never produce a `combat_event`, but the
+ *     HUD still wants to know "your energy is now 0" so the
+ *     `LOW ENERGY` prompt can flip on the same frame the player
+ *     tried to fire.
+ *
+ * Pushed only to the owning connection (NOT broadcast to the
+ * shard — every player has their own energy state).
+ */
+export const WeaponStateSchema = z
+  .object({
+    /** Currently equipped weapon (`'laser' | 'missile'`). */
+    activeWeapon: z.enum(["laser", "missile"]),
+    /** Energy remaining. Always [0, ENERGY_MAX]. */
+    energy: z.number().finite().nonnegative(),
+    /** True while the connection is in the anti-spam lockout window. */
+    locked: z.boolean(),
+    /** Wall-clock ms when the lockout expires (0 when not locked). */
+    lockedUntilMs: z.number().int().nonnegative(),
+  })
+  .strict();
+
+/**
+ * `select_weapon` — TASK-43 client → server weapon-cycle intent.
+ *
+ * Triggered by the `1` / `2` keys. The server validates the
+ * requested id is in the player's loadout (a scout requesting
+ * `missile` is silently accepted but the HUD renders "weapon
+ * not equipped" because `fire` will be rejected).
+ */
+export const SelectWeaponSchema = z
+  .object({
+    weapon: z.enum(["laser", "missile"]),
   })
   .strict();
 
@@ -950,6 +1107,10 @@ export const PAYLOAD_SCHEMAS = {
   entity_update: EntityUpdateSchema,
   chat: ChatSchema,
   input: InputSchema,
+  fire: FireSchema,
+  fire_ok: FireOkSchema,
+  weapon_state: WeaponStateSchema,
+  select_weapon: SelectWeaponSchema,
   warp: WarpSchema,
   interact: InteractSchema,
   interact_ok: InteractOkSchema,

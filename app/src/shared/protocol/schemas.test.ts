@@ -109,6 +109,22 @@ const VALID_PAYLOADS: Record<MessageType, () => unknown> = {
     lock: false,
     action: null,
   }),
+  fire: () => ({ weapon: "laser", targetId: null }),
+  fire_ok: () => ({
+    weapon: "laser",
+    kind: "laser",
+    damage: 8,
+    projectileId: null,
+    energy: 98,
+    denialCode: null,
+  }),
+  weapon_state: () => ({
+    activeWeapon: "laser",
+    energy: 100,
+    locked: false,
+    lockedUntilMs: 0,
+  }),
+  select_weapon: () => ({ weapon: "missile" }),
   warp: () => ({ targetSystemId: "system-002" }),
   warp_arrived: () => ({
     targetSystemId: "system-002",
@@ -256,6 +272,10 @@ const INVALID_PAYLOADS: Record<MessageType, () => unknown> = {
     lock: false,
     action: null,
   }),
+  fire: () => ({ weapon: "plasma" }), // unknown weapon id
+  fire_ok: () => ({ kind: "denied", damage: -1 }), // negative damage + missing weapon
+  weapon_state: () => ({ activeWeapon: "torpedo" }), // unknown id
+  select_weapon: () => ({}), // missing weapon
   warp: () => ({ targetSystemId: "" }),
   warp_arrived: () => ({
     targetSystemId: "system-002",

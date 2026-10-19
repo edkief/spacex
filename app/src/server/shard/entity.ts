@@ -320,6 +320,29 @@ export function entityToWire(e: SimEntity): ProtocolEntityState {
       discovered: e.kind === "deposit" ? (e.discovered ?? false) : undefined,
     };
   }
+  // TASK-43: missiles are broadcast-only entities. They carry
+  // no hull/shields/callsign/classId (they're projectiles, not
+  // ships), but the wire needs their position + velocity every
+  // tick so the client can render the tracer + smoke trail.
+  // `targetId` is the homing target so the client can echo the
+  // guidance line if it wants (TASK-50 HUD).
+  if (e.kind === "missile") {
+    return {
+      id: e.id,
+      kind: "missile",
+      pos: [e.pos.x, e.pos.y, e.pos.z],
+      vel: [e.vel.x, e.vel.y, e.vel.z],
+      regime:
+        e.regime === "atmosphere" ? "atmosphere" : e.regime === "surface" ? "surface" : "space",
+      hull: 0,
+      shields: 0,
+      targetId: e.missileTargetId ?? null,
+      classId: null,
+      callsign: null,
+      livery: null,
+      onPad: null,
+    };
+  }
   return {
     id: e.id,
     kind: e.kind === "player" ? "ship" : e.kind === "ai" ? "ai-ship" : "wreck",

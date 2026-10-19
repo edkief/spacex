@@ -26,6 +26,29 @@
           transform: translate(-50%, -28px);
         }
       }
+      /* TASK-43: laser line flash. A 60 ms additive overlay that
+         fades from full opacity to 0 over the window. The flash
+         itself is rendered as a stretched quad by the FX layer
+         (`fx.ts`); this keyframe is the cosmetic tail. */
+      @keyframes drift-laser-flash {
+        0% {
+          opacity: 1;
+        }
+        100% {
+          opacity: 0;
+        }
+      }
+      /* TASK-43: missile tracer pulse for the smoke trail quads.
+         Each quad fades over 250 ms so a stream of quads looks
+         like a continuous trail behind the warhead. */
+      @keyframes drift-missile-trail {
+        0% {
+          opacity: 0.85;
+        }
+        100% {
+          opacity: 0;
+        }
+      }
     </style>
   </head>
   <body>

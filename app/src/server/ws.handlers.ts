@@ -27,7 +27,7 @@ import {
   sanitizeChatText,
   validateChatText,
 } from "./chat.js";
-import { broadcastChat, handleDisembark, handleEnterShip, pushPlayerInput } from "./shard/index.js";
+import { broadcastChat, handleDisembark, handleEnterShip, handleFire, handleSelectWeapon, pushPlayerInput } from "./shard/index.js";
 import { handleInteract } from "./shard/interact.js";
 import type { InteractAction } from "@client/input/interaction.js";
 import { handlePickup, handleDrop } from "./shard/inventory.js";
@@ -941,6 +941,115 @@ export async function onSell(
     earned: result.earned,
     newBalance: result.newBalance,
     source: result.source,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// onFire / onSelectWeapon — TASK-43 weapon fire intent
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle a `fire { weapon, targetId? }` frame from a `joined`-
+ * state connection.
+ *
+ * The flow:
+ *   1. Locate the shard.
+ *   2. Delegate to `handleFire(shard, { connId, weapon, targetId?, nowMs })`.
+ *   3. On accept: `handleFire` emits the `fire_ok` and
+ *      `weapon_state` frames itself (and the resolver emits
+ *      `combat_event` for laser hits).
+ *   4. On deny: emit a structured `error` frame with the
+ *      `FireResult.code`. The client HUD reads the code to
+ *      render the appropriate toast ("LOW ENERGY", "weapon
+ *      locked", etc.). The spec is explicit: a denied fire
+ *      shows NO FX.
+ */
+export function onFire(
+  conn: Connection,
+  options: WsHandleOptions,
+  payload: unknown,
+): void {
+  const shard = options.shardFor?.(conn);
+  if (!shard) {
+    sendError(conn, "unauthenticated", "fire requires a joined system");
+    return;
+  }
+  const p = payload as { weapon: "laser" | "missile"; targetId?: string | null };
+  const result = handleFire({
+    shard,
+    connId: conn.connId,
+    weapon: p.weapon,
+    targetId: p.targetId ?? null,
+    nowMs: (options.now ?? Date.now)(),
+  });
+  if (result.ok === "denied") {
+    let wireCode: "rate-limited" | "low-energy" | "weapon-locked" | "weapon-not-equipped" | "out-of-range" | "not-attackable" | "self-target" | "no-target" | "unknown";
+    switch (result.code) {
+      case "rate-limited":
+        wireCode = "rate-limited";
+        break;
+      case "low-energy":
+        wireCode = "low-energy";
+        break;
+      case "weapon-locked":
+        wireCode = "weapon-locked";
+        break;
+      case "weapon-not-equipped":
+        wireCode = "weapon-not-equipped";
+        break;
+      case "out-of-range":
+        wireCode = "out-of-range";
+        break;
+      case "not-attackable":
+        wireCode = "not-attackable";
+        break;
+      case "self-target":
+        wireCode = "self-target";
+        break;
+      case "no-target":
+        wireCode = "no-target";
+        break;
+      default:
+        wireCode = "unknown";
+        break;
+    }
+    sendError(conn, wireCode, `Fire denied: ${result.code}`);
+    return;
+  }
+  // Accepted: `handleFire` already pushed `fire_ok` + `weapon_state`
+  // (and `resolveHit` pushed the `combat_event` for laser hits).
+  // The handler is silent on accept.
+  void result;
+}
+
+/**
+ * Handle a `select_weapon { weapon }` frame from a `joined`-
+ * state connection. The server records the new active weapon
+ * and pushes a `weapon_state` so the HUD selector flips
+ * synchronously.
+ *
+ * A scout requesting `missile` is silently accepted (the
+ * server doesn't reject un-equipped switches — the player can
+ * still try to fire and the resulting `weapon-not-equipped`
+ * surfaces the "you don't have that weapon" feedback on the
+ * same frame they press the trigger).
+ */
+export function onSelectWeapon(
+  conn: Connection,
+  options: WsHandleOptions,
+  payload: unknown,
+): void {
+  const shard = options.shardFor?.(conn);
+  if (!shard) {
+    sendError(conn, "unauthenticated", "select_weapon requires a joined system");
+    return;
+  }
+  const p = payload as { weapon: "laser" | "missile" };
+  handleSelectWeapon({
+    shard,
+    connId: conn.connId,
+    weapon: p.weapon,
+    nowMs: (options.now ?? Date.now)(),
   });
 }
 

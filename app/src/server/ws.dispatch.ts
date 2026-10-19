@@ -82,6 +82,8 @@ import {
   onPickup,
   onSell,
   onWarp,
+  onFire,
+  onSelectWeapon,
 } from "./ws.handlers.js";
 
 // ---------------------------------------------------------------------------
@@ -482,7 +484,32 @@ async function dispatch(
       // carrying the sold + earned + newBalance + source.
       // Failure: emit `not-at-station` / `not-docked` /
       // `insufficient` / `invalid-message`.
-      await onSell(conn, options, payload);
+      if (type === "sell") {
+        await onSell(conn, options, payload);
+        return;
+      }
+      // TASK-43: weapon fire intent. The handler re-derives
+      // rate / energy / loadout / range / LOS server-side;
+      // accepted fires push `fire_ok` + `weapon_state` (and
+      // `resolveHit` emits the `combat_event` for laser hits),
+      // denied fires surface as a structured `error` with the
+      // relevant wire code (`low-energy` / `weapon-locked` /
+      // `weapon-not-equipped` / `rate-limited` / etc.).
+      if (type === "fire") {
+        onFire(conn, options, payload);
+        return;
+      }
+      // TASK-43: weapon select (`1` / `2` keys). The handler
+      // records the new active weapon and pushes `weapon_state`
+      // so the HUD selector flips on the same frame.
+      if (type === "select_weapon") {
+        onSelectWeapon(conn, options, payload);
+        return;
+      }
+      // Fallback for any other unhandled frame type in the
+      // joined state — should be impossible because the
+      // dispatcher already filtered against the registered
+      // types, but the compiler needs a terminating case.
       return;
 
     case "closed":
