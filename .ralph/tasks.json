@@ -396,7 +396,7 @@
     "title": "Surface hazards with damage and respawn",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-48.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-49",
