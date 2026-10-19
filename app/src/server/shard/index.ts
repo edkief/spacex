@@ -136,6 +136,19 @@ export function createShard(args: {
     // initialised so legacy fixtures that pre-date TASK-46 keep
     // working; production always pre-populates via `createShard`.
     aiStates: new Map(),
+    // TASK-48: hazard cells (storm / radzone / drones) per
+    // shard. Populated by `registerHazardCells` on hydrate. The
+    // per-tick `advanceHazards` walks the map and applies damage
+    // to every player's exposure pool that sits inside.
+    hazardCells: new Map(),
+    // TASK-48: per-player exposure + recovering state. Lazily
+    // populated when a player first touches a hazard cell or
+    // when a drone attacks them.
+    playerHazards: new Map(),
+    // TASK-48: outstanding drone respawn timers. Walked once per
+    // tick by `advanceDroneRespawns` to re-mint any drone whose
+    // 180 s timer has elapsed.
+    droneRespawns: new Map(),
     persist: args.persist ?? {},
     events,
     send: args.send,

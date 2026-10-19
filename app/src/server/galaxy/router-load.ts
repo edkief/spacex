@@ -33,6 +33,7 @@ import { buildShardContext, GalaxySystemNotFoundError } from "./system-data.js";
 import { hydrateShardEntities } from "./hydrate.js";
 import { hydrateShardDeposits } from "./deposit-hydrate.js";
 import { hydrateAiRoster } from "./ai-hydrate.js";
+import { hydrateHazards } from "./hazard-hydrate.js";
 
 /** Maps the router exposes for shard bookkeeping. */
 export interface RouterShardMaps {
@@ -141,6 +142,12 @@ export async function loadAndRegister(systemId: string, deps: LoadAndRegisterDep
   // critical path (player ships) stays cheap; the AI
   // entities appear on the next broadcast.
   hydrateAiRoster(shard, { seed: deps.galaxySeed });
+  // TASK-48: seed-derived hazard cells + drones. Same
+  // fire-and-forget pattern; storm / radzone cells register
+  // instantly so the per-tick advance can apply exposure
+  // damage to anyone standing inside, drone cells additionally
+  // mint one entity per drone.
+  hydrateHazards(shard, { seed: deps.galaxySeed });
   deps.maps.shards.set(systemId, shard);
   deps.maps.shardStartedAt.set(systemId, deps.now());
   return shard;

@@ -65,6 +65,8 @@ import { FrameMonitor } from "./perf/frameMonitor.js";
 import { WeaponHud } from "./components/WeaponHud.js";
 import { WeaponFxHud } from "./components/WeaponFxHud.js";
 import { KillFeed } from "./components/KillFeed.js";
+import { ExposureMeter } from "./components/ExposureMeter.js";
+import { HazardLayer } from "./world/HazardLayer.js";
 import { WeaponFxLayer } from "./fx/weapons.js";
 import type { GalaxyOverview } from "@shared/galaxy/overview.js";
 
@@ -795,6 +797,18 @@ export function App(): React.JSX.Element {
           the underlying store has entries (so the slot stays
           invisible during a calm minute of flight). */}
       <KillFeed store={client.getKillFeed()} />
+      {/* TASK-48: bottom-right exposure meter. Renders the
+          player's personal hazard pool + recovering badge.
+          Mounts unconditionally; returns null when the store
+          hasn't been populated (the meter shows the full bar
+          by default and only "lights up" when a hazard_update
+          lands). */}
+      <ExposureMeter store={client.getHazardStore()} />
+      {/* TASK-48: bottom-left in-world hazard marker count.
+          Sourced from the live entity_update snapshot; we
+          track drone markers for v1 (the cell-render layer
+          depends on the chunk pipeline and is deferred). */}
+      <HazardLayer store={client.getHazardStore()} />
       {/* TASK-43: weapon HUD stub (active weapon name + energy bar +
           lockout indicator). The full HUD is TASK-50; for now this
           proves the energy + weapon-selector wiring without

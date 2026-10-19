@@ -91,7 +91,8 @@ interface ShardLike {
         | "weapon_state"
         | "target_locked"
         | "target_released"
-        | "target_update";
+        | "target_update"
+        | "hazard_update";
       payload: unknown;
     },
   ) => void;
@@ -102,6 +103,9 @@ interface ShardLike {
   ) => void;
   sim: { currentTick: number };
   connections: Map<string, { entityId: string | null; playerId: string; connId?: string }>;
+  hazardCells: Map<string, unknown>;
+  playerHazards: Map<string, unknown>;
+  droneRespawns: Map<string, unknown>;
 }
 
 interface Harness {
@@ -131,6 +135,9 @@ async function boot(): Promise<Harness> {
     broadcast: () => undefined,
     sim: { currentTick: 1 },
     connections,
+    hazardCells: new Map(),
+    playerHazards: new Map(),
+    droneRespawns: new Map(),
   };
   const ctx: ShardSystemContext = {
     system: {

@@ -213,7 +213,7 @@ export function makeWreckEntity(args: {
    */
   killer?: {
     entityId: string;
-    kind: "player" | "ai";
+    kind: "player" | "ai" | "drone";
     weapon: "laser" | "missile";
   };
 }): SimEntity {
@@ -381,6 +381,30 @@ export function entityToWire(e: SimEntity): ProtocolEntityState {
       onPad: null,
     };
   }
+  // TASK-48: hostile mining drones. Broadcast-only entities
+  // that the renderer draws as small rotating octahedrons.
+  // Drones carry no ship class, no callsign, no livery; the
+  // wire uses `classId: null` and `callsign: null`. The
+  // `hazardId` field carries the parent cell id so the client
+  // can resolve the cell's centre / radius / kind without a
+  // second lookup.
+  if (e.kind === "drone") {
+    return {
+      id: e.id,
+      kind: "drone",
+      pos: [e.pos.x, e.pos.y, e.pos.z],
+      vel: [e.vel.x, e.vel.y, e.vel.z],
+      regime: "surface",
+      hull: e.hull,
+      shields: 0,
+      targetId: null,
+      classId: null,
+      callsign: null,
+      livery: null,
+      onPad: null,
+      hazardId: e.hazardId,
+    };
+  }
   return {
     id: e.id,
     // TASK-45: AI ships now use `kind: 'ship'` with `ai: true`
@@ -457,4 +481,49 @@ export function characterSpawnPos(ship: SimEntity): Vec3 {
  */
 export function makeWreckId(sourceEntityId: string): string {
   return `wreck:${sourceEntityId}`;
+}
+
+/**
+ * TASK-48: mint a drone entity. Used by `registerHazardCells` on
+ * shard hydrate and by the respawn loop on `advanceDroneRespawns`.
+ *
+ * Drones are first-class sim entities (broadcast via
+ * `entity_update`) so the client can render them at the cell's
+ * centre while they patrol. They are NOT targetable by the
+ * player's `target_lock` (TASK-44's `isLockableTarget` accepts
+ * ships), and they ignore ships entirely (the aggro target
+ * resolver walks `kind === 'character'` only).
+ *
+ * The factory is kept deliberately small — the hazard runtime
+ * owns the `droneState`, `droneTargetId`, `droneAttackReadyMs`
+ * transitions through its tick handler.
+ */
+export function makeDroneEntity(args: {
+  id: string;
+  hazardId: string;
+  droneIndex: number;
+  pos: { x: number; y: number; z: number };
+  hull?: number;
+}): SimEntity {
+  return {
+    id: args.id,
+    kind: "drone",
+    playerId: null,
+    callsign: null,
+    classId: null,
+    hull: args.hull ?? 20,
+    shields: 0,
+    targetId: null,
+    pos: { ...args.pos },
+    vel: { x: 0, y: 0, z: 0 },
+    quat: { x: 0, y: 0, z: 0, w: 1 },
+    regime: "surface",
+    originPlanetId: null,
+    onPad: null,
+    hazardId: args.hazardId,
+    droneIndex: args.droneIndex,
+    droneState: "patrol",
+    droneTargetId: null,
+    droneAttackReadyMs: 0,
+  };
 }

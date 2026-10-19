@@ -83,6 +83,7 @@ import { ChatStore } from "./chat.js";
 import { RemoteEntityBuffer } from "./prediction.js";
 import { TargetingStore } from "../combat/targeting.js";
 import { KillFeedStore } from "../combat/killFeed.js";
+import { HazardStore, markersFromEntities } from "../world/hazards.js";
 import type { NotificationStore } from "./notifications.js";
 
 /**
@@ -372,6 +373,15 @@ export class DriftClient {
    * store caps entries at 5 and expires them after 10 s.
    */
   private readonly killFeed = new KillFeedStore();
+  /**
+   * TASK-48: per-player hazard store. The server pushes
+   * `hazard_update` frames every tick while the player is on
+   * foot (or close enough to a hazard cell to take damage).
+   * The HUD's exposure meter reads from this store; the in-world
+   * hazard layer reads the drone / cell markers from the same
+   * instance.
+   */
+  private readonly hazardStore = new HazardStore();
   /**
    * TASK-46: optional notification store hook. When set,
    * `combat_event { kind: 'ai_acquiring' }` frames push an
@@ -1000,6 +1010,15 @@ export class DriftClient {
    */
   getKillFeed(): KillFeedStore {
     return this.killFeed;
+  }
+  /**
+   * TASK-48: accessor for the per-player hazard store. The HUD
+   * (exposure meter, in-world hazard layer) calls this from its
+   * `useSyncExternalStore` hook so the meter reflects the live
+   * exposure pool without polling.
+   */
+  getHazardStore(): HazardStore {
+    return this.hazardStore;
   }
 
   /**
@@ -1657,6 +1676,12 @@ export class DriftClient {
           }
           buf.push(nowMs, e as never);
         }
+        // TASK-48: extract hazard markers (drones for v1) from the
+        // entity list and push them into the hazard store. The
+        // store's snapshot is read by `HazardLayer` for the
+        // in-world marker renderer.
+        const typedEntities = entities as Parameters<typeof markersFromEntities>[0];
+        this.hazardStore.setMarkers(markersFromEntities(typedEntities));
         return;
       }
       case "ui_open": {
@@ -1866,6 +1891,14 @@ export class DriftClient {
             // swallow
           }
         }
+        return;
+      }
+      case "hazard_update": {
+        // TASK-48: per-player exposure + recovering state.
+        // Pushed to the local connection only (the field is a
+        // personal resource, never broadcast to other players).
+        const payload = env.payload as Parameters<HazardStore["applyHazardUpdate"]>[0];
+        this.hazardStore.applyHazardUpdate(payload, Date.now());
         return;
       }
       default:

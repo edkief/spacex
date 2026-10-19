@@ -66,8 +66,9 @@ import { shipStats, type ShipClass, type ShipClassId } from "../ships.js";
  */
 export interface DamageSource {
   /** Discriminating source kind. */
-  kind: "player" | "ai";
-  /** Stable identifier (callsign for players, roster id for AI). */
+  kind: "player" | "ai" | "drone";
+  /** Stable identifier (callsign for players, roster id for AI,
+   * drone id for drones — see TASK-48). */
   id: string;
 }
 

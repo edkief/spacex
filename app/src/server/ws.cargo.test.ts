@@ -72,7 +72,8 @@ interface ShardLike {
         | "weapon_state"
         | "target_locked"
         | "target_released"
-        | "target_update";
+        | "target_update"
+        | "hazard_update";
       payload: unknown;
     },
   ) => void;

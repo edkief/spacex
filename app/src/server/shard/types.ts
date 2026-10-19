@@ -150,7 +150,22 @@ export interface PlayerInput {
  *                   no `classId` (wire uses `null`).
  */
 export type EntityKind =
-  "player" | "ai" | "wreck" | "character" | "deposit" | "terminal" | "groundItem" | "missile";
+  | "player"
+  | "ai"
+  | "wreck"
+  | "character"
+  | "deposit"
+  | "terminal"
+  | "groundItem"
+  | "missile"
+  // TASK-48: hostile mining drones spawned inside hazard cells.
+  // Drones are first-class sim entities (broadcast via
+  // `entity_update`) but they ignore ships and only aggro on-foot
+  // characters — the renderer draws them as small rotating
+  // octahedrons and the player sees them as the PvE threat on the
+  // surface. Targets the character via the hazard pipeline
+  // (exposure pool) instead of hull / shields.
+  | "drone";
 
 /**
  * The full per-entity state. Combines the flight-model's `ShipState`
@@ -272,9 +287,11 @@ export interface SimEntity {
    * HUD can show "AI kill" vs "Player kill" without a second
    * lookup. Set alongside `killerEntityId`; `undefined` for
    * wrecks destroyed by future env hazards that don't carry a
-   * source (e.g. asteroid collision).
+   * source (e.g. asteroid collision). TASK-48: drones are valid
+   * source kinds (a drone can never destroy a wreck, but the
+   * type union carries the kind for completeness).
    */
-  killerKind?: "player" | "ai";
+  killerKind?: "player" | "ai" | "drone";
   /**
    * TASK-42: weapon used to land the killing blow. Stored so the
    * skull tooltip can read "destroyed by <killer>'s <weapon>". Set
@@ -405,6 +422,46 @@ export interface SimEntity {
    * behaviour (TASK-46).
    */
   aiPatrolRadius?: number;
+  /**
+   * TASK-48: id of the parent hazard cell this drone was
+   * spawned from. Used by `advanceHazards` to look up the
+   * cell's centre / radius / kind without an extra map walk.
+   * `undefined` on non-drone entities.
+   */
+  hazardId?: string;
+  /**
+   * TASK-48: ordinal index of this drone within its hazard cell
+   * (`0..droneCount - 1`). Used to derive a stable per-drone id
+   * (`drone:<hazardId>:<index>`) so a despawn + respawn cycle
+   * doesn't collide with another drone's id. `undefined` on
+   * non-drone entities.
+   */
+  droneIndex?: number;
+  /**
+   * TASK-48: wall-clock ms timestamp at which the drone is
+   * allowed to attack again (matches the 2 s `DRONE_ATTACK_CADENCE_MS`
+   * cadence). The drone's aggro + attack loop compares
+   * `nowMs >= droneAttackReadyMs` to gate the next hit. Set on
+   * `kind === 'drone'` only; `undefined` on every other kind.
+   */
+  droneAttackReadyMs?: number;
+  /**
+   * TASK-48: the drone's current state in the patrol / aggro
+   * cycle. `patrol` = circling the cell centre; `aggro` = an
+   * on-foot player is inside the 80 m aggro radius (drone
+   * moves toward the player); `attack` = inside the 30 m
+   * attack radius and the cadence window is open (damage lands).
+   * The aggro / attack transitions do not affect drone hull —
+   * only the drone's targeting behaviour. Set on `kind ===
+   * 'drone'` only.
+   */
+  droneState?: "patrol" | "aggro" | "attack";
+  /**
+   * TASK-48: the drone's current aggro target id (a character
+   * entity id). `null` when no target is in range. Set on
+   * `kind === 'drone'` only.
+   */
+  droneTargetId?: string | null;
 }
 
 /**
@@ -422,6 +479,90 @@ export interface ShardAiRespawn {
   readonly classId: ProtocolShipClassId;
   /** Callsign to re-mint with (unchanged across respawn cycles). */
   readonly callsign: string;
+  /** Wall-clock ms timestamp at which the respawn should fire. */
+  readonly respawnAtMs: number;
+}
+
+/**
+ * TASK-48: one surface hazard cell, mirrored from the shared
+ * `HazardCell` derivation. The shard stores this alongside the
+ * entity registry so the per-tick advance loop can resolve a
+ * drone's parent hazard by id without re-running the placer.
+ *
+ * `currentIntensity` is set on the cell when a drone cell's
+ * drones are all dead — the cell's "effective intensity" drops
+ * to 0 (no drone → no damage) so a drone cell with no live
+ * drones doesn't keep ticking damage through its source kind.
+ * The shared placer's `intensity` is the seeded baseline.
+ */
+export interface ShardHazardCell {
+  /** Stable hazard id (matches `HazardCell.hazardId`). */
+  readonly hazardId: string;
+  /** Owning planet id. */
+  readonly planetId: string;
+  /** Hazard kind — drives the storm / radzone / drone pipeline. */
+  readonly kind: "storm" | "radzone" | "drones";
+  /** World-space centre. */
+  readonly pos: { x: number; y: number; z: number };
+  /** Radius (metres). */
+  readonly radius: number;
+  /** Damage per second (storm / radzone) — 0 for drone cells. */
+  readonly intensity: number;
+  /** Number of drones spawned in this cell at hydrate. */
+  readonly droneCount: number;
+  /**
+   * Per-drone id prefix (`drone:<hazardId>`). The runtime uses
+   * `droneIdPrefix + ":" + index` for the wire id so respawns
+   * re-mint with the same id.
+   */
+  readonly droneIdPrefix: string;
+}
+
+/**
+ * TASK-48: per-player hazard state. The exposure pool is a
+ * personal shield (`max 50`) that accumulates damage from storm +
+ * radzone cells while the player is inside; it regens at
+ * 5 / s when the player is outside every hazard cell. At 0 the
+ * player is knocked to `recovering` for 5 s.
+ *
+ * The pool does NOT persist — it resets on respawn / warp /
+ * disembark (a tactical resource, not inventory).
+ */
+export interface ShardPlayerHazardState {
+  /** Owning connection id (one row per player). */
+  readonly connId: string;
+  /** Current exposure pool (0..`HAZARD_EXPOSURE_MAX`). */
+  exposure: number;
+  /** Wall-clock ms timestamp when recovering ends; 0 when idle. */
+  recoveringUntilMs: number;
+  /**
+   * `true` when the player is currently inside at least one
+   * hazard cell. Used by the regen gate (no regen while inside)
+   * and by the HUD's "in hazard" indicator.
+   */
+  inHazard: boolean;
+  /**
+   * Optional: last single-tick damage delta (drives the HUD's
+   * flash). Reset to 0 on every hazard_update push.
+   */
+  lastDamage: number;
+}
+
+/**
+ * TASK-48: one outstanding drone respawn. When a drone is
+ * destroyed by player fire, the runtime schedules a respawn 180 s
+ * later at the cell centre (the cell's own centre, not the drone's
+ * last position — drones respawn into the cell like AI ships
+ * respawn into space). Keyed by drone id so a cell with 3 dead
+ * drones has 3 outstanding timers.
+ */
+export interface ShardDroneRespawn {
+  /** Drone entity id (matches the wire `entity.id`). */
+  readonly droneId: string;
+  /** Parent hazard cell id. */
+  readonly hazardId: string;
+  /** Drone ordinal within the cell (0..droneCount - 1). */
+  readonly droneIndex: number;
   /** Wall-clock ms timestamp at which the respawn should fire. */
   readonly respawnAtMs: number;
 }
@@ -599,7 +740,8 @@ export type ConnSender = (
     | { type: "weapon_state"; payload: unknown }
     | { type: "target_locked"; payload: unknown }
     | { type: "target_released"; payload: unknown }
-    | { type: "target_update"; payload: unknown },
+    | { type: "target_update"; payload: unknown }
+    | { type: "hazard_update"; payload: unknown },
 ) => void;
 
 /**
@@ -693,6 +835,27 @@ export interface Shard {
    * with the map pre-populated.
    */
   aiStates?: Map<string, AiStateRecord>;
+  /**
+   * TASK-48: hazard cells registered for this shard. Keyed by
+   * `hazardId`. Populated by `hydrateHazards` on shard load.
+   * Walked once per tick by `advanceHazards` to apply damage to
+   * + drive drones on.
+   */
+  readonly hazardCells: Map<string, ShardHazardCell>;
+  /**
+   * TASK-48: per-player hazard state. Keyed by `connId`. Lazily
+   * populated — the first time `advanceHazards` touches a
+   * player (whether they're inside a cell or not), it creates
+   * a fresh row. The map is cleared on shard reap.
+   */
+  readonly playerHazards: Map<string, ShardPlayerHazardState>;
+  /**
+   * TASK-48: outstanding drone respawn timers. Keyed by drone
+   * id. Walked once per tick by `advanceHazards` to re-mint
+   * any drone whose 180 s timer has elapsed. The cell's
+   * `droneCount` bounds the per-cell timer count.
+   */
+  readonly droneRespawns: Map<string, ShardDroneRespawn>;
   /** Internal: bridge to the future persistence layer (TASK-24). */
   readonly persist: { markDirty?: DirtyMarker };
   /** Shared event bus for cross-shard signals (TASK-15 presence…). */

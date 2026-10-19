@@ -53,6 +53,12 @@ export const EntityKindSchema = z.enum([
   "terminal",
   "groundItem",
   "missile",
+  // TASK-48: hostile mining drones spawned inside hazard cells.
+  // The renderer draws them as small rotating octahedrons; they
+  // are not targetable by `target_lock` (the cone-raycast filters
+  // on `kind === 'ship'`) and they ignore ships (TASK-48 spec:
+  // "drones do NOT aggro ships").
+  "drone",
 ]);
 export type ProtocolEntityKind = z.infer<typeof EntityKindSchema>;
 
@@ -166,6 +172,13 @@ export const EntityStateSchema = z
      * every other kind.
      */
     ai: z.boolean().optional(),
+    /**
+     * TASK-48: id of the parent hazard cell. Set on drone
+     * entities so the client can resolve the drone's cell
+     * (and therefore its position / radius / kind) without a
+     * second lookup. Absent on every other kind.
+     */
+    hazardId: z.string().min(1).optional(),
   })
   .strict();
 export type ProtocolEntityState = z.infer<typeof EntityStateSchema>;
@@ -792,6 +805,38 @@ export const MiningUpdateSchema = z
   .strict();
 
 /**
+ * TASK-48: `hazard_update` — server-only, per-player broadcast
+ * that surfaces the local player's exposure + recovering state so
+ * the HUD's radiation meter can render. The frame is pushed to
+ * the owning connection only (not the whole shard) — exposure is
+ * a personal resource and never broadcast to other players.
+ *
+ * `exposure` is the current personal-shield pool (0..50). The HUD
+ * renders a bar; when the pool reaches 0 the player is knocked to
+ * `recovering` for 5 s.
+ *
+ * `recoveringUntilMs` is the wall-clock ms timestamp at which the
+ * recover ends; `0` when not recovering. The HUD reads this to
+ * switch the prompt to "RECOVERING" + block input (the sim
+ * already gates input on the recover state).
+ *
+ * `recentDamage` (optional) is the last `intensity * dt` delta the
+ * server applied this tick. The HUD uses it for a quick flash
+ * animation when the meter ticks down (so the player sees the
+ * damage land, not just the final value).
+ */
+export const HazardUpdateSchema = z
+  .object({
+    exposure: z.number().finite().min(0).max(50),
+    recoveringUntilMs: z.number().int().nonnegative(),
+    /** When true, the player is currently inside a hazard cell. */
+    inHazard: z.boolean(),
+    /** Optional: last single-tick exposure damage (for HUD flash). */
+    recentDamage: z.number().finite().nonnegative().optional(),
+  })
+  .strict();
+
+/**
  * `sell` — dock sell action (TASK-40).
  *
  * The client sends `{ resourceType, quantity, source? }` after
@@ -1129,7 +1174,7 @@ export const CombatEventSchema = z.discriminatedUnion("kind", [
       target: z.string().min(1),
       source: z
         .object({
-          kind: z.enum(["player", "ai"]),
+          kind: z.enum(["player", "ai", "drone"]),
           id: z.string().min(1),
         })
         .strict(),
@@ -1145,7 +1190,7 @@ export const CombatEventSchema = z.discriminatedUnion("kind", [
       target: z.string().min(1),
       source: z
         .object({
-          kind: z.enum(["player", "ai"]),
+          kind: z.enum(["player", "ai", "drone"]),
           id: z.string().min(1),
         })
         .strict(),
@@ -1229,6 +1274,7 @@ export const PAYLOAD_SCHEMAS = {
   mine: MineSchema,
   mine_stop: MineStopSchema,
   mining_update: MiningUpdateSchema,
+  hazard_update: HazardUpdateSchema,
   sell: SellSchema,
   sell_ok: SellOkSchema,
   cargo_transfer: CargoTransferSchema,

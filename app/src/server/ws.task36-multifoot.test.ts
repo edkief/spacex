@@ -220,6 +220,12 @@ async function bootMultiFootHarness(): Promise<MultiFootHarness> {
     broadcast: shard.broadcast,
     // TASK-45: in-memory respawn timer map (per-shard).
     aiRespawns: shard.aiRespawns as unknown as Shard["aiRespawns"],
+    // TASK-48: hazard cell / per-player exposure / drone respawn
+    // maps. The test doesn't exercise hazards so empty maps
+    // suffice; production wires them via `createShard`.
+    hazardCells: new Map(),
+    playerHazards: new Map(),
+    droneRespawns: new Map(),
     events: { emit: () => true } as unknown as Shard["events"],
     persist: {},
     onTickObserver: null,

@@ -17,6 +17,7 @@
 import type { EventEmitter } from "node:events";
 
 import { clearAiRespawns } from "../shard/ai-respawn.js";
+import { clearHazardsForShard } from "../shard/hazards.js";
 import type { Shard } from "../shard/types.js";
 import type { ShardFlushService } from "../shard/persist.js";
 import type { PresenceBroadcaster } from "./presence.js";
@@ -98,6 +99,12 @@ export async function reapEmpty(args: {
     // list) so a cleared entry will be re-registered on the
     // first respawn that fires.
     clearAiRespawns(shard);
+    // TASK-48: drop hazard cells + player hazard rows + drone
+    // respawn timers so a reaped shard doesn't leak drone
+    // entities into the next lifetime. The next spawn
+    // re-derives the same hazard list (same seed → same cells)
+    // so the next hydrate re-registers them.
+    clearHazardsForShard(shard);
     reaped.push(systemId);
     args.events.emit("reap", { systemId });
   }

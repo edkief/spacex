@@ -136,6 +136,7 @@ describe("audit/schema-coverage", () => {
       "target_released",
       "combat_event",
       "warp_arrived",
+      "hazard_update",
     ];
     for (const t of dispatched) {
       expect(PAYLOAD_SCHEMAS).toHaveProperty(t);

@@ -73,6 +73,7 @@ import { advanceMining, pushMiningUpdate } from "./mining.js";
 import { advanceMissiles, energyRegenFor } from "./weapons.js";
 import { advanceTargetLocks } from "./targeting.js";
 import { advanceAiRespawns } from "./ai-respawn.js";
+import { advanceHazards } from "./hazards.js";
 import { tickAi } from "./ai.js";
 import { drainInput } from "./input-queue.js";
 import { TickHistogram } from "./histogram.js";
@@ -428,7 +429,7 @@ export class SimLoop {
       } else if (entity.kind === "character") {
         // TASK-32: walk/run/jump/terrain. Characters have no hull,
         // so the destroyed-entity guard from ships doesn't apply.
-        integrateCharacterEntity(entity, input, shard.context);
+        integrateCharacterEntity(entity, input, shard.context, shard);
       }
       // AI ships + wrecks are inert on the tick (TASK-46 will plug
       // them in). They're still in the broadcast loop so clients see
@@ -489,6 +490,16 @@ export class SimLoop {
       if (e.energy === undefined) continue;
       energyRegenFor(e, TICK_S, Date.now());
     }
+    // 4f. Hazard tick (TASK-48). Walks every player's hazard
+    //     row + every drone entity; applies storm / radzone
+    //     damage to the exposure pool, drives drone aggro /
+    //     attack, schedules drone respawn timers on death. The
+    //     pass runs at 20 Hz so the HUD's radiation meter
+    //     smooths between frames.
+    advanceHazards(shard, {
+      dt: TICK_S,
+      nowMs: this.hooks.clock ? this.hooks.clock() : Date.now(),
+    });
     const tickDuration = (this.hooks.clock ?? defaultClock)() - tickStart;
     this.histogram.push(tickDuration);
 
@@ -673,6 +684,7 @@ function integrateCharacterEntity(
   entity: SimEntity,
   input: PlayerInput,
   ctx: ShardSystemContext,
+  shard: Shard,
 ): void {
   // Resolve the planet for the heightAt callback. Characters
   // never exist in pure space (the disembark path requires a
@@ -690,17 +702,39 @@ function integrateCharacterEntity(
   const planetRadius =
     planetId !== null && ctx.planetById(planetId) ? ctx.planetById(planetId)!.radiusKm * 1000 : 0;
 
+  // TASK-48: a "recovering" character (exposure = 0 + the 5 s
+  // recover timer is still running) cannot move or interact.
+  // We zero the input axes via a local copy so the original
+  // input reference isn't mutated (the input queue still drains
+  // for seq accounting, but the character stays put on the
+  // surface).
+  let effectiveInput = input;
+  const ownerConn = lookupConnForCharacter(entity, shard);
+  if (ownerConn !== null) {
+    const state = shard.playerHazards.get(ownerConn);
+    if (state && state.recoveringUntilMs > Date.now()) {
+      effectiveInput = {
+        ...input,
+        thrust: 0,
+        turn: 0,
+        pitch: 0,
+        fire: false,
+        action: null,
+      };
+    }
+  }
+
   // Map the wire-shaped ship input to the character input axes.
   // `thrust → moveZ`, `turn → yaw`, `pitch → moveX`,
   // `fire → run`, `action === "jump" → jump`. The mapping is
   // shared with the client prediction layer so server and
   // client agree on every axis.
   const characterInput = wireInputToCharacterInput({
-    thrust: input.thrust,
-    turn: input.turn,
-    pitch: input.pitch,
-    fire: input.fire,
-    action: input.action,
+    thrust: effectiveInput.thrust,
+    turn: effectiveInput.turn,
+    pitch: effectiveInput.pitch,
+    fire: effectiveInput.fire,
+    action: effectiveInput.action,
   });
 
   const prevState: CharacterState = {
@@ -818,6 +852,26 @@ function clampUnit(value: number): number {
   if (value < -1) return -1;
   if (value > 1) return 1;
   return value;
+}
+
+/**
+ * TASK-48: find the connection id that owns a character entity.
+ * Used by the character-integration pass to gate the input when
+ * the player is in the `recovering` state. Cheap — characters
+ * are bounded, so the linear scan is fine.
+ */
+function lookupConnForCharacter(entity: SimEntity, shard: Shard): string | null {
+  // Match by entity id (the connection's `entityId` is the
+  // character's id when the player is on foot).
+  for (const [connId, conn] of shard.connections) {
+    if (conn.entityId === entity.id) return connId;
+  }
+  // Fallback: match by playerId (covers the rare case where
+  // `entityId` was rebound mid-tick).
+  for (const [connId, conn] of shard.connections) {
+    if (conn.playerId === entity.playerId) return connId;
+  }
+  return null;
 }
 
 function defaultClock(): number {

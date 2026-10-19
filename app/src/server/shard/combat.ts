@@ -200,10 +200,17 @@ export function applyCombatDamage(args: {
   // (TASK-49). Missing attribution is a non-fatal no-op for the
   // kill event (the `destroyed` event still fires either way).
   const killer:
-    { entityId: string; kind: "player" | "ai"; weapon: "laser" | "missile" } | undefined =
+    | { entityId: string; kind: "player" | "ai" | "drone"; weapon: "laser" | "missile" }
+    | undefined =
     args.sourceEntityId !== undefined && args.weapon !== undefined
       ? {
           entityId: args.sourceEntityId,
+          // Drones can't carry a `weapon` (the damage pipeline
+          // signature narrows the union). Default to `laser` so
+          // the wreck still records an attribution; drone kills
+          // never reach this code path in practice (drones die
+          // via the hazard pipeline, not through
+          // `applyCombatDamage`).
           kind: args.source.kind,
           weapon: args.weapon,
         }

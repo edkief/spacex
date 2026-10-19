@@ -224,6 +224,11 @@ const VALID_PAYLOADS: Record<MessageType, () => unknown> = {
     hullHit: 0,
     tick: 42,
   }),
+  hazard_update: () => ({
+    exposure: 50,
+    recoveringUntilMs: 0,
+    inHazard: false,
+  }),
 };
 
 // ---------------------------------------------------------------------------
@@ -371,6 +376,11 @@ const INVALID_PAYLOADS: Record<MessageType, () => unknown> = {
     shieldHit: 0,
     hullHit: 0,
     tick: 0,
+  }),
+  hazard_update: () => ({
+    exposure: 999, // > max 50 is rejected
+    recoveringUntilMs: 0,
+    inHazard: false,
   }),
 };
 

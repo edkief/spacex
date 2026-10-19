@@ -499,6 +499,9 @@ describe("GalaxyRouter concurrent-spawn (AC)", () => {
         // `shipId` from the player registry — they're seeded
         // independently).
         if (entity.kind === "ai") continue;
+        // TASK-48: drone ids are `drone:<hazardId>:<index>`
+        // (the seed-derived prefix, independent of `entity:`).
+        if (entity.kind === "drone") continue;
         // Each entity's `pos` is computed from the seedPlayer; we just
         // assert uniqueness by entity id prefix.
         expect(entity.id.startsWith("entity:")).toBe(true);
