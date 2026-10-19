@@ -64,6 +64,7 @@ import { DebugOverlay } from "./perf/DebugOverlay.js";
 import { FrameMonitor } from "./perf/frameMonitor.js";
 import { WeaponHud } from "./components/WeaponHud.js";
 import { WeaponFxHud } from "./components/WeaponFxHud.js";
+import { KillFeed } from "./components/KillFeed.js";
 import { WeaponFxLayer } from "./fx/weapons.js";
 import type { GalaxyOverview } from "@shared/galaxy/overview.js";
 
@@ -787,6 +788,13 @@ export function App(): React.JSX.Element {
           at 30 Hz so flashes animate smoothly without flooding
           React with state updates. */}
       <WeaponFxHud layer={weaponFx} />
+      {/* TASK-47: kill feed (top-center, last 5 kills, 10 s TTL).
+          Fed by `combat_event { kind: 'kill' }` frames routed
+          through `client.getKillFeed().applyKillEvent`. PvP kills
+          render white, player-vs-AI kills grey. Mounts only when
+          the underlying store has entries (so the slot stays
+          invisible during a calm minute of flight). */}
+      <KillFeed store={client.getKillFeed()} />
       {/* TASK-43: weapon HUD stub (active weapon name + energy bar +
           lockout indicator). The full HUD is TASK-50; for now this
           proves the energy + weapon-selector wiring without

@@ -389,7 +389,7 @@
     "title": "PvP parity: identical combat pipeline vs players",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-47.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-48",

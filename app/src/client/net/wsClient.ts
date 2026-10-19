@@ -82,6 +82,7 @@ import { PresenceStore } from "./presence.js";
 import { ChatStore } from "./chat.js";
 import { RemoteEntityBuffer } from "./prediction.js";
 import { TargetingStore } from "../combat/targeting.js";
+import { KillFeedStore } from "../combat/killFeed.js";
 import type { NotificationStore } from "./notifications.js";
 
 /**
@@ -363,6 +364,14 @@ export class DriftClient {
    */
   private readonly targeting = new TargetingStore();
   private readonly targetUpdateListeners = new Set<(event: TargetingEvent) => void>();
+  /**
+   * TASK-47: persistent kill-feed HUD widget. Owns its own
+   * store so the React layer can pass a single reference to
+   * the `<KillFeed>` component. Combat events with
+   * `kind: 'kill'` feed entries via `applyKillEvent`; the
+   * store caps entries at 5 and expires them after 10 s.
+   */
+  private readonly killFeed = new KillFeedStore();
   /**
    * TASK-46: optional notification store hook. When set,
    * `combat_event { kind: 'ai_acquiring' }` frames push an
@@ -984,6 +993,16 @@ export class DriftClient {
   }
 
   /**
+   * TASK-47: read-only accessor for the kill-feed store. The
+   * `<KillFeed>` HUD widget pulls this directly via React's
+   * `useSyncExternalStore`, then re-renders on every entry
+   * push + reap.
+   */
+  getKillFeed(): KillFeedStore {
+    return this.killFeed;
+  }
+
+  /**
    * TASK-44: subscribe to live targeting events (`locked` /
    * `released` / `update`). Returns an unsubscribe handle.
    * Used by tests + the threat-ping bridge in `App.tsx` that
@@ -1542,6 +1561,55 @@ export class DriftClient {
             text: `${callsign} acquiring…`,
             ts: Date.now(),
           });
+        }
+        // TASK-47: kill-feed pipeline. The server broadcasts
+        // `combat_event { kind: 'kill' }` to every connection
+        // in the system; the local client resolves the
+        // attacker/target ids to display names through the
+        // presence roster (players) and the remote-entity
+        // buffer (AI callsigns captured in entity_update
+        // frames).
+        if ((payload as { kind?: string }).kind === "kill") {
+          const evt = payload as { kind: "kill"; attacker: string; target: string; tick: number };
+          // `isPlayerId` — entity ids starting with `entity:`
+          // belong to player ships (the canonical wire format
+          // for player-owned ships as minted by `entityToWire`).
+          // AI ships carry the `ai:` prefix; everything else
+          // (e.g. raw callsigns used as attacker ids) matches
+          // by exact equality against the local player id.
+          const playerIds = new Set<string>();
+          for (const p of this.presence.snapshot()) {
+            playerIds.add(p.callsign);
+          }
+          const isPlayerId = (id: string): boolean => {
+            if (id.startsWith("entity:")) return true;
+            return playerIds.has(id);
+          };
+          // Resolver — look up callsign from the presence
+          // roster (player ships) or from the remote-entity
+          // buffer (AI ships carry a `callsign` field on every
+          // entity_update).
+          const resolver = (id: string): string | null => {
+            if (this.callsign !== null && id === this.callsign) return this.callsign;
+            const match = playerIds.has(id) ? id : null;
+            if (match !== null) return match;
+            // The remote-entity buffer stores the most recent
+            // snapshot for every remote entity; AI ships carry
+            // a `callsign` field on every `entity_update` frame
+            // so we can resolve them here. We sample at "now"
+            // and accept whichever snapshot the buffer returns
+            // (the entry's `state.callsign` is the canonical
+            // callsign the renderer draws on the ship).
+            const buf = this.remoteBuffers.get(id);
+            if (buf !== undefined) {
+              const sample = buf.sample(Date.now());
+              const state = sample.state as { callsign?: unknown } | null;
+              const cs = state?.callsign;
+              if (typeof cs === "string" && cs.length > 0) return cs;
+            }
+            return null;
+          };
+          this.killFeed.applyKillEvent(evt, { resolver, isPlayerId });
         }
         return;
       }
