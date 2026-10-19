@@ -228,6 +228,7 @@ async function bootMultiFootHarness(): Promise<MultiFootHarness> {
     }),
     shutdown: () => {},
     dirtyShipSpawns: new Map(),
+    targets: new Map(),
     context: {
       system: {
         systemId: shard.systemId,

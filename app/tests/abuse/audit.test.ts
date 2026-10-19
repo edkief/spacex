@@ -131,6 +131,9 @@ describe("audit/schema-coverage", () => {
       "pong",
       "presence",
       "target_update",
+      "target_lock",
+      "target_locked",
+      "target_released",
       "combat_event",
       "warp_arrived",
     ];

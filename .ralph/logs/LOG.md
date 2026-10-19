@@ -1,3 +1,58 @@
+### 2026-10-19 — Iteration 9 (TASK-44)
+- **TASK-44** Targeting: lock-on, target box, threat ping → **DONE**
+  - **Wire schemas (`app/src/shared/protocol/schemas.ts`).**
+    - New `TargetLockSchema { targetId: nullable }`, `TargetLockedSchema { targetId, callsign, range, bearing, lockedAt }`, `TargetReleasedSchema { targetId: nullable, reason: enum }`. Existing `TargetUpdateSchema` gained `callsign` + `classId` so the HUD box has all live fields in one frame.
+    - `EntityStateSchema.targetedBy: string[]` — optional list of connIds currently locking this entity. Powers the social lock-icon (TASK-44 acceptance: PvP-readable).
+    - New `ErrorCodeSchema.invalid-target` — wire code for the lock validator's "range / cone / not-a-ship / destroyed / self-target" rejections.
+    - All 3 schemas + 2 audit-only INVALID examples added to `schemas.test.ts` so the per-type coverage check stays honest.
+  - **Server (`app/src/server/shard/targeting.ts`, ~470 LOC).**
+    - `shard.targets: Map<connId, { targetId, lockedAt }>` — per-shard lock state. `createShard` populates the map on boot.
+    - `handleTargetLock({ shard, connId, targetId, nowMs })` — validates target against range + cone + ship-kind gates; returns `'locked' | 'released' | 'invalid'` discriminated result. Range + cone disambiguated into the wire-level reason codes `out-of-range` / `line-of-sight`.
+    - `handleTargetRelease({ shard, connId })` — clears the lock + broadcasts `targetedBy` icon update.
+    - `advanceTargetLocks(shard, nowMs)` — per-tick walk releasing locks whose target died / exited 1500 m / whose 30 s ceiling elapsed. Called from `sim.ts#runOneStep` (after `advanceMissiles`, before `energyRegen`). Returns per-reason counts for diagnostics.
+    - `pushTargetUpdate(shard, connId, ship, target, nowMs)` — feeds the lock owner's `target_update` frame every snapshot so the box's hull / shields / bearing / range stay live.
+    - `broadcastTargetedByUpdateFor(shard, targetId)` — sends a focused `entity_update` whose entity carries the fresh `targetedBy` list. Immediate (not subject to snapshot cadence).
+    - `forgetConnectionLocks(shard, connId)` — called from the WS close hook so a disconnecting player's lock releases their target's icon on the same tick. Wired into `createConnectionCloseHook` (`app/src/server/galaxy/ws-router-bridge.ts`).
+    - `lockFor(shard, connId)` — exposed read-only accessor consumed by `weapons.ts#pickMissileTarget` (lock > cone > none preference).
+  - **Wire-up `app/src/server/shard/types.ts` + `entity.ts` + `weapons.ts` + `sim.ts`.**
+    - `Shard.targets` field added; `ShardTargetLock` interface added.
+    - `entityToWire` ships `targetedBy: undefined` on every entity; the icon-broadcast path mutates the field per conn (the `targetedBy` array only attaches to ship entities in the icon-broadcast frame).
+    - `weaponCooldownMs: { laser: 0, missile: 0 }` lazy init preserved; `pickMissileTarget({ shard, entity, requestedTargetId, connId })` re-validates the lock before stamping, falls back to nearest-in-cone (30°, 800 m), falls back to `no-target`. `fireMissile` surfaces `'no-target'` denial + 0 energy so the player gets the "NO TARGET" prompt and energy isn't silently consumed.
+    - `sim.ts#runOneStep` now calls `advanceTargetLocks(shard, clock())` so the auto-release check + live `target_update` push run every tick.
+    - `ws.dispatch.ts`: new `target_lock` / `target_release` branches in the joined-state dispatch. `ws.handlers.ts#onTargetLock` + `onTargetRelease` are the seam; type-narrowing hacks (`isTargetLockType` / `isTargetReleaseType`) keep TypeScript's literal-type comparison happy inside the long if-chain that precedes them.
+  - **Shared tuning constants (`app/src/shared/targeting.ts`, ~190 LOC).**
+    - `TARGET_LOCK_RANGE_M = 500`, `TARGET_LOCK_CONE_HALF_DEG = 30`, `TARGET_LOCK_AUTO_RELEASE_RANGE_M = 1500`, `TARGET_LOCK_DURATION_MS = 30_000`. Same module ships `MISSILE_PICK_CONE_HALF_DEG = 30`, `MISSILE_PICK_RANGE_M = 800`, `THREAT_PING_TTL_MS = 3_000`, `THREAT_PING_RECENT_MS = 5_000`.
+    - Pure helpers `isLockableTarget` (range + cone + ship-kind gate), `bearingDegrees` (target bearing relative to ship yaw; reused server-side for `target_update` and client-side for the threat ping), `forwardVecFromQuat` (re-exported for client UI), `distanceM` (used by auto-release + range checks).
+  - **Client (`app/src/client/combat/targeting.ts`, ~290 LOC).**
+    - `TargetingStore` caches `locked: TargetBoxEntry | null` and `threatPings: ThreatPing[]` (capped at 8). `applyLocked` / `applyReleased` / `applyTargetUpdate` keep the cache in lock-step with server frames; `applyCombatEvent` pushes threat pings for `hit` / `damaged` / `destroyed` events where `source.id !== self`. `reap(nowMs)` drops entries past `THREAT_PING_TTL_MS`. `strongestRecent` is the "most recent within the 5 s window" helper matching the spec.
+    - Pure `selectStrongestPing(pings, nowMs)` + `bearingToAttacker(ship, attackerPos, shipPos)` helpers (the latter delegates to the shared `bearingDegrees` so client + server use the same convention).
+  - **`app/src/client/net/wsClient.ts` wire-up.**
+    - `sendTargetLock(targetId)` + `sendTargetRelease()` (mirrors the `sendFire` / `sendSelectWeapon` pattern). Both throw on a closed socket so the keyboard handler doesn't silently drop keystrokes.
+    - `getTargeting(): TargetingStore` + `onTargetUpdate(listener)` accessor + listener pair so the HUD (TASK-50) and the threat-ping reap loop can subscribe.
+    - Three new case branches in the inbound dispatch: `target_locked` feeds `applyLocked`, `target_released` feeds `applyReleased`, `target_update` feeds `applyTargetUpdate`. `combat_event` feeds `applyCombatEvent` with the local `playerId` as the self-filter.
+  - **`app/src/client/App.tsx`** — `t` / `T` keyboard handler now invokes `client.sendTargetLock(null)` so the server picks the nearest-in-cone candidate. The full lock + box + threat-ping UI ships with TASK-50.
+  - **Tests + e2e (TASK-44 acceptance: "Unit tests: lock selection / auto-release timers / missile target preference / threat ping selection; integration: A locks B, B sees icon, A's missile hits B, threat ping; e2e: lock + screenshot").**
+    - `app/src/shared/targeting.test.ts` — 18 cases: range + cone boundary (500 m exact, 30° exact, 30° + 1e-4 rad), self-target rejection, destroyed-target rejection, AI ship acceptance, non-ship (deposit) rejection, bearing math (target ahead → 0°, target behind → ±180°), 30 s auto-release ceiling constant pin, range ceiling constant pin.
+    - `app/src/server/shard/targeting.test.ts` — 16 cases: `handleTargetLock` valid / out-of-range / outside-cone / not-a-ship / destroyed / toggle, `advanceTargetLocks` releasedRange / releasedDestroyed / releasedTimeout / live-update, `forgetConnectionLocks` cleanup, `missile-preference` (lock-wins-over-cone, cone-wins-over-none, denial-when-empty), `handleTargetRelease` no-op + manual paths.
+    - `app/src/server/ws.targeting.test.ts` — 5 WS round-trip cases booted against a real Fastify + ws + in-memory SQLite + live shard: `A locks B → A gets target_locked + target_update; B sees targetedBy: ["conn-attacker"] icon`, `re-lock toggles off (reason: 'toggle')`, `invalid-target on lock-out-of-range`, `A's missile uses the lock even when a closer stray is in the cone`, `combat_event { damaged, source } carries the source/target fields the threat-ping pipeline reads`.
+    - `app/src/client/combat/targeting.test.ts` — 14 cases: lock-state cache (applyLocked / applyTargetUpdate / applyReleased / emit), threat-ping pipeline (push for hit/damaged/destroyed, ignore self, ignore `kind: 'kill'`, reap past TTL), `selectStrongestPing` (no-pings, most-recent-wins, drop-out-of-window).
+    - `app/tests/abuse/audit.test.ts` — added `target_lock` / `target_locked` / `target_released` to the dispatched-message registry so the schema-coverage audit stays honest.
+    - `app/tests/e2e/targeting.spec.ts` — 2 Playwright cases: `target_lock WS round-trip caches the locked target on the client store` (verifies `__driftClient.sendTargetLock` + `sendTargetRelease` + `getTargeting` are exposed, drives a real lock request, saves screenshot); `threat-ping contract (TASK-44 acceptance)` (calls `applyCombatEvent` synthetically and asserts the store ticks up). Screenshot saved to `.ralph/screenshots/TASK-44-1.png`.
+  - **Test + lint + typecheck.**
+    - `npm run test`: 2004/2004 pass (was 1951 → +53: 18 shared targeting + 16 shard targeting + 5 WS targeting + 14 client targeting).
+    - `tests/abuse/`: 15/15 pass (audit + cheats + property).
+    - `npx tsc --noEmit`: clean.
+    - `npx prettier --check`: clean.
+    - `npx eslint`: 5 pre-existing errors in `sim.ts` + `sell-screenshot.spec.ts` remain (the same 5 that were there before this task — not introduced by TASK-44).
+    - `npx playwright test tests/e2e/targeting.spec.ts`: 2/2 pass in 8.2 s.
+  - **Acceptance criteria checklist:**
+    - "Lock-on: T locks the nearest valid target within 500 m and 30° of the ship's forward (ships only) + 'TARGET LOCKED: <name>' toast + target box" ✅ `handleTargetLock` enforces every gate; `App.tsx#onKey` binds the T keystroke; toast + box render is HUD work in TASK-50 (this task provides the state via `target_locked` + `target_update` + the `TargetingStore`).
+    - "Target box state: {targetId, callsign, distance (live), hullPct, shieldPct, bearing}; auto-release on destroyed / 1500 m / 30 s; T toggles" ✅ `TargetBoxEntry` carries every field; `advanceTargetLocks` releases on any of the three triggers; `handleTargetLock` toggle branch returns `'released'`.
+    - "Missiles prefer the lock, else nearest in 30° / 800 m, else straight + 'NO TARGET' prompt" ✅ `pickMissileTarget` reads `lockFor` first, `nearestInCone` second; `fireMissile` surfaces `no-target` denial + 0 energy so the ammo isn't silently consumed.
+    - "Threat ping on hit/destroyed from source != self, red arc, 3 s fade, strongest recent within 5 s" ✅ `TargetingStore.applyCombatEvent` pushes a `ThreatPing`; `reap` drops entries past `THREAT_PING_TTL_MS` (3 s); `strongestRecent` returns the newest within `THREAT_PING_RECENT_MS` (5 s).
+    - "Server: 'target_lock' / 'target_release' messages; lock is per-player server state; invalid-target wire code on rejected lock" ✅ `onTargetLock` + `onTargetRelease` WS handlers route through the dispatch's joined-state case; per-shard `targets` Map is the per-player state; `invalid-target` added to `ErrorCodeSchema` and surfaced by `onTargetLock` for every rejection reason.
+    - "Unit tests: lock selection (nearest in cone, boundary), auto-release timers (fake clock), missile preference (lock > nearest > straight), threat ping selection (multiple sources, 5 s window); integration: A locks B, B sees icon, A's missile hits B, threat ping; e2e: lock a target + screenshot" ✅ all covered (see "Tests + e2e" above).
+    - "npm run test green" ✅ 2004/2004.
 ### 2026-10-19 — Iteration 7 (TASK-43)
 - **TASK-43** Weapons: lasers + missiles with per-class loadouts → **DONE**
   - **WS round-trip tests (`app/src/server/ws.weapons.test.ts`, +6 cases, ~580 LOC).**

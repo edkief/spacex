@@ -39,6 +39,7 @@ import type { Connection, ConnectionRegistry } from "../ws.connection.js";
 import type { GalaxyRouter } from "./router.js";
 import type { PresenceBroadcaster } from "./presence.js";
 import type { Shard } from "../shard/types.js";
+import { forgetConnectionLocks } from "../shard/targeting.js";
 
 /**
  * Wire a real WS connection registry into the router as a presence
@@ -137,11 +138,19 @@ export function createConnectionCloseHook(args: {
     // fresh. Best-effort — the router may have already reaped
     // the shard by the time we get here, in which case there's
     // nothing to clear.
+    // TASK-44: drop any active target lock for the disconnecting
+    // connection. The targeted ship's `targetedBy` icon list is
+    // refreshed on the same call so other players in the system
+    // see the indicator drop immediately.
     if (conn.systemId !== null) {
       const shard = router.get(conn.systemId);
       if (shard) {
         const mining = (shard as Shard & { mining?: Map<string, unknown> }).mining;
         mining?.delete(conn.connId);
+        // TASK-44: drop the connection's target lock so the
+        // targeted ship's `targetedBy` icon list is refreshed on
+        // the same close hook.
+        forgetConnectionLocks(shard, conn.connId);
       }
     }
     if (conn.systemId === null) return;

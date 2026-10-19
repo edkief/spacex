@@ -178,6 +178,7 @@ async function bootInteractHarness(): Promise<InteractHarness> {
     }),
     shutdown: () => {},
     dirtyShipSpawns: new Map(),
+    targets: new Map(),
     context: {
       system: {
         systemId: shard.systemId,

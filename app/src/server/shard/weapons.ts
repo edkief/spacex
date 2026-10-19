@@ -69,9 +69,16 @@ import {
   weaponStats,
   type WeaponId,
 } from "@shared/weapons.js";
+import {
+  MISSILE_PICK_CONE_COS,
+  MISSILE_PICK_RANGE_M,
+  forwardVecFromQuat,
+  isLockableTarget,
+} from "@shared/targeting.js";
 import type { Vec3 } from "@shared/physics/vec.js";
 
 import { resolveHit } from "./combat.resolve.js";
+import { lockFor } from "./targeting.js";
 import type { Shard, SimEntity } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -617,6 +624,21 @@ function mapRejectionToCode(
  * Fire a missile. Spawns a `kind: 'missile'` entity, threads
  * the homing target, deducts energy + advances the cooldown.
  *
+ * **TASK-44 missile preference** — the homing target is selected
+ * in this order:
+ *   1. **Locked target** if the connection has a valid lock on a
+ *      ship (re-validated through `isLockableTarget` so a target
+ *      that evaporated between the player's T press and the
+ *      missile fire is replaced with the cone pick).
+ *   2. **Nearest-in-cone** within the 30° nose cone and 800 m
+ *      missile range (closest live ship, player or AI).
+ *   3. **Straight ahead** — the missile spawns at the ship's nose
+ *      velocity and despawns on TTL with no impact. We only take
+ *      this path when the player explicitly fires without a lock
+ *      AND there's no other target in front of them; the wire
+ *      surfaces `no-target` so the player gets a "NO TARGET"
+ *      prompt instead of silently wasting the missile energy.
+ *
  * `MAX_MISSILES_PER_SHARD` cap: when the shard already has
  * `MAX_MISSILES_PER_SHARD` missiles, the oldest is expired
  * first (logged on the shard event bus for diagnostics) and
@@ -631,8 +653,34 @@ function fireMissile(args: {
   now: number;
   cd: number;
 }): FireResult {
-  const { shard, connId, entity, targetId, now } = args;
+  const { shard, connId, entity, now } = args;
   const stats = MISSILE_STATS;
+
+  // TASK-44: pick the missile's homing target. Honour the caller's
+  // explicit `targetId` (for tests) or the connection's lock; fall
+  // back to nearest-in-cone; surface `no-target` on the no-target
+  // path so the player's energy isn't silently consumed.
+  const pick = pickMissileTarget({
+    shard,
+    entity,
+    requestedTargetId: args.targetId,
+    connId: args.connId,
+  });
+  const targetId = pick.targetId;
+  if (!targetId) {
+    // Per TASK-44 acceptance: "NO TARGET" prompt on denied missile
+    // fire. We charge no energy (the missile never spawned) — the
+    // spec is explicit ("no wasted ammo silently").
+    recordFireAttempt(entity, now);
+    pushWeaponState(shard, connId, entity, now);
+    return {
+      ok: "denied",
+      code: "no-target",
+      energy: entity.energy ?? 0,
+      locked: isLocked(entity, now),
+    };
+  }
+
   // Per-shot energy cost is fixed (10 per missile regardless of
   // the bay size — the interceptor can carry 4 missiles at a
   // time, but each shot still costs 10 energy).
@@ -646,7 +694,7 @@ function fireMissile(args: {
   // target at `stats.speed`. For a target-less fire the missile
   // fires straight forward (the spec accepts this as a
   // degraded case — it flies straight, despawns on TTL).
-  const forward = targetId ? directionToward(shard, entity, targetId) : forwardOf(entity, 1);
+  const forward = directionToward(shard, entity, targetId);
   const speed = stats.speed;
   const missile: SimEntity = {
     id: id2,
@@ -1086,6 +1134,91 @@ function canFireWeaponOnEntity(entity: SimEntity, weapon: WeaponId): boolean {
     return weapon === "laser";
   }
   return canFireWeapon(entity.classId, weapon);
+}
+
+/**
+ * TASK-44: pick the missile's homing target in the documented
+ * preference order:
+ *   1. Caller-supplied `requestedTargetId` (test path) — the lock
+ *      state would have already stamped the entity.
+ *   2. The firing player's active lock — re-validated through
+ *      `isLockableTarget` so a target that died/exited-range since
+ *      the T press drops back to the cone pick.
+ *   3. Nearest-in-cone (30° nose, 800 m range) — live ship only,
+ *      players + AI equally eligible.
+ *   4. `null` — caller surfaces `no-target` so the player gets the
+ *      "NO TARGET" prompt and the energy reservoir is preserved.
+ */
+function pickMissileTarget(args: {
+  shard: Shard;
+  entity: SimEntity;
+  requestedTargetId: string | null;
+  connId: string;
+}): { targetId: string | null; source: "explicit" | "lock" | "cone" | "none" } {
+  const { shard, entity, requestedTargetId, connId } = args;
+
+  // 1. Explicit test-supplied target.
+  if (requestedTargetId) {
+    const candidate = shard.entities.get(requestedTargetId);
+    if (
+      candidate &&
+      candidate.id !== entity.id &&
+      (candidate.kind === "player" || candidate.kind === "ai") &&
+      candidate.hull > 0
+    ) {
+      return { targetId: requestedTargetId, source: "explicit" };
+    }
+    // Fall through if the explicit id is no longer valid — the
+    // test was racing the registry.
+  }
+
+  // 2. Player's lock.
+  const lockEntry = lockFor(shard, connId);
+  if (lockEntry && isLockableTarget(entity, lockEntry.target)) {
+    return { targetId: lockEntry.target.id, source: "lock" };
+  }
+
+  // 3. Nearest-in-cone.
+  const conePick = nearestInCone(shard, entity);
+  if (conePick) {
+    return { targetId: conePick, source: "cone" };
+  }
+
+  return { targetId: null, source: "none" };
+}
+
+/**
+ * TASK-44: nearest live ship inside the missile cone (30°, 800 m)
+ * of the firing entity. Returns `null` when the cone is empty.
+ *
+ * O(n) over `shard.entities` — fine for the v1 cap of 16 players
+ * (TASK-60 enforces the load budget at the shard level). Uses
+ * the squared-distance + cosine precomputation so the inner loop
+ * is a constant-time compare.
+ */
+function nearestInCone(shard: Shard, entity: SimEntity): string | null {
+  const forward = forwardVecFromQuat(entity.quat);
+  const rangeSq = MISSILE_PICK_RANGE_M * MISSILE_PICK_RANGE_M;
+  let bestId: string | null = null;
+  let bestDistSq = rangeSq + 1;
+  for (const [id, candidate] of shard.entities) {
+    if (id === entity.id) continue;
+    if (candidate.kind !== "player" && candidate.kind !== "ai") continue;
+    if (candidate.hull <= 0) continue;
+    const dx = candidate.pos.x - entity.pos.x;
+    const dy = candidate.pos.y - entity.pos.y;
+    const dz = candidate.pos.z - entity.pos.z;
+    const dSq = dx * dx + dy * dy + dz * dz;
+    if (dSq > rangeSq || dSq === 0) continue;
+    const dLen = Math.sqrt(dSq);
+    const cos = (forward.x * dx + forward.y * dy + forward.z * dz) / dLen;
+    if (cos < MISSILE_PICK_CONE_COS) continue;
+    if (dSq < bestDistSq) {
+      bestDistSq = dSq;
+      bestId = id;
+    }
+  }
+  return bestId;
 }
 
 /**

@@ -147,6 +147,15 @@ export const EntityStateSchema = z
      * Default `false`; persisted via the `deposits` table.
      */
     discovered: z.boolean().optional(),
+    /**
+     * TASK-44: connIds currently locking this entity. Only
+     * present on `player` (and `ai`) ship entities; absent on
+     * every other kind. Lets the rendered show a small lock icon
+     * above a targeted ship so PvP is readable (the targeted
+     * player sees who has them locked, and other players see
+     * who has whom targeted).
+     */
+    targetedBy: z.array(z.string().min(1)).optional(),
   })
   .strict();
 export type ProtocolEntityState = z.infer<typeof EntityStateSchema>;
@@ -264,6 +273,13 @@ export const ErrorCodeSchema = z.enum([
   // entity" — the typical case is the lock-on target evaporated
   // between fire-decision and fire-arrival.
   "no-target",
+  // TASK-44: target_lock request rejected because the requested
+  // entity is out of lock range (> 500 m), outside the 30° nose
+  // cone, not a ship (a deposit / station / terminal / ground
+  // item is not lockable in v1), or already destroyed. The client
+  // renders a "NO TARGET" prompt so a denied missile fire doesn't
+  // silently consume ammo.
+  "invalid-target",
 ]);
 export type ProtocolErrorCode = z.infer<typeof ErrorCodeSchema>;
 
@@ -988,6 +1004,68 @@ export const TargetUpdateSchema = z
     hull: z.number().finite().nullable(),
     bearing: z.number().finite().nullable(),
     range: z.number().finite().nullable(),
+    /**
+     * TASK-44: ship target's callsign (display label). Mirrors the
+     * `EntityState.callsign` field. Absent on AI targets (their wire
+     * callsign is `null`).
+     */
+    callsign: z.string().min(1).nullable(),
+    /**
+     * TASK-44: the ship's class id (`'scout' | 'freighter' | 'interceptor'`)
+     * or `null` for AI targets without a class label.
+     */
+    classId: ShipClassIdSchema.nullable(),
+  })
+  .strict();
+
+/**
+ * `target_lock` — TASK-44 client → server lock-on intent. The
+ * server validates range (500 m), cone (30°), target kind (ships
+ * only), and target liveness (`hull > 0`). On accept the server
+ * echoes `target_locked`; on rejection it surfaces `invalid-target`.
+ *
+ * If the player is already locking a target, this frame toggles the
+ * lock off (releasing is the T-dual behaviour per TASK-44 acceptance).
+ *
+ * `targetId` is the entity id of the desired lock target. Passing
+ * `null` is the "release whatever you have locked" path.
+ */
+export const TargetLockSchema = z
+  .object({
+    targetId: z.string().min(1).nullable().optional(),
+  })
+  .strict();
+
+/** `target_locked` — TASK-44 server → client success ack for `target_lock`. */
+export const TargetLockedSchema = z
+  .object({
+    targetId: z.string().min(1),
+    callsign: z.string().min(1).nullable(),
+    range: z.number().finite().nonnegative(),
+    bearing: z.number().finite(),
+    lockedAt: z.number().int().nonnegative(),
+  })
+  .strict();
+
+/**
+ * `target_released` — TASK-44 server → client broadcast on lock
+ * release (toggle, destroyed target, range exit, or 30 s timeout).
+ * Carries the released target id (or `null` when there was no
+ * active lock) so the HUD can drop its box.
+ */
+export const TargetReleasedSchema = z
+  .object({
+    targetId: z.string().min(1).nullable(),
+    /**
+     * Reason for the release. HUD toasts map these onto messages:
+     *   - `'toggle'`         — player re-pressed T.
+     *   - `'destroyed'`      — target hull reached 0.
+     *   - `'range-exceeded'` — target exited 1500 m.
+     *   - `'timeout'`        — 30 s elapsed since lock.
+     *   - `'manual'`         — `target_release` frame.
+     *   - `'snapshot'`       — initial empty release on disconnect.
+     */
+    reason: z.enum(["toggle", "destroyed", "range-exceeded", "timeout", "manual", "snapshot"]),
   })
   .strict();
 
@@ -1138,6 +1216,9 @@ export const PAYLOAD_SCHEMAS = {
   pong: PongSchema,
   presence: PresenceSchema,
   target_update: TargetUpdateSchema,
+  target_lock: TargetLockSchema,
+  target_locked: TargetLockedSchema,
+  target_released: TargetReleasedSchema,
   combat_event: CombatEventSchema,
   warp_arrived: WarpArrivedSchema,
 } as const satisfies Record<string, z.ZodTypeAny>;

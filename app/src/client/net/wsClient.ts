@@ -81,6 +81,18 @@ import type { WeaponId } from "@shared/weapons.js";
 import { PresenceStore } from "./presence.js";
 import { ChatStore } from "./chat.js";
 import { RemoteEntityBuffer } from "./prediction.js";
+import { TargetingStore } from "../combat/targeting.js";
+
+/**
+ * TASK-44: per-frame targeting events. The HUD subscribes via
+ * `onTargetUpdate()` so it can re-render in lock-step with the
+ * server. The `kind` discriminates the three server-pushed
+ * targeting frames.
+ */
+export type TargetingEvent =
+  | { kind: "locked"; payload: Parameters<TargetingStore["applyLocked"]>[0] }
+  | { kind: "released"; payload: Parameters<TargetingStore["applyReleased"]>[0] }
+  | { kind: "update"; payload: Parameters<TargetingStore["applyTargetUpdate"]>[0] };
 import { Controls } from "../input/controls.js";
 import type { PayloadFor as WirePayloadFor } from "@shared/protocol/index.js";
 
@@ -341,6 +353,15 @@ export class DriftClient {
       denialCode: string | null;
     }) => void
   >();
+  /**
+   * TASK-44: targeting store + listener set. Fires on every
+   * `target_locked` / `target_released` / `target_update`
+   * frame from the server. The HUD's target-box + threat-ping
+   * components subscribe to `onTargetUpdate()` so they can
+   * re-render in lock-step with server state.
+   */
+  private readonly targeting = new TargetingStore();
+  private readonly targetUpdateListeners = new Set<(event: TargetingEvent) => void>();
   private status: DriftClientStatus = "idle";
   private playerId: string | null = null;
   private callsign: string | null = null;
@@ -944,6 +965,29 @@ export class DriftClient {
   }
 
   /**
+   * TASK-44: read-only accessor for the targeting store. The HUD
+   * polls `getTargeting()` at the same 250 ms cadence as
+   * `getWeaponState()` so the target-box + threat-ping
+   * components stay in sync.
+   */
+  getTargeting(): TargetingStore {
+    return this.targeting;
+  }
+
+  /**
+   * TASK-44: subscribe to live targeting events (`locked` /
+   * `released` / `update`). Returns an unsubscribe handle.
+   * Used by tests + the threat-ping bridge in `App.tsx` that
+   * reaps expired pings each frame.
+   */
+  onTargetUpdate(listener: (event: TargetingEvent) => void): () => void {
+    this.targetUpdateListeners.add(listener);
+    return () => {
+      this.targetUpdateListeners.delete(listener);
+    };
+  }
+
+  /**
    * TASK-43: send a weapon fire intent. The server is the
    * source of truth for rate / energy / range / LOS; denied
    * fires surface as an `error` frame (no FX).
@@ -968,6 +1012,41 @@ export class DriftClient {
       throw new Error("DriftClient: sendSelectWeapon requires an open socket");
     }
     this.socket.send(encodeEnvelope("select_weapon", { weapon }));
+  }
+
+  /**
+   * TASK-44: send a target-lock intent (`T` key on the client).
+   *
+   * `targetId === null` is the "release whatever" path; the
+   * server clears the connection's lock and pushes a
+   * `target_released` frame. Re-pressing T on the already-
+   * locked target is the toggle-off path (the server
+   * auto-releases on the duplicate request).
+   */
+  sendTargetLock(targetId: string | null): void {
+    if (!this.socket || this.socket.readyState !== this.socket.OPEN) {
+      throw new Error("DriftClient: sendTargetLock requires an open socket");
+    }
+    this.socket.send(encodeEnvelope("target_lock", { targetId }));
+  }
+
+  /**
+   * TASK-44: explicit release intent (alternative to
+   * `sendTargetLock(null)`). Used by the HUD's "release target"
+   * button when the player is on a UI surface where the
+   * `null` semantic of `sendTargetLock` doesn't apply.
+   */
+  sendTargetRelease(): void {
+    if (!this.socket || this.socket.readyState !== this.socket.OPEN) {
+      throw new Error("DriftClient: sendTargetRelease requires an open socket");
+    }
+    // TypeScript's overloaded `encodeEnvelope` only narrows on
+    // the discriminated payload type; the empty-payload case
+    // forces a runtime cast (the wire envelope for
+    // `target_release` is the empty-object form).
+    this.socket.send(
+      encodeEnvelope("target_release" as unknown as Parameters<typeof encodeEnvelope>[0], {}),
+    );
   }
 
   /**
@@ -1423,6 +1502,24 @@ export class DriftClient {
         }
         return;
       }
+      case "combat_event": {
+        // TASK-44: threat-ping pipeline. We push every
+        // `damaged` / `hit` / `destroyed` event (where source
+        // != self) into the targeting store; the HUD reads the
+        // cached `threatPings` and renders the radial-arc
+        // indicator. `kill` events are silently dropped (the
+        // spec scopes threat pings to the hit / damage / kill
+        // chain, but the kill frame fires on *our* kills so
+        // it's not a threat against us).
+        const payload = env.payload as Parameters<TargetingStore["applyCombatEvent"]>[0];
+        // Resolve the local player's entity id. The
+        // `DriftClient` caches the playerId from the auth
+        // handshake; we use that as the "self" key for the
+        // source !== self filter.
+        const localEntityId: string | null = this.playerId;
+        this.targeting.applyCombatEvent(payload, localEntityId);
+        return;
+      }
       case "state_snapshot":
       case "entity_update": {
         // Forward into the remote-entity buffer (TASK-14). We use
@@ -1632,6 +1729,50 @@ export class DriftClient {
           locked: payload.locked,
           lockedUntilMs: payload.lockedUntilMs,
         };
+        return;
+      }
+      case "target_locked": {
+        // TASK-44: server acked a successful `target_lock`. Push
+        // the payload to the targeting store listeners.
+        const payload = env.payload as Parameters<TargetingStore["applyLocked"]>[0];
+        this.targeting.applyLocked(payload);
+        for (const listener of this.targetUpdateListeners) {
+          try {
+            listener({ kind: "locked", payload });
+          } catch {
+            // swallow
+          }
+        }
+        return;
+      }
+      case "target_released": {
+        // TASK-44: server cleared the lock (manual / toggle /
+        // destroyed / range-exceeded / timeout). Push the
+        // release reason to listeners.
+        const payload = env.payload as Parameters<TargetingStore["applyReleased"]>[0];
+        this.targeting.applyReleased(payload);
+        for (const listener of this.targetUpdateListeners) {
+          try {
+            listener({ kind: "released", payload });
+          } catch {
+            // swallow
+          }
+        }
+        return;
+      }
+      case "target_update": {
+        // TASK-44: server-pushed live stats for the locked target.
+        // The HUD polls `targeting.getLocked()` so we just
+        // refresh the cache.
+        const payload = env.payload as Parameters<TargetingStore["applyTargetUpdate"]>[0];
+        this.targeting.applyTargetUpdate(payload);
+        for (const listener of this.targetUpdateListeners) {
+          try {
+            listener({ kind: "update", payload });
+          } catch {
+            // swallow
+          }
+        }
         return;
       }
       default:

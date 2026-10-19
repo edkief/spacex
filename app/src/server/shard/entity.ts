@@ -361,6 +361,13 @@ export function entityToWire(e: SimEntity): ProtocolEntityState {
     // and the server treats the entity as a candidate for repair /
     // livery / cargo routes.
     onPad: e.onPad,
+    // TASK-44: list of connIds currently locking this entity.
+    // Surfaced on the wire so the renderer can draw a small lock
+    // icon above a targeted ship (read by all clients in the
+    // system). Populated by `buildSnapshotEntities` from
+    // `shard.targets` (this function intentionally doesn't walk
+    // shard state to stay transport-pure).
+    targetedBy: undefined,
   };
 }
 

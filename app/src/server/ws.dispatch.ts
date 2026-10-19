@@ -84,6 +84,8 @@ import {
   onWarp,
   onFire,
   onSelectWeapon,
+  onTargetLock,
+  onTargetRelease,
 } from "./ws.handlers.js";
 
 // ---------------------------------------------------------------------------
@@ -506,6 +508,21 @@ async function dispatch(
         onSelectWeapon(conn, options, payload);
         return;
       }
+      // TASK-44: target lock-on / release. The handler validates
+      // range / cone / target kind and either acquires or toggles
+      // the lock, pushing `target_locked` / `target_update` on
+      // accept and `target_released` on release / auto-release.
+      // The string literal comparison is cast through the module
+      // registry so TypeScript's literal narrowing inside the
+      // 20-deep if-chain above stays happy.
+      if (isTargetLockType(type)) {
+        onTargetLock(conn, options, payload);
+        return;
+      }
+      if (isTargetReleaseType(type)) {
+        onTargetRelease(conn, options, payload);
+        return;
+      }
       // Fallback for any other unhandled frame type in the
       // joined state — should be impossible because the
       // dispatcher already filtered against the registered
@@ -523,3 +540,19 @@ async function dispatch(
 // ---------------------------------------------------------------------------
 
 export { PROTOCOL_VERSION };
+
+/**
+ * Task-44 helpers. TypeScript's narrowing inside the long dispatch
+ * if-chain can't see the literal "target_lock" / "target_release"
+ * strings, so we re-cast through the MessageType union via
+ * runtime-comparison helpers. `isMessageType` is the canonical
+ * protocol type guard; both `target_lock` and `target_release` are
+ * registered in `PAYLOAD_SCHEMAS` so the guards return `true` for
+ * exactly the desired literals.
+ */
+function isTargetLockType(type: MessageType): boolean {
+  return type === ("target_lock" as MessageType);
+}
+function isTargetReleaseType(type: MessageType): boolean {
+  return type === ("target_release" as MessageType);
+}

@@ -203,7 +203,18 @@ const VALID_PAYLOADS: Record<MessageType, () => unknown> = {
     hull: 100,
     bearing: 1.57,
     range: 12.3,
+    callsign: "TEST-BRAVO",
+    classId: "scout",
   }),
+  target_lock: () => ({ targetId: "ship-2" }),
+  target_locked: () => ({
+    targetId: "ship-2",
+    callsign: "TEST-BRAVO",
+    range: 250,
+    bearing: 0.5,
+    lockedAt: 1_700_000_000_000,
+  }),
+  target_released: () => ({ targetId: "ship-2", reason: "toggle" }),
   combat_event: () => ({
     kind: "damaged",
     target: "ship-2",
@@ -349,6 +360,9 @@ const INVALID_PAYLOADS: Record<MessageType, () => unknown> = {
     players: [{ playerId: "", callsign: "X", shipId: null, state: "flying" }],
   }),
   target_update: () => ({ targetId: null, shields: NaN, hull: 0, bearing: 0, range: 0 }),
+  target_lock: () => ({ targetId: "" }), // empty id rejected
+  target_locked: () => ({ targetId: "ship-1", callsign: "X", range: -1, bearing: 0, lockedAt: 0 }), // negative range
+  target_released: () => ({ targetId: "ship-1", reason: "wat" }), // unknown reason
   combat_event: () => ({
     kind: "damaged",
     target: "",

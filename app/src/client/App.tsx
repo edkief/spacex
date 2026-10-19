@@ -406,6 +406,24 @@ export function App(): React.JSX.Element {
         // fire).
         ev.preventDefault();
         client.sendSelectWeapon("missile");
+      } else if (ev.key === "t" || ev.key === "T") {
+        // TASK-44: `T` is the target-lock / target-release
+        // toggle. The server decides which entity to lock based
+        // on the player's lock state — a fresh lock request
+        // grabs the nearest ship inside the 30° / 500 m nose
+        // cone, a duplicate on the already-locked target
+        // releases (toggle), `T` with no targetId releases
+        // whatever was locked. The HUD reads
+        // `client.getTargeting()` and renders the box + the
+        // orange "TARGET LOCKED: <callsign>" toast when the
+        // server acks.
+        //
+        // We deliberately send `targetId: null` here so the
+        // server picks the nearest candidate via the validator;
+        // a future UI surface (the target-reticle ring) will
+        // pass an explicit id instead.
+        ev.preventDefault();
+        client.sendTargetLock(null);
       } else if (ev.key === "Escape" && chartOpen) {
         // Only swallow Escape when the chart is actually open;
         // otherwise other overlays (TASK-58 menu) may need it.

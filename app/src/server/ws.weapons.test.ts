@@ -88,7 +88,10 @@ interface ShardLike {
         | "mining_update"
         | "cargo_update"
         | "fire_ok"
-        | "weapon_state";
+        | "weapon_state"
+        | "target_locked"
+        | "target_released"
+        | "target_update";
       payload: unknown;
     },
   ) => void;

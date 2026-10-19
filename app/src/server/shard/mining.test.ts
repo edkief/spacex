@@ -127,6 +127,7 @@ function makeFixture(args: { depositAmount: number }): Fixture {
     shutdown: () => undefined,
     context: {} as unknown,
     dirtyShipSpawns: new Map(),
+    targets: new Map(),
     onTickObserver: null,
   } as unknown as Shard;
   return { shard, conn, character, deposit, repo, sentFrames, closeDb: close };

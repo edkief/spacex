@@ -71,6 +71,7 @@ import { cleanupExpiredWrecks } from "./combat.js";
 import { cleanupExpiredGroundItems } from "./inventory.js";
 import { advanceMining, pushMiningUpdate } from "./mining.js";
 import { advanceMissiles, energyRegenFor } from "./weapons.js";
+import { advanceTargetLocks } from "./targeting.js";
 import { drainInput } from "./input-queue.js";
 import { TickHistogram } from "./histogram.js";
 import type {
@@ -462,7 +463,13 @@ export class SimLoop {
     //     tick reads so test fixtures can drive homing with a
     //     fake timer.
     advanceMissiles(shard, this.hooks.clock ? this.hooks.clock() : Date.now());
-    // 4d. Energy regen (TASK-43). Each player / AI ship regens
+    // 4d. Target-lock auto-release (TASK-44). Releases locks
+    //     whose target died, exited the 1500 m auto-release
+    //     radius, or whose 30 s ceiling elapsed. Sends the
+    //     `target_released` ack to the owning player and refreshes
+    //     every live lock's `target_update` frame.
+    advanceTargetLocks(shard, this.hooks.clock ? this.hooks.clock() : Date.now());
+    // 4e. Energy regen (TASK-43). Each player / AI ship regens
     //     10 / s of weapon energy so a player who runs dry
     //     recovers within 10 s of idle.
     for (const e of shard.entities.values()) {

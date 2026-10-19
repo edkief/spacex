@@ -556,7 +556,10 @@ export type ConnSender = (
     | { type: "mining_update"; payload: unknown }
     | { type: "cargo_update"; payload: unknown }
     | { type: "fire_ok"; payload: unknown }
-    | { type: "weapon_state"; payload: unknown },
+    | { type: "weapon_state"; payload: unknown }
+    | { type: "target_locked"; payload: unknown }
+    | { type: "target_released"; payload: unknown }
+    | { type: "target_update"; payload: unknown },
 ) => void;
 
 /**
@@ -578,6 +581,20 @@ export type ChatSender = (connId: string, frame: { type: "chat"; payload: unknow
  * in without touching the shard code.
  */
 export type DirtyMarker = (shipId: string, patch: { hull?: number; shields?: number }) => void;
+
+/**
+ * TASK-44: per-connection targeting state. A player can lock at most
+ * one target at a time; the lock carries the targeted entity id and
+ * the wall-clock ms timestamp the lock was acquired so the auto-
+ * release check can enforce the 30 s ceiling without a separate
+ * counter.
+ */
+export interface ShardTargetLock {
+  /** Locked entity id (player ship or AI ship). */
+  readonly targetId: string;
+  /** Wall-clock ms when the lock was acquired. */
+  readonly lockedAt: number;
+}
 
 // ---------------------------------------------------------------------------
 // Shard — the public aggregate
@@ -603,6 +620,19 @@ export interface Shard {
   readonly entities: Map<string, SimEntity>;
   /** Connection id → list of `entity_update` frames the broadcast will send. */
   readonly dirtyShipSpawns: Map<string, SpawnedShip>;
+  /**
+   * TASK-44: per-shard targeting state. One lock per connection
+   * (`connId → { targetId, lockedAt }`). The map is the source of
+   * truth for `entity.targetedBy` (lock-icon broadcast), the
+   * missile-target preference (`fireMissile` reads `connRow → lock →
+   * targetId`), and the auto-release check (per-tick walk).
+   *
+   * Lives on the `Shard` rather than the `SimEntity` because a lock
+   * is a per-Player action ("who has me targeted?") rather than a
+   * property of the targeted ship — multiple players can lock the
+   * same ship simultaneously.
+   */
+  readonly targets: Map<string, ShardTargetLock>;
   /** Internal: bridge to the future persistence layer (TASK-24). */
   readonly persist: { markDirty?: DirtyMarker };
   /** Shared event bus for cross-shard signals (TASK-15 presence…). */

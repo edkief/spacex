@@ -239,6 +239,7 @@ async function makeLiveFixture(args: {
     shutdown: () => undefined,
     context: {} as unknown,
     dirtyShipSpawns: new Map(),
+    targets: new Map(),
     onTickObserver: null,
   } as unknown as Shard;
   return partial;

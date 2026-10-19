@@ -77,6 +77,7 @@ function makeStubShard(_repo: Repository): Shard {
     shutdown: () => undefined,
     context: {} as never,
     dirtyShipSpawns: new Map(),
+    targets: new Map(),
     onTickObserver: null,
   } as unknown as Shard;
 }

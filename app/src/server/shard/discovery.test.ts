@@ -72,6 +72,7 @@ function makeFixture(): { shard: Shard; deposits: ReadonlyMap<string, Deposit> }
     shutdown: () => undefined,
     context: {} as unknown,
     dirtyShipSpawns: new Map(),
+    targets: new Map(),
     onTickObserver: null,
   } as unknown as Shard;
   return { shard, deposits };

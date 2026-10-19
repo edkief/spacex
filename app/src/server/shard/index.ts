@@ -38,10 +38,10 @@ import { ChatRingBuffer, type ChatEntry } from "../chat.js";
 import {
   characterSpawnPos,
   entityToWire,
+  makeEntityId,
   makeAiEntity,
   makeCharacterEntity,
   makeCharacterId,
-  makeEntityId,
   makePlayerEntity,
   makeWreckEntity,
   makeWreckId,
@@ -119,6 +119,11 @@ export function createShard(args: {
     connections: new Map(),
     entities: new Map(),
     dirtyShipSpawns: new Map(),
+    // TASK-44: per-connection lock state. Fresh per shard; the map
+    // survives individual join/leave churn (release on disconnect
+    // is a separate explicit call so the targeted ship's
+    // `targetedBy` list updates correctly).
+    targets: new Map(),
     persist: args.persist ?? {},
     events,
     send: args.send,
@@ -897,6 +902,16 @@ export {
 export { enqueueInput, STALE_LOG_THRESHOLD } from "./input-queue.js";
 export { TickHistogram, DEFAULT_CAPACITY } from "./histogram.js";
 export { SimLoop } from "./sim.js";
+export {
+  advanceTargetLocks,
+  forgetConnectionLocks,
+  handleTargetLock,
+  handleTargetRelease,
+  lockFor,
+  pushTargetUpdate,
+  type HandleTargetLockResult,
+  type HandleTargetLockInvalidReason,
+} from "./targeting.js";
 export type {
   Shard,
   ShardConnection,
@@ -908,4 +923,5 @@ export type {
   ConnSender,
   SnapshotBroadcaster,
   DirtyMarker,
+  ShardTargetLock,
 } from "./types.js";

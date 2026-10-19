@@ -178,6 +178,7 @@ async function bootDisembarkHarness(): Promise<DisembarkHarness> {
     }),
     shutdown: () => {},
     dirtyShipSpawns: new Map(),
+    targets: new Map(),
     context: {
       system: {
         systemId: shard.systemId,

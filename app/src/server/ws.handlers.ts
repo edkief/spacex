@@ -41,6 +41,7 @@ import { handlePickup, handleDrop } from "./shard/inventory.js";
 import { handleMineStart, handleMineStop, pushMiningUpdate } from "./shard/mining.js";
 import { handleCargoTransfer, pushCargoUpdate } from "./shard/cargo.js";
 import { handleSell } from "./shard/sell.js";
+import { handleTargetLock, handleTargetRelease } from "./shard/targeting.js";
 import { sendError, sendFrame } from "./ws.dispatch.helpers.js";
 import { INVENTORY_WEIGHT_CAP, type Inventory } from "@shared/world/inventory.js";
 import type { ProtocolInventoryUpdate } from "@shared/protocol/index.js";
@@ -1160,6 +1161,75 @@ export function onMineStop(conn: Connection, options: WsHandleOptions, _payload:
     unitsSoFar: result.unitsAwarded,
     amount: 0,
     state: "cancelled",
+  });
+}
+
+// ---------------------------------------------------------------------------
+// onTargetLock / onTargetRelease — TASK-44 target-lock intent
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle a `target_lock { targetId }` frame from a `joined`-state
+ * connection. The flow:
+ *
+ *   1. Locate the shard.
+ *   2. Delegate to `handleTargetLock(shard, { connId, targetId, nowMs })`
+ *      which validates the target against the spec rules:
+ *        - range ≤ 500 m,
+ *        - cone ≤ 30° of the ship's forward,
+ *        - target must be a ship (`kind === 'player' | 'ai'`),
+ *        - target must not be destroyed (`hull > 0`),
+ *      and either acquires or toggles the lock.
+ *   3. The handler pushes `target_locked` + the initial
+ *      `target_update` ack + the `targetedBy` icon broadcast itself.
+ *      On rejection the handler is silent (no frame) so the WS
+ *      layer surfaces the canonical `invalid-target` wire code below.
+ *
+ * `targetId === null` is the "release whatever" path: a release ack
+ * is pushed, no icon is broadcast for the rejected path because
+ * `forgetConnectionLocks` already handles disconnected-player clean-up
+ * and there is no target to icon-flag.
+ */
+export function onTargetLock(conn: Connection, options: WsHandleOptions, payload: unknown): void {
+  const shard = options.shardFor?.(conn);
+  if (!shard) {
+    sendError(conn, "unauthenticated", "target_lock requires a joined system");
+    return;
+  }
+  const p = payload as { targetId?: string | null };
+  const result = handleTargetLock({
+    shard,
+    connId: conn.connId,
+    targetId: p.targetId ?? null,
+    nowMs: (options.now ?? Date.now)(),
+  });
+  if (result.kind === "invalid") {
+    sendError(conn, "invalid-target", `target_lock rejected: ${result.reason}`);
+  }
+  // Locked / released paths are silent — the success / release
+  // ack is already pushed by `handleTargetLock`.
+}
+
+/**
+ * Handle a `target_release {}` frame. Releases whatever the player
+ * has currently locked; the handler is silent on the no-op path so
+ * the client can debounce spam without surfacing a confusing wire
+ * code.
+ */
+export function onTargetRelease(
+  conn: Connection,
+  options: WsHandleOptions,
+  _payload: unknown,
+): void {
+  const shard = options.shardFor?.(conn);
+  if (!shard) {
+    sendError(conn, "unauthenticated", "target_release requires a joined system");
+    return;
+  }
+  handleTargetRelease({
+    shard,
+    connId: conn.connId,
+    nowMs: (options.now ?? Date.now)(),
   });
 }
 

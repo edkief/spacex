@@ -97,6 +97,7 @@ function makeFixture(characterPos: { x: number; y: number; z: number }): Fixture
     shutdown: () => undefined,
     context: {} as unknown,
     dirtyShipSpawns: new Map(),
+    targets: new Map(),
     onTickObserver: null,
   } as unknown as Shard;
   return { shard, conn, character, repo, closeDb: close };
