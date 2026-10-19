@@ -384,6 +384,45 @@ export interface SimEntity {
    * on every other kind.
    */
   missileSplashRadius?: number;
+  /**
+   * TASK-45: spawn-anchor world position for a rogue-AI ship.
+   * Populated by `hydrateAiRoster` so the respawn timer can
+   * return the rogue to the same coordinates after its 120 s
+   * server-side cooldown. `undefined` on non-AI entities.
+   */
+  aiSpawnPos?: { x: number; y: number; z: number };
+  /**
+   * TASK-45: patrol-orbit centre. TASK-46 reads this when the
+   * AI state machine lands; for v1 the patrol is a placeholder
+   * anchor so the entity carries the data through the wire.
+   * `undefined` on non-AI entities.
+   */
+  aiPatrolCenter?: { x: number; y: number; z: number };
+  /**
+   * TASK-45: patrol radius (metres). Same scheduling as
+   * `aiPatrolCenter`; the value is consumed by the future AI
+   * behaviour (TASK-46).
+   */
+  aiPatrolRadius?: number;
+}
+
+/**
+ * TASK-45: one outstanding respawn for a rogue-AI ship. The
+ * timer lives on the shard in a keyed map; `advanceAiRespawns`
+ * (called once per tick) walks the map and re-mints any entry
+ * whose `respawnAtMs` is in the past.
+ */
+export interface ShardAiRespawn {
+  /** The aiId that was destroyed (matches the entity id on the wire). */
+  readonly aiId: string;
+  /** World-space position to re-mint at (matches the original `aiSpawnPos`). */
+  readonly spawnPos: { x: number; y: number; z: number };
+  /** Ship class to re-mint with (matches the destroyed rogue's class). */
+  readonly classId: ProtocolShipClassId;
+  /** Callsign to re-mint with (unchanged across respawn cycles). */
+  readonly callsign: string;
+  /** Wall-clock ms timestamp at which the respawn should fire. */
+  readonly respawnAtMs: number;
 }
 
 /**
@@ -633,6 +672,16 @@ export interface Shard {
    * same ship simultaneously.
    */
   readonly targets: Map<string, ShardTargetLock>;
+  /**
+   * TASK-45: outstanding rogue-AI respawn timers. The sim loop
+   * walks the map once per tick (`advanceAiRespawns`) and
+   * re-mints any entity whose `respawnAtMs` has elapsed. The
+   * entry is deleted on respawn so the map stays bounded at
+   * the system's roster size. Keyed by `aiId` so a rogue that
+   * lives through several kill cycles only has one outstanding
+   * timer at a time.
+   */
+  readonly aiRespawns: Map<string, ShardAiRespawn>;
   /** Internal: bridge to the future persistence layer (TASK-24). */
   readonly persist: { markDirty?: DirtyMarker };
   /** Shared event bus for cross-shard signals (TASK-15 presence…). */

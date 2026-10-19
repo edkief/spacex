@@ -72,6 +72,7 @@ import { cleanupExpiredGroundItems } from "./inventory.js";
 import { advanceMining, pushMiningUpdate } from "./mining.js";
 import { advanceMissiles, energyRegenFor } from "./weapons.js";
 import { advanceTargetLocks } from "./targeting.js";
+import { advanceAiRespawns } from "./ai-respawn.js";
 import { drainInput } from "./input-queue.js";
 import { TickHistogram } from "./histogram.js";
 import type {
@@ -451,6 +452,11 @@ export class SimLoop {
     //    `wreckExpiresAt` has passed. Cheap O(n) walk — wrecks are
     //    a tiny fraction of the registry at any moment.
     cleanupExpiredWrecks(shard, Date.now());
+    // 4a. Rogue-AI respawns (TASK-45). Walk the per-shard timer
+    //     map and re-mint any entry whose `respawnAtMs` has
+    //     elapsed. O(roster_size) per tick; runs at most once per
+    //     120 s per rogue so the amortised cost is negligible.
+    advanceAiRespawns(shard, { nowMs: Date.now() });
     // 4b. Ground-item cleanup (TASK-34). Remove entities whose
     //     `expiresAtMs` has passed. The `groundItem` kind was
     //     added in TASK-34; despawn happens after GROUND_ITEM_TTL_MS

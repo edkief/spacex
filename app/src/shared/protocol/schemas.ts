@@ -156,6 +156,16 @@ export const EntityStateSchema = z
      * who has whom targeted).
      */
     targetedBy: z.array(z.string().min(1)).optional(),
+    /**
+     * TASK-45: `true` when the entity is a rogue-AI ship (a
+     * pirate patrolling system space). `kind` stays `'ship'`
+     * for the renderer (rogues render like player ships); the
+     * `ai` flag is the only discriminator for HUD code paths
+     * (e.g. an 'AI' badge in the player list, lockable in
+     * TASK-44 like any other ship). Absent on player ships and
+     * every other kind.
+     */
+    ai: z.boolean().optional(),
   })
   .strict();
 export type ProtocolEntityState = z.infer<typeof EntityStateSchema>;

@@ -494,6 +494,11 @@ describe("GalaxyRouter concurrent-spawn (AC)", () => {
         // derived `depositId` hex (no "entity:" prefix). Only ship
         // entities should match the player/seed prefix.
         if (entity.kind === "deposit") continue;
+        // TASK-45: AI ship ids are `ai:<hex>` (the roster ids
+        // aren't prefixed `entity:` because they never carry a
+        // `shipId` from the player registry — they're seeded
+        // independently).
+        if (entity.kind === "ai") continue;
         // Each entity's `pos` is computed from the seedPlayer; we just
         // assert uniqueness by entity id prefix.
         expect(entity.id.startsWith("entity:")).toBe(true);

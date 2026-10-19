@@ -124,6 +124,14 @@ export function createShard(args: {
     // is a separate explicit call so the targeted ship's
     // `targetedBy` list updates correctly).
     targets: new Map(),
+    // TASK-45: rogue-AI respawn timers. Per-shard so a rogue
+    // destroyed on this shard only respawns on this shard
+    // (matches the "rogues are a renewable threat, not a
+    // persistent world state" model). The router's reap path
+    // (`router-reap.ts`) is responsible for calling
+    // `clearAiRespawns` so reaped shards don't leak timers into
+    // the next lifetime.
+    aiRespawns: new Map(),
     persist: args.persist ?? {},
     events,
     send: args.send,
@@ -268,6 +276,11 @@ export function spawnShip(
  * Spawn an AI ship — populated by the future AI state machine (TASK-46)
  * but exported now so the snapshot / entity-update broadcast path is
  * exercised end-to-end with multiple entity kinds.
+ *
+ * TASK-45: optional `callsign` + `aiSpawnPos` + `aiPatrolCenter` +
+ * `aiPatrolRadius` are forwarded to the entity. Production
+ * (`hydrateAiRoster`) always passes them; tests that exercise the
+ * stub state machine without the roster can omit them.
  */
 export function spawnAiShip(
   shard: Shard,
@@ -275,6 +288,14 @@ export function spawnAiShip(
     id: string;
     classId: ProtocolShipClassId;
     pos: { x: number; y: number; z: number };
+    /** TASK-45: pirate callsign from the roster catalog. */
+    callsign?: string | null;
+    /** TASK-45: spawn anchor (used by `scheduleAiRespawn`). */
+    aiSpawnPos?: { x: number; y: number; z: number };
+    /** TASK-45: patrol-orbit centre (TASK-46 reads this). */
+    aiPatrolCenter?: { x: number; y: number; z: number };
+    /** TASK-45: patrol radius (metres). */
+    aiPatrolRadius?: number;
   },
 ): SimEntity {
   const existing = shard.entities.get(args.id);

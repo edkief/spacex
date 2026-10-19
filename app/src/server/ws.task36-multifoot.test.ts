@@ -52,6 +52,8 @@ interface MinimalShard {
     entities: unknown[],
     lastAppliedSeq: Readonly<Record<string, number>>,
   ) => void;
+  // TASK-45: rogue-AI respawn timers (per-shard).
+  aiRespawns: Map<string, unknown>;
 }
 
 interface MinimalConn {
@@ -116,6 +118,9 @@ function buildShard(registry: { values: () => IterableIterator<Connection> }): M
     broadcast: (tick, _entities, _seq) => {
       shard.sim.currentTick = tick;
     },
+    // TASK-45: rogue-AI timers empty in this test (the test
+    // focuses on multi-foot interaction, not AI combat).
+    aiRespawns: new Map(),
   };
   return shard;
 }
@@ -213,6 +218,8 @@ async function bootMultiFootHarness(): Promise<MultiFootHarness> {
     sim: shard.sim as unknown as Shard["sim"],
     send: shard.send,
     broadcast: shard.broadcast,
+    // TASK-45: in-memory respawn timer map (per-shard).
+    aiRespawns: shard.aiRespawns as unknown as Shard["aiRespawns"],
     events: { emit: () => true } as unknown as Shard["events"],
     persist: {},
     onTickObserver: null,

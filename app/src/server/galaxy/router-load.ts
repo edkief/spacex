@@ -32,6 +32,7 @@ import { loadShipsForShard } from "../shard/load.js";
 import { buildShardContext, GalaxySystemNotFoundError } from "./system-data.js";
 import { hydrateShardEntities } from "./hydrate.js";
 import { hydrateShardDeposits } from "./deposit-hydrate.js";
+import { hydrateAiRoster } from "./ai-hydrate.js";
 
 /** Maps the router exposes for shard bookkeeping. */
 export interface RouterShardMaps {
@@ -134,6 +135,12 @@ export async function loadAndRegister(systemId: string, deps: LoadAndRegisterDep
   // merge. Fire-and-forget so the hydrate path stays cheap; the
   // deposit entities land on the next broadcast cycle.
   hydrateShardDeposits(shard, deps.galaxySeed, { repo: deps.repo });
+  // TASK-45: seed-derived rogue-AI roster — mints one AI
+  // entity per roster entry so the system carries 6..10
+  // pirates on spawn. Fire-and-forget so the router's
+  // critical path (player ships) stays cheap; the AI
+  // entities appear on the next broadcast.
+  hydrateAiRoster(shard, { seed: deps.galaxySeed });
   deps.maps.shards.set(systemId, shard);
   deps.maps.shardStartedAt.set(systemId, deps.now());
   return shard;

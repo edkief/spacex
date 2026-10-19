@@ -16,6 +16,7 @@
  */
 import type { EventEmitter } from "node:events";
 
+import { clearAiRespawns } from "../shard/ai-respawn.js";
 import type { Shard } from "../shard/types.js";
 import type { ShardFlushService } from "../shard/persist.js";
 import type { PresenceBroadcaster } from "./presence.js";
@@ -91,6 +92,12 @@ export async function reapEmpty(args: {
     if (args.presenceBroadcaster) {
       args.presenceBroadcaster(systemId, { systemId, players: [] });
     }
+    // TASK-45: clear pending rogue-AI respawn timers so a reaped
+    // shard doesn't leak entries into the next lifetime. The
+    // next spawn re-derives the same roster (same seed → same
+    // list) so a cleared entry will be re-registered on the
+    // first respawn that fires.
+    clearAiRespawns(shard);
     reaped.push(systemId);
     args.events.emit("reap", { systemId });
   }

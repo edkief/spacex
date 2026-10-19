@@ -110,18 +110,51 @@ export function makePlayerEntity(args: {
  * input, no integration — they just sit there so the snapshot
  * broadcast path is exercised end-to-end). TASK-46 replaces the
  * stub with the AI state machine + integrate ship.
+ *
+ * TASK-45: AI ships are rogue pirates with a callsign drawn
+ * from the `@shared/ai/names` catalog and spawn coordinates
+ * derived from the seed. The optional `callsign`, `aiSpawnPos`,
+ * `aiPatrolCenter`, and `aiPatrolRadius` fields are populated
+ * by `hydrateAiRoster` so the entity carries its anchor on
+ * respawn (kill → 120 s timer → re-mint at `aiSpawnPos`).
  */
 export function makeAiEntity(args: {
   id: string;
   classId: ProtocolShipClassId;
   pos: { x: number; y: number; z: number };
+  /**
+   * TASK-45: pirate callsign drawn from `@shared/ai/names`.
+   * Defaults to `null` so the legacy `spawnAiShip` test path
+   * (which exercises the stub without the roster) keeps
+   * compiling. `hydrateAiRoster` always supplies one.
+   */
+  callsign?: string | null;
+  /**
+   * TASK-45: world-space position the rogue respawns at after
+   * destruction (120 s server timer). Defaults to `pos` so the
+   * stub path doesn't have to know about respawn logic.
+   */
+  aiSpawnPos?: { x: number; y: number; z: number };
+  /**
+   * TASK-45: patrol-orbit centre (TASK-46 uses this once the
+   * behaviour is wired). Defaults to `pos` — the stub path
+   * treats the spawn and patrol as coincident.
+   */
+  aiPatrolCenter?: { x: number; y: number; z: number };
+  /**
+   * TASK-45: patrol radius (metres). TASK-46 reads it when the
+   * AI state machine takes over. The default of 0 is a
+   * defensive sentinel — `hydrateAiRoster` always supplies the
+   * real value.
+   */
+  aiPatrolRadius?: number;
 }): SimEntity {
   const cls = SHIP_CLASSES[args.classId as ShipClassId];
   return {
     id: args.id,
     kind: "ai",
     playerId: null,
-    callsign: null,
+    callsign: args.callsign ?? null,
     classId: args.classId,
     hull: cls.hull,
     shields: cls.shieldCapacity,
@@ -137,6 +170,11 @@ export function makeAiEntity(args: {
     // an empty hold sized to the class so the wire / persisted
     // shape stays dense.
     cargo: cargoHoldFor(args.classId),
+    // TASK-45: spawn / patrol anchors — populated by
+    // `hydrateAiRoster`, defaulted for the legacy stub path.
+    aiSpawnPos: args.aiSpawnPos ? { ...args.aiSpawnPos } : { ...args.pos },
+    aiPatrolCenter: args.aiPatrolCenter ? { ...args.aiPatrolCenter } : { ...args.pos },
+    aiPatrolRadius: args.aiPatrolRadius ?? 0,
   };
 }
 
@@ -345,7 +383,15 @@ export function entityToWire(e: SimEntity): ProtocolEntityState {
   }
   return {
     id: e.id,
-    kind: e.kind === "player" ? "ship" : e.kind === "ai" ? "ai-ship" : "wreck",
+    // TASK-45: AI ships now use `kind: 'ship'` with `ai: true`
+    // (not the previous `kind: 'ai-ship'`) so the renderer
+    // treats them exactly like player ships. The `ai` flag is
+    // the only discriminator for the PlayerList 'AI' badge +
+    // any other code path that needs to distinguish players
+    // from rogues. The legacy `ai-ship` enum value still
+    // exists on the schema for backwards compat (no client
+    // migration required) but is no longer emitted.
+    kind: e.kind === "ai" ? "ship" : e.kind === "player" ? "ship" : "wreck",
     pos: [e.pos.x, e.pos.y, e.pos.z],
     vel: [e.vel.x, e.vel.y, e.vel.z],
     regime: e.regime === "atmosphere" ? "atmosphere" : e.regime === "surface" ? "surface" : "space",
@@ -368,6 +414,9 @@ export function entityToWire(e: SimEntity): ProtocolEntityState {
     // `shard.targets` (this function intentionally doesn't walk
     // shard state to stay transport-pure).
     targetedBy: undefined,
+    // TASK-45: rogue-AI flag. Only emitted for `kind: 'ai'`
+    // entities so the wire stays dense for player ships.
+    ai: e.kind === "ai" ? true : undefined,
   };
 }
 

@@ -507,7 +507,7 @@ describe("Snapshot payload", () => {
 });
 
 describe("Entity registry — kind mapping", () => {
-  it("spawnShip → wire kind ship; spawnAiShip → wire kind ai-ship", async () => {
+  it("spawnShip → wire kind ship; spawnAiShip → wire kind ship with ai:true", async () => {
     const recorder = makeRecorderShard({ autoStart: false });
     spawnShip(recorder.shard, {
       shipId: "s1",
@@ -535,9 +535,14 @@ describe("Entity registry — kind mapping", () => {
     );
     expect(recorder.broadcasts.length).toBeGreaterThan(0);
     const lastBroadcast = recorder.broadcasts[recorder.broadcasts.length - 1];
-    const kinds = lastBroadcast?.entities.map((e) => e.kind);
-    expect(kinds).toContain("ship");
-    expect(kinds).toContain("ai-ship");
+    const entities = lastBroadcast?.entities ?? [];
+    expect(entities.some((e) => e.kind === "ship" && e.callsign === "C1")).toBe(true);
+    // TASK-45: AI ships surface as `kind: 'ship'` + `ai: true`
+    // (the renderer treats them like player ships; the `ai`
+    // flag is the only discriminator for the PlayerList / HUD).
+    const aiEntity = entities.find((e) => e.id === "ai-1");
+    expect(aiEntity?.kind).toBe("ship");
+    expect(aiEntity?.ai).toBe(true);
     recorder.shard.shutdown();
   });
 

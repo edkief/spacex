@@ -50,6 +50,7 @@ import type { DamageSource } from "@shared/physics/damage.js";
 
 import { makeWreckEntity, makeWreckId } from "./entity.js";
 import { broadcastCombatEvent } from "./combat-events.js";
+import { RESPAWN_DELAY_MS, scheduleAiRespawn } from "./ai-respawn.js";
 import type { Shard, SimEntity } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -214,6 +215,47 @@ export function applyCombatDamage(args: {
       hit: true,
       wreckSpawnedId: null,
       destroyedTargetId: null,
+    };
+  }
+
+  // TASK-45: rogue-AI ships don't leave a wreck — when one is
+  // destroyed we drop the entity, broadcast the canonical
+  // `combat_event { destroyed }` so the HUD can render the
+  // kill, and schedule a 120 s respawn at `aiSpawnPos`. The
+  // same `kind: 'kill'` event still fires for player kills
+  // (the rogue's callsign becomes the `target.callsign` for the
+  // toast log). A future TASK-46 + TASK-48 may extend this to
+  // surface environmental deaths too.
+  if (entity.kind === "ai") {
+    const now = args.nowMs ?? Date.now();
+    scheduleAiRespawn(shard, {
+      aiId: entity.id,
+      spawnPos: entity.aiSpawnPos ?? { x: entity.pos.x, y: entity.pos.y, z: entity.pos.z },
+      classId: entity.classId as NonNullable<SimEntity["classId"]>,
+      callsign: entity.callsign ?? entity.id,
+      respawnAtMs: now + RESPAWN_DELAY_MS,
+    });
+    // Kill attribution: player kills on rogues emit `kind: 'kill'`
+    // so the player kill-log surfaces "you destroyed
+    // <callsign>". AI sources don't (the kill log is for the
+    // player recap, not generic AI combat telemetry).
+    if (killer?.kind === "player") {
+      broadcastCombatEvent(shard, {
+        kind: "kill",
+        attacker: args.source.id,
+        target: entity.id,
+        tick: args.tick,
+      });
+    }
+    return {
+      shieldHit: result.shieldHit,
+      hullHit: result.hullHit,
+      destroyed: true,
+      newShields: result.newShields,
+      newHull: result.newHull,
+      hit: true,
+      wreckSpawnedId: null,
+      destroyedTargetId: entity.id,
     };
   }
 
