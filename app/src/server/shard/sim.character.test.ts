@@ -205,7 +205,7 @@ describe("shard sim: character dispatch (TASK-32)", () => {
     for (let i = 0; i < 30; i++) {
       pushInput(shard, "c1", { thrust: 1 });
       advance(50);
-      shard.sim.tick();
+      void shard.sim.tick();
     }
 
     // Character should have advanced +z (facing direction).
@@ -244,7 +244,7 @@ describe("shard sim: character dispatch (TASK-32)", () => {
     // tick — the AI should not move.
     pushInput(shard, "c1", { thrust: 1 });
     advance(50);
-    shard.sim.tick();
+    void shard.sim.tick();
     expect(ai.pos).toEqual({ x: 0, y: 100, z: 0 });
   });
 });
@@ -341,7 +341,7 @@ describe("shard sim: 30 s scripted character path (TASK-32 acceptance)", () => {
       }
       pushInput(shard, "c1", input);
       advance(50); // 1/20 s
-      shard.sim.tick();
+      void shard.sim.tick();
 
       // Sample every 4 s for a coarse path.
       if (t % 80 === 0) {
@@ -450,7 +450,7 @@ describe("shard sim: 30 s scripted character path (TASK-32 acceptance)", () => {
       }
       pushInput(second.shard, "c1", input);
       secondAdvance(50);
-      second.shard.sim.tick();
+      void second.shard.sim.tick();
       if (t % 80 === 0) {
         secondSnapshot.push({
           t: phase,
@@ -495,7 +495,7 @@ describe("shard sim: 30 s scripted character path (TASK-32 acceptance)", () => {
     for (let t = 0; t < 20; t++) {
       pushInput(shard, "c1", { thrust: 1 });
       advance(50);
-      shard.sim.tick();
+      void shard.sim.tick();
     }
 
     // Ship is still docked at the original pad position.
@@ -542,7 +542,7 @@ describe("shard sim: character substep safety (no tunneling)", () => {
     const posBefore = { ...character.pos };
     pushInput(shard, "c1");
     advance(50);
-    shard.sim.tick();
+    void shard.sim.tick();
     // Position should not have changed (no input). The character
     // sits at the pad's world y (= planet radius for surface pads).
     expect(character.pos.x).toBeCloseTo(posBefore.x, 6);

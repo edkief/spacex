@@ -6,6 +6,27 @@
     <meta name="color-scheme" content="dark light" />
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <title>Drift</title>
+    <style>
+      /* TASK-38: float-text animation for the "+1 iron"
+         feedback when a mining channel awards a unit. The
+         radial itself is a CSS conic-gradient that interpolates
+         via requestAnimationFrame; this keyframe is just the
+         1 s fade for the floating counter. */
+      @keyframes drift-mining-float {
+        0% {
+          opacity: 0;
+          transform: translate(-50%, 4px);
+        }
+        20% {
+          opacity: 1;
+          transform: translate(-50%, -6px);
+        }
+        100% {
+          opacity: 0;
+          transform: translate(-50%, -28px);
+        }
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

@@ -38,6 +38,7 @@ import type { Connection, ConnectionRegistry } from "../ws.connection.js";
 
 import type { GalaxyRouter } from "./router.js";
 import type { PresenceBroadcaster } from "./presence.js";
+import type { Shard } from "../shard/types.js";
 
 /**
  * Wire a real WS connection registry into the router as a presence
@@ -131,6 +132,18 @@ export function createConnectionCloseHook(args: {
 }): (conn: Connection) => void {
   const { router } = args;
   return (conn: Connection) => {
+    // TASK-38: drop any in-flight mining state for the
+    // disconnecting connection so a reconnecting player starts
+    // fresh. Best-effort — the router may have already reaped
+    // the shard by the time we get here, in which case there's
+    // nothing to clear.
+    if (conn.systemId !== null) {
+      const shard = router.get(conn.systemId);
+      if (shard) {
+        const mining = (shard as Shard & { mining?: Map<string, unknown> }).mining;
+        mining?.delete(conn.connId);
+      }
+    }
     if (conn.systemId === null) return;
     const removed = router.leaveSystem(conn.systemId, conn.connId);
     if (removed) {

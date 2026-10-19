@@ -72,6 +72,17 @@ export interface InteractionPromptProps {
    * stay working.
    */
   onEnter?: () => void;
+  /**
+   * TASK-38: optional hold-E dispatcher for mining channels.
+   * When the resolved action is `'mine'`, the prompt calls
+   * `onMineStart(targetId)` on keydown and `onMineStop()` on
+   * keyup — the same hold-E pattern the radial progress is
+   * timed against. Falls back to `onInteract(targetId, 'mine')`
+   * when not supplied.
+   */
+  onMineStart?: (targetId: string) => void;
+  /** Companion stop hook for the hold-E mining flow. */
+  onMineStop?: () => void;
   /** True while the WS is online. */
   enabled: boolean;
   /** Optional registry override (defaults to `defaultInteractableRegistry`). */
@@ -88,6 +99,8 @@ export function InteractionPrompt(props: InteractionPromptProps): React.JSX.Elem
     interactables,
     onInteract,
     onEnter,
+    onMineStart,
+    onMineStop,
     enabled,
     registry = defaultInteractableRegistry,
   } = props;
@@ -104,7 +117,8 @@ export function InteractionPrompt(props: InteractionPromptProps): React.JSX.Elem
   useEffect(() => {
     if (prompt === null) return;
     if (!enabled) return;
-    const onKey = (ev: KeyboardEvent): void => {
+    const isMining = prompt.action === "mine";
+    const onKeyDown = (ev: KeyboardEvent): void => {
       // Ignore keystrokes that target text inputs so typing "e"
       // in the chat box doesn't trigger the prompt.
       const active = document.activeElement;
@@ -114,15 +128,18 @@ export function InteractionPrompt(props: InteractionPromptProps): React.JSX.Elem
         (active instanceof HTMLElement && active.isContentEditable);
       if (inTextField) return;
       if (ev.code !== PROMPT_KEY) return;
-      if (pressed) return;
+      if (ev.repeat) return;
       ev.preventDefault();
+      if (pressed) return;
       setPressed(true);
       try {
-        // TASK-35: ship targets route through `onEnter` (which
-        // sends `enter_ship`) instead of the generic interact
-        // path. Other actions (`use`, `inspect`, `mine`) keep the
-        // legacy dispatch.
-        if (prompt.action === "enter" && onEnter) {
+        // TASK-38: hold-E mining — keydown starts the channel,
+        // keyup stops it. The legacy tap dispatch fires once on
+        // keydown so non-mining actions keep their existing
+        // semantics.
+        if (isMining && onMineStart) {
+          onMineStart(prompt.targetId);
+        } else if (prompt.action === "enter" && onEnter) {
           onEnter();
         } else {
           onInteract(prompt.targetId, prompt.action);
@@ -134,9 +151,21 @@ export function InteractionPrompt(props: InteractionPromptProps): React.JSX.Elem
         setPressed(false);
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [prompt, enabled, pressed, onInteract, onEnter]);
+    const onKeyUp = (ev: KeyboardEvent): void => {
+      if (ev.code !== PROMPT_KEY) return;
+      if (!pressed) return;
+      setPressed(false);
+      if (isMining && onMineStop) {
+        onMineStop();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+  }, [prompt, enabled, pressed, onInteract, onEnter, onMineStart, onMineStop]);
 
   if (prompt === null) return null;
 

@@ -325,7 +325,7 @@ describe("server/ws reconnect + resync (TASK-17)", () => {
     // queued input is integrated.
     for (let i = 0; i < 4; i++) {
       now += 50;
-      shard.sim.tick();
+      void shard.sim.tick();
     }
 
     const afterEntity = Array.from(shard.entities.values()).find((e) => e.playerId === c.playerId)!;

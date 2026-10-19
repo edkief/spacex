@@ -31,6 +31,7 @@ import { broadcastChat, handleDisembark, handleEnterShip, pushPlayerInput } from
 import { handleInteract } from "./shard/interact.js";
 import type { InteractAction } from "@client/input/interaction.js";
 import { handlePickup, handleDrop } from "./shard/inventory.js";
+import { handleMineStart, handleMineStop, pushMiningUpdate } from "./shard/mining.js";
 import { sendError, sendFrame } from "./ws.dispatch.helpers.js";
 import { INVENTORY_WEIGHT_CAP, type Inventory } from "@shared/world/inventory.js";
 import type { ProtocolInventoryUpdate } from "@shared/protocol/index.js";
@@ -752,6 +753,108 @@ function sendInventoryUpdate(
     action: meta.action,
     taken: meta.taken,
     remaining: meta.remaining,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// onMine / onMineStop — TASK-38 long-running extraction
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle a `mine` frame from a `joined`-state connection.
+ *
+ * The flow:
+ *   1. Locate the shard (via `options.shardFor`).
+ *   2. Delegate to `handleMineStart(shard, { connId, depositId, nowMs })`
+ *      which:
+ *        - enforces `conn.entityId` is a character (else `wrong-regime`),
+ *        - resolves the target deposit in the shard registry (else `not-found`),
+ *        - validates 3 m range server-side (else `out-of-range`),
+ *        - rejects `depleted` if the deposit has no units left,
+ *        - rejects `already-mining` if a different deposit is being mined.
+ *   3. On success: emit `mining_update { state: 'mining', progressMs: 0 }`
+ *      so the client UI's "started just now" state is server-timed. The
+ *      actual cadence is driven by `advanceMining` on every sim tick;
+ *      this initial frame is the only echo the WS handler pushes.
+ *   4. On rejection: emit a structured `error` frame with the
+ *      resolver's code. The handler is intentionally tolerant of
+ *      any extra code we add in the future — `wrong-regime`,
+ *      `not-found`, `out-of-range`, `depleted`, `already-mining`.
+ */
+export async function onMine(
+  conn: Connection,
+  options: WsHandleOptions,
+  payload: unknown,
+): Promise<void> {
+  const shard = options.shardFor?.(conn);
+  if (!shard) {
+    sendError(conn, "unauthenticated", "mine requires a joined system");
+    return;
+  }
+  const p = payload as { nodeId: string };
+  const result = handleMineStart(shard, {
+    connId: conn.connId,
+    depositId: p.nodeId,
+    nowMs: (options.now ?? Date.now)(),
+  });
+  if (!result.ok) {
+    const wireCode =
+      result.code === "depleted" || result.code === "already-mining"
+        ? "invalid-message"
+        : result.code === "wrong-regime"
+          ? "wrong-regime"
+          : result.code === "not-found"
+            ? "not-found"
+            : "out-of-range";
+    sendError(conn, wireCode, result.message);
+    return;
+  }
+  // Push an initial `mining_update` so the client UI knows the
+  // channel opened. The shard's sim loop drives subsequent
+  // updates at the 1.5 s cadence.
+  pushMiningUpdate(shard, conn.connId, {
+    depositId: result.depositId,
+    resourceId: result.resourceId,
+    progressMs: 0,
+    unitsSoFar: 0,
+    amount: result.amount,
+    state: "mining",
+  });
+}
+
+/**
+ * Handle a `mine_stop` frame from a `joined`-state connection.
+ *
+ * Idempotent: a stop without an active mining row returns
+ * `not-mining`, which surfaces as a structured `invalid-message`
+ * error so the client can distinguish a clean release from a
+ * server bug. The success path emits a final `mining_update`
+ * carrying `state: 'cancelled'` and the current `unitsSoFar`
+ * so the client can show "+2 iron" feedback while the prompt
+ * hides.
+ */
+export function onMineStop(conn: Connection, options: WsHandleOptions, _payload: unknown): void {
+  const shard = options.shardFor?.(conn);
+  if (!shard) {
+    sendError(conn, "unauthenticated", "mine_stop requires a joined system");
+    return;
+  }
+  const result = handleMineStop(shard, { connId: conn.connId });
+  if (!result.ok) {
+    sendError(conn, "invalid-message", result.message);
+    return;
+  }
+  // Final echo so the client can hide the radial + show the
+  // earned-amount toast. The deposit id is unknown here because
+  // the row was already cleared, but the client can derive it
+  // from the last `mining_update` it received.
+  pushMiningUpdate(shard, conn.connId, {
+    depositId: "",
+    resourceId: "",
+    progressMs: 0,
+    unitsSoFar: result.unitsAwarded,
+    amount: 0,
+    state: "cancelled",
   });
 }
 

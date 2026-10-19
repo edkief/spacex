@@ -420,7 +420,8 @@ export type ConnSender = (
     | { type: "combat_event"; payload: unknown }
     | { type: "ui_open"; payload: unknown }
     | { type: "inventory_update"; payload: unknown }
-    | { type: "enter_ship_ok"; payload: unknown },
+    | { type: "enter_ship_ok"; payload: unknown }
+    | { type: "mining_update"; payload: unknown },
 ) => void;
 
 /**

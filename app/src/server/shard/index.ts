@@ -57,6 +57,7 @@ import type {
   SimTickObserver,
   SnapshotBroadcaster,
 } from "./types.js";
+import type { Repository } from "../db/repo.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -99,6 +100,14 @@ export function createShard(args: {
    * `simulateNTicks(...)` actually advances the accumulator.
    */
   clock?: () => number;
+  /**
+   * TASK-38: repository handle so the mining state machine can
+   * persist inventory + deposit deltas. Production threads the
+   * live repository through `GalaxyRouter` (TASK-11) so every
+   * shard starts wired; tests that don't exercise mining can
+   * leave it unset.
+   */
+  repo?: Repository | null;
 }): Shard {
   const events = args.events ?? new EventEmitter();
   const shard: Shard = {
@@ -138,6 +147,7 @@ export function createShard(args: {
     onTick: args.onTickObserver ?? undefined,
     logger: args.logger,
     clock: args.clock,
+    repo: args.repo ?? null,
   });
   // Wire the sim into the shard. We construct the `Shard` shape
   // above with `sim: undefined` because `SimLoop` needs the shard
@@ -802,17 +812,17 @@ export type ChatRingBufferEntry = ChatEntry;
  * returns the delta. Test-only: production uses the `setTimeout(0)`
  * chain.
  */
-export function simulateNTicks(
+export async function simulateNTicks(
   shard: Shard,
   n: number,
-): {
+): Promise<{
   stepsRun: number[];
   snapshots: number[];
-} {
+}> {
   const stepsRun: number[] = [];
   const snapshots: number[] = [];
   for (let i = 0; i < n; i++) {
-    const result = shard.sim.tick();
+    const result = await shard.sim.tick();
     stepsRun.push(result.stepsRun);
     if (result.didSnapshot) snapshots.push(shard.sim.currentTick);
   }

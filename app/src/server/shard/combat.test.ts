@@ -139,7 +139,7 @@ function combatEventsSent(recorder: Recorder): ProtocolCombatEvent[] {
 
 /** Drive one tick exactly; lets the test control wall-clock advancement. */
 function driveOneTick(shard: Shard) {
-  shard.sim.tick();
+  void shard.sim.tick();
 }
 
 // ---------------------------------------------------------------------------
@@ -385,7 +385,7 @@ describe("destroyed ship — integration behaviour", () => {
     });
     // Tick once to assign the entity to the connection via the
     // pending input.
-    recorder.shard.sim.tick();
+    void recorder.shard.sim.tick();
 
     // Apply enough damage to destroy the ship.
     applyCombatDamage({

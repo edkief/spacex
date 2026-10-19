@@ -263,6 +263,22 @@ export class DriftClient {
    *  camera + controls synchronously without waiting for the
    *  next `entity_update` broadcast. */
   private readonly enterShipOkListeners = new Set<(payload: { shipId: string }) => void>();
+  /**
+   * TASK-38: mining-update echoes — server-driven radial progress
+   * (0..1500 ms within a cadence) + `state` (mining / paused-full /
+   * depleted / cancelled). UI drives the radial from this stream;
+   * the client never runs its own channel timer.
+   */
+  private readonly miningUpdateListeners = new Set<
+    (payload: {
+      depositId: string;
+      resourceId: string;
+      progressMs: number;
+      unitsSoFar: number;
+      amount: number;
+      state: "mining" | "paused-full" | "depleted" | "cancelled";
+    }) => void
+  >();
   /** TASK-34: latest known on-foot inventory. The server pushes
    *  `inventory_update` frames on every pickup / drop; the HUD
    *  polls `getInventory()` instead of subscribing so the
@@ -640,6 +656,65 @@ export class DriftClient {
       throw new Error("DriftClient: sendInteract requires an open socket");
     }
     this.socket.send(encodeEnvelope("interact", { targetId, action }));
+  }
+
+  /**
+   * TASK-38: start a mining channel on the given deposit. The
+   * server replies with a `mining_update` echo on accept and then
+   * per-cadence `inventory_update` / `mining_update` frames as the
+   * channel progresses. The client UI reads the `mining_update`
+   * stream to drive the radial progress.
+   *
+   * The handler is idempotent — re-pressing E on the same
+   * deposit just refreshes `lastAwardAt` server-side without
+   * starting a new channel. Spamming the call is also a no-op:
+   * awards happen on the 1.5 s cadence, not on the message
+   * count.
+   */
+  sendMine(nodeId: string, durationSeconds = 1.5): void {
+    if (!this.socket || this.socket.readyState !== this.socket.OPEN) {
+      throw new Error("DriftClient: sendMine requires an open socket");
+    }
+    this.socket.send(encodeEnvelope("mine", { nodeId, duration: durationSeconds }));
+  }
+
+  /**
+   * TASK-38: stop an in-flight mining channel. Idempotent
+   * (releasing E while not mining is a structured `invalid-message`
+   * error, not a silent drop). On success the server emits a
+   * final `mining_update { state: 'cancelled', unitsSoFar: N }`
+   * so the client can show the earned-amount toast while hiding
+   * the radial.
+   */
+  sendMineStop(): void {
+    if (!this.socket || this.socket.readyState !== this.socket.OPEN) {
+      throw new Error("DriftClient: sendMineStop requires an open socket");
+    }
+    this.socket.send(encodeEnvelope("mine_stop", {}));
+  }
+
+  /**
+   * TASK-38: subscribe to `mining_update` server frames. The
+   * server pushes one of these on every award + on `mine` start
+   * + on `mine_stop` + on pause-for-cap + on depletion. The
+   * payload carries `progressMs` (the 0..1500 ms radial value)
+   * + `state` so the UI can drive the radial without running its
+   * own cadence timer (the server is the source of truth).
+   */
+  onMiningUpdate(
+    listener: (payload: {
+      depositId: string;
+      resourceId: string;
+      progressMs: number;
+      unitsSoFar: number;
+      amount: number;
+      state: "mining" | "paused-full" | "depleted" | "cancelled";
+    }) => void,
+  ): () => void {
+    this.miningUpdateListeners.add(listener);
+    return () => {
+      this.miningUpdateListeners.delete(listener);
+    };
   }
 
   /**
@@ -1182,6 +1257,29 @@ export class DriftClient {
         // player sees the swap before the next 100 ms tick.
         const payload = env.payload as { shipId: string };
         for (const listener of this.enterShipOkListeners) {
+          try {
+            listener(payload);
+          } catch {
+            // swallow — same rationale as above
+          }
+        }
+        return;
+      }
+      case "mining_update": {
+        // TASK-38: server-timed mining progress echo. The UI
+        // listens via `onMiningUpdate(...)` and renders the radial
+        // + a "+1 iron" float from the cadence + unitsSoFar fields.
+        // We deliberately don't run our own channel timer; the
+        // server is the source of truth (anti-spam guarantee).
+        const payload = env.payload as {
+          depositId: string;
+          resourceId: string;
+          progressMs: number;
+          unitsSoFar: number;
+          amount: number;
+          state: "mining" | "paused-full" | "depleted" | "cancelled";
+        };
+        for (const listener of this.miningUpdateListeners) {
           try {
             listener(payload);
           } catch {

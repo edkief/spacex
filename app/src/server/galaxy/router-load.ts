@@ -117,6 +117,12 @@ export async function loadAndRegister(systemId: string, deps: LoadAndRegisterDep
     events: deps.events,
     logger: deps.logger,
     generation,
+    // TASK-38: thread the live repository so the mining state
+    // machine can persist inventory + deposit deltas on every
+    // 1.5 s cadence tick. Tests that don't exercise mining can
+    // leave it unset — the loop fast-paths the mining advance
+    // when no rows are active.
+    repo: deps.repo,
   });
   // Hydrate entities from the loaded specs. The hydrate step
   // fetches callsigns for the owner ids on the ship rows so the

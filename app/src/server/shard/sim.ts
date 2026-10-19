@@ -69,6 +69,7 @@ import { SHIP_CLASSES } from "@shared/ships.js";
 
 import { cleanupExpiredWrecks } from "./combat.js";
 import { cleanupExpiredGroundItems } from "./inventory.js";
+import { advanceMining, pushMiningUpdate } from "./mining.js";
 import { drainInput } from "./input-queue.js";
 import { TickHistogram } from "./histogram.js";
 import type {
@@ -135,6 +136,20 @@ export interface SimLoopHooks {
   clock?: () => number;
   /** Logger that swallows debug/warn lines. Defaults to `console`. */
   logger?: Pick<Console, "warn" | "debug" | "error">;
+  /**
+   * TASK-38: repository handle so the mining state machine can
+   * persist inventory + deposit deltas. When omitted (legacy
+   * tests that don't exercise mining) the loop falls back to
+   * `fallbackRepo` — the test-only in-memory noop shim.
+   */
+  repo?: import("../db/repo.js").Repository | null;
+  /**
+   * TEST-ONLY seam: a stand-in for the repository when
+   * `repo` is omitted. Defaults to a no-op stub so legacy tests
+   * don't crash on the missing field; production wires a real
+   * SQLite/Postgres repo via `repo`.
+   */
+  fallbackRepo?: import("../db/repo.js").Repository | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -188,6 +203,19 @@ export class SimLoop {
     // zero elapsed and not step, biasing `tickCount` low by one.
     this.lastTickReal = -1;
   }
+
+  /**
+   * TEST-ONLY seam: lazily-set fallback repository. Production
+   * threads the real repo through `createShard` so this is never
+   * called; the setter exists so legacy unit tests can opt in
+   * to mining without rewriting their `createShard` plumbing.
+   * Also the field is read in `tick()` as a fallback when
+   * `hooks.repo` is omitted (the typical legacy-test case).
+   */
+  setFallbackRepoForTests(value: import("../db/repo.js").Repository | null): void {
+    this.fallbackRepo = value;
+  }
+  private fallbackRepo: import("../db/repo.js").Repository | null = null;
 
   // -------------------------------------------------------------------
   // Lifecycle
@@ -249,7 +277,7 @@ export class SimLoop {
    * Public so tests can drive exactly one tick without depending on
    * `setTimeout` timers.
    */
-  tick(): { stepsRun: number; didSnapshot: boolean } {
+  async tick(): Promise<{ stepsRun: number; didSnapshot: boolean }> {
     const now = (this.hooks.clock ?? performanceNow)();
     if (this.lastTickReal < 0) {
       // First call — prime the clock and don't integrate. The next
@@ -266,6 +294,63 @@ export class SimLoop {
       this.accumulator -= TICK_S;
       this.runOneStep();
       stepsRun += 1;
+    }
+
+    // TASK-38: advance every active mining row on this tick. The
+    // mining state machine is server-timed at 1.5 s per unit; we
+    // run it once per tick (20 Hz) so the cadence check is
+    // granular enough to catch awards within one frame of the
+    // 1.5 s boundary. `advanceMining` is async because it
+    // persists inventory + deposit rows; we await it so the
+    // snapshot below sees the post-mine shape.
+    if (stepsRun > 0) {
+      const repo = this.hooks.repo ?? this.fallbackRepo ?? null;
+      const mining = (this.shard as Shard & { mining?: Map<string, unknown> }).mining;
+      // Fast-path: skip the entire async branch when there are
+      // no active mining rows (the dominant case). Legacy tests
+      // also benefit — they don't wire a repo and don't expect
+      // a Promise to settle.
+      if (mining && mining.size > 0) {
+        if (!repo) {
+          throw new Error("SimLoop: mining is active but no repository is wired");
+        }
+        const result = await advanceMining(this.shard, repo, {
+          nowMs: (this.hooks.clock ?? performanceNow)(),
+        });
+        // Push mining_update echoes to the owners. We do this here
+        // (instead of inside advanceMining) so the WS layer's
+        // conn-sender is the only place outbound frames flow.
+        for (const id of result.pausedFull) {
+          const state = (this.shard as Shard & { mining?: Map<string, unknown> }).mining?.get(
+            id,
+          ) as
+            | { depositId: string; resourceType: string; amount: number; unitsSoFar: number }
+            | undefined;
+          if (!state) continue;
+          pushMiningUpdate(this.shard, id, {
+            depositId: state.depositId,
+            resourceId: state.resourceType ?? "unknown",
+            progressMs: 0,
+            unitsSoFar: state.unitsSoFar,
+            amount: state.amount ?? 0,
+            state: "paused-full",
+          });
+        }
+        for (const d of result.depleted) {
+          pushMiningUpdate(this.shard, d.connId, {
+            depositId: d.depositId,
+            resourceId: "",
+            progressMs: 0,
+            unitsSoFar: 0,
+            amount: 0,
+            state: "depleted",
+          });
+        }
+        // Awarded units emit their own `inventory_update` inside
+        // `advanceMining`. Per-award `mining_update` echoes are
+        // handled there too — see pushMiningUpdate in mining.ts.
+        void result;
+      }
     }
 
     // Catch-up ceiling: drain the excess so we don't carry debt
@@ -308,7 +393,10 @@ export class SimLoop {
     // 1. Drain each connection's input slot and integrate.
     for (const conn of shard.connections.values()) {
       const input = drainInput(conn);
-      if (input === null) continue;
+      // Drain can return `null` (no pending input) OR `undefined`
+      // (defensive — the slot may not have been initialised).
+      // Treat both as "skip this tick".
+      if (input === null || input === undefined) continue;
       // Counted separately by the queue; surface to the tick stats.
       inputsApplied += 1;
       if (conn.entityId === null) {
@@ -394,7 +482,7 @@ export class SimLoop {
   private schedule(): void {
     if (!this.running) return;
     this.timer = setTimeout(() => {
-      this.tick();
+      void this.tick();
       this.schedule();
     }, 0);
     this.timer.unref?.();

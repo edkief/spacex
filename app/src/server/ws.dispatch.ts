@@ -76,6 +76,8 @@ import {
   onInteract,
   onJoinSystem,
   onLogout,
+  onMine,
+  onMineStop,
   onPickup,
   onWarp,
 } from "./ws.handlers.js";
@@ -441,7 +443,26 @@ async function dispatch(
         await onDrop(conn, options, payload);
         return;
       }
-      // Future tasks route `mine`, `sell`, etc. to the system
+      if (type === "mine") {
+        // TASK-38: long-running extraction start. Routes through
+        // `handleMineStart` which validates range + regime +
+        // deposit existence, then creates a `MiningState` row.
+        // The sim loop picks the row up and awards units at the
+        // 1.5 s cadence. Awards are server-timed, not
+        // message-timed — spamming `mine` frames gains nothing.
+        await onMine(conn, options, payload);
+        return;
+      }
+      if (type === "mine_stop") {
+        // TASK-38: cancel an in-flight channel. Idempotent
+        // (`not-mining` is a structured error, not a silent
+        // drop). Releasing E in the client maps to a single
+        // `mine_stop` frame, so this is the dominant release
+        // path.
+        onMineStop(conn, options, payload);
+        return;
+      }
+      // Future tasks route `sell`, etc. to the system
       // shard. TASK-9 / TASK-65 accept them silently — the connection stays alive.
       return;
 

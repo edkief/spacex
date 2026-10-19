@@ -353,7 +353,7 @@ describe("shard: disembark (TASK-31)", () => {
         action: null,
       });
       recorder.advance(50);
-      recorder.shard.sim.tick();
+      void recorder.shard.sim.tick();
     }
     // After ~1.5 s of walking the character should have moved at
     // least half a metre.

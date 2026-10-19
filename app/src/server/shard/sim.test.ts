@@ -129,22 +129,22 @@ function makeConnection(args: {
  * accumulator grows by exactly `TICK_S` per call. Returns the same
  * shape as `simulateNTicks` for ergonomic assertions.
  */
-function driveWithFakeClock(
+async function driveWithFakeClock(
   shard: Shard,
   _fakeNow: () => number,
   _readNow: () => number,
   advance: () => void,
   n: number,
-): { stepsRun: number[]; snapshots: number[] } {
+): Promise<{ stepsRun: number[]; snapshots: number[] }> {
   const stepsRun: number[] = [];
   const snapshots: number[] = [];
   // Prime the loop (first tick snapshots the clock without integrating).
   advance();
-  shard.sim.tick();
+  void await shard.sim.tick();
   for (let i = 0; i < n; i++) {
     advance(); // Advance the wall clock BEFORE the tick so the loop's
     // accumulator captures exactly one extra TICK_S of elapsed time.
-    const result = shard.sim.tick();
+    const result = await shard.sim.tick();
     stepsRun.push(result.stepsRun);
     if (result.didSnapshot) snapshots.push(shard.sim.currentTick);
   }
@@ -166,7 +166,7 @@ function waitForTasks(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 describe("SimLoop — accumulator math", () => {
-  it("integrates exactly one tick per 1/20 s of wall time", () => {
+  it("integrates exactly one tick per 1/20 s of wall time", async () => {
     // Direct path: don't start the auto-chained loop; instead drive
     // `tick()` manually with controlled elapsed time.
     const recorder = makeRecorderShard({ autoStart: false });
@@ -178,12 +178,12 @@ describe("SimLoop — accumulator math", () => {
     fakeNow.mockImplementation(() => now);
 
     // Prime the loop — first tick snapshots the wall clock without integrating.
-    recorder.shard.sim.tick();
+    void recorder.shard.sim.tick();
     now += TICK_S * 1000;
 
     const tickResults: number[] = [];
     for (let i = 0; i < 1000; i++) {
-      const r = recorder.shard.sim.tick();
+      const r = await recorder.shard.sim.tick();
       tickResults.push(r.stepsRun);
       now += TICK_S * 1000;
     }
@@ -195,7 +195,7 @@ describe("SimLoop — accumulator math", () => {
     recorder.shard.shutdown();
   });
 
-  it("catches up after a stall (5 steps max, drops the rest)", () => {
+  it("catches up after a stall (5 steps max, drops the rest)", async () => {
     const recorder = makeRecorderShard({ autoStart: false });
     const fakeNow = vi.fn(() => 0);
     (recorder.shard.sim as unknown as { hooks: { clock: () => number } }).hooks.clock = fakeNow;
@@ -204,12 +204,12 @@ describe("SimLoop — accumulator math", () => {
     fakeNow.mockImplementation(() => now);
 
     // Prime the loop (first tick snapshots the clock, 0 steps).
-    recorder.shard.sim.tick();
+    void recorder.shard.sim.tick();
     now += TICK_S * 1000;
 
     // First 100 ticks normal.
     for (let i = 0; i < 100; i++) {
-      const r = recorder.shard.sim.tick();
+      const r = await recorder.shard.sim.tick();
       expect(r.stepsRun).toBe(1);
       now += TICK_S * 1000;
     }
@@ -217,7 +217,7 @@ describe("SimLoop — accumulator math", () => {
     // drop the remaining 45.
     const before = recorder.shard.sim.currentTick;
     now += TICK_S * 1000 * 50;
-    const r = recorder.shard.sim.tick();
+    const r = await recorder.shard.sim.tick();
     expect(r.stepsRun).toBe(5);
     expect(recorder.shard.sim.currentTick).toBe(before + 5);
     // After the catch-up the accumulator is reset so we don't drag debt.
@@ -229,7 +229,7 @@ describe("SimLoop — accumulator math", () => {
 });
 
 describe("SimLoop — snapshot cadence (10 Hz, every 2nd tick)", () => {
-  it("broadcasts on tick 2, 4, 6, … and never on tick 1, 3, 5, …", () => {
+  it("broadcasts on tick 2, 4, 6, … and never on tick 1, 3, 5, …", async () => {
     const recorder = makeRecorderShard({ autoStart: false });
     const fakeNow = vi.fn(() => 0);
     (recorder.shard.sim as unknown as { hooks: { clock: () => number } }).hooks.clock = fakeNow;
@@ -239,7 +239,7 @@ describe("SimLoop — snapshot cadence (10 Hz, every 2nd tick)", () => {
 
     // Drive `tick()` manually so we can advance the fake clock once
     // per logical tick. 20 ticks → 10 snapshots.
-    const { snapshots } = driveWithFakeClock(
+    const { snapshots } = await driveWithFakeClock(
       recorder.shard,
       fakeNow,
       () => now,
@@ -254,7 +254,7 @@ describe("SimLoop — snapshot cadence (10 Hz, every 2nd tick)", () => {
     recorder.shard.shutdown();
   });
 
-  it("broadcasts exactly 10 entities per second at 20 Hz", () => {
+  it("broadcasts exactly 10 entities per second at 20 Hz", async () => {
     const recorder = makeRecorderShard({ autoStart: true });
     // Don't pre-populate connections; just confirm the cadence in
     // the `autoStart` chain by letting it tick until 1 s elapsed.
@@ -277,7 +277,7 @@ describe("SimLoop — snapshot cadence (10 Hz, every 2nd tick)", () => {
 });
 
 describe("Input queue — latest-wins + stale-seq", () => {
-  it("drops inputs whose seq <= lastSeq", () => {
+  it("drops inputs whose seq <= lastSeq", async () => {
     const recorder = makeRecorderShard({ autoStart: false });
     const conn = makeConnection({ connId: "c1", playerId: "p1" });
     addConnection(recorder.shard, conn);
@@ -343,7 +343,7 @@ describe("Input queue — latest-wins + stale-seq", () => {
     recorder.shard.shutdown();
   });
 
-  it("latest-input-wins: two accepted inputs before one tick", () => {
+  it("latest-input-wins: two accepted inputs before one tick", async () => {
     const recorder = makeRecorderShard({ autoStart: false });
     const fakeNow = vi.fn(() => 0);
     (recorder.shard.sim as unknown as { hooks: { clock: () => number } }).hooks.clock = fakeNow;
@@ -395,9 +395,9 @@ describe("Input queue — latest-wins + stale-seq", () => {
     const beforeVelZ = beforeVel?.z ?? 0;
     // First tick snapshots the clock without integrating; second tick
     // observes TICK_S of elapsed and runs one step.
-    recorder.shard.sim.tick();
+    void recorder.shard.sim.tick();
     now += TICK_S * 1000;
-    recorder.shard.sim.tick();
+    void recorder.shard.sim.tick();
     const afterVel = recorder.shard.entities.get("entity:ship-1")?.vel;
     expect(afterVel).toBeDefined();
     // The latest input was thrust=0.9; the integration should move
@@ -409,7 +409,7 @@ describe("Input queue — latest-wins + stale-seq", () => {
     recorder.shard.shutdown();
   });
 
-  it("cold-start first input must be seq === 1", () => {
+  it("cold-start first input must be seq === 1", async () => {
     const recorder = makeRecorderShard({ autoStart: false });
     const conn = makeConnection({ connId: "c2" });
     addConnection(recorder.shard, conn);
@@ -433,7 +433,7 @@ describe("Input queue — latest-wins + stale-seq", () => {
 });
 
 describe("Snapshot payload", () => {
-  it("entity_update payload contains hull/shields/target/classId/callsign", () => {
+  it("entity_update payload contains hull/shields/target/classId/callsign", async () => {
     const recorder = makeRecorderShard({ autoStart: false });
     spawnShip(recorder.shard, {
       shipId: "ship-A",
@@ -453,7 +453,7 @@ describe("Snapshot payload", () => {
     (recorder.shard.sim as unknown as { hooks: { clock: () => number } }).hooks.clock = fakeNow;
     let now = 0;
     fakeNow.mockImplementation(() => now);
-    const { snapshots } = driveWithFakeClock(
+    const { snapshots } = await driveWithFakeClock(
       recorder.shard,
       fakeNow,
       () => now,
@@ -479,7 +479,7 @@ describe("Snapshot payload", () => {
     recorder.shard.shutdown();
   });
 
-  it("warns at > 32 KB broadcast payload", () => {
+  it("warns at > 32 KB broadcast payload", async () => {
     const recorder = makeRecorderShard({ autoStart: false });
     // Spawn enough entities to push the broadcast over the 32 KB
     // threshold; each entity payload is ~120 bytes.
@@ -507,7 +507,7 @@ describe("Snapshot payload", () => {
 });
 
 describe("Entity registry — kind mapping", () => {
-  it("spawnShip → wire kind ship; spawnAiShip → wire kind ai-ship", () => {
+  it("spawnShip → wire kind ship; spawnAiShip → wire kind ai-ship", async () => {
     const recorder = makeRecorderShard({ autoStart: false });
     spawnShip(recorder.shard, {
       shipId: "s1",
@@ -524,7 +524,7 @@ describe("Entity registry — kind mapping", () => {
     (recorder.shard.sim as unknown as { hooks: { clock: () => number } }).hooks.clock = fakeNow;
     let now = 0;
     fakeNow.mockImplementation(() => now);
-    driveWithFakeClock(
+    await driveWithFakeClock(
       recorder.shard,
       fakeNow,
       () => now,
@@ -541,7 +541,7 @@ describe("Entity registry — kind mapping", () => {
     recorder.shard.shutdown();
   });
 
-  it("removing a connection keeps the entity in the shard", () => {
+  it("removing a connection keeps the entity in the shard", async () => {
     const recorder = makeRecorderShard({ autoStart: false });
     spawnShip(recorder.shard, {
       shipId: "s1",
@@ -564,7 +564,7 @@ describe("Entity registry — kind mapping", () => {
 });
 
 describe("Histograms", () => {
-  it("computes p50/p95/p99 across a uniform distribution", () => {
+  it("computes p50/p95/p99 across a uniform distribution", async () => {
     const h = new TickHistogram(1024);
     for (let i = 0; i < 1000; i++) h.push(i); // 0..999 ms
     const s = h.snapshot();
@@ -577,7 +577,7 @@ describe("Histograms", () => {
     expect(s.max).toBe(999);
   });
 
-  it("rejects non-finite samples", () => {
+  it("rejects non-finite samples", async () => {
     const h = new TickHistogram(8);
     h.push(5);
     h.push(NaN);
@@ -596,7 +596,7 @@ describe("Histograms", () => {
 // ---------------------------------------------------------------------------
 
 describe("Benchmark — 16 ships, 60 s virtual run", () => {
-  it("p95 < 30 ms over 60 s simulated at 20 Hz", () => {
+  it("p95 < 30 ms over 60 s simulated at 20 Hz", async () => {
     const recorder = makeRecorderShard({ autoStart: false });
     const fakeNow = vi.fn(() => 0);
     (recorder.shard.sim as unknown as { hooks: { clock: () => number } }).hooks.clock = fakeNow;
@@ -630,7 +630,7 @@ describe("Benchmark — 16 ships, 60 s virtual run", () => {
     // First tick snapshots the clock without integrating. After that,
     // each `tick()` call observes exactly TICK_S of elapsed and steps once,
     // for a total of TOTAL_TICKS logical ticks.
-    recorder.shard.sim.tick();
+    void recorder.shard.sim.tick();
     now += TICK_S * 1000;
     for (let i = 0; i < TOTAL_TICKS; i++) {
       // Apply fresh inputs to a random subset of player ships per
@@ -657,7 +657,7 @@ describe("Benchmark — 16 ships, 60 s virtual run", () => {
           action: null,
         });
       }
-      recorder.shard.sim.tick();
+      void recorder.shard.sim.tick();
       now += TICK_S * 1000;
     }
 
@@ -686,7 +686,7 @@ describe("Benchmark — 16 ships, 60 s virtual run", () => {
 // ---------------------------------------------------------------------------
 
 describe("TASK-14 — lastAppliedSeq in broadcast", () => {
-  it("broadcast carries lastAppliedSeq populated for the owning player", () => {
+  it("broadcast carries lastAppliedSeq populated for the owning player", async () => {
     const recorder = makeRecorderShard({ autoStart: false });
     const connId = "conn-1";
     addConnection(recorder.shard, {
@@ -746,7 +746,7 @@ describe("TASK-14 — lastAppliedSeq in broadcast", () => {
     (recorder.shard.sim as unknown as { hooks: { clock: () => number } }).hooks.clock = fakeNow;
     let now = 0;
     fakeNow.mockImplementation(() => now);
-    driveWithFakeClock(
+    await driveWithFakeClock(
       recorder.shard,
       fakeNow,
       () => now,
@@ -764,7 +764,7 @@ describe("TASK-14 — lastAppliedSeq in broadcast", () => {
     recorder.shard.shutdown();
   });
 
-  it("empty lastAppliedSeq when no player inputs were integrated", () => {
+  it("empty lastAppliedSeq when no player inputs were integrated", async () => {
     const recorder = makeRecorderShard({ autoStart: false });
     spawnAiShip(recorder.shard, {
       id: "ai-1",
@@ -775,7 +775,7 @@ describe("TASK-14 — lastAppliedSeq in broadcast", () => {
     (recorder.shard.sim as unknown as { hooks: { clock: () => number } }).hooks.clock = fakeNow;
     let now = 0;
     fakeNow.mockImplementation(() => now);
-    driveWithFakeClock(
+    await driveWithFakeClock(
       recorder.shard,
       fakeNow,
       () => now,
@@ -793,12 +793,12 @@ describe("TASK-14 — lastAppliedSeq in broadcast", () => {
 });
 
 describe("Protocol constants", () => {
-  it("SNAPSHOT_EVERY_N_TICKS = 2 (10 Hz from 20 Hz)", () => {
+  it("SNAPSHOT_EVERY_N_TICKS = 2 (10 Hz from 20 Hz)", async () => {
     expect(SNAPSHOT_EVERY_N_TICKS).toBe(2);
     expect(SERVER_TICK_HZ).toBe(20);
   });
 
-  it("PROTOCOL_VERSION is 1", () => {
+  it("PROTOCOL_VERSION is 1", async () => {
     expect(PROTOCOL_VERSION).toBe(1);
   });
 });

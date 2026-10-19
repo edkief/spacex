@@ -46,6 +46,8 @@ import {
 import { EnterShipPrompt, useEnterShipState } from "./components/EnterShipPrompt.js";
 import { InteractionPrompt } from "./components/InteractionPrompt.js";
 import { WeightBar, useOwnInventory } from "./components/WeightBar.js";
+import { RadialMiningProgress } from "./components/RadialMiningProgress.js";
+import { useMiningState } from "./components/useMiningState.js";
 import { useInteractables, useLocalInteractor } from "./components/useInteractables.js";
 import {
   currentAtmosphereStateProvider,
@@ -367,6 +369,11 @@ export function App(): React.JSX.Element {
   const enterShipState = useEnterShipState();
   // TASK-34: own inventory (drives the WeightBar HUD).
   const ownInventory = useOwnInventory();
+  // TASK-38: mining state — server-timed radial progress driven
+  // by `mining_update` echoes. The hook is independent of the
+  // WS online state so a connection drop cancels the radial via
+  // a stale `update` snapshot.
+  const mining = useMiningState(client);
 
   return (
     <div
@@ -419,6 +426,11 @@ export function App(): React.JSX.Element {
           character → ship entity switch and fires an
           `enter_ship_ok` ack so the camera + controls swap back
           to the cockpit on the same frame. */}
+      <RadialMiningProgress
+        update={mining.update}
+        receivedAtMs={mining.receivedAtMs}
+        enabled={status === "online"}
+      />
       <EnterShipPrompt
         shipId={enterShipState.shipId}
         characterPos={enterShipState.characterPos}
@@ -460,6 +472,24 @@ export function App(): React.JSX.Element {
         onEnter={() => {
           try {
             client.sendEnterShip();
+          } catch {
+            // Same swallow rationale.
+          }
+        }}
+        // TASK-38: hold-E mining — keydown sends `mine`, keyup
+        // sends `mine_stop`. The radial progress component reads
+        // the server's `mining_update` echoes to render the
+        // 1.5 s sweep + the "+1 iron" float.
+        onMineStart={(targetId) => {
+          try {
+            client.sendMine(targetId);
+          } catch {
+            // Same swallow rationale.
+          }
+        }}
+        onMineStop={() => {
+          try {
+            client.sendMineStop();
           } catch {
             // Same swallow rationale.
           }

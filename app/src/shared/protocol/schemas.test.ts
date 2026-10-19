@@ -134,6 +134,15 @@ const VALID_PAYLOADS: Record<MessageType, () => unknown> = {
     remaining: 0,
   }),
   mine: () => ({ nodeId: "node-1", duration: 2.5 }),
+  mine_stop: () => ({}),
+  mining_update: () => ({
+    depositId: "node-1",
+    resourceId: "iron",
+    progressMs: 750,
+    unitsSoFar: 2,
+    amount: 18,
+    state: "mining",
+  }),
   sell: () => ({ resourceType: "iron", quantity: 5 }),
   buy_ship: () => ({ classId: "freighter" }),
   set_livery: () => ({
@@ -254,6 +263,15 @@ const INVALID_PAYLOADS: Record<MessageType, () => unknown> = {
     remaining: 0,
   }),
   mine: () => ({ nodeId: "", duration: -1 }),
+  mine_stop: () => ({ extra: true }), // strict forbids extra keys
+  mining_update: () => ({
+    depositId: "",
+    resourceId: "iron",
+    progressMs: -1, // negative
+    unitsSoFar: 0,
+    amount: 0,
+    state: "mining",
+  }),
   sell: () => ({ resourceType: "", quantity: 0 }), // zero/negative quantity
   buy_ship: () => ({ classId: "corvette" }), // unknown class
   set_livery: () => ({ primary: "red", secondary: "#abcdef", accent: "#f0f0f0" }), // bad hex

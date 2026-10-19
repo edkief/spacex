@@ -519,7 +519,18 @@ export const InventoryUpdateSchema = z
     weightUsed: z.number().int().nonnegative(),
     capacity: z.number().int().positive(),
     /** What triggered this update — drives client-side toast feedback. */
-    action: z.enum(["pickup-full", "pickup-partial", "drop", "set"]),
+    action: z.enum([
+      "pickup-full",
+      "pickup-partial",
+      "drop",
+      "set",
+      // TASK-38: emitted by the mining state machine. `mine-progress`
+      // accompanies every successful unit award; `mine-paused-full`
+      // signals the channel paused because the inventory is full
+      // (client can render a "Backpack full" prompt).
+      "mine-progress",
+      "mine-paused-full",
+    ]),
     /** Resources taken on the triggering event (0 for `set`). */
     taken: z.number().int().nonnegative(),
     /** Resources left on the source after a partial pickup (0 for full). */
@@ -527,11 +538,64 @@ export const InventoryUpdateSchema = z
   })
   .strict();
 
-/** `mine` — long-running extraction (TASK-38). */
+/**
+ * `mine` — long-running extraction start (TASK-38).
+ *
+ * Client claims `duration` (typically the 1.5 s per-unit cadence),
+ * but the server is the source of truth: the `duration` field is
+ * ignored for awarding. Awards happen on the server's 1.5 s tick
+ * cadence regardless of how many `mine` frames the client sends
+ * (anti-spam: spam = no gain).
+ *
+ * `nodeId` is the deposit's entity id (the wire shape carries
+ * `deposits` as their own entities, so a deposit id is the same
+ * id the proximity-interaction flow uses).
+ */
 export const MineSchema = z
   .object({
     nodeId: z.string().min(1),
+    /** Client-claimed per-unit duration (ms). Ignored by the server. */
     duration: z.number().finite().nonnegative(),
+  })
+  .strict();
+
+/** `mine_stop` — TASK-38. Client-initiated cancel of a mining channel. */
+export const MineStopSchema = z.object({}).strict();
+
+/**
+ * `mining_update` — TASK-38. Server→owner progress echo. Carries the
+ * server-timed mining state so the client UI never runs its own
+ * channel timer. The cadence is bounded to one frame per server
+ * tick (20 Hz) when the player is actively mining — the receiving
+ * client interpolates between echoes for a smooth radial.
+ *
+ *   - `state === 'mining'`      — active channel; progress in 0..MINE_TICK_MS.
+ *   - `state === 'paused-full'` — paused because the inventory is full.
+ *                                  `progressMs` === 0 because the cadence
+ *                                  doesn't advance while paused.
+ *   - `state === 'depleted'`    — the deposit hit zero; the channel
+ *                                  closed cleanly. The client should
+ *                                  hide the radial and toast "Depleted".
+ *   - `state === 'cancelled'`   — the channel was cancelled (player
+ *                                  stopped, walked out of range, or
+ *                                  the connection dropped). No award
+ *                                  on cancel.
+ *
+ * The owning connection receives every echo; other clients see the
+ * deposit's `amount` decrease in the regular 10 Hz `entity_update`.
+ */
+export const MiningUpdateSchema = z
+  .object({
+    depositId: z.string().min(1),
+    resourceId: z.string().min(1),
+    /** Server-time elapsed (ms) within the current 1.5 s unit. */
+    progressMs: z.number().finite().nonnegative(),
+    /** Units awarded in this channel so far. */
+    unitsSoFar: z.number().int().nonnegative(),
+    /** Current amount remaining on the deposit. */
+    amount: z.number().int().nonnegative(),
+    /** Channel state (see doc above). */
+    state: z.enum(["mining", "paused-full", "depleted", "cancelled"]),
   })
   .strict();
 
@@ -769,6 +833,8 @@ export const PAYLOAD_SCHEMAS = {
   drop: DropSchema,
   inventory_update: InventoryUpdateSchema,
   mine: MineSchema,
+  mine_stop: MineStopSchema,
+  mining_update: MiningUpdateSchema,
   sell: SellSchema,
   buy_ship: BuyShipSchema,
   set_livery: SetLiverySchema,
