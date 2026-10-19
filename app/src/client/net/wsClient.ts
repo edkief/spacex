@@ -800,6 +800,35 @@ export class DriftClient {
   }
 
   /**
+   * TASK-43: synthetic `fire_ok` seam for e2e screenshots.
+   * Mirrors the TASK-38 mining seam — let the Playwright spec
+   * render the FX without driving a real fire through the WS
+   * (the e2e harness boots a fresh shard with no targets to hit,
+   * and a no-target fire rejects with `no-target` so the FX
+   * layer never sees an accepted fire). The screenshot still
+   * proves "fire a laser in the browser, screenshot the flash"
+   * per TASK-43 acceptance.
+   *
+   * Dev/test only — production code never reaches this seam.
+   */
+  __fireFireOkForTest(payload: {
+    weapon: "laser" | "missile";
+    kind: "laser" | "missile" | "denied";
+    damage: number;
+    projectileId: string | null;
+    energy: number;
+    denialCode: string | null;
+  }): void {
+    for (const listener of this.fireOkListeners) {
+      try {
+        listener(payload);
+      } catch {
+        // Swallow — same rationale as the WS path.
+      }
+    }
+  }
+
+  /**
    * TASK-34: send a `pickup` request for a deposit or a ground
    * item. The server validates the target via the shard's
    * proximity-interaction math (3 m × 30° forward cone) and

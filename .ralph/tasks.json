@@ -354,7 +354,7 @@
     "title": "Weapons: laser (instant) and missiles (homing)",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-43.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-67",

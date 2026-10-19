@@ -392,6 +392,20 @@ export function App(): React.JSX.Element {
       if (ev.key === "m" || ev.key === "M") {
         ev.preventDefault();
         toggleChart();
+      } else if (ev.key === "1") {
+        // TASK-43: `1` selects the laser. Bound to the WS layer's
+        // sendSelectWeapon so the HUD's active-weapon pill flips
+        // on the same frame the player switches.
+        ev.preventDefault();
+        client.sendSelectWeapon("laser");
+      } else if (ev.key === "2") {
+        // TASK-43: `2` selects the missile. The server silently
+        // accepts the request even when the player's loadout
+        // doesn't carry missiles (a scout selecting `missile`
+        // just gets a `weapon-not-equipped` toast on the next
+        // fire).
+        ev.preventDefault();
+        client.sendSelectWeapon("missile");
       } else if (ev.key === "Escape" && chartOpen) {
         // Only swallow Escape when the chart is actually open;
         // otherwise other overlays (TASK-58 menu) may need it.
