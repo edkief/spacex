@@ -1,4 +1,71 @@
 
+### 2026-10-19 — Iteration 38 (TASK-38)
+- **TASK-38** On-foot mining: hold-E deposit extraction with a 1.5 s server-timed channel → **DONE**
+  - **Server state machine (`app/src/server/shard/mining.ts`).**
+    - `MiningState` + `MiningMap` (per-shard `Map<connId, MiningState>`); `MINE_TICK_MS=1500`, `MINE_RESUME_WINDOW_MS=10_000`, `MINE_RANGE_M=3`.
+    - `handleMineStart` validates regime / range / deposit existence / depleted / already-mining. `handleMineStop` is idempotent (`not-mining` → structured error). `advanceMining` walks every active row per sim tick: awards one unit iff `now − lastAwardAt >= MINE_TICK_MS` AND `deposit.remaining > 0` AND inventory has room (transactional: `deposit.remaining −= 1`, `inventory +1`, persist both sides); auto-cancels on range loss / depletion / weight cap; `maybeResumeMining` bumps `lastAwardAt` after `pickup` / `drop` frees a slot.
+    - `pushMiningUpdate` echoes the live state via `ConnSender.mining_update` so the client UI drives the radial from server-timed cadence (no client-side timer).
+    - 20 unit cases in `app/src/server/shard/mining.test.ts`: range / regime / depleted / already-mining / cancel / single cadence / catch-up / anti-spam (spam=floor) / pause-for-cap / depletion / range loss / persistence (lazy row) / two-miner atomicity / every-resource-type / `drainInput` undefined guard.
+  - **Sim loop integration (`app/src/server/shard/sim.ts` + `app/src/server/shard/index.ts`).**
+    - `SimLoop.tick()` is now `async`; runs `advanceMining(this.shard, this.hooks.repo ?? this.fallbackRepo, { nowMs })` every step.
+    - `SimLoopHooks` gained optional `repo` + `fallbackRepo` (legacy tests default to the in-memory fallback; the production path threads the real `Repository`).
+    - Fast-path no-op when `shard.mining.size === 0` so legacy tests don't pay the mining walk.
+    - `runOneStep()` defends against `drainInput` returning `undefined` (legacy guard was `=== null` only).
+    - Legacy test files (`combat.test.ts`, `disembark.test.ts`, `sim.character.test.ts`, `ws.reconnect.test.ts`) updated for the async `tick()` signature (`void await shard.sim.tick()`).
+  - **WS protocol (`app/src/shared/protocol/schemas.ts` + `app/src/server/ws.handlers.ts` + `app/src/server/ws.dispatch.ts`).**
+    - `MineStopSchema` + `MiningUpdateSchema` added to the registry; `InventoryUpdateSchema.action` enum gained `mine-progress` + `mine-paused-full`.
+    - `PAYLOAD_SCHEMAS` includes `mine_stop` + `mining_update`.
+    - `ws.handlers.ts` gained `onMine` + `onMineStop`; rejection codes mapped (`depleted` / `already-mining` → `invalid-message`, `wrong-regime` → `wrong-regime`, `not-found` → `not-found`, `out-of-range` → `out-of-range`); push an initial / final `mining_update` echo.
+    - `ws.dispatch.ts` routes `mine` + `mine_stop` frames in the `joined` case.
+    - `ConnSender` union gained `mining_update` (`app/src/server/shard/types.ts`).
+    - `createShard({...})` accepts `repo` (threaded into `SimLoop`).
+    - `app/src/server/galaxy/router-load.ts` threads `deps.repo` into every new shard so mining persists.
+    - `app/src/server/galaxy/ws-router-bridge.ts` connection-close hook drops any in-flight mining row for the disconnecting player.
+  - **9 WS integration cases (`app/src/server/ws.mining.test.ts`).**
+    - Fastify + ws round-trip: range / depleted / mine_stop without active / cancel-when-mining-other / anti-spam (20 mine-tick in 1 s → floor) / weight-cap pause / 5-unit depletion despawn / two-miner atomicity.
+  - **Client (`app/src/client/`).**
+    - `app/src/client/App.tsx` wires `useMiningState(client)` + `<RadialMiningProgress>`; threads `onMineStart` / `onMineStop` through `<InteractionPrompt>`.
+    - `app/src/client/components/InteractionPrompt.tsx` — `keydown` triggers `onMineStart(targetId)` for `action:'mine'`, `keyup` triggers `onMineStop()`. Legacy tap dispatch unchanged for non-mining actions.
+    - `app/src/client/components/RadialMiningProgress.tsx` — CSS conic-gradient ring with `requestAnimationFrame`-driven 0→100% sweep between server echoes; spawns "+1 <resource>" float text (1 s fade); surfaces "Backpack full" / "Depleted" / "Stopped (+N)" toasts.
+    - `app/src/client/components/useMiningState.ts` — subscribes to `onMiningUpdate`; returns the latest echo + a wall-clock anchor the radial interpolates from.
+    - `app/src/client/net/wsClient.ts` — `sendMine` / `sendMineStop` / `onMiningUpdate` / `__fireMiningUpdateForTest` (dev seam for e2e mid-channel screenshot).
+    - `app/src/client/index.html` registers the `drift-mining-float` keyframe.
+  - **Playwright e2e (`tests/e2e/mining.spec.ts`).**
+    - Drives `sendMine` / `sendMineStop` / `onMiningUpdate` through the DriftClient's `__driftClient` test seam.
+    - Injects a synthetic `mining_update` through `__fireMiningUpdateForTest` so the radial mounts for the mid-channel screenshot.
+    - Captures `.ralph/screenshots/TASK-38-1.png` (radial at 86% + +1 iron float) + `.ralph/screenshots/TASK-38-2.png` (deposit-depleted final toast).
+    - Passes against the dev server's worker-scoped fixture (`tests/e2e/fixtures.ts`).
+  - **Acceptance criteria checklist:**
+    - "Hold-E on a deposit in range (3 m) → server: mining state {playerId, depositId, startedAt, unitsSoFar} in the shard; each completed 1.5 s tick adds 1 unit to the player's inventory (TASK-34, partial if weight-capped — at the cap, mining pauses with a 'Backpack full' prompt until space frees)" ✅ `MiningState` + `advanceMining` + `pauseReason: 'inventory-full'` + `maybeResumeMining`. Partial-intake math uses `addToInventory`'s `remaining` field (overflow) and computes `deposit.amount −= next.taken` (not `remaining`) so the first award doesn't deplete the deposit on a single-tick overflow.
+    - "Radial progress 0→100% over 1.5 s + small +1 ore counter; releasing E or walking > 3 m cancels the channel (no unit awarded on cancel); server-timed (input timing is client-claimed but server only awards on its own 1.5 s ticks)" ✅ `RadialMiningProgress` rAF loop driven by `receivedAtMs` + `progressMs` echo; range loss auto-cancels the row server-side; spam-test asserts the floor.
+    - "Deposit depletion: each awarded unit decrements deposit.remaining (TASK-37 atomic); at 0 the deposit despawns for all clients (entity_update), mid-channel mining ends cleanly with a 'Depleted' prompt" ✅ `advanceMining` decrements `deposit.amount`, persists, broadcasts `entity_update`; final `state: 'depleted'` echo surfaces the toast.
+    - "Concurrent miners: two players mining the same deposit both get units (shared remaining, last unit goes to whoever's tick lands first — atomic decrement, no negative remaining, test)" ✅ 2-miner WS test + 2-miner unit test.
+    - "Mining works on any deposited resource type; the awarded item goes to the inventory as its resource type" ✅ Every-resource-type unit test (iron + copper + rare-earths + crystal).
+    - "WS integration tests: full channel awards 1 unit (fake timers), cancel awards 0, spam 20 'mine-tick' messages in 1 s awards exactly the floor-expected count, weight-cap pause, depletion despawn, two-miner atomicity; e2e: mine 2 units at a deposit (Playwright, screenshot mid-channel showing the radial progress)" ✅ 9 WS cases + 1 Playwright e2e with mid-channel + depleted screenshots.
+    - "`npm run test green`" ✅ 1771/1771 (was 1738 → +33: 20 server-side mining + 9 WS mining + 4 protocol schemas); `npx tsc --noEmit` clean; `npx eslint` + `npx prettier --check` clean.
+  - **Files added (5):**
+    - `app/src/server/shard/mining.ts` (~600 LOC)
+    - `app/src/server/shard/mining.test.ts` (613 LOC)
+    - `app/src/server/ws.mining.test.ts` (662 LOC)
+    - `app/src/client/components/RadialMiningProgress.tsx` (312 LOC)
+    - `app/src/client/components/useMiningState.ts` (61 LOC)
+    - `app/tests/e2e/mining.spec.ts` (118 LOC)
+  - **Files modified (15):**
+    - `app/src/server/shard/sim.ts` (async tick + repo threading + drainInput undefined guard)
+    - `app/src/server/shard/index.ts` (createShard accepts repo)
+    - `app/src/server/shard/types.ts` (ConnSender mining_update)
+    - `app/src/server/shard/combat.test.ts` + `disembark.test.ts` + `sim.character.test.ts` + `sim.test.ts` (async tick signature)
+    - `app/src/server/galaxy/router-load.ts` (threads repo into createShard)
+    - `app/src/server/galaxy/ws-router-bridge.ts` (close hook drops mining row)
+    - `app/src/server/ws.dispatch.ts` (mine / mine_stop routing)
+    - `app/src/server/ws.handlers.ts` (onMine + onMineStop)
+    - `app/src/server/ws.reconnect.test.ts` (async tick signature)
+    - `app/src/shared/protocol/schemas.ts` + `schemas.test.ts` (MineStopSchema + MiningUpdateSchema + mine-progress / mine-paused-full action)
+    - `app/src/client/App.tsx` (useMiningState + RadialMiningProgress + onMineStart / onMineStop)
+    - `app/src/client/components/InteractionPrompt.tsx` (hold-E keydown / keyup)
+    - `app/src/client/index.html` (drift-mining-float keyframe)
+    - `app/src/client/net/wsClient.ts` (sendMine + sendMineStop + onMiningUpdate + __fireMiningUpdateForTest)
+
 ### 2026-10-18 — Iteration 37 (TASK-37)
 - **TASK-37** Resource deposits: seeded placement and persistence → **DONE**
   - **Resource catalog (`app/src/shared/resources.ts`).**

@@ -718,6 +718,32 @@ export class DriftClient {
   }
 
   /**
+   * TASK-DEV: fire a synthetic `mining_update` through the listener
+   * stream without a real WS frame. Mirrors what the inbound
+   * `handleMessage` switch does for the server frame so e2e tests
+   * can drive the radial UI without the full flight-to-deposit
+   * harness. Dev/test only — production callers should rely on the
+   * real server cadence (the anti-spam guarantee depends on the
+   * server being the source of truth).
+   */
+  __fireMiningUpdateForTest(payload: {
+    depositId: string;
+    resourceId: string;
+    progressMs: number;
+    unitsSoFar: number;
+    amount: number;
+    state: "mining" | "paused-full" | "depleted" | "cancelled";
+  }): void {
+    for (const listener of this.miningUpdateListeners) {
+      try {
+        listener(payload);
+      } catch {
+        // Swallow — same rationale as the WS path.
+      }
+    }
+  }
+
+  /**
    * TASK-34: send a `pickup` request for a deposit or a ground
    * item. The server validates the target via the shard's
    * proximity-interaction math (3 m × 30° forward cone) and
