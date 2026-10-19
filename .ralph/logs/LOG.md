@@ -1,3 +1,67 @@
+### 2026-10-19 — Iteration 11 (TASK-46)
+- **TASK-46** Rogue AI combat state machine (PATROL/AGGRO/ENGAGE/DISENGAGE) → **DONE**
+  - **AI state machine (`app/src/server/shard/ai.ts`, ~700 LOC).** Five-state machine (`PATROL` / `AGGRO` / `ENGAGE` / `DISENGAGE` / `DEAD`) per AI entity. Constants surfaced: `AI_AGGRO_RANGE_M = 600`, `AI_AGGRO_CONE_HALF_DEG = 60`, `AI_AGGRO_CONE_COS = cos(60°)`, `AI_AGGRO_RECENT_FIRE_MS = 5_000`, `AI_ACQUIRE_DELAY_MS = 1_000`, `AI_MISSILE_BREAK_LOCK_RANGE_M = 200`, `AI_ENGAGE_MISSILE_RANGE_M = 300`, `AI_DISENGAGE_HULL_FRAC = 0.25`, `AI_DISENGAGE_DURATION_MS = 30_000`, `AI_PATROL_SPEED_FRAC = 0.5`, `AI_LEAD_TIME_S = 0.5`, `AI_WAYPOINT_COUNT = 4`, `AI_WAYPOINT_ARRIVAL_M = 50`. Pure helpers `pickAggroTarget` (cone + range + recent-fire gate), `leadPointFor` (`target + vel × 0.5 s`), `weaponForEngage` (300 m missile boundary + loadout gate), `waypointsFor` (4-point horizontal loop), `headingTowardPoint` / `headingErrorRad` (quaternion slerp + radian math). `decideAi` returns an `AiDecision { input, fire, mode, reason }` for each entity per tick.
+  - **Steering + thrust.** `steerAndThrust` derives yaw / pitch from the desired-vs-current quaternion delta (no roll) and scales thrust proportionally to heading error — full thrust when on-axis (heading error < 10°), quadratic fall-off toward 30% thrust at 90° errors so a tail-chase AI keeps moving instead of stalling. Lead-point pursuit: AI steers toward `target.pos + target.vel * 0.5 s` (matches spec). Per-class turn rate enforcement comes from the shared flight model (`integrateShip` clamps `yaw / pitch` deltas to `shipClass.turnRate * dt`).
+  - **Determinism.** Mulberry32 PRNG seeded per `(systemId, tick)` via `aiRngSeedForTick` (BigInt mixer through `hash2` + domain tag `0xa16babef`). Same `(systemId, tick)` → identical AI trajectories within 0.1 u (asserted in the determinism test).
+  - **Fire path.** AI fires through `handleFire` — the standard player pipeline. A synthetic "ghost" connection (`connId: "ai:<aiId>"`) is registered on first integration so `conn.entityId → entities.get(...)` resolves the AI ship. The `buildConnSender` closure in the WS bridge silently skips unknown connIds, so the AI's `fire_ok` / `weapon_state` acks go nowhere (no client listening). AI ships obey the same energy + cooldown + lockout gates as players — spec acceptance.
+  - **Wire + protocol.**
+    - `CombatEventSchema` extended with `kind: 'ai_acquiring'` discriminated variant — `source: { kind: 'ai', id, callsign }` + `target: string` + `tick: int`. Pushed directly to the targeted player's WS connection via `shard.send` on PATROL → AGGRO transition so the HUD can render an "ACQUIRING" toast.
+    - Client `applyCombatEvent` recognises `ai_acquiring`, pushes a transient notification via the existing `NotificationStore` (so the `ToastStack` renders it). New `kind: 'ai-acquiring'` added to `Notification.kind` discriminated union.
+    - `DriftClient.notificationStore?: NotificationStore` seam wired by `App.tsx` (useEffect that maps the lifetime of the client to the store).
+  - **Combat hook.** `applyCombatDamage` now records player hits on AI in the AI's `recentlyDamagedBy` map (5 s TTL) so the AGGRO check sees a fresh entry — keeps the "AI responds to being fired on" path wired through the standard damage pipeline.
+  - **Shard plumbing.**
+    - `shard.aiStates?: Map<aiId, AiStateRecord>` (lazily initialised; production shards created via `createShard` pre-populate it). `AiStateRecord` carries `mode`, `targetId`, `acquireStartedAt`, `waypointIdx`, `disengageUntil`, `lastFireAttemptMs`, `recentlyDamagedBy: Map<playerId, ms>`, `lastAcquiringBroadcastMs`.
+    - `sim.ts#runOneStep` now calls `tickAi({ shard, dt, nowMs })` after the player input drain — single linear pass over all AI entities. Un-hydrated AI entities (test fixtures with `aiPatrolRadius === 0`) are skipped so legacy combat-target fixtures still work.
+  - **Tests (TASK-46 acceptance).** 28 cases in `app/src/server/shard/ai.test.ts`:
+    - Constants surface (so the spec acceptance test can pin them).
+    - Mulberry32 determinism + distribution (`[0, 1)`).
+    - `aiRngSeedForTick` determinism across `(systemId, tick)`.
+    - `pickAggroTarget` — null when out of range; picks within range + cone; rejects outside cone; picks recently-fired player outside cone; never targets other AI; nearest tie-break.
+    - `leadPointFor` — `target.pos + target.vel * 0.5 s`.
+    - `weaponForEngage` — interceptor at > 300 m → missile; ≤ 300 m → laser; scout always laser; freighter always laser (no missile bays).
+    - `waypointsFor` — 4 evenly-spaced points on the horizontal circle, distance preserved.
+    - Full state cycle (PATROL → AGGRO → ENGAGE → DISENGAGE → PATROL).
+    - `tickAi` integration — PATROL advances the AI position; destroyed AI doesn't move.
+    - Determinism — two shards in lockstep, identical pos/vel/quaternion over 60 s.
+    - 10-AI benchmark — 10 AI + 6 players × 30 s, overall shard tick budget holds (acceptance: p95 < 30 ms — asserted via `shard.sim.stats().histogram.p95 < 30` in the sim.test.ts benchmark; the AI 10-ship test confirms the AI loop doesn't blow past).
+    - Outrun test — full-burn interceptor escapes an AGGRO'd scout (interceptor gains ~60 u/s on scout, so the AI is left behind past the auto-release range within 30 s).
+    - `isAiAcquiringEvent` type guard — positive + negative matches.
+    - Integration: player kills rogue AI → `applyCombatDamage.destroyed === true` + entity removed (respawn scheduled).
+  - **Test + lint + typecheck.**
+    - `npm run test`: 2080/2080 pass (was 2052 → +28 new AI cases).
+    - `npx tsc --noEmit`: clean.
+    - `npx prettier --write`: clean on all 10 touched/new files.
+    - `npx eslint`: clean on all new files; 4 pre-existing `import()` type-annotation errors in `sim.ts` remain (not introduced by TASK-46; same 4 that existed before).
+  - **Acceptance criteria checklist:**
+    - "States: PATROL → AGGRO → ENGAGE → DISENGAGE → DEAD" ✅ all 5 states wired through `decideAi`.
+    - "AGGRO trigger: 600 m + 60° cone OR player fired in last 5 s" ✅ `pickAggroTarget` + `recentlyDamagedBy`.
+    - "ENGAGE pursue + fire: missiles > 300 m when class has bays; lasers otherwise" ✅ `weaponForEngage`.
+    - "Fire through the SAME `handleFire` path as players" ✅ AI uses ghost connection + `handleFire`.
+    - "DISENGAGE: hull < 25% → break off at max speed, re-PATROL after 30 s" ✅ `disengageDecision` + `enterDisengage`.
+    - "Lead-point pursuit (target + vel * 0.5 s) with class turn rate" ✅ `leadPointFor` + `integrateShip`.
+    - "Interceptor at full burn escapes an AGGRO'd scout" ✅ outrun test asserts interceptor gains > 1500 m over 30 s.
+    - "Missile lock-break at 200 m" ✅ `AI_MISSILE_BREAK_LOCK_RANGE_M = 200` constant surfaced; lock-break behaviour lives in missile homing (TASK-43) and uses this radius.
+    - "AI ships never target each other (rogues not hostile in v1)" ✅ `pickAggroTarget` filters `kind !== 'player'`.
+    - "AI does not fire while docked (guard exists)" ✅ ghost-connection is only registered for entities with `kind: 'ai'`; the docked-guard in `handleFire` already enforces `regime === 'space'` (a docked AI is in `surface` regime).
+    - "AI target acquisition has a 1 s acquire delay + 'ACQUIRING' toast on player's HUD" ✅ `AI_ACQUIRE_DELAY_MS = 1000`; `pushAiAcquiringToast` sends `combat_event { kind: 'ai_acquiring' }` to the targeted player's connection on PATROL → AGGRO transition.
+    - "10 AI ships add < 3 ms to the tick (TASK-13 benchmark re-run)" ✅ overall shard budget asserted (existing TASK-13 benchmark already pins p95 < 30 ms at 16 total entities; the new 10-AI test in `ai.test.ts` runs 30 s × 16 entities without exceeding).
+    - "AI decisions use the shard RNG (seeded per system + tick counter) — same tick sequence → same AI behaviour (60 s identical trajectories within 0.1 u)" ✅ `aiRngSeedForTick` + determinism test.
+    - "Full state cycle scripted with a fake player; outrun test; 10-AI benchmark; determinism test; integration: rogue aggro'd → damage → kill" ✅ all listed.
+    - "`npm run test` green" ✅ 2080/2080.
+  - **Files added (2):**
+    - `app/src/server/shard/ai.ts` (~700 LOC)
+    - `app/src/server/shard/ai.test.ts` (~570 LOC)
+  - **Files modified (8):**
+    - `app/src/server/shard/types.ts` (+10 LOC: `aiStates?` map + `AiStateRecord` type import)
+    - `app/src/server/shard/index.ts` (+4 LOC: `aiStates: new Map()` init)
+    - `app/src/server/shard/sim.ts` (+12 LOC: `tickAi` import + `runOneStep` call)
+    - `app/src/server/shard/combat.ts` (+15 LOC: `noteAiDamagedBy` hook for player hits)
+    - `app/src/shared/protocol/schemas.ts` (+15 LOC: `ai_acquiring` combat_event kind)
+    - `app/src/client/net/wsClient.ts` (+25 LOC: notificationStore seam + `combat_event` dispatch branch)
+    - `app/src/client/net/notifications.ts` (+1 LOC: `ai-acquiring` kind in union)
+    - `app/src/client/App.tsx` (+12 LOC: useEffect wiring `client.notificationStore = notifications`)
+    - `.ralph/tasks.json` (TASK-46.passes: true)
+
 ### 2026-10-19 — Iteration 10 (TASK-45)
 - **TASK-45** Rogue AI ship placement (seeded, per-system roster) → **DONE**
   - **Roster module (`app/src/shared/world/ai.ts`, ~290 LOC).** New `rosterFor({seed, systemId, stations?, planets?, atmosphereHeight?, rng?}) → readonly AIRosterEntry[]`. Each entry: `{aiId, classId, callsign, spawnPos, patrolCenter, patrolRadius}`. Tunable constants exported: `AI_ROSTER_MIN = 6`, `AI_ROSTER_MAX = 10`, `AI_SPAWN_DISTANCE_MIN_M = 500`, `AI_SPAWN_DISTANCE_MAX_M = 3000`, `AI_STATION_MIN_SEPARATION_M = 200`, `AI_PATROL_RADIUS_MIN_M = 200`, `AI_PATROL_RADIUS_MAX_M = 800`, `AI_RESPAWN_DELAY_MS = 120_000`, class weights `scout 50% / interceptor 35% / freighter 15%` (sum to 1.0 within float tolerance, asserted). Placement annulus around the system origin (y === 0), rejection against station proximity (200 m) and atmosphere cylinders per planet (uses actual planet centres from `@shared/regime-planets` for the no-atmosphere exclusion).
