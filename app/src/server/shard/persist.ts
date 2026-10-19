@@ -73,6 +73,15 @@ export const DEFAULT_FLUSH_INTERVAL_MS = 30_000;
  * land in the same row, but per-tick flushes don't churn that JSON.
  * Including it would triple the per-tick write cost for no continuity
  * benefit (livery is committed synchronously at the change site).
+ *
+ * `cargo` (TASK-39) is ALSO outside the periodic flush — the cargo
+ * hold is mutated only by `handleCargoTransfer` and committed
+ * synchronously there so a transfer is durable before the next
+ * entity_update. Periodic flushes only carry position / regime / hull
+ * / shields / pad to avoid rewrites that would clobber a concurrent
+ * cargo mutation. The `entityToShipPatch` helper still threads the
+ * cargo field so the initial sync (e.g. on shard spawn) writes it
+ * alongside the rest.
  */
 export const FLUSHED_FIELDS = [
   "position",
@@ -108,6 +117,11 @@ export function entityToShipPatch(entity: SimEntity, systemId: string): SaveShip
     regime: entity.regime,
     onPad: entity.onPad,
     wreckExpiresAt: entity.wreckExpiresAt ?? null,
+    // TASK-39: cargo hold persists with the ship so a server restart
+    // resumes the hold at the same stacks / weightUsed as the last
+    // save. Wrecks don't carry cargo (the destroyed ship has no
+    // payload by spec), so we omit the field on wreck entities.
+    cargo: entity.kind === "wreck" ? undefined : entity.cargo,
   };
 }
 
@@ -349,5 +363,9 @@ function buildPatchForEntity(entity: SimEntity, systemId: string): SaveShipState
     regime: entity.regime,
     onPad: entity.onPad,
     wreckExpiresAt: entity.wreckExpiresAt ?? null,
+    // TASK-39: cargo hold persists with the ship (see comment on
+    // `entityToShipPatch`). The same shape and ordering so the
+    // flush and the synchronous cargo-transfer write agree.
+    cargo: entity.kind === "wreck" ? undefined : entity.cargo,
   };
 }

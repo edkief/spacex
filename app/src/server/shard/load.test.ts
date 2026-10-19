@@ -205,6 +205,8 @@ describe("specToEntityFields + entityIdForSpec", () => {
       originPlanetId: null,
       onPad: null,
       wreckExpiresAt: null,
+      // TASK-39: cargo hold carried by the spec.
+      cargo: { stacks: {}, weightUsed: 0, capacity: 40 },
       kind: "player" as const,
       state: "flying" as const,
     };
@@ -230,6 +232,9 @@ describe("specToEntityFields + entityIdForSpec", () => {
       originPlanetId: null,
       onPad: null,
       wreckExpiresAt: 1_000_000,
+      // TASK-39: wrecks don't carry cargo (the destroyed ship has
+      // no payload by spec) — empty placeholder matches the loader.
+      cargo: { stacks: {}, weightUsed: 0, capacity: 0 },
       kind: "wreck" as const,
       state: "destroyed" as const,
     };

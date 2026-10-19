@@ -46,6 +46,7 @@ import {
 import { EnterShipPrompt, useEnterShipState } from "./components/EnterShipPrompt.js";
 import { InteractionPrompt } from "./components/InteractionPrompt.js";
 import { WeightBar, useOwnInventory } from "./components/WeightBar.js";
+import { CargoPanel, useOwnCargo } from "./components/CargoPanel.js";
 import { RadialMiningProgress } from "./components/RadialMiningProgress.js";
 import { useMiningState } from "./components/useMiningState.js";
 import { useInteractables, useLocalInteractor } from "./components/useInteractables.js";
@@ -369,6 +370,13 @@ export function App(): React.JSX.Element {
   const enterShipState = useEnterShipState();
   // TASK-34: own inventory (drives the WeightBar HUD).
   const ownInventory = useOwnInventory();
+  // TASK-39: own cargo hold (drives the CargoPanel modal).
+  const ownCargo = useOwnCargo();
+  // TASK-39: open state for the cargo panel. The prompt UI in
+  // TASK-33 sets this to `true` when the player presses E on a
+  // docked ship with the "Open cargo" prompt; the panel's
+  // `Esc` close button resets it.
+  const [cargoPanelOpen, setCargoPanelOpen] = useState(false);
   // TASK-38: mining state — server-timed radial progress driven
   // by `mining_update` echoes. The hook is independent of the
   // WS online state so a connection drop cancels the radial via
@@ -452,6 +460,17 @@ export function App(): React.JSX.Element {
           (weightUsed / 40) + per-stack tooltip on hover. Hidden
           until the first `inventory_update` frame lands. */}
       <WeightBar inventory={ownInventory} />
+      {/* TASK-39: cargo transfer modal. Opens via the on-foot
+          "Open cargo" prompt at the docked ship (TASK-33 registry
+          slot). The panel is keyboard-friendly: `Esc` closes via
+          the parent-owned key handler. */}
+      <CargoPanel
+        client={status === "online" ? client : null}
+        inventory={ownInventory}
+        cargo={ownCargo}
+        open={cargoPanelOpen}
+        onClose={() => setCargoPanelOpen(false)}
+      />
       <InteractionPrompt
         interactor={localInteractor}
         interactables={interactables}

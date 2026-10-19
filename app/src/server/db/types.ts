@@ -14,6 +14,7 @@
  */
 import { z } from "zod";
 import type { Inventory as SharedInventory } from "@shared/world/inventory.js";
+import type { CargoHold as SharedCargoHold } from "@shared/world/cargo.js";
 
 /**
  * Ship hull classification per PRD §4.3 — only these three classes exist in
@@ -112,6 +113,14 @@ export interface ShipRow {
   onPad: string | null;
   /** Wall-clock ms epoch when a wreck should be GC'd (TASK-23). */
   wreckExpiresAt: number | null;
+  /**
+   * TASK-39: persistent cargo hold. Lives on the ship (not the
+   * player) so it survives a character disembark/re-entry and
+   * travels with the ship across warp. `null` for pre-TASK-39
+   * rows; the loader replaces NULL with an empty hold sized to the
+   * class-derived capacity.
+   */
+  cargo: SharedCargoHold;
   updatedAt: Date;
 }
 
@@ -238,6 +247,14 @@ export interface SaveShipStateInput {
   onPad?: string | null;
   /** Wreck TTL ms-epoch (TASK-23 + TASK-24). Pass null to clear. */
   wreckExpiresAt?: number | null;
+  /**
+   * TASK-39: persistent cargo hold. Replacing the full shape per
+   * save mirrors the wipe-and-replace pattern used by the
+   * `cargo_items` rows (TASK-62) — the in-memory authoritative
+   * copy is updated by the cargo transfer handler, and the flush
+   * commits the new shape alongside the position / regime patch.
+   */
+  cargo?: SharedCargoHold;
 }
 
 /** Inputs accepted by `saveCargo` — fully replaces the ship's manifest. */

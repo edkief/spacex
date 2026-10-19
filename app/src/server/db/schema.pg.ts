@@ -82,6 +82,8 @@ export const players = pgTable(
  *   regime            — typed enum (ship_regime_pg) | NULL (TASK-24).
  *   on_pad            — text | NULL — pad id when landed (TASK-24).
  *   wreck_expires_at  — timestamptz | NULL — GC for wrecks (TASK-24).
+ *   cargo             — jsonb | NULL — persistent cargo hold (TASK-39).
+ *                       Shape: `{stacks: {resourceId: amount}, weightUsed, capacity}`.
  *   updated_at        — timestamptz, bumped on every write.
  *
  * The four added columns mirror the SQLite migration
@@ -107,6 +109,8 @@ export const ships = pgTable(
     regime: shipRegimePg("regime"),
     onPad: text("on_pad"),
     wreckExpiresAt: timestamp("wreck_expires_at", { withTimezone: true }),
+    // TASK-39: persistent cargo hold (jsonb).
+    cargo: jsonb("cargo"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

@@ -75,6 +75,7 @@ import {
   type PayloadFor,
 } from "@shared/protocol/index.js";
 import type { Inventory } from "@shared/world/inventory.js";
+import type { CargoHold } from "@shared/world/cargo.js";
 
 import { PresenceStore } from "./presence.js";
 import { ChatStore } from "./chat.js";
@@ -285,6 +286,11 @@ export class DriftClient {
    *  polling cadence matches the existing docked-indicator + interaction-
    *  prompt hooks (TASK-29 / TASK-33). */
   private inventory: Inventory | null = null;
+  /** TASK-39: latest known ship cargo hold. The server pushes
+   *  `cargo_update` frames on every transfer; the HUD polls
+   *  `getCargo()` instead of subscribing so the polling cadence
+   *  matches the existing weight-bar / inventory hooks (TASK-34). */
+  private cargo: CargoHold | null = null;
   private status: DriftClientStatus = "idle";
   private playerId: string | null = null;
   private callsign: string | null = null;
@@ -770,12 +776,36 @@ export class DriftClient {
   }
 
   /**
+   * TASK-39: send a `cargo_transfer` request. The server
+   * validates proximity (5 m of own docked ship), ownership,
+   * and the destination cap before persisting either side. The
+   * client mirrors the resulting `cargo_update` ack into the
+   * local cache via `applyCargoUpdate` so the HUD observes the
+   * new shape on its next 250 ms poll.
+   */
+  sendCargoTransfer(resourceId: string, amount: number, from: "inv" | "hold"): void {
+    if (!this.socket || this.socket.readyState !== this.socket.OPEN) {
+      throw new Error("DriftClient: sendCargoTransfer requires an open socket");
+    }
+    this.socket.send(encodeEnvelope("cargo_transfer", { resourceId, amount, from }));
+  }
+
+  /**
    * TASK-34: read the latest known on-foot inventory. Returns
    * `null` until the first `inventory_update` lands; the WeightBar
    * HUD hides itself in that state.
    */
   getInventory(): Inventory | null {
     return this.inventory;
+  }
+
+  /**
+   * TASK-39: read the latest known ship cargo hold. Returns
+   * `null` until the first `cargo_update` lands; the CargoPanel
+   * HUD hides itself in that state.
+   */
+  getCargo(): CargoHold | null {
+    return this.cargo;
   }
 
   /**
@@ -1325,6 +1355,28 @@ export class DriftClient {
         this.inventory = {
           stacks: { ...payload.stacks },
           weightUsed: payload.weightUsed,
+        };
+        return;
+      }
+      case "cargo_update": {
+        // TASK-39: server-pushed cargo hold change. Mirror the
+        // payload into our local cache so the CargoPanel HUD
+        // observes the new hold + the new inventory on its
+        // next 250 ms poll. The ack carries both shapes so a
+        // transfer that mutated the inventory can update the
+        // WeightBar in lockstep without a separate frame.
+        const payload = env.payload as {
+          cargo: { stacks: Record<string, number>; weightUsed: number; capacity: number };
+          inventory: { stacks: Record<string, number>; weightUsed: number };
+        };
+        this.cargo = {
+          stacks: { ...payload.cargo.stacks },
+          weightUsed: payload.cargo.weightUsed,
+          capacity: payload.cargo.capacity,
+        };
+        this.inventory = {
+          stacks: { ...payload.inventory.stacks },
+          weightUsed: payload.inventory.weightUsed,
         };
         return;
       }

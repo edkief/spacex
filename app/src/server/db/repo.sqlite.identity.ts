@@ -39,6 +39,8 @@ import {
 } from "./repo.js";
 import { emptyInventory, validateInventory } from "@shared/world/inventoryOps.js";
 import type { Inventory } from "@shared/world/inventory.js";
+import { cargoHoldFor } from "@shared/world/cargo.js";
+import { validateCargoHold } from "@shared/world/cargoOps.js";
 
 /**
  * Bind player/ship/cargo query methods to the given SQLite database.
@@ -187,6 +189,9 @@ export function bindSqliteIdentity(db: BetterSQLite3Database<typeof sqliteSchema
           regime: null,
           onPad: null,
           wreckExpiresAt: null,
+          // TASK-39: starter ships start with an empty cargo hold
+          // sized to the class-derived capacity.
+          cargo: JSON.stringify(cargoHoldFor(classId)),
         })
         .run();
       const row = await this.findShipById(id);
@@ -275,6 +280,20 @@ export function bindSqliteIdentity(db: BetterSQLite3Database<typeof sqliteSchema
           patch.wreckExpiresAt === null ? null : isoFromMs(patch.wreckExpiresAt);
         update.wreckExpiresAt = wreckExpiresAt;
         merged = { ...merged, wreckExpiresAt: patch.wreckExpiresAt };
+      }
+      // TASK-39: cargo hold persistence. The patch carries the full
+      // shape (mirror of the inventory write — the in-memory
+      // authoritative copy is updated by the cargo transfer handler,
+      // and the flush commits the new shape alongside the position /
+      // regime patch). Validate via the shared guard so a malformed
+      // payload is rejected at the persistence boundary rather than
+      // round-tripping back as a crash on the next load.
+      if (patch.cargo !== undefined) {
+        if (!validateCargoHold(patch.cargo)) {
+          throw new Error("saveShipState: invalid cargo hold shape");
+        }
+        update.cargo = JSON.stringify(patch.cargo);
+        merged = { ...merged, cargo: patch.cargo };
       }
       await db.update(sqliteSchema.ships).set(update).where(eq(sqliteSchema.ships.id, id)).run();
       return merged;

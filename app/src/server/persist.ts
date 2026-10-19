@@ -401,6 +401,12 @@ export function materialiseShip(input: {
   onPad?: ShipRow["onPad"];
   /** Optional wreck TTL ms-epoch (TASK-24). Defaults to null. */
   wreckExpiresAt?: ShipRow["wreckExpiresAt"];
+  /**
+   * TASK-39: persistent cargo hold. The loader rebuilds the
+   * shape from the JSON column; a fresh row falls back to an
+   * empty hold sized to the class-derived capacity.
+   */
+  cargo?: ShipRow["cargo"];
 }): ShipRow {
   const velocity = input.velocity ?? { x: 0, y: 0, z: 0 };
   return {
@@ -420,6 +426,14 @@ export function materialiseShip(input: {
     regime: input.regime ?? null,
     onPad: input.onPad ?? null,
     wreckExpiresAt: input.wreckExpiresAt ?? null,
+    // TASK-39: cargo hold defaults to the class-derived empty shape so
+    // pre-TASK-39 callers don't need to thread it through.
+    cargo:
+      input.cargo ??
+      // Lazily import to keep this module free of the cargo catalog at
+      // type-check time (the helper is only used for the synthetic
+      // round-trip).
+      ({ stacks: {}, weightUsed: 0, capacity: 0 } as ShipRow["cargo"]),
     // The `updatedAt` is overwritten by `saveShipState` so this value is
     // only used by callers that want a synthetic timestamp for tests.
     updatedAt: new Date(0),

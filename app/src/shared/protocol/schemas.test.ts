@@ -144,6 +144,16 @@ const VALID_PAYLOADS: Record<MessageType, () => unknown> = {
     state: "mining",
   }),
   sell: () => ({ resourceType: "iron", quantity: 5 }),
+  cargo_transfer: () => ({ resourceId: "iron", amount: 5, from: "inv" }),
+  cargo_update: () => ({
+    cargo: { stacks: { iron: 5 }, weightUsed: 5, capacity: 40 },
+    inventory: { stacks: {}, weightUsed: 0, capacity: 40 },
+    direction: "inv",
+    resourceId: "iron",
+    transferred: 5,
+    remaining: 0,
+    action: "move-to-hold",
+  }),
   buy_ship: () => ({ classId: "freighter" }),
   set_livery: () => ({
     primary: "#102030",
@@ -273,6 +283,16 @@ const INVALID_PAYLOADS: Record<MessageType, () => unknown> = {
     state: "mining",
   }),
   sell: () => ({ resourceType: "", quantity: 0 }), // zero/negative quantity
+  cargo_transfer: () => ({ resourceId: "iron", amount: 0, from: "inv" }), // zero amount
+  cargo_update: () => ({
+    cargo: { stacks: { iron: -1 }, weightUsed: 0, capacity: 40 }, // negative stack
+    inventory: { stacks: {}, weightUsed: 0, capacity: 40 },
+    direction: "sideways", // bad enum
+    resourceId: "iron",
+    transferred: 0,
+    remaining: 0,
+    action: "move-to-hold",
+  }),
   buy_ship: () => ({ classId: "corvette" }), // unknown class
   set_livery: () => ({ primary: "red", secondary: "#abcdef", accent: "#f0f0f0" }), // bad hex
   exit_ship: () => ({ extra: true }), // strict forbids extra keys

@@ -41,6 +41,7 @@ import type { ProtocolShipClassId } from "@shared/protocol/index.js";
 import type { ShipPosition, ShipQuaternion, ShipRegime, ShipRow, ShipState } from "../db/types.js";
 import type { Repository } from "../db/repo.js";
 import type { SimEntity } from "./types.js";
+import type { CargoHold } from "@shared/world/cargo.js";
 
 /**
  * The shape returned by `loadShipsForShard`. Each entry carries
@@ -69,6 +70,8 @@ export interface SimEntitySpec {
   readonly kind: SimEntity["kind"];
   /** Persisted lifecycle state (forward-compat for TASK-25 regime transitions). */
   readonly state: ShipState;
+  /** TASK-39: persistent cargo hold loaded from the ships.cargo JSON column. */
+  readonly cargo: CargoHold;
 }
 
 /**
@@ -149,6 +152,12 @@ export function shipRowToEntitySpec(row: ShipRow): SimEntitySpec {
     wreckExpiresAt: row.wreckExpiresAt,
     kind,
     state: row.state,
+    // TASK-39: persistent cargo hold travels with the ship. Wrecks
+    // don't carry cargo by spec — `shipRow.cargo` is still defined
+    // (the mapper always normalises it), but we explicitly skip the
+    // payload for the wreck path so the broadcast doesn't advertise
+    // it.
+    cargo: kind === "wreck" ? { stacks: {}, weightUsed: 0, capacity: 0 } : row.cargo,
   };
 }
 

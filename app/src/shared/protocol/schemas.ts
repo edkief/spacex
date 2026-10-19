@@ -607,6 +607,85 @@ export const SellSchema = z
   })
   .strict();
 
+/**
+ * `cargo_transfer` — TASK-39. The on-foot player triggers a move
+ * between their backpack and the docked ship's cargo hold.
+ *
+ *   - `resourceId` — the resource stack being moved (validated
+ *                   against the shared inventory catalog at the
+ *                   server boundary; the wire shape is free-form so
+ *                   the catalog can grow without a protocol bump).
+ *   - `amount`     — positive integer; partial moves land when
+ *                   the destination cap is reached (the handler
+ *                   reports `transferred` + `remaining` in the
+ *                   `cargo_update` ack).
+ *   - `from`       — `'inv'` moves inventory → cargo hold;
+ *                   `'hold'` moves cargo hold → inventory. The
+ *                   source must own the full `amount` (a partial
+ *                   ownership row surfaces as `insufficient-amount`).
+ *
+ * The server validates proximity (5 m of own docked ship),
+ * ownership, and the destination cap before persisting either
+ * shape. Both writes are atomic: a crash between the inventory
+ * and cargo save rolls back the inventory (the hold update is the
+ * second write; the DB doesn't expose a cross-table transaction
+ * to the repository, but `saveInventory` / `saveShipState` are
+ * each one UPDATE, so a crash window is bounded to the time
+ * between two consecutive writes — and the spec accepts that
+ * for v1 with the documented "no infinite recovery" trade-off).
+ */
+export const CargoTransferSchema = z
+  .object({
+    resourceId: z.string().min(1),
+    amount: z.number().int().positive(),
+    from: z.enum(["inv", "hold"]),
+  })
+  .strict();
+
+/**
+ * `cargo_update` — TASK-39. Server-pushed ack for a successful
+ * `cargo_transfer`. Carries the new hold + inventory shapes so
+ * the client HUD can render both side by side without a second
+ * round-trip. The `action` discriminator drives the toast
+ * feedback ("Loaded into hold" / "Unloaded to backpack") so the
+ * client doesn't have to interpret the direction field twice.
+ *
+ *   - `direction`   — echoes the request's `from` so a client
+ *                     can correlate the ack with its own in-
+ *                     flight transfer id (future TASK-58
+ *                     multi-slot UI).
+ *   - `transferred` — how many units actually moved (≤
+ *                     `amount`). A partial move is intentional:
+ *                     the destination cap reached before the
+ *                     full stack fit, the remainder stays in
+ *                     the source.
+ *   - `remaining`   — units that DIDN'T fit (0 on full
+ *                     transfers, > 0 on partial).
+ */
+export const CargoUpdateSchema = z
+  .object({
+    cargo: z
+      .object({
+        stacks: z.record(z.string(), z.number().int().nonnegative()),
+        weightUsed: z.number().finite().nonnegative(),
+        capacity: z.number().int().positive(),
+      })
+      .strict(),
+    inventory: z
+      .object({
+        stacks: z.record(z.string(), z.number().int().nonnegative()),
+        weightUsed: z.number().finite().nonnegative(),
+        capacity: z.number().int().positive(),
+      })
+      .strict(),
+    direction: z.enum(["inv", "hold"]),
+    resourceId: z.string().min(1),
+    transferred: z.number().int().nonnegative(),
+    remaining: z.number().int().nonnegative(),
+    action: z.enum(["move-to-hold", "move-to-inventory"]),
+  })
+  .strict();
+
 /** `buy_ship` — dock purchase action (TASK-20). */
 export const BuyShipSchema = z
   .object({
@@ -836,6 +915,8 @@ export const PAYLOAD_SCHEMAS = {
   mine_stop: MineStopSchema,
   mining_update: MiningUpdateSchema,
   sell: SellSchema,
+  cargo_transfer: CargoTransferSchema,
+  cargo_update: CargoUpdateSchema,
   buy_ship: BuyShipSchema,
   set_livery: SetLiverySchema,
   exit_ship: ExitShipSchema,

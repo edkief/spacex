@@ -33,6 +33,7 @@ import type { FlightPad } from "@shared/physics/types.js";
 import type { ProtocolEntityState, ProtocolShipClassId } from "@shared/protocol/index.js";
 import type { ChatRingBuffer } from "../chat.js";
 import type { ShipRow } from "../db/types.js";
+import type { CargoHold } from "@shared/world/cargo.js";
 
 import type { SimLoop, SimLoopStats } from "./sim.js";
 
@@ -252,6 +253,15 @@ export interface SimEntity {
    * despawn. Set on `groundItem` only; the cleanup loop reads it.
    */
   expiresAtMs?: number;
+  /**
+   * TASK-39: persistent cargo hold carried by player / AI ship
+   * entities. The field is the source of truth for the
+   * authoritative in-memory copy and is mirrored to the wire as
+   * `cargo_update`. Always present on `player` + `ai` entities;
+   * `undefined` on `character` / `deposit` / `terminal` /
+   * `groundItem` / `wreck` (a wreck doesn't carry cargo by spec).
+   */
+  cargo?: CargoHold;
 }
 
 /**
@@ -421,7 +431,8 @@ export type ConnSender = (
     | { type: "ui_open"; payload: unknown }
     | { type: "inventory_update"; payload: unknown }
     | { type: "enter_ship_ok"; payload: unknown }
-    | { type: "mining_update"; payload: unknown },
+    | { type: "mining_update"; payload: unknown }
+    | { type: "cargo_update"; payload: unknown },
 ) => void;
 
 /**

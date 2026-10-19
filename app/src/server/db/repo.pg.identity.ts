@@ -41,6 +41,8 @@ import {
 } from "./repo.js";
 import { emptyInventory, validateInventory } from "@shared/world/inventoryOps.js";
 import type { Inventory } from "@shared/world/inventory.js";
+import { cargoHoldFor } from "@shared/world/cargo.js";
+import { validateCargoHold } from "@shared/world/cargoOps.js";
 
 /**
  * Bind player/ship/cargo query methods to the given Postgres database.
@@ -169,6 +171,9 @@ export function bindPgIdentity(db: NodePgDatabase<typeof pgSchema>): {
           regime: null,
           onPad: null,
           wreckExpiresAt: null,
+          // TASK-39: starter ships start with an empty cargo hold sized
+          // to the class-derived capacity.
+          cargo: cargoHoldFor(classId),
         })
         .returning();
       const first = rows[0];
@@ -215,6 +220,16 @@ export function bindPgIdentity(db: NodePgDatabase<typeof pgSchema>): {
       if (patch.wreckExpiresAt !== undefined) {
         update.wreckExpiresAt =
           patch.wreckExpiresAt === null ? null : new Date(patch.wreckExpiresAt);
+      }
+      // TASK-39: cargo hold persistence — full-shape replace so the
+      // flush is one column UPDATE per save. Same zod guard as the
+      // SQLite path so a malformed payload can't round-trip back as a
+      // load-time crash.
+      if (patch.cargo !== undefined) {
+        if (!validateCargoHold(patch.cargo)) {
+          throw new Error("saveShipState: invalid cargo hold shape");
+        }
+        update.cargo = patch.cargo;
       }
       const rows = await db
         .update(pgSchema.ships)

@@ -28,6 +28,8 @@ import {
 import { emptyInventory, validateInventory } from "@shared/world/inventoryOps.js";
 import type { Inventory } from "@shared/world/inventory.js";
 import { parseDate, parseJsonField } from "./repo.helpers.js";
+import { cargoHoldFor, type CargoHold } from "@shared/world/cargo.js";
+import { validateCargoHold } from "@shared/world/cargoOps.js";
 
 /** Raw shape of a `players` row straight from better-sqlite3. */
 export interface SqlitePlayerRaw {
@@ -42,10 +44,11 @@ export interface SqlitePlayerRaw {
 
 /** Raw shape of a `ships` row straight from better-sqlite3.
  *
- * The TASK-24 additions (quat / regime / on_pad / wreck_expires_at) are
- * stored as nullable TEXT so a SELECT against a pre-TASK-24 row returns
- * `null` here and the mapper can fill in safe defaults (identity quat,
- * null regime, null pad, null expiry).
+ * The TASK-24 additions (quat / regime / on_pad / wreck_expires_at) and
+ * the TASK-39 `cargo` column are stored as nullable TEXT so a SELECT
+ * against a pre-TASK-24 / pre-TASK-39 row returns `null` here and the
+ * mapper can fill in safe defaults (identity quat, null regime/pad/
+ * expiry, empty cargo hold sized to the class).
  */
 export interface SqliteShipRaw {
   id: string;
@@ -61,6 +64,7 @@ export interface SqliteShipRaw {
   regime?: string | null;
   onPad?: string | null;
   wreckExpiresAt?: string | null;
+  cargo?: string | null;
   updatedAt: string;
 }
 
@@ -107,6 +111,36 @@ function readInventoryColumn(raw: unknown): Inventory {
   return emptyInventory();
 }
 
+/**
+ * TASK-39: read the persisted `cargo` column (or default to an
+ * empty hold sized to the class). The column is nullable for
+ * pre-TASK-39 rows; the loader replaces `null` / malformed JSON
+ * with an empty hold using the class-derived capacity so a server
+ * upgrade runs unmigrated rows without losing ownership.
+ *
+ * The class id is required so the default capacity is correct even
+ * when the row carries no cargo yet.
+ */
+function readCargoColumn(raw: unknown, classId: ShipClassId): CargoHold {
+  if (raw === null || raw === undefined) return cargoHoldFor(classId);
+  try {
+    const parsed = JSON.parse(String(raw));
+    if (validateCargoHold(parsed)) {
+      // Always honour the *current* class-derived capacity — a
+      // persisted hold from a different class (e.g. after a
+      // TASK-20 purchase that replaced the ship row in place)
+      // shouldn't carry a stale cap. The stacks + weight survive.
+      return {
+        ...parsed,
+        capacity: cargoHoldFor(classId).capacity,
+      };
+    }
+  } catch {
+    // fall through
+  }
+  return cargoHoldFor(classId);
+}
+
 /** Map a raw players row to the driver-agnostic shape. */
 export function mapPlayer(raw: SqlitePlayerRaw | Record<string, unknown>): PlayerRow {
   return {
@@ -141,6 +175,9 @@ export function mapShip(raw: SqliteShipRaw | Record<string, unknown>): ShipRow {
       raw.wreckExpiresAt === null || raw.wreckExpiresAt === undefined
         ? null
         : parseDate(raw.wreckExpiresAt).getTime(),
+    // TASK-39: persistent cargo hold; defaults to an empty hold sized
+    // to the class-derived capacity.
+    cargo: readCargoColumn(raw.cargo, raw.classId as ShipClassId),
     updatedAt: parseDate(raw.updatedAt),
   };
 }

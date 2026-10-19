@@ -64,6 +64,10 @@ const players = sqliteTable(
  *   regime            — space | atmosphere | surface | NULL (TASK-24).
  *   on_pad            — landing pad id when landed; NULL otherwise (TASK-24).
  *   wreck_expires_at  — wall-clock ISO ms when a wreck should be GC'd (TASK-24).
+ *   cargo             — JSON `{stacks: {resourceId: amount}, weightUsed, capacity}`
+ *                       carrying the persistent cargo hold (TASK-39). NULL for
+ *                       pre-TASK-39 rows; the loader replaces NULL with an empty
+ *                       hold sized to the class-derived capacity.
  *   updated_at        — wall-clock at last write.
  *
  * The quat / regime / on_pad / wreck_expires_at columns were added in
@@ -91,6 +95,8 @@ const ships = sqliteTable(
     regime: text("regime"),
     onPad: text("on_pad"),
     wreckExpiresAt: text("wreck_expires_at"),
+    // TASK-39: persistent cargo hold column (TEXT — JSON serialised).
+    cargo: text("cargo"),
     updatedAt: text("updated_at")
       .notNull()
       .default(sql`(CURRENT_TIMESTAMP)`),

@@ -25,6 +25,7 @@
 import { quatRotateVector, type Vec3 } from "@shared/physics/vec.js";
 import { SHIP_CLASSES, type ShipClassId } from "@shared/ships.js";
 import type { ProtocolEntityState, ProtocolShipClassId } from "@shared/protocol/index.js";
+import { cargoHoldFor, type CargoHold } from "@shared/world/cargo.js";
 
 import type { SimEntity } from "./types.js";
 
@@ -75,7 +76,16 @@ export function makePlayerEntity(args: {
   regime: SimEntity["regime"];
   originPlanetId: string | null;
   onPad: string | null;
+  /**
+   * TASK-39: cargo hold carried by the ship. Defaults to an empty
+   * hold sized to the class-derived capacity when the caller
+   * doesn't supply it (e.g. the `spawnShip` test path that
+   * exercises ship-only behaviour without the inventory+hold
+   * dance).
+   */
+  cargo?: CargoHold;
 }): SimEntity {
+  const cargo: CargoHold = args.cargo ?? cargoHoldFor(args.classId);
   return {
     id: args.id,
     kind: "player",
@@ -91,6 +101,7 @@ export function makePlayerEntity(args: {
     regime: args.regime,
     originPlanetId: args.originPlanetId,
     onPad: args.onPad,
+    cargo,
   };
 }
 
@@ -121,6 +132,11 @@ export function makeAiEntity(args: {
     regime: "space",
     originPlanetId: null,
     onPad: null,
+    // TASK-39: AI ships can carry cargo too (e.g. a derelict
+    // freighter with a hold full of ore). Fresh mints default to
+    // an empty hold sized to the class so the wire / persisted
+    // shape stays dense.
+    cargo: cargoHoldFor(args.classId),
   };
 }
 

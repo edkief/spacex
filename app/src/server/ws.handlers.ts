@@ -32,6 +32,7 @@ import { handleInteract } from "./shard/interact.js";
 import type { InteractAction } from "@client/input/interaction.js";
 import { handlePickup, handleDrop } from "./shard/inventory.js";
 import { handleMineStart, handleMineStop, pushMiningUpdate } from "./shard/mining.js";
+import { handleCargoTransfer, pushCargoUpdate } from "./shard/cargo.js";
 import { sendError, sendFrame } from "./ws.dispatch.helpers.js";
 import { INVENTORY_WEIGHT_CAP, type Inventory } from "@shared/world/inventory.js";
 import type { ProtocolInventoryUpdate } from "@shared/protocol/index.js";
@@ -753,6 +754,101 @@ function sendInventoryUpdate(
     action: meta.action,
     taken: meta.taken,
     remaining: meta.remaining,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// onCargoTransfer — TASK-39 inventory ↔ hold transfer
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle a `cargo_transfer { resourceId, amount, from }` frame from
+ * a `joined`-state connection.
+ *
+ * The flow:
+ *   1. Locate the shard (via `options.shardFor`).
+ *   2. Delegate to `handleCargoTransfer(shard, repo, args)` which:
+ *      - enforces `conn.entityId` is a character (else `wrong-regime`),
+ *      - resolves the ship's id via the character's `onShipId`
+ *        (else `not-found`),
+ *      - validates ownership (`ship.playerId === conn.playerId`),
+ *      - validates the 5 m proximity bound (server-authoritative),
+ *      - validates the resource id + amount,
+ *      - applies the cap-bound math (`take what fits`),
+ *      - persists inventory + cargo,
+ *      - mirrors the new hold into the in-memory entity.
+ *   3. On success: emit `cargo_update` carrying the new hold +
+ *      inventory so the client HUD reflects the change on the same
+ *      frame the server committed.
+ *   4. On rejection: emit a structured `error` frame. Codes map to
+ *      wire error codes as follows:
+ *        - `wrong-regime`        → `wrong-regime`
+ *        - `not-found`           → `not-found`
+ *        - `unknown-resource`    → `invalid-message`
+ *        - `not-owner`           → `not-owner`
+ *        - `out-of-range`        → `out-of-range`
+ *        - `insufficient-amount` → `invalid-message`
+ *        - `inventory-full`      → `invalid-message`
+ *        - `cargo-full`          → `invalid-message`
+ *        - `invalid-amount`      → `invalid-message`
+ *        - `ship-not-docked`     → `not-found`
+ */
+export async function onCargoTransfer(
+  conn: Connection,
+  options: WsHandleOptions,
+  payload: unknown,
+): Promise<void> {
+  const shard = options.shardFor?.(conn);
+  if (!shard) {
+    sendError(conn, "unauthenticated", "cargo_transfer requires a joined system");
+    return;
+  }
+  if (!options.repo) {
+    sendError(conn, "not-found", "Cargo backend unavailable");
+    return;
+  }
+  const p = payload as {
+    resourceId: string;
+    amount: number;
+    from: "inv" | "hold";
+  };
+  const result = await handleCargoTransfer(shard, options.repo, {
+    connId: conn.connId,
+    resourceId: p.resourceId,
+    amount: p.amount,
+    from: p.from,
+  });
+  if (!result.ok) {
+    let wireCode: "invalid-message" | "wrong-regime" | "not-found" | "not-owner" | "out-of-range";
+    switch (result.code) {
+      case "wrong-regime":
+        wireCode = "wrong-regime";
+        break;
+      case "not-owner":
+        wireCode = "not-owner";
+        break;
+      case "out-of-range":
+        wireCode = "out-of-range";
+        break;
+      case "not-found":
+      case "ship-not-docked":
+        wireCode = "not-found";
+        break;
+      default:
+        wireCode = "invalid-message";
+        break;
+    }
+    sendError(conn, wireCode, result.message);
+    return;
+  }
+  pushCargoUpdate(shard, conn.connId, {
+    cargo: result.cargo,
+    inventory: result.inventory,
+    direction: result.direction,
+    resourceId: result.resourceId,
+    transferred: result.transferred,
+    remaining: result.remaining,
+    action: result.direction === "inv" ? "move-to-hold" : "move-to-inventory",
   });
 }
 

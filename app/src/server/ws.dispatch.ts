@@ -67,6 +67,7 @@ import type {
 import { closeFloodedConnection, sendError, sendFrame } from "./ws.dispatch.helpers.js";
 import {
   onAuth,
+  onCargoTransfer,
   onChat,
   onDrop,
   onEnterShip,
@@ -460,6 +461,16 @@ async function dispatch(
         // `mine_stop` frame, so this is the dominant release
         // path.
         onMineStop(conn, options, payload);
+        return;
+      }
+      if (type === "cargo_transfer") {
+        // TASK-39: on-foot player moves resources between their
+        // backpack and the docked ship's cargo hold. The handler
+        // validates proximity (5 m of own ship), ownership, and
+        // destination cap before persisting either side. Success
+        // emits a `cargo_update` ack carrying the new hold +
+        // inventory; failure emits a structured `error` frame.
+        await onCargoTransfer(conn, options, payload);
         return;
       }
       // Future tasks route `sell`, etc. to the system

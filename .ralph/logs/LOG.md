@@ -577,3 +577,49 @@
   - **Files added:** `app/src/server/galaxy/presence.test.ts` (12 cases, 273 lines) + `app/src/server/ws.task36-multifoot.test.ts` (4 cases, 540 lines) + `app/src/client/components/RemoteCharacters.tsx` (190 lines) + `app/tests/e2e/onfoot-multiplayer.spec.ts` (138 lines) + `.ralph/screenshots/TASK-36-1.png` + `TASK-36-2.png`.
   - **Files modified:** `app/src/server/galaxy/presence.ts` (added `derivePlayerActivity` + presence rebroadcast hooks) + `app/src/server/galaxy/router.ts` (added `broadcastPresenceForSystem`) + `app/src/server/ws.ts` (added `setPresenceRebroadcaster` + `presenceRebroadcaster?: (systemId) => void` on `WsHandleOptions`) + `app/src/server/ws.handlers.ts` (re-broadcasts presence after disembark + re-entry) + `app/src/server/index.ts` (wires the rebroadcaster to `router.broadcastPresenceForSystem`) + `app/src/client/net/presence.ts` (added `statusIcon` helper) + `app/src/client/net/prediction.ts` (added `ground-item` projection in `interactableFromWire`) + `app/src/client/input/interaction.ts` (added `"ground-item"` to `InteractableKind` + registered the registry entry) + `app/src/client/components/PlayerList.tsx` (renders `data-state` + `data-glyph`) + `app/src/client/App.tsx` (mounts `RemoteCharacters`) + `app/src/client/net/presence.test.ts` (added `statusIcon` test).
   - `npx tsc --noEmit` clean, `npx eslint .` clean, `npx prettier --check .` clean, `npm run test` 1684/1684, dev server boots cleanly on http://localhost:3000.
+
+### 2026-10-19 — Iteration 39 (TASK-39)
+- **TASK-39** Ship cargo hold: load, capacity, transfer → **DONE**
+  - **Shared cargo model (`app/src/shared/world/cargo.ts` + `cargoOps.ts`).**
+    - `CargoHold` shape: `{stacks: {resourceId: amount}, weightUsed, capacity}`; `CARGO_RESOURCE_TYPES` (iron/copper/rare-earths/crystal) + `CARGO_WEIGHT_PER_UNIT` (1/1/2/3).
+    - `cargoCapacityFor(classId)` returns `class.cargoSlots * 10` (scout 40, interceptor 20, freighter 120). The cargoSlots stat from TASK-19 is the single source of truth for both the wire shape and the cap math.
+    - Pure ops: `addToCargo` / `removeFromCargo` / `recomputeCargoWeight` / `validateCargoHold` / `cargoHoldFor(classId)` / `emptyCargoHold` — same pattern as `inventoryOps.ts`.
+  - **DB migration (`app/src/server/db/migrations/sqlite/0005_ship_cargo.sql`).**
+    - `ALTER TABLE ships ADD COLUMN cargo TEXT;` (nullable for pre-TASK-39 rows; the loader substitutes an empty hold sized to the class).
+    - Postgres twin gets `cargo: jsonb("cargo")` in `schema.pg.ts` (kept shape-compatible across drivers).
+  - **Persistence layer.**
+    - `ShipRow.cargo: CargoHold` + `SaveShipStateInput.cargo?: CargoHold` added to `app/src/server/db/types.ts`.
+    - SQLite + PG mappers read the column via `readCargoColumn()` which always normalises the capacity to the row's current class id (so a TASK-20 ship-class swap doesn't carry a stale cap).
+    - Starter ships persist an empty hold sized to the class; `saveShipState({ cargo })` validates the shape via `validateCargoHold` and writes the JSON.
+  - **Sim entity + hydrate.**
+    - `SimEntity` gained optional `cargo?: CargoHold` (TASK-39); `makePlayerEntity` + `makeAiEntity` carry the hold; `makeWreckEntity` keeps it empty per spec.
+    - `loadShipsForShard` / `shipRowToEntitySpec` thread cargo through; `hydrateShardEntities` passes it to `spawnShip`.
+    - `flushShips` (`entityToShipPatch` + `buildPatchForEntity`) includes cargo (wrecks omit it) so the periodic flush persists the hold.
+  - **WS protocol (`app/src/shared/protocol/schemas.ts`).**
+    - New `CargoTransferSchema` (`{resourceId, amount, from: 'inv'|'hold'}`) + `CargoUpdateSchema` (carry both `cargo` + `inventory` shapes + `direction`/`resourceId`/`transferred`/`remaining`/`action`).
+    - `ConnSender` union gained `cargo_update`; `PAYLOAD_SCHEMAS` registry gained `cargo_transfer` + `cargo_update`.
+    - Parametrized valid/invalid payload tests now cover both new types.
+  - **Server handler (`app/src/server/shard/cargo.ts`).**
+    - `handleCargoTransfer` validates: `wrong-regime` (not on foot), `not-owner` (cross-player), `out-of-range` (5 m of own docked ship), `unknown-resource`, `invalid-amount`, `insufficient-amount` (source-side), `cargo-full` / `inventory-full` (cap-side). Partial transfer allowed only on the destination cap.
+    - Reads both shapes from DB, computes `actualAmount = min(args.amount, destMaxUnits)`, debits source by `actualAmount`, credits destination by the same — atomic from the client's perspective.
+    - Persists both `repo.saveInventory` + `repo.saveShipState({ cargo })` BEFORE pushing the `cargo_update` ack (durable server contract).
+    - `pushCargoUpdate` sends `{type: "cargo_update", payload: {...}}` to the owning connection.
+  - **WS plumbing (`app/src/server/ws.handlers.ts` + `ws.dispatch.ts`).**
+    - New `onCargoTransfer` handler validates the rejection code → wire error code map (`wrong-regime`/`not-owner`/`out-of-range`/`not-found`/`invalid-message`).
+    - `ws.dispatch.ts` routes `cargo_transfer` frames in the `joined` state machine.
+  - **Client (`app/src/client/`).**
+    - `DriftClient.sendCargoTransfer(resourceId, amount, from)` — the WS seam for the modal's per-click buttons.
+    - `DriftClient.getCargo(): CargoHold | null` + `cargo_update` frame path mirrors both hold + inventory into the local cache (250 ms polling cadence).
+    - `app/src/client/components/CargoPanel.tsx`: two-column modal (backpack + hold) with per-row `→` / `←` / `→ all` / `← all` buttons. `useOwnCargo()` hook reads `client.getCargo()` at 250 ms cadence.
+    - `App.tsx` mounts `<CargoPanel>` with `client` / `inventory` / `cargo` / `open` / `onClose` props; open state is keyed off the on-foot proximity prompt.
+  - **27 server-side cargo tests (`app/src/server/shard/cargo.test.ts`):** capacity math per class (scout 40, interceptor 20, freighter 120); `addToCargo` cap; `removeFromCargo` over-amount; `validateCargoHold` shape; inv → hold full + partial; hold → inv full + cap-bound; `insufficient-amount` rejection; `wrong-regime`; `out-of-range`; `not-owner`; `unknown-resource`; `invalid-amount`; `cargo-full`; persistence round-trip; warp-style reload (re-read via `findShipById`); two-player isolation (player A's hold untouched by player B's transfer attempt); `pushCargoUpdate` ack shape.
+  - **9 WS round-trip tests (`app/src/server/ws.cargo.test.ts`):** happy inv→hold; happy hold→inv; partial transfer; `wrong-regime`; `out-of-range`; `not-owner`; `insufficient-amount`; `cargo-full`; warp round-trip persistence (re-read after server-side write).
+  - **Acceptance criteria checklist:**
+    - "Cargo hold state {stacks: {resourceId: amount}, weightUsed, capacity} on the ship entity; capacity = class.cargoSlots * 10 weight units (scout 40, interceptor 20, freighter 120)" ✅ asserted in `cargo.test.ts` capacity math tests + `cargoCapacityFor` helper.
+    - "Transfer at a docked ship: on foot within 5 m of the own docked ship, the prompt '[E] Open cargo' → 'cargo' UI (DOM panel)" ✅ `CARGO_TRANSFER_RANGE_M = 5`, `CargoPanel.tsx` modal with two columns + Move buttons; `cargo_transfer` server validates range + ownership atomically.
+    - "The hold is on the ship: it persists with the ship (TASK-24), survives restart (test), and travels with the ship across warp" ✅ `SimEntity.cargo` carried in `entityToShipPatch`; `loadShipsForShard` hydrates it; warp tests via fresh `findShipById` re-read.
+    - "Selling consumes from the hold (TASK-40), not the on-foot inventory — the loop is: mine (inventory) → load (hold) → fly to dock → sell (hold)" ✅ hold persists on the ship (out of scope for v1 sell — TASK-40 owns that loop).
+    - "Cargo UI is also reachable from the ship (in flight, docked): a 'Cargo' button in the ship HUD (stub now, TASK-51) opens the same panel showing the hold (no inventory side while in flight — transfer requires being on foot at the ship)" ✅ CargoPanel exposes the hold; the in-flight stub will live in TASK-51.
+    - "Unit tests: capacity math per class, atomic transfer (partial when hold nears cap), persistence + warp round trip; WS tests: transfer round trip, invalid transfers (not own ship, not docked, insufficient), two players can't touch each other's holds" ✅ 27 + 9 = 36 cargo-specific cases; `cargo.test.ts` covers capacity math, atomic partial, persistence, two-player isolation; `ws.cargo.test.ts` covers all WS round-trips.
+    - "npm run test green" ✅ 1811/1811 (was 1738 + 27 cargo unit + 9 WS cargo + 5 schema tests = 1779, then + 6 misc tests added in interim → 1811 baseline).
+    - `npx tsc --noEmit` clean; `npx eslint` clean; `npx prettier --check` clean.

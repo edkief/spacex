@@ -26,6 +26,8 @@ import {
 import { parseDate, parseJsonField } from "./repo.helpers.js";
 import { emptyInventory, validateInventory } from "@shared/world/inventoryOps.js";
 import type { Inventory } from "@shared/world/inventory.js";
+import { cargoHoldFor, type CargoHold } from "@shared/world/cargo.js";
+import { validateCargoHold } from "@shared/world/cargoOps.js";
 
 /**
  * Read the persisted `inventory` jsonb column (or default to empty).
@@ -37,6 +39,20 @@ function readInventoryColumn(raw: unknown): Inventory {
   if (raw === null || raw === undefined) return emptyInventory();
   if (validateInventory(raw)) return raw;
   return emptyInventory();
+}
+
+/**
+ * TASK-39: read the persisted `cargo` jsonb column (or default to
+ * an empty hold sized to the class). Null and malformed payloads
+ * fall back to an empty hold; a valid hold is normalised so the
+ * `capacity` matches the row's current class id.
+ */
+function readCargoColumn(raw: unknown, classId: ShipClassId): CargoHold {
+  if (raw === null || raw === undefined) return cargoHoldFor(classId);
+  if (validateCargoHold(raw)) {
+    return { ...raw, capacity: cargoHoldFor(classId).capacity };
+  }
+  return cargoHoldFor(classId);
 }
 
 /** Map a raw players row to the driver-agnostic shape. */
@@ -75,6 +91,9 @@ export function mapShip(raw: Record<string, unknown>): ShipRow {
       raw.wreckExpiresAt === null || raw.wreckExpiresAt === undefined
         ? null
         : parseDate(raw.wreckExpiresAt).getTime(),
+    // TASK-39: persistent cargo hold; defaults to an empty hold sized
+    // to the class-derived capacity.
+    cargo: readCargoColumn(raw.cargo, raw.classId as ShipClassId),
     updatedAt: parseDate(raw.updatedAt),
   };
 }

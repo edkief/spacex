@@ -32,6 +32,7 @@ import { EventEmitter } from "node:events";
 
 import { ENTER_SHIP_MAX_VELOCITY_U_S, ENTER_SHIP_RANGE_M } from "@shared/world/enterShip.js";
 import type { ProtocolEntityState, ProtocolShipClassId } from "@shared/protocol/index.js";
+import type { CargoHold } from "@shared/world/cargo.js";
 import { ChatRingBuffer, type ChatEntry } from "../chat.js";
 
 import {
@@ -212,6 +213,13 @@ export function spawnShip(
     regime?: SimEntity["regime"];
     originPlanetId?: string | null;
     onPad?: string | null;
+    /**
+     * TASK-39: cargo hold carried by the ship. Optional —
+     * defaults to an empty hold sized to the class. The hydrate
+     * path threads the persisted `ShipRow.cargo` here so a restart
+     * resumes the hold at the last saved shape.
+     */
+    cargo?: CargoHold;
     /** Connection id to bind the entity to. If omitted, the entity stays orphaned. */
     bindConnId?: string;
   },
@@ -239,6 +247,7 @@ export function spawnShip(
     regime: args.regime ?? "space",
     originPlanetId: args.originPlanetId ?? null,
     onPad: args.onPad ?? null,
+    cargo: args.cargo,
   });
   shard.entities.set(id, entity);
   if (args.bindConnId !== undefined) {

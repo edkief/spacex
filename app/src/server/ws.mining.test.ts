@@ -69,7 +69,8 @@ interface ShardLike {
         | "ui_open"
         | "inventory_update"
         | "enter_ship_ok"
-        | "mining_update";
+        | "mining_update"
+        | "cargo_update";
       payload: unknown;
     },
   ) => void;

@@ -105,6 +105,11 @@ export async function hydrateShardEntities(
       regime: fields.regime,
       originPlanetId: spec.originPlanetId,
       onPad: spec.onPad,
+      // TASK-39: persist the cargo hold across restarts. The
+      // simulator's in-memory authoritative copy is the spec's
+      // `cargo`, so the hydrate wires it directly into the entity
+      // factory.
+      cargo: spec.cargo,
     });
   }
 }
