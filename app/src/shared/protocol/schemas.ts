@@ -1152,6 +1152,26 @@ export const CombatEventSchema = z.discriminatedUnion("kind", [
       tick: z.number().int().nonnegative(),
     })
     .strict(),
+  // TASK-46: an AI has begun its 1 s acquire timer on a player.
+  // Pushed directly to the targeted player's connection via
+  // `shard.send` so the local HUD can render an "ACQUIRING" toast.
+  // Wire-level source attribution mirrors the `damaged` /
+  // `destroyed` events so the client-side parser can reuse the
+  // same code path.
+  z
+    .object({
+      kind: z.literal("ai_acquiring"),
+      source: z
+        .object({
+          kind: z.literal("ai"),
+          id: z.string().min(1),
+          callsign: z.string().nullable(),
+        })
+        .strict(),
+      target: z.string().min(1),
+      tick: z.number().int().nonnegative(),
+    })
+    .strict(),
 ]);
 
 // ---------------------------------------------------------------------------

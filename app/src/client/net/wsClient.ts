@@ -82,6 +82,7 @@ import { PresenceStore } from "./presence.js";
 import { ChatStore } from "./chat.js";
 import { RemoteEntityBuffer } from "./prediction.js";
 import { TargetingStore } from "../combat/targeting.js";
+import type { NotificationStore } from "./notifications.js";
 
 /**
  * TASK-44: per-frame targeting events. The HUD subscribes via
@@ -362,6 +363,14 @@ export class DriftClient {
    */
   private readonly targeting = new TargetingStore();
   private readonly targetUpdateListeners = new Set<(event: TargetingEvent) => void>();
+  /**
+   * TASK-46: optional notification store hook. When set,
+   * `combat_event { kind: 'ai_acquiring' }` frames push an
+   * "ACQUIRING" toast to the store so the HUD's ToastStack
+   * renders it. The App.tsx mount wires this on construction;
+   * tests inject a stub.
+   */
+  notificationStore?: NotificationStore;
   private status: DriftClientStatus = "idle";
   private playerId: string | null = null;
   private callsign: string | null = null;
@@ -1518,6 +1527,22 @@ export class DriftClient {
         // source !== self filter.
         const localEntityId: string | null = this.playerId;
         this.targeting.applyCombatEvent(payload, localEntityId);
+        // TASK-46: surface the ACQUIRING toast when an AI
+        // begins its 1 s acquire timer on the local player. The
+        // server only pushes this frame to the targeted
+        // player's connection so we just push a toast on the
+        // local NotificationStore.
+        if ((payload as { kind?: string }).kind === "ai_acquiring") {
+          const evt = payload as {
+            source: { kind: "ai"; id: string; callsign: string | null };
+          };
+          const callsign = evt.source.callsign ?? "Rogue";
+          this.notificationStore?.push({
+            kind: "ai-acquiring",
+            text: `${callsign} acquiring…`,
+            ts: Date.now(),
+          });
+        }
         return;
       }
       case "state_snapshot":

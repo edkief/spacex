@@ -73,6 +73,7 @@ import { advanceMining, pushMiningUpdate } from "./mining.js";
 import { advanceMissiles, energyRegenFor } from "./weapons.js";
 import { advanceTargetLocks } from "./targeting.js";
 import { advanceAiRespawns } from "./ai-respawn.js";
+import { tickAi } from "./ai.js";
 import { drainInput } from "./input-queue.js";
 import { TickHistogram } from "./histogram.js";
 import type {
@@ -440,9 +441,14 @@ export class SimLoop {
       this.lastAppliedSeq[conn.playerId] = conn.lastSeq;
     }
 
-    // 2. Tick AI / wreck entities — stub: no integration (TASK-46).
-    //    We still advance `regime` once per entity so the broadcast
-    //    loop sees the live `kind` even if the entities are inert.
+    // 2. Tick AI / wreck entities — TASK-46: drive the AI
+    //    state machine (PATROL / AGGRO / ENGAGE / DISENGAGE)
+    //    through `tickAi`. Wrecks stay inert (broadcast-only).
+    tickAi({
+      shard,
+      dt: TICK_S,
+      nowMs: (this.hooks.clock ?? defaultClock)(),
+    });
 
     // 3. Run observer hooks so the shard can log timing or mark
     //    entities dirty for persistence.

@@ -132,6 +132,10 @@ export function createShard(args: {
     // `clearAiRespawns` so reaped shards don't leak timers into
     // the next lifetime.
     aiRespawns: new Map(),
+    // TASK-46: per-AI combat state machine records. Lazily
+    // initialised so legacy fixtures that pre-date TASK-46 keep
+    // working; production always pre-populates via `createShard`.
+    aiStates: new Map(),
     persist: args.persist ?? {},
     events,
     send: args.send,

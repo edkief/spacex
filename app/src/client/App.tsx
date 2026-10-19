@@ -93,6 +93,15 @@ export function App(): React.JSX.Element {
   // route them into the FX layer without re-creating the
   // active flash / tracer / impact arrays.
   const weaponFx = useMemo(() => new WeaponFxLayer(), []);
+  // TASK-46: wire the DriftClient to the notification store so the
+  // server's `ai_acquiring` combat events can push an
+  // "ACQUIRING" toast into the ToastStack.
+  useEffect(() => {
+    client.notificationStore = notifications;
+    return () => {
+      client.notificationStore = undefined;
+    };
+  }, [client, notifications]);
   const [status, setStatus] = useState(client.currentStatus);
   const [error, setError] = useState<string | null>(null);
   // TASK-7: chart open state — toggled by the `M` key or the

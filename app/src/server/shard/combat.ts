@@ -51,6 +51,7 @@ import type { DamageSource } from "@shared/physics/damage.js";
 import { makeWreckEntity, makeWreckId } from "./entity.js";
 import { broadcastCombatEvent } from "./combat-events.js";
 import { RESPAWN_DELAY_MS, scheduleAiRespawn } from "./ai-respawn.js";
+import { noteAiDamagedBy } from "./ai.js";
 import type { Shard, SimEntity } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -171,6 +172,22 @@ export function applyCombatDamage(args: {
   };
 
   const result = applyDamage(damageInput);
+
+  // TASK-46: note the player source in the AI's recentlyDamagedBy
+  // map so the AGGRO check (`pickAggroTarget`) sees a fresh hit
+  // inside the AGGRO_RECENT_FIRE_MS window. We do this BEFORE the
+  // destroy short-circuit so a killing blow still triggers AGGRO
+  // (the player is clearly hostile). Note: this is also the
+  // contract that the ACQUIRING toast piggy-backs on — when an AI
+  // is being fired on by a player, AGGRO engages and the toast
+  // fires on transition.
+  if (entity.kind === "ai" && args.source.kind === "player") {
+    noteAiDamagedBy(shard, {
+      aiId: entity.id,
+      playerId: args.source.id,
+      nowMs: args.nowMs ?? Date.now(),
+    });
+  }
 
   // Apply the damage to the live entity in place.
   entity.hull = result.newHull;

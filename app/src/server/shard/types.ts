@@ -36,6 +36,7 @@ import type { ShipRow } from "../db/types.js";
 import type { CargoHold } from "@shared/world/cargo.js";
 
 import type { SimLoop, SimLoopStats } from "./sim.js";
+import type { AiStateRecord } from "./ai.js";
 
 // ---------------------------------------------------------------------------
 // Per-connection bookkeeping
@@ -682,6 +683,16 @@ export interface Shard {
    * timer at a time.
    */
   readonly aiRespawns: Map<string, ShardAiRespawn>;
+  /**
+   * TASK-46: per-AI combat state machine record. Keyed by `aiId`
+   * so the state machine can resume cleanly after a respawn
+   * cycle (TASK-45 re-mints the entity but the aiId is stable).
+   * The map is lazily initialised by `ensureAiStatesMap()` so
+   * legacy shard fixtures (pre-TASK-46) can keep the field
+   * optional; production shards are created by `createShard`
+   * with the map pre-populated.
+   */
+  aiStates?: Map<string, AiStateRecord>;
   /** Internal: bridge to the future persistence layer (TASK-24). */
   readonly persist: { markDirty?: DirtyMarker };
   /** Shared event bus for cross-shard signals (TASK-15 presence…). */
