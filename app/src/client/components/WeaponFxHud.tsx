@@ -49,7 +49,10 @@ export function WeaponFxHud(props: WeaponFxHudProps): React.JSX.Element {
         position: "fixed",
         inset: 0,
         pointerEvents: "none",
-        transform: snap.shakePx > 0 ? `translate(${(Math.random() - 0.5) * 2 * snap.shakePx}px, ${(Math.random() - 0.5) * 2 * snap.shakePx}px)` : undefined,
+        transform:
+          snap.shakePx > 0
+            ? `translate(${(Math.random() - 0.5) * 2 * snap.shakePx}px, ${(Math.random() - 0.5) * 2 * snap.shakePx}px)`
+            : undefined,
       }}
     >
       {snap.lasers.map((l) => (
@@ -70,7 +73,11 @@ export function WeaponFxHud(props: WeaponFxHudProps): React.JSX.Element {
  * blending. The line angle + length is computed from the start /
  * end coordinates.
  */
-function LaserFlashEl({ flash }: { flash: { id: string; startX: number; startY: number; endX: number; endY: number; color: string } }): React.JSX.Element {
+function LaserFlashEl({
+  flash,
+}: {
+  flash: { id: string; startX: number; startY: number; endX: number; endY: number; color: string };
+}): React.JSX.Element {
   const dx = flash.endX - flash.startX;
   const dy = flash.endY - flash.startY;
   const length = Math.sqrt(dx * dx + dy * dy);
@@ -138,7 +145,7 @@ function MissileTracerEl({ tracer }: { tracer: MissileTracer }): React.JSX.Eleme
               height: 6,
               borderRadius: "50%",
               background: "#ffb84d",
-              opacity: 0.85 - (i / Math.max(1, tracer.trail.length)),
+              opacity: 0.85 - i / Math.max(1, tracer.trail.length),
               mixBlendMode: "screen",
               animation: "drift-missile-trail 250ms linear forwards",
             }}

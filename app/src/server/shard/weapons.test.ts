@@ -64,9 +64,7 @@ interface WeaponHarness {
   advanceClock(ms: number): void;
 }
 
-function makeHarness(args: {
-  withPlanet?: boolean;
-}): WeaponHarness {
+function makeHarness(args: { withPlanet?: boolean }): WeaponHarness {
   const sentFrames: Array<{ connId: string; frame: { type: string; payload: unknown } }> = [];
   const broadcastCalls: Array<{ tick: number; entities: unknown[] }> = [];
   const clock = { now: 1_000 };
@@ -185,7 +183,14 @@ function addShip(
 
 function addTarget(
   h: WeaponHarness,
-  args: { classId: ShipClassId; pos: Vec3; playerId: string; callsign: string; shields?: number; hull?: number },
+  args: {
+    classId: ShipClassId;
+    pos: Vec3;
+    playerId: string;
+    callsign: string;
+    shields?: number;
+    hull?: number;
+  },
 ): SimEntity {
   const entityId = `target:${args.playerId}`;
   const entity = makeAiEntity({
@@ -278,10 +283,25 @@ describe("laser fire handler", () => {
   });
 
   it("accepts a laser shot inside range and deducts 2 energy", () => {
-    const { entity, connId } = addShip(h, { classId: "scout", callsign: "Alpha", pos: { x: 0, y: 0, z: 0 } });
-    addTarget(h, { classId: "scout", pos: { x: 200, y: 0, z: 0 }, playerId: "target-a", callsign: "Bravo" });
+    const { entity, connId } = addShip(h, {
+      classId: "scout",
+      callsign: "Alpha",
+      pos: { x: 0, y: 0, z: 0 },
+    });
+    addTarget(h, {
+      classId: "scout",
+      pos: { x: 200, y: 0, z: 0 },
+      playerId: "target-a",
+      callsign: "Bravo",
+    });
     const initialEnergy = entity.energy ?? 0;
-    const result = handleFire({ shard: h.shard, connId, weapon: "laser", targetId: "target:target-a", nowMs: 1_000 });
+    const result = handleFire({
+      shard: h.shard,
+      connId,
+      weapon: "laser",
+      targetId: "target:target-a",
+      nowMs: 1_000,
+    });
     expect(result.ok).toBe("accepted");
     if (result.ok !== "accepted") return;
     expect(result.damage).toBe(8); // single laser
@@ -289,27 +309,78 @@ describe("laser fire handler", () => {
   });
 
   it("rejects a laser shot past 400 m with out-of-range", () => {
-    const { connId } = addShip(h, { classId: "scout", callsign: "Alpha", pos: { x: 0, y: 0, z: 0 } });
-    addTarget(h, { classId: "scout", pos: { x: 800, y: 0, z: 0 }, playerId: "target-a", callsign: "Bravo" });
-    const result = handleFire({ shard: h.shard, connId, weapon: "laser", targetId: "target:target-a", nowMs: 1_000 });
+    const { connId } = addShip(h, {
+      classId: "scout",
+      callsign: "Alpha",
+      pos: { x: 0, y: 0, z: 0 },
+    });
+    addTarget(h, {
+      classId: "scout",
+      pos: { x: 800, y: 0, z: 0 },
+      playerId: "target-a",
+      callsign: "Bravo",
+    });
+    const result = handleFire({
+      shard: h.shard,
+      connId,
+      weapon: "laser",
+      targetId: "target:target-a",
+      nowMs: 1_000,
+    });
     expect(result.ok).toBe("denied");
     if (result.ok !== "denied") return;
     expect(result.code).toBe("out-of-range");
   });
 
   it("accepts a laser shot at the exact range boundary", () => {
-    const { connId } = addShip(h, { classId: "scout", callsign: "Alpha", pos: { x: 0, y: 0, z: 0 } });
-    addTarget(h, { classId: "scout", pos: { x: 400, y: 0, z: 0 }, playerId: "target-a", callsign: "Bravo" });
-    const result = handleFire({ shard: h.shard, connId, weapon: "laser", targetId: "target:target-a", nowMs: 1_000 });
+    const { connId } = addShip(h, {
+      classId: "scout",
+      callsign: "Alpha",
+      pos: { x: 0, y: 0, z: 0 },
+    });
+    addTarget(h, {
+      classId: "scout",
+      pos: { x: 400, y: 0, z: 0 },
+      playerId: "target-a",
+      callsign: "Bravo",
+    });
+    const result = handleFire({
+      shard: h.shard,
+      connId,
+      weapon: "laser",
+      targetId: "target:target-a",
+      nowMs: 1_000,
+    });
     expect(result.ok).toBe("accepted");
   });
 
   it("fire rate: second laser within 333 ms is rate-limited", () => {
-    const { entity, connId } = addShip(h, { classId: "scout", callsign: "Alpha", pos: { x: 0, y: 0, z: 0 } });
-    addTarget(h, { classId: "scout", pos: { x: 100, y: 0, z: 0 }, playerId: "target-a", callsign: "Bravo" });
-    const first = handleFire({ shard: h.shard, connId, weapon: "laser", targetId: "target:target-a", nowMs: 1_000 });
+    const { entity, connId } = addShip(h, {
+      classId: "scout",
+      callsign: "Alpha",
+      pos: { x: 0, y: 0, z: 0 },
+    });
+    addTarget(h, {
+      classId: "scout",
+      pos: { x: 100, y: 0, z: 0 },
+      playerId: "target-a",
+      callsign: "Bravo",
+    });
+    const first = handleFire({
+      shard: h.shard,
+      connId,
+      weapon: "laser",
+      targetId: "target:target-a",
+      nowMs: 1_000,
+    });
     expect(first.ok).toBe("accepted");
-    const second = handleFire({ shard: h.shard, connId, weapon: "laser", targetId: "target:target-a", nowMs: 1_100 });
+    const second = handleFire({
+      shard: h.shard,
+      connId,
+      weapon: "laser",
+      targetId: "target:target-a",
+      nowMs: 1_100,
+    });
     expect(second.ok).toBe("denied");
     if (second.ok !== "denied") return;
     expect(second.code).toBe("rate-limited");
@@ -317,11 +388,38 @@ describe("laser fire handler", () => {
   });
 
   it("fire rate: third laser at 333 ms is accepted; the 4th within 333 ms is denied", () => {
-    const { connId } = addShip(h, { classId: "scout", callsign: "Alpha", pos: { x: 0, y: 0, z: 0 } });
-    addTarget(h, { classId: "scout", pos: { x: 100, y: 0, z: 0 }, playerId: "target-a", callsign: "Bravo" });
-    const a = handleFire({ shard: h.shard, connId, weapon: "laser", targetId: "target:target-a", nowMs: 1_000 });
-    const b = handleFire({ shard: h.shard, connId, weapon: "laser", targetId: "target:target-a", nowMs: 1_333 });
-    const c = handleFire({ shard: h.shard, connId, weapon: "laser", targetId: "target:target-a", nowMs: 1_340 });
+    const { connId } = addShip(h, {
+      classId: "scout",
+      callsign: "Alpha",
+      pos: { x: 0, y: 0, z: 0 },
+    });
+    addTarget(h, {
+      classId: "scout",
+      pos: { x: 100, y: 0, z: 0 },
+      playerId: "target-a",
+      callsign: "Bravo",
+    });
+    const a = handleFire({
+      shard: h.shard,
+      connId,
+      weapon: "laser",
+      targetId: "target:target-a",
+      nowMs: 1_000,
+    });
+    const b = handleFire({
+      shard: h.shard,
+      connId,
+      weapon: "laser",
+      targetId: "target:target-a",
+      nowMs: 1_333,
+    });
+    const c = handleFire({
+      shard: h.shard,
+      connId,
+      weapon: "laser",
+      targetId: "target:target-a",
+      nowMs: 1_340,
+    });
     expect(a.ok).toBe("accepted");
     expect(b.ok).toBe("accepted");
     expect(c.ok).toBe("denied");
@@ -330,10 +428,25 @@ describe("laser fire handler", () => {
   });
 
   it("energy gating: low-energy surfaces when reservoir < cost", () => {
-    const { entity, connId } = addShip(h, { classId: "scout", callsign: "Alpha", pos: { x: 0, y: 0, z: 0 } });
-    addTarget(h, { classId: "scout", pos: { x: 100, y: 0, z: 0 }, playerId: "target-a", callsign: "Bravo" });
+    const { entity, connId } = addShip(h, {
+      classId: "scout",
+      callsign: "Alpha",
+      pos: { x: 0, y: 0, z: 0 },
+    });
+    addTarget(h, {
+      classId: "scout",
+      pos: { x: 100, y: 0, z: 0 },
+      playerId: "target-a",
+      callsign: "Bravo",
+    });
     entity.energy = 1;
-    const result = handleFire({ shard: h.shard, connId, weapon: "laser", targetId: "target:target-a", nowMs: 1_000 });
+    const result = handleFire({
+      shard: h.shard,
+      connId,
+      weapon: "laser",
+      targetId: "target:target-a",
+      nowMs: 1_000,
+    });
     expect(result.ok).toBe("denied");
     if (result.ok !== "denied") return;
     expect(result.code).toBe("low-energy");
@@ -342,18 +455,48 @@ describe("laser fire handler", () => {
   });
 
   it("scout firing a missile is weapon-not-equipped", () => {
-    const { connId } = addShip(h, { classId: "scout", callsign: "Alpha", pos: { x: 0, y: 0, z: 0 } });
-    addTarget(h, { classId: "scout", pos: { x: 100, y: 0, z: 0 }, playerId: "target-a", callsign: "Bravo" });
-    const result = handleFire({ shard: h.shard, connId, weapon: "missile", targetId: "target:target-a", nowMs: 1_000 });
+    const { connId } = addShip(h, {
+      classId: "scout",
+      callsign: "Alpha",
+      pos: { x: 0, y: 0, z: 0 },
+    });
+    addTarget(h, {
+      classId: "scout",
+      pos: { x: 100, y: 0, z: 0 },
+      playerId: "target-a",
+      callsign: "Bravo",
+    });
+    const result = handleFire({
+      shard: h.shard,
+      connId,
+      weapon: "missile",
+      targetId: "target:target-a",
+      nowMs: 1_000,
+    });
     expect(result.ok).toBe("denied");
     if (result.ok !== "denied") return;
     expect(result.code).toBe("weapon-not-equipped");
   });
 
   it("interceptor twin-linked lasers deal 2 × damage (16) on accept", () => {
-    const { entity, connId } = addShip(h, { classId: "interceptor", callsign: "Alpha", pos: { x: 0, y: 0, z: 0 } });
-    addTarget(h, { classId: "scout", pos: { x: 100, y: 0, z: 0 }, playerId: "target-a", callsign: "Bravo" });
-    const result = handleFire({ shard: h.shard, connId, weapon: "laser", targetId: "target:target-a", nowMs: 1_000 });
+    const { entity, connId } = addShip(h, {
+      classId: "interceptor",
+      callsign: "Alpha",
+      pos: { x: 0, y: 0, z: 0 },
+    });
+    addTarget(h, {
+      classId: "scout",
+      pos: { x: 100, y: 0, z: 0 },
+      playerId: "target-a",
+      callsign: "Bravo",
+    });
+    const result = handleFire({
+      shard: h.shard,
+      connId,
+      weapon: "laser",
+      targetId: "target:target-a",
+      nowMs: 1_000,
+    });
     expect(result.ok).toBe("accepted");
     if (result.ok !== "accepted") return;
     expect(result.damage).toBe(16); // 2 × 8
@@ -361,11 +504,26 @@ describe("laser fire handler", () => {
   });
 
   it("laser at a dead target is denied (no-target)", () => {
-    const { connId } = addShip(h, { classId: "scout", callsign: "Alpha", pos: { x: 0, y: 0, z: 0 } });
-    addTarget(h, { classId: "scout", pos: { x: 100, y: 0, z: 0 }, playerId: "target-a", callsign: "Bravo" });
+    const { connId } = addShip(h, {
+      classId: "scout",
+      callsign: "Alpha",
+      pos: { x: 0, y: 0, z: 0 },
+    });
+    addTarget(h, {
+      classId: "scout",
+      pos: { x: 100, y: 0, z: 0 },
+      playerId: "target-a",
+      callsign: "Bravo",
+    });
     const target = h.shard.entities.get("target:target-a");
     if (target) target.hull = 0;
-    const result = handleFire({ shard: h.shard, connId, weapon: "laser", targetId: "target:target-a", nowMs: 1_000 });
+    const result = handleFire({
+      shard: h.shard,
+      connId,
+      weapon: "laser",
+      targetId: "target:target-a",
+      nowMs: 1_000,
+    });
     // Per the spec, a denied fire shows NO FX and spends no
     // energy. A dead-target rejection is a denial.
     expect(result.ok).toBe("denied");
@@ -374,15 +532,34 @@ describe("laser fire handler", () => {
   });
 
   it("fire_ok frame is sent on accepted laser", () => {
-    const { connId } = addShip(h, { classId: "scout", callsign: "Alpha", pos: { x: 0, y: 0, z: 0 } });
-    addTarget(h, { classId: "scout", pos: { x: 100, y: 0, z: 0 }, playerId: "target-a", callsign: "Bravo" });
-    handleFire({ shard: h.shard, connId, weapon: "laser", targetId: "target:target-a", nowMs: 1_000 });
+    const { connId } = addShip(h, {
+      classId: "scout",
+      callsign: "Alpha",
+      pos: { x: 0, y: 0, z: 0 },
+    });
+    addTarget(h, {
+      classId: "scout",
+      pos: { x: 100, y: 0, z: 0 },
+      playerId: "target-a",
+      callsign: "Bravo",
+    });
+    handleFire({
+      shard: h.shard,
+      connId,
+      weapon: "laser",
+      targetId: "target:target-a",
+      nowMs: 1_000,
+    });
     const ack = h.sentFrames.find((s) => s.frame.type === "fire_ok");
     expect(ack).toBeDefined();
   });
 
   it("fire_ok frame is NOT sent on a denied fire", () => {
-    const { connId } = addShip(h, { classId: "scout", callsign: "Alpha", pos: { x: 0, y: 0, z: 0 } });
+    const { connId } = addShip(h, {
+      classId: "scout",
+      callsign: "Alpha",
+      pos: { x: 0, y: 0, z: 0 },
+    });
     // No target in registry, no energy — denied.
     const entity = h.shard.entities.get(`entity:ship-0`);
     if (entity) entity.energy = 0;
@@ -399,8 +576,17 @@ describe("laser fire handler", () => {
 describe("anti-spam weapon lock", () => {
   it("30 fires within 1 s triggers a 5 s lockout", () => {
     const h = makeHarness({});
-    const { entity, connId } = addShip(h, { classId: "scout", callsign: "Alpha", pos: { x: 0, y: 0, z: 0 } });
-    addTarget(h, { classId: "scout", pos: { x: 100, y: 0, z: 0 }, playerId: "target-a", callsign: "Bravo" });
+    const { entity, connId } = addShip(h, {
+      classId: "scout",
+      callsign: "Alpha",
+      pos: { x: 0, y: 0, z: 0 },
+    });
+    addTarget(h, {
+      classId: "scout",
+      pos: { x: 100, y: 0, z: 0 },
+      playerId: "target-a",
+      callsign: "Bravo",
+    });
     // Fire 30 attempts within 1 s — every attempt is recorded
     // (whether accepted or denied), and the 30th triggers the
     // lockout.
@@ -421,11 +607,26 @@ describe("anti-spam weapon lock", () => {
 
   it("a fire during the lockout window is rejected with weapon-locked", () => {
     const h = makeHarness({});
-    const { entity, connId } = addShip(h, { classId: "scout", callsign: "Alpha", pos: { x: 0, y: 0, z: 0 } });
-    addTarget(h, { classId: "scout", pos: { x: 100, y: 0, z: 0 }, playerId: "target-a", callsign: "Bravo" });
+    const { entity, connId } = addShip(h, {
+      classId: "scout",
+      callsign: "Alpha",
+      pos: { x: 0, y: 0, z: 0 },
+    });
+    addTarget(h, {
+      classId: "scout",
+      pos: { x: 100, y: 0, z: 0 },
+      playerId: "target-a",
+      callsign: "Bravo",
+    });
     // Force the entity into the lockout window directly.
     entity.weaponLockedUntilMs = Date.now() + 5_000;
-    const result = handleFire({ shard: h.shard, connId, weapon: "laser", targetId: "target:target-a", nowMs: Date.now() });
+    const result = handleFire({
+      shard: h.shard,
+      connId,
+      weapon: "laser",
+      targetId: "target:target-a",
+      nowMs: Date.now(),
+    });
     expect(result.ok).toBe("denied");
     if (result.ok !== "denied") return;
     expect(result.code).toBe("weapon-locked");
@@ -433,7 +634,11 @@ describe("anti-spam weapon lock", () => {
 
   it("recordFireAttempt rolls the 1 s window forward", () => {
     const h = makeHarness({});
-    const { entity } = addShip(h, { classId: "scout", callsign: "Alpha", pos: { x: 0, y: 0, z: 0 } });
+    const { entity } = addShip(h, {
+      classId: "scout",
+      callsign: "Alpha",
+      pos: { x: 0, y: 0, z: 0 },
+    });
     // Fill the ring with old timestamps.
     entity.weaponFireLog = [100, 200, 300];
     recordFireAttempt(entity, 1_500);
@@ -450,9 +655,24 @@ describe("anti-spam weapon lock", () => {
 describe("missile spawning", () => {
   it("spawns a missile entity on accepted fire", () => {
     const h = makeHarness({});
-    const { connId } = addShip(h, { classId: "interceptor", callsign: "Alpha", pos: { x: 0, y: 0, z: 0 } });
-    addTarget(h, { classId: "scout", pos: { x: 200, y: 0, z: 0 }, playerId: "target-a", callsign: "Bravo" });
-    const result = handleFire({ shard: h.shard, connId, weapon: "missile", targetId: "target:target-a", nowMs: 1_000 });
+    const { connId } = addShip(h, {
+      classId: "interceptor",
+      callsign: "Alpha",
+      pos: { x: 0, y: 0, z: 0 },
+    });
+    addTarget(h, {
+      classId: "scout",
+      pos: { x: 200, y: 0, z: 0 },
+      playerId: "target-a",
+      callsign: "Bravo",
+    });
+    const result = handleFire({
+      shard: h.shard,
+      connId,
+      weapon: "missile",
+      targetId: "target:target-a",
+      nowMs: 1_000,
+    });
     expect(result.ok).toBe("accepted");
     if (result.ok !== "accepted") return;
     expect(result.projectileId).not.toBeNull();
@@ -469,10 +689,31 @@ describe("missile spawning", () => {
 
   it("missile rate-limit: 2nd missile within 2000 ms is denied", () => {
     const h = makeHarness({});
-    const { connId } = addShip(h, { classId: "interceptor", callsign: "Alpha", pos: { x: 0, y: 0, z: 0 } });
-    addTarget(h, { classId: "scout", pos: { x: 200, y: 0, z: 0 }, playerId: "target-a", callsign: "Bravo" });
-    const first = handleFire({ shard: h.shard, connId, weapon: "missile", targetId: "target:target-a", nowMs: 1_000 });
-    const second = handleFire({ shard: h.shard, connId, weapon: "missile", targetId: "target:target-a", nowMs: 1_500 });
+    const { connId } = addShip(h, {
+      classId: "interceptor",
+      callsign: "Alpha",
+      pos: { x: 0, y: 0, z: 0 },
+    });
+    addTarget(h, {
+      classId: "scout",
+      pos: { x: 200, y: 0, z: 0 },
+      playerId: "target-a",
+      callsign: "Bravo",
+    });
+    const first = handleFire({
+      shard: h.shard,
+      connId,
+      weapon: "missile",
+      targetId: "target:target-a",
+      nowMs: 1_000,
+    });
+    const second = handleFire({
+      shard: h.shard,
+      connId,
+      weapon: "missile",
+      targetId: "target:target-a",
+      nowMs: 1_500,
+    });
     expect(first.ok).toBe("accepted");
     expect(second.ok).toBe("denied");
     if (second.ok !== "denied") return;
@@ -481,9 +722,24 @@ describe("missile spawning", () => {
 
   it("missile deducts 10 energy on accept", () => {
     const h = makeHarness({});
-    const { entity, connId } = addShip(h, { classId: "interceptor", callsign: "Alpha", pos: { x: 0, y: 0, z: 0 } });
-    addTarget(h, { classId: "scout", pos: { x: 200, y: 0, z: 0 }, playerId: "target-a", callsign: "Bravo" });
-    handleFire({ shard: h.shard, connId, weapon: "missile", targetId: "target:target-a", nowMs: 1_000 });
+    const { entity, connId } = addShip(h, {
+      classId: "interceptor",
+      callsign: "Alpha",
+      pos: { x: 0, y: 0, z: 0 },
+    });
+    addTarget(h, {
+      classId: "scout",
+      pos: { x: 200, y: 0, z: 0 },
+      playerId: "target-a",
+      callsign: "Bravo",
+    });
+    handleFire({
+      shard: h.shard,
+      connId,
+      weapon: "missile",
+      targetId: "target:target-a",
+      nowMs: 1_000,
+    });
     expect(entity.energy).toBe(90);
   });
 });
@@ -491,9 +747,25 @@ describe("missile spawning", () => {
 describe("missile homing", () => {
   it("straight (stationary) target → hit within TTL", async () => {
     const h = makeHarness({});
-    const { connId } = addShip(h, { classId: "interceptor", callsign: "Alpha", pos: { x: 0, y: 0, z: 0 } });
-    addTarget(h, { classId: "scout", pos: { x: 100, y: 0, z: 0 }, playerId: "target-a", callsign: "Bravo", shields: 0 });
-    const fireResult = handleFire({ shard: h.shard, connId, weapon: "missile", targetId: "target:target-a", nowMs: 1_000 });
+    const { connId } = addShip(h, {
+      classId: "interceptor",
+      callsign: "Alpha",
+      pos: { x: 0, y: 0, z: 0 },
+    });
+    addTarget(h, {
+      classId: "scout",
+      pos: { x: 100, y: 0, z: 0 },
+      playerId: "target-a",
+      callsign: "Bravo",
+      shields: 0,
+    });
+    const fireResult = handleFire({
+      shard: h.shard,
+      connId,
+      weapon: "missile",
+      targetId: "target:target-a",
+      nowMs: 1_000,
+    });
     if (fireResult.ok !== "accepted") throw new Error("fire should be accepted");
     const missileId = fireResult.projectileId;
     expect(missileId).not.toBeNull();
@@ -517,12 +789,29 @@ describe("missile homing", () => {
 
   it("evading target → missile expires after 5 s without contact", async () => {
     const h = makeHarness({});
-    const { connId } = addShip(h, { classId: "interceptor", callsign: "Alpha", pos: { x: 0, y: 0, z: 0 } });
-    addTarget(h, { classId: "interceptor", pos: { x: 100, y: 0, z: 0 }, playerId: "target-a", callsign: "Bravo", shields: 0, hull: 100 });
+    const { connId } = addShip(h, {
+      classId: "interceptor",
+      callsign: "Alpha",
+      pos: { x: 0, y: 0, z: 0 },
+    });
+    addTarget(h, {
+      classId: "interceptor",
+      pos: { x: 100, y: 0, z: 0 },
+      playerId: "target-a",
+      callsign: "Bravo",
+      shields: 0,
+      hull: 100,
+    });
     const target = h.shard.entities.get("target:target-a");
     if (!target) throw new Error("no target");
 
-    handleFire({ shard: h.shard, connId, weapon: "missile", targetId: "target:target-a", nowMs: 1_000 });
+    handleFire({
+      shard: h.shard,
+      connId,
+      weapon: "missile",
+      targetId: "target:target-a",
+      nowMs: 1_000,
+    });
 
     // Target moves PERPENDICULAR to the missile's flight path
     // (the missile flies +X toward the initial target; target
@@ -555,9 +844,24 @@ describe("missile homing", () => {
 
   it("missile homing turns toward a moving target within TTL", async () => {
     const h = makeHarness({});
-    const { connId } = addShip(h, { classId: "interceptor", callsign: "Alpha", pos: { x: 0, y: 0, z: 0 } });
-    addTarget(h, { classId: "scout", pos: { x: 200, y: 0, z: 0 }, playerId: "target-a", callsign: "Bravo" });
-    handleFire({ shard: h.shard, connId, weapon: "missile", targetId: "target:target-a", nowMs: 1_000 });
+    const { connId } = addShip(h, {
+      classId: "interceptor",
+      callsign: "Alpha",
+      pos: { x: 0, y: 0, z: 0 },
+    });
+    addTarget(h, {
+      classId: "scout",
+      pos: { x: 200, y: 0, z: 0 },
+      playerId: "target-a",
+      callsign: "Bravo",
+    });
+    handleFire({
+      shard: h.shard,
+      connId,
+      weapon: "missile",
+      targetId: "target:target-a",
+      nowMs: 1_000,
+    });
 
     // Sample the missile's velocity after a few ticks — it
     // should have a non-trivial Y component if it's homing
@@ -587,9 +891,25 @@ describe("missile homing", () => {
 
   it("contact within 1.5 m detonates the warhead (direct hit applies full damage)", async () => {
     const h = makeHarness({});
-    const { connId } = addShip(h, { classId: "interceptor", callsign: "Alpha", pos: { x: 0, y: 0, z: 0 } });
-    addTarget(h, { classId: "scout", pos: { x: 50, y: 0, z: 0 }, playerId: "target-a", callsign: "Bravo", shields: 0 });
-    handleFire({ shard: h.shard, connId, weapon: "missile", targetId: "target:target-a", nowMs: 1_000 });
+    const { connId } = addShip(h, {
+      classId: "interceptor",
+      callsign: "Alpha",
+      pos: { x: 0, y: 0, z: 0 },
+    });
+    addTarget(h, {
+      classId: "scout",
+      pos: { x: 50, y: 0, z: 0 },
+      playerId: "target-a",
+      callsign: "Bravo",
+      shields: 0,
+    });
+    handleFire({
+      shard: h.shard,
+      connId,
+      weapon: "missile",
+      targetId: "target:target-a",
+      nowMs: 1_000,
+    });
 
     // Run ticks until the missile detonates or TTL expires.
     let target: SimEntity | undefined;
@@ -609,17 +929,39 @@ describe("missile homing", () => {
 
   it("splash damage: a 2nd entity within 5 m takes splash (12), the direct hit takes 25", async () => {
     const h = makeHarness({});
-    const { connId } = addShip(h, { classId: "interceptor", callsign: "Alpha", pos: { x: 0, y: 0, z: 0 } });
+    const { connId } = addShip(h, {
+      classId: "interceptor",
+      callsign: "Alpha",
+      pos: { x: 0, y: 0, z: 0 },
+    });
     // Place the primary at 50 m so the warhead contacts it
     // within a few ticks. Place a 2nd ship 3 m further so it
     // sits inside the 5 m splash radius.
-    addTarget(h, { classId: "scout", pos: { x: 50, y: 0, z: 0 }, playerId: "target-a", callsign: "Bravo", shields: 0 });
-    addTarget(h, { classId: "scout", pos: { x: 53, y: 0, z: 0 }, playerId: "target-b", callsign: "Charlie", shields: 0 });
+    addTarget(h, {
+      classId: "scout",
+      pos: { x: 50, y: 0, z: 0 },
+      playerId: "target-a",
+      callsign: "Bravo",
+      shields: 0,
+    });
+    addTarget(h, {
+      classId: "scout",
+      pos: { x: 53, y: 0, z: 0 },
+      playerId: "target-b",
+      callsign: "Charlie",
+      shields: 0,
+    });
     const primary = h.shard.entities.get("target:target-a");
     const secondary = h.shard.entities.get("target:target-b");
     if (!primary || !secondary) throw new Error("missing target");
 
-    handleFire({ shard: h.shard, connId, weapon: "missile", targetId: "target:target-a", nowMs: 1_000 });
+    handleFire({
+      shard: h.shard,
+      connId,
+      weapon: "missile",
+      targetId: "target:target-a",
+      nowMs: 1_000,
+    });
 
     for (let i = 0; i < 100; i++) {
       h.advanceClock(50);
@@ -642,9 +984,24 @@ describe("missile homing", () => {
 describe("energy regen + weapon select", () => {
   it("energy regenerates at 10/s", async () => {
     const h = makeHarness({});
-    const { entity, connId } = addShip(h, { classId: "scout", callsign: "Alpha", pos: { x: 0, y: 0, z: 0 } });
-    addTarget(h, { classId: "scout", pos: { x: 100, y: 0, z: 0 }, playerId: "target-a", callsign: "Bravo" });
-    handleFire({ shard: h.shard, connId, weapon: "laser", targetId: "target:target-a", nowMs: 1_000 });
+    const { entity, connId } = addShip(h, {
+      classId: "scout",
+      callsign: "Alpha",
+      pos: { x: 0, y: 0, z: 0 },
+    });
+    addTarget(h, {
+      classId: "scout",
+      pos: { x: 100, y: 0, z: 0 },
+      playerId: "target-a",
+      callsign: "Bravo",
+    });
+    handleFire({
+      shard: h.shard,
+      connId,
+      weapon: "laser",
+      targetId: "target:target-a",
+      nowMs: 1_000,
+    });
     const drained = entity.energy ?? 0;
     expect(drained).toBe(98);
 
@@ -659,7 +1016,11 @@ describe("energy regen + weapon select", () => {
 
   it("handleSelectWeapon updates activeWeapon and pushes weapon_state", () => {
     const h = makeHarness({});
-    const { entity, connId } = addShip(h, { classId: "interceptor", callsign: "Alpha", pos: { x: 0, y: 0, z: 0 } });
+    const { entity, connId } = addShip(h, {
+      classId: "interceptor",
+      callsign: "Alpha",
+      pos: { x: 0, y: 0, z: 0 },
+    });
     const result = handleSelectWeapon({ shard: h.shard, connId, weapon: "missile", nowMs: 1_000 });
     expect(result.weapon).toBe("missile");
     expect(entity.activeWeapon).toBe("missile");
@@ -682,7 +1043,12 @@ describe("WS round-trip integration", () => {
       callsign: "Alpha",
       pos: { x: 0, y: 0, z: 0 },
     });
-    addTarget(h, { classId: "scout", pos: { x: 100, y: 0, z: 0 }, playerId: "target-a", callsign: "Bravo" });
+    addTarget(h, {
+      classId: "scout",
+      pos: { x: 100, y: 0, z: 0 },
+      playerId: "target-a",
+      callsign: "Bravo",
+    });
     const { connId: spectatorConn } = addShip(h, {
       classId: "scout",
       callsign: "Charlie",
@@ -724,11 +1090,26 @@ describe("WS round-trip integration", () => {
 
   it("denied fires produce no combat_event", () => {
     const h = makeHarness({});
-    const { entity, connId } = addShip(h, { classId: "scout", callsign: "Alpha", pos: { x: 0, y: 0, z: 0 } });
-    addTarget(h, { classId: "scout", pos: { x: 100, y: 0, z: 0 }, playerId: "target-a", callsign: "Bravo" });
+    const { entity, connId } = addShip(h, {
+      classId: "scout",
+      callsign: "Alpha",
+      pos: { x: 0, y: 0, z: 0 },
+    });
+    addTarget(h, {
+      classId: "scout",
+      pos: { x: 100, y: 0, z: 0 },
+      playerId: "target-a",
+      callsign: "Bravo",
+    });
     // Force the entity into the lockout window.
     entity.weaponLockedUntilMs = Date.now() + 5_000;
-    handleFire({ shard: h.shard, connId, weapon: "laser", targetId: "target:target-a", nowMs: Date.now() });
+    handleFire({
+      shard: h.shard,
+      connId,
+      weapon: "laser",
+      targetId: "target:target-a",
+      nowMs: Date.now(),
+    });
     const combatEvents = h.sentFrames.filter((s) => s.frame.type === "combat_event");
     expect(combatEvents).toHaveLength(0);
   });
@@ -748,9 +1129,24 @@ describe("advanceMissiles", () => {
 
   it("a missile past its TTL is despawned", () => {
     const h = makeHarness({});
-    const { connId } = addShip(h, { classId: "interceptor", callsign: "Alpha", pos: { x: 0, y: 0, z: 0 } });
-    addTarget(h, { classId: "scout", pos: { x: 200, y: 0, z: 0 }, playerId: "target-a", callsign: "Bravo" });
-    const result = handleFire({ shard: h.shard, connId, weapon: "missile", targetId: "target:target-a", nowMs: 1_000 });
+    const { connId } = addShip(h, {
+      classId: "interceptor",
+      callsign: "Alpha",
+      pos: { x: 0, y: 0, z: 0 },
+    });
+    addTarget(h, {
+      classId: "scout",
+      pos: { x: 200, y: 0, z: 0 },
+      playerId: "target-a",
+      callsign: "Bravo",
+    });
+    const result = handleFire({
+      shard: h.shard,
+      connId,
+      weapon: "missile",
+      targetId: "target:target-a",
+      nowMs: 1_000,
+    });
     if (result.ok !== "accepted") throw new Error("expected accept");
     // Advance past the TTL.
     advanceMissiles(h.shard, 10_000);

@@ -199,11 +199,7 @@ export function initWeaponState(entity: SimEntity): void {
  * as the pure math so the sim loop can advance energy once per
  * tick without a side-effecting helper.
  */
-export function energyRegenFor(
-  entity: SimEntity,
-  dtSec: number,
-  nowMs: number,
-): number {
+export function energyRegenFor(entity: SimEntity, dtSec: number, nowMs: number): number {
   if (entity.energy === undefined) return 0;
   // Idle regen: 10 / s * dt = (10 + s) of energy back.
   const next = entity.energy + 10 * dtSec;
@@ -418,7 +414,10 @@ export function handleSelectWeapon(args: {
  * Returns the count of missiles removed (TTL + impact + cap)
  * for the diagnostics observer.
  */
-export function advanceMissiles(shard: Shard, nowMs: number): {
+export function advanceMissiles(
+  shard: Shard,
+  nowMs: number,
+): {
   despawned: number;
   impacted: number;
 } {
@@ -525,9 +524,7 @@ function fireLaser(args: {
   // freighter get 1 × stats.damage. We pull the loadout from
   // the entity's classId so a wrongly-casted bus spawn (no
   // classId) falls through to 1.
-  const mountCount = entity.classId
-    ? loadoutFor(entity.classId).laser
-    : 1;
+  const mountCount = entity.classId ? loadoutFor(entity.classId).laser : 1;
   const damage = stats.damage * mountCount;
 
   // The "damagePoint" is `entity.pos + range * forward`, but for
@@ -649,9 +646,7 @@ function fireMissile(args: {
   // target at `stats.speed`. For a target-less fire the missile
   // fires straight forward (the spec accepts this as a
   // degraded case — it flies straight, despawns on TTL).
-  const forward = targetId
-    ? directionToward(shard, entity, targetId)
-    : forwardOf(entity, 1);
+  const forward = targetId ? directionToward(shard, entity, targetId) : forwardOf(entity, 1);
   const speed = stats.speed;
   const missile: SimEntity = {
     id: id2,
@@ -708,11 +703,7 @@ function fireMissile(args: {
  * Returns the new velocity vector (the magnitude is preserved so
  * the missile keeps its documented `speed`).
  */
-function turnTowardTarget(
-  missile: SimEntity,
-  target: SimEntity,
-  _shard: Shard,
-): Vec3 {
+function turnTowardTarget(missile: SimEntity, target: SimEntity, _shard: Shard): Vec3 {
   // The turn happens in 3D; we project onto the unit sphere and
   // use the same slerp-style math the flight model uses for
   // quaternions, but on a plain Vec3 (the math is simpler when
@@ -733,9 +724,7 @@ function turnTowardTarget(
     y: missile.vel.y,
     z: missile.vel.z,
   };
-  const cLen = Math.sqrt(
-    current.x * current.x + current.y * current.y + current.z * current.z,
-  );
+  const cLen = Math.sqrt(current.x * current.x + current.y * current.y + current.z * current.z);
   if (cLen < 1e-6) {
     // Was coasting without velocity (shouldn't happen because we
     // mint with speed); fall back to pointing straight at the
@@ -749,8 +738,7 @@ function turnTowardTarget(
   const currentN = { x: current.x / cLen, y: current.y / cLen, z: current.z / cLen };
 
   // Cosine of the angle between the two unit vectors.
-  const cosTheta =
-    currentN.x * desired.x + currentN.y * desired.y + currentN.z * desired.z;
+  const cosTheta = currentN.x * desired.x + currentN.y * desired.y + currentN.z * desired.z;
   const clampedCos = Math.max(-1, Math.min(1, cosTheta));
   const theta = Math.acos(clampedCos);
   // Per-tick turn budget: 1.5 rad/s / 20 Hz = 0.075 rad/tick.
@@ -868,9 +856,7 @@ function applyMissileImpact(
   primary: SimEntity,
   nowMs: number,
 ): void {
-  const source = missile.missileSourceId
-    ? shard.entities.get(missile.missileSourceId)
-    : undefined;
+  const source = missile.missileSourceId ? shard.entities.get(missile.missileSourceId) : undefined;
   if (!source) {
     // Source gone (warp, disconnect). Apply damage without
     // attribution; the `combat_event` source is the spawn's last

@@ -149,14 +149,7 @@ export interface PlayerInput {
  *                   no `classId` (wire uses `null`).
  */
 export type EntityKind =
-  | "player"
-  | "ai"
-  | "wreck"
-  | "character"
-  | "deposit"
-  | "terminal"
-  | "groundItem"
-  | "missile";
+  "player" | "ai" | "wreck" | "character" | "deposit" | "terminal" | "groundItem" | "missile";
 
 /**
  * The full per-entity state. Combines the flight-model's `ShipState`

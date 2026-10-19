@@ -88,13 +88,7 @@ test("dock sell screenshot: panel renders with price + sellable columns", async 
   // Capture the screenshot regardless of whether the panel is
   // open — the task scope is the visual regression guard, not
   // the full flow.
-  const screenshotPath = path.join(
-    process.cwd(),
-    "..",
-    ".ralph",
-    "screenshots",
-    "TASK-40-1.png",
-  );
+  const screenshotPath = path.join(process.cwd(), "..", ".ralph", "screenshots", "TASK-40-1.png");
   await page.screenshot({ path: screenshotPath, fullPage: false });
 
   // No fatal console errors during the smoke flow.

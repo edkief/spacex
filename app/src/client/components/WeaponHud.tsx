@@ -54,9 +54,7 @@ const POLL_MS_DEFAULT = 250;
  * mid-handshake.
  */
 export function WeaponHud(props: WeaponHudProps): React.JSX.Element | null {
-  const [snap, setSnap] = useState<WeaponStateSnapshot | null>(
-    props.initial ?? null,
-  );
+  const [snap, setSnap] = useState<WeaponStateSnapshot | null>(props.initial ?? null);
   useEffect(() => {
     const read = (): void => {
       const w = window as unknown as {
@@ -88,14 +86,13 @@ export function WeaponHud(props: WeaponHudProps): React.JSX.Element | null {
   }, [props.client, props.pollMs]);
   if (snap === null) return null;
   const ratio = Math.max(0, Math.min(1, snap.energy / 100));
-  const colour =
-    snap.locked
+  const colour = snap.locked
+    ? "#d04848"
+    : ratio < 0.25
       ? "#d04848"
-      : ratio < 0.25
-        ? "#d04848"
-        : ratio < 0.5
-          ? "#f5b94d"
-          : "#9aa6b2";
+      : ratio < 0.5
+        ? "#f5b94d"
+        : "#9aa6b2";
   return (
     <div
       data-testid="drift-weapon-hud"
@@ -157,9 +154,7 @@ export function WeaponHud(props: WeaponHudProps): React.JSX.Element | null {
         }}
       >
         <span>{`${Math.round(snap.energy)}/100`}</span>
-        {snap.locked ? (
-          <span style={{ color: "#d04848" }}>LOCKED</span>
-        ) : null}
+        {snap.locked ? <span style={{ color: "#d04848" }}>LOCKED</span> : null}
       </div>
     </div>
   );

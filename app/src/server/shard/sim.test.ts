@@ -140,7 +140,7 @@ async function driveWithFakeClock(
   const snapshots: number[] = [];
   // Prime the loop (first tick snapshots the clock without integrating).
   advance();
-  void await shard.sim.tick();
+  void (await shard.sim.tick());
   for (let i = 0; i < n; i++) {
     advance(); // Advance the wall clock BEFORE the tick so the loop's
     // accumulator captures exactly one extra TICK_S of elapsed time.

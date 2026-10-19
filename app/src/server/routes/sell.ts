@@ -119,7 +119,9 @@ export function registerSellRoute(app: FastifyInstance, deps: SellRouteDeps): vo
     // shard-side `not-at-station` (409).
     const body = (req.body ?? {}) as { resourceId?: unknown; amount?: unknown; source?: unknown };
     if (typeof body.resourceId !== "string" || !isSellableResourceType(body.resourceId)) {
-      return reply.code(400).send(errBody("unknown-resource", `Unknown resource: ${String(body.resourceId)}`));
+      return reply
+        .code(400)
+        .send(errBody("unknown-resource", `Unknown resource: ${String(body.resourceId)}`));
     }
     const parsed = SellRequestSchema.safeParse(body);
     if (!parsed.success) {

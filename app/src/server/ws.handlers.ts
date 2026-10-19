@@ -27,7 +27,14 @@ import {
   sanitizeChatText,
   validateChatText,
 } from "./chat.js";
-import { broadcastChat, handleDisembark, handleEnterShip, handleFire, handleSelectWeapon, pushPlayerInput } from "./shard/index.js";
+import {
+  broadcastChat,
+  handleDisembark,
+  handleEnterShip,
+  handleFire,
+  handleSelectWeapon,
+  pushPlayerInput,
+} from "./shard/index.js";
 import { handleInteract } from "./shard/interact.js";
 import type { InteractAction } from "@client/input/interaction.js";
 import { handlePickup, handleDrop } from "./shard/inventory.js";
@@ -964,11 +971,7 @@ export async function onSell(
  *      locked", etc.). The spec is explicit: a denied fire
  *      shows NO FX.
  */
-export function onFire(
-  conn: Connection,
-  options: WsHandleOptions,
-  payload: unknown,
-): void {
+export function onFire(conn: Connection, options: WsHandleOptions, payload: unknown): void {
   const shard = options.shardFor?.(conn);
   if (!shard) {
     sendError(conn, "unauthenticated", "fire requires a joined system");
@@ -983,7 +986,16 @@ export function onFire(
     nowMs: (options.now ?? Date.now)(),
   });
   if (result.ok === "denied") {
-    let wireCode: "rate-limited" | "low-energy" | "weapon-locked" | "weapon-not-equipped" | "out-of-range" | "not-attackable" | "self-target" | "no-target" | "unknown";
+    let wireCode:
+      | "rate-limited"
+      | "low-energy"
+      | "weapon-locked"
+      | "weapon-not-equipped"
+      | "out-of-range"
+      | "not-attackable"
+      | "self-target"
+      | "no-target"
+      | "unknown";
     switch (result.code) {
       case "rate-limited":
         wireCode = "rate-limited";
@@ -1034,11 +1046,7 @@ export function onFire(
  * surfaces the "you don't have that weapon" feedback on the
  * same frame they press the trigger).
  */
-export function onSelectWeapon(
-  conn: Connection,
-  options: WsHandleOptions,
-  payload: unknown,
-): void {
+export function onSelectWeapon(conn: Connection, options: WsHandleOptions, payload: unknown): void {
   const shard = options.shardFor?.(conn);
   if (!shard) {
     sendError(conn, "unauthenticated", "select_weapon requires a joined system");

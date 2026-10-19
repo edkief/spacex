@@ -169,17 +169,15 @@ export class WeaponFxLayer {
       // position from the ack alone, so we draw a short muzzle
       // spark in front of the camera. The full hit flash comes
       // from the `combat_event { kind: 'hit' }` echo.
-      this.spawnLaserFlash(
-        {
-          startX: window.innerWidth / 2,
-          startY: window.innerHeight / 2,
-          endX: window.innerWidth / 2 + 40,
-          endY: window.innerHeight / 2,
-          expiresAt: now + LASER_FLASH_MS,
-          color: "#7be5ff",
-          id: this.nextId(),
-        },
-      );
+      this.spawnLaserFlash({
+        startX: window.innerWidth / 2,
+        startY: window.innerHeight / 2,
+        endX: window.innerWidth / 2 + 40,
+        endY: window.innerHeight / 2,
+        expiresAt: now + LASER_FLASH_MS,
+        color: "#7be5ff",
+        id: this.nextId(),
+      });
     } else if (args.kind === "missile" && args.projectileId !== null) {
       this.spawnMissileTracer({
         id: args.projectileId,
@@ -268,7 +266,7 @@ export class WeaponFxLayer {
 
   /**
    * Despawn a missile tracer. Called by the FX tick when the
-     * entity no longer exists on the snapshot (impact, despawn).
+   * entity no longer exists on the snapshot (impact, despawn).
    */
   despawnMissileTracer(projectileId: string): void {
     const idx = this.missileTracers.findIndex((m) => m.id === projectileId);
@@ -287,27 +285,17 @@ export class WeaponFxLayer {
     shakePx: number;
   } {
     // Expire stale flashes in-line.
-    while (
-      this.laserFlashes.length > 0 &&
-      this.laserFlashes[0]!.expiresAt <= now
-    ) {
+    while (this.laserFlashes.length > 0 && this.laserFlashes[0]!.expiresAt <= now) {
       this.laserFlashes.shift();
     }
-    while (
-      this.missileTracers.length > 0 &&
-      this.missileTracers[0]!.expiresAt <= now
-    ) {
+    while (this.missileTracers.length > 0 && this.missileTracers[0]!.expiresAt <= now) {
       this.missileTracers.shift();
     }
-    while (
-      this.impacts.length > 0 &&
-      this.impacts[0]!.expiresAt <= now
-    ) {
+    while (this.impacts.length > 0 && this.impacts[0]!.expiresAt <= now) {
       this.impacts.shift();
     }
     const shakeAge = now - this.shakeStartedAt;
-    const shakePx =
-      shakeAge > SHAKE_DURATION_MS ? 0 : this.shakeIntensity;
+    const shakePx = shakeAge > SHAKE_DURATION_MS ? 0 : this.shakeIntensity;
     return {
       lasers: [...this.laserFlashes],
       tracers: [...this.missileTracers],
