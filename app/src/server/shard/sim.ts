@@ -133,7 +133,7 @@ export interface SimLoopHooks {
   onSnapshot?: (tick: number, bytes: number) => void;
   /** Per-tick observer (warn over budget, broadcast timing). */
   onTick?: SimTickObserver;
-  /** Clock for `performance.now()` (override in tests). */
+  /** Clock source (default `Date.now`, override in tests). */
   clock?: () => number;
   /** Logger that swallows debug/warn lines. Defaults to `console`. */
   logger?: Pick<Console, "warn" | "debug" | "error">;
@@ -225,7 +225,7 @@ export class SimLoop {
   start(): void {
     if (this.running) return;
     this.running = true;
-    this.lastTickReal = (this.hooks.clock ?? performanceNow)();
+    this.lastTickReal = (this.hooks.clock ?? defaultClock)();
     this.accumulator = 0;
     this.schedule();
   }
@@ -279,7 +279,7 @@ export class SimLoop {
    * `setTimeout` timers.
    */
   async tick(): Promise<{ stepsRun: number; didSnapshot: boolean }> {
-    const now = (this.hooks.clock ?? performanceNow)();
+    const now = (this.hooks.clock ?? defaultClock)();
     if (this.lastTickReal < 0) {
       // First call — prime the clock and don't integrate. The next
       // `tick()` will observe exactly TICK_S of elapsed and step once.
@@ -316,7 +316,7 @@ export class SimLoop {
           throw new Error("SimLoop: mining is active but no repository is wired");
         }
         const result = await advanceMining(this.shard, repo, {
-          nowMs: (this.hooks.clock ?? performanceNow)(),
+          nowMs: (this.hooks.clock ?? defaultClock)(),
         });
         // Push mining_update echoes to the owners. We do this here
         // (instead of inside advanceMining) so the WS layer's
@@ -384,7 +384,7 @@ export class SimLoop {
    * state in place — the only place mutation is legal.
    */
   private runOneStep(): void {
-    const tickStart = (this.hooks.clock ?? performanceNow)();
+    const tickStart = (this.hooks.clock ?? defaultClock)();
     this.tickCount += 1;
 
     const shard = this.shard;
@@ -470,7 +470,7 @@ export class SimLoop {
       if (e.energy === undefined) continue;
       energyRegenFor(e, TICK_S, Date.now());
     }
-    const tickDuration = (this.hooks.clock ?? performanceNow)() - tickStart;
+    const tickDuration = (this.hooks.clock ?? defaultClock)() - tickStart;
     this.histogram.push(tickDuration);
 
     const stats: SimTickStats = {
@@ -801,12 +801,16 @@ function clampUnit(value: number): number {
   return value;
 }
 
-function performanceNow(): number {
-  // `performance.now()` is monotonic across the Node process; the
-  // test harness can override `hooks.clock` to a fake timer.
-  if (typeof performance !== "undefined" && typeof performance.now === "function") {
-    return performance.now();
-  }
+function defaultClock(): number {
+  // Default clock is `Date.now` so the SimLoop agrees with the
+  // WS layer (TASK-67 fix). The WS layer's `now` defaults to
+  // `Date.now`, so we match here — otherwise the mining cadence
+  // compares `performance.now()` against `Date.now()` (millions
+  // of ms apart) and never awards units. `performance.now()` is
+  // more monotonic but the WS layer would have to be re-wired
+  // in lockstep for it to be a win, so we accept Date.now's
+  // clock-jump risk in exchange for cross-layer correctness.
+  // Tests can still override `hooks.clock` to a fake timer.
   return Date.now();
 }
 

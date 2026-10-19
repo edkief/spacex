@@ -40,3 +40,54 @@
     - `.ralph/tasks.json` (TASK-43.passes: true)
 
 ### 2026-10-19 — Iteration 5 (TASK-42)
+### 2026-10-19 — Iteration 8 (TASK-67)
+- **TASK-67** Cheat resistance: server authority audit + abuse tests → **DONE**
+  - **Abuse client harness (`app/tests/abuse/rawClient.ts`, ~520 LOC).**
+    - `Cheater` class wraps a raw `ws` client: `send(payload)` for arbitrary JSON, `sendFrame(type, body)` for typed envelopes, `sendText(s)` / `sendRaw(buf)` for malicious payloads, `waitForFrames(n)` / `waitForClose(ms)` / `errors()` / `framesOfType(type)` seams.
+    - `bootAbuseWorld()` boots an in-memory SQLite + live `Shard` + Fastify/ws server with the production `attachWs` + a real auth/join resolver. Seeds a player ship (100 iron in hold + 500 credits), an on-foot character co-located with the deposit, an AI ship, and a deposit (seed = `drift-abuse-seed`). `teardownAbuseWorld(world)` closes the Fastify app, WS handle, sim, and SQLite cleanly.
+    - `abuseHandle(world)` / `abuseApp(world)` accessors expose the live WS handle + Fastify app so cheats can reach in to read final shard state for assertions.
+  - **Cheat scenarios (`app/tests/abuse/cheats.test.ts`, 8 cases, ~430 LOC).**
+    - 1. **Position teleport** — `input { thrust }` frame drives the sim; forged `position` / `teleport` frames are rejected with `unknown-type`; player position never teleports.
+    - 2. **Hit claims** — forged `combat_event` / `apply_damage` frames (the server doesn't accept either type) are rejected; AI hull unchanged by the cheat (≤ 1 laser's worth from a real `fire` later in the sequence).
+    - 3. **Fire spam** — 30 fires in <200 ms + 31st → `weapon-locked` surfaces; AI hull drops by ≤ 1 laser (the 1 accepted hit; the rest are locked out).
+    - 4. **Mine spam** — 20 `mine` frames in <200 ms do not move the deposit (the 1.5 s cadence owns awards). After one more `mine` + 1.8 s wait, deposit drops by exactly 1 — proving the cadence, not the message count, drives awards.
+    - 5. **Sell spam** — 100 `sell` frames for the same 1 iron land at most `rate-limit × elapsed` sells; credits never duplicate and the earned total is a multiple of `basePrice("iron")`.
+    - 6. **Warp spam** — 5 rapid `warp` requests all surface `same-system` (the harness's warp resolver rejects); connection stays alive (warp errors are non-fatal).
+    - 7. **Message flood** — 1 000 junk frames burst → bucket drops the first ~40, then `FloodTracker` kicks with WS code 4009 + reason `flooded`; the connection is removed from the live registry.
+    - 8. **Payload abuse** — 70 KB raw frame + non-JSON text + 40-level deep nesting all rejected (no crash, no log spam); the cheater's connection is still alive after the abuse.
+  - **Property test (`app/tests/abuse/property.test.ts`, 1 case, ~290 LOC).**
+    - Seeded `mulberry32(PRNG_SEED = 0x1a57a)` PRNG picks 1 000 random valid sequences (chat / input / fire / mine / sell / pickup / drop / cargo_transfer / select_weapon). Drives them through the real WS layer on a single connection; sleeps 30 ms every 20 messages so the rate-limit bucket refills.
+    - Asserts post-conditions: no negative credit / inventory / cargo balances; `creditsEarned ≤ totalSoldIron × earnBasePrice("iron")`; `depositDrop ≤ totalMinedIron`; `inventory.weightUsed ≤ INVENTORY_WEIGHT_CAP = 40`; cargo hold within capacity.
+    - Runs in ~1.9 s (well under the 60 s acceptance ceiling).
+  - **Audit tests (`app/tests/abuse/audit.test.ts`, 6 cases, ~170 LOC).**
+    - Schema coverage: every `MessageType` has a registered zod schema (`PAYLOAD_SCHEMAS[t].parse` is a function); no orphans in either direction (dispatched ⊆ registered ⊆ dispatched); NaN payloads (a classic cheat vector) are rejected by the `sell` schema's `.finite()` check.
+    - Rate-limit coverage: general bucket constants (`GENERAL_RATE_LIMIT = 20`, `GENERAL_BURST = 40`, `FLOOD_VIOLATION_THRESHOLD = 3`) are non-zero; chat limiter constants (`CHAT_MIN_GAP_MS = 2_000`, `CHAT_MAX_LEN = 280`, `CHAT_WINDOW_MAX = 10`, `CHAT_WINDOW_MS = 30_000`) match the protocol docs; every stateful handler (chat, fire, mine, sell, warp, join_system, interact, pickup, drop, cargo_transfer, select_weapon, exit_ship, enter_ship, repair, buy_ship, set_livery, logout) has a corresponding message type.
+  - **Production fix found by the abuse suite (TASK-67 acceptance: "fix the hole in the owning module and keep the abuse test as the regression guard").**
+    - The SimLoop's default clock was `performance.now()` while the WS layer's default `now` was `Date.now()`. Mining cadence (`nowMs - state.lastAwardAt >= MINE_TICK_MS`) silently never fired in production (the two clocks differ by ~1.8 × 10⁹ ms). Renamed `performanceNow` → `defaultClock` in `app/src/server/shard/sim.ts` and changed the default to `Date.now()` so the sim and WS layer share a clock. The cheat 4 (mine spam) regression test guards against future drift.
+  - **Wire + type plumbing.**
+    - `app/tsconfig.json` — `tests/abuse/**/*.ts` added to the include list (was previously e2e-only via Playwright).
+    - `app/vitest.config.ts` — `tests/abuse/**/*.test.ts` added so the abuse suite runs under `npm run test` (not just `vitest run`).
+    - New dev seam: `world.characterEntityIds["PILOT-ABUSE"]` lets the cheat harness bind the cheater's connection to the on-foot character entity for `mine` tests (the player ship stays docked on the pad).
+  - **Test + lint + typecheck.**
+    - `npm run test`: 1945/1945 pass (was 1930 → +15 abuse cases).
+    - `npx tsc --noEmit`: clean.
+    - `npx prettier --check`: clean on all new files.
+    - `npx eslint tests/abuse/`: 0 errors (5 pre-existing errors in `sim.ts` for `import()` type annotations remain; not introduced by this task).
+    - The 5 pre-existing e2e TypeScript errors in `tests/e2e/*` are unrelated and predate this task.
+  - **Acceptance criteria checklist:**
+    - "Abuse test suite: 8 cheat scenarios" ✅ `cheats.test.ts`.
+    - "Economy audit: 1000 random sequences, no value from nothing" ✅ `property.test.ts` (1 000 sequences, < 2 s).
+    - "Input sanitization audit: every handler has a zod schema" ✅ `audit.test.ts#schema-coverage`.
+    - "Rate-limit audit: every stateful handler has a limiter" ✅ `audit.test.ts#rate-limit-coverage`.
+    - "All abuse tests green" ✅ 15/15 pass.
+    - "`npm run test` green including the property test" ✅ 1945/1945.
+  - **Files added (4):**
+    - `app/tests/abuse/rawClient.ts` (~520 LOC)
+    - `app/tests/abuse/cheats.test.ts` (~430 LOC)
+    - `app/tests/abuse/property.test.ts` (~290 LOC)
+    - `app/tests/abuse/audit.test.ts` (~170 LOC)
+  - **Files modified (4):**
+    - `app/src/server/shard/sim.ts` (`performanceNow` → `defaultClock`, default → `Date.now`, +~10 LOC doc + 5 call-site updates)
+    - `app/tsconfig.json` (+1 line: `tests/abuse/**/*.ts` include)
+    - `app/vitest.config.ts` (+3 lines: `tests/abuse/**/*.test.ts` include)
+    - `.ralph/tasks.json` (TASK-67.passes: true)
