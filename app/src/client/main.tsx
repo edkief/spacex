@@ -16,10 +16,18 @@
  */
 import { createRoot } from "react-dom/client";
 import { App } from "./App.js";
+import { MenuShellProvider } from "./ui/menu/MenuShell.js";
 
 const container = document.getElementById("root");
 if (!container) {
   throw new Error("Missing #root container in index.html");
 }
 
-createRoot(container).render(<App />);
+// TASK-53: the menu shell wraps the whole tree so every surface
+// (ESC menu, star chart, ship / dock panel) shares one stack — and
+// one input gate.
+createRoot(container).render(
+  <MenuShellProvider>
+    <App />
+  </MenuShellProvider>,
+);

@@ -72,6 +72,9 @@ import { DestructionFx } from "./components/DestructionFx.js";
 import { OnFootHUD } from "./components/OnFootHUD.js";
 import { useHudMode } from "./components/useHudMode.js";
 import { HazardLayer } from "./world/HazardLayer.js";
+import { useMenuShell } from "./ui/menu/MenuShell.js";
+import { MenuPanel } from "./ui/menu/MenuPanel.js";
+import { ShipPanel } from "./ui/ship/ShipPanel.js";
 import { WeaponFxLayer } from "./fx/weapons.js";
 import type { GalaxyOverview } from "@shared/galaxy/overview.js";
 
@@ -194,7 +197,11 @@ export function App(): React.JSX.Element {
   // TASK-7: chart open state — toggled by the `M` key or the
   // "Systems" header button. The chart component owns its own
   // selection / Warp-button state internally.
-  const [chartOpen, setChartOpen] = useState(false);
+  // TASK-53: the ESC menu shell owns every transient surface. The
+  // star chart is one of them ("systems"), so the chart's open
+  // state is derived from the shell stack instead of a local flag.
+  const shell = useMenuShell();
+  const chartOpen = shell.stack.includes("systems");
   // TASK-7: chart payload + occupancy. The overview is fetched
   // once per chart open; occupancy is polled every 5 s while
   // the chart is open.
@@ -350,7 +357,7 @@ export function App(): React.JSX.Element {
     // honoured today; future terminals will extend the union.
     const offUiOpen = client.onUiOpen((payload) => {
       if (payload.ui === "dock") {
-        setDockPanelOpen(true);
+        shell.open("dock");
       }
     });
     // TASK-40: subscribe to `sell_ok` frames so the credits
@@ -378,7 +385,7 @@ export function App(): React.JSX.Element {
     // builds never set this seam.
     if (import.meta.env.DEV) {
       (globalThis as { __driftForceDockPanel?: () => void }).__driftForceDockPanel = () =>
-        setDockPanelOpen(true);
+        shell.open("dock");
     }
     client.start().catch(() => {
       // Errors already surface via the onError listener; the
@@ -398,7 +405,7 @@ export function App(): React.JSX.Element {
       window.clearInterval(creditsTimer);
       void client.stop();
     };
-  }, [client, notifications]);
+  }, [client, notifications, shell]);
 
   // -----------------------------------------------------------------
   // TASK-7: chart data fetch + 5 s occupancy poll while open.
@@ -472,7 +479,13 @@ export function App(): React.JSX.Element {
   // build literally has no listener for it.
   // -----------------------------------------------------------------
 
-  const toggleChart = useCallback(() => setChartOpen((o) => !o), []);
+  const toggleChart = useCallback(() => {
+    if (shell.stack.includes("systems")) {
+      shell.back();
+      return;
+    }
+    shell.open("systems");
+  }, [shell]);
   const toggleDebugOverlay = useCallback(() => setDebugOverlayOpen((o) => !o), []);
 
   useEffect(() => {
@@ -520,11 +533,6 @@ export function App(): React.JSX.Element {
         // pass an explicit id instead.
         ev.preventDefault();
         client.sendTargetLock(null);
-      } else if (ev.key === "Escape" && chartOpen) {
-        // Only swallow Escape when the chart is actually open;
-        // otherwise other overlays (TASK-58 menu) may need it.
-        ev.preventDefault();
-        setChartOpen(false);
       } else if (import.meta.env.DEV && ev.key === "F3") {
         // F3 toggles the in-game frame monitor. Gated on dev so
         // the production bundle never registers the listener.
@@ -534,7 +542,7 @@ export function App(): React.JSX.Element {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [toggleChart, chartOpen, toggleDebugOverlay]);
+  }, [toggleChart, shell, toggleDebugOverlay]);
 
   const store = client.presenceStore;
 
@@ -578,7 +586,7 @@ export function App(): React.JSX.Element {
   // on a dock-terminal interactable (TASK-33 + TASK-40). The
   // client owns rendering; the host shell toggles `open` from a
   // single source (the `ui_open` listener below).
-  const [dockPanelOpen, setDockPanelOpen] = useState(false);
+  const dockPanelOpen = shell.stack.includes("dock");
   // TASK-40: live credit balance. Mirrors the value the server
   // reports via `sell_ok` (or `/api/players` for the initial read).
   // The DockPanel renders it in the right rail so the player
@@ -685,8 +693,80 @@ export function App(): React.JSX.Element {
         cargo={ownCargo}
         balance={creditsBalance}
         open={dockPanelOpen}
-        onClose={() => setDockPanelOpen(false)}
+        onClose={() => shell.back()}
+        authToken={token}
+        energy={hudWeaponState?.energy ?? null}
+        onBalanceChange={setCreditsBalance}
       />
+      {/* TASK-53: the ESC menu shell. The menu is a transient
+          overlay — the world keeps simulating while it is open
+          (multiplayer), only local input is suppressed. */}
+      {shell.top === "menu" ? (
+        <MenuPanel
+          callsign={client.currentCallsign}
+          credits={creditsBalance}
+          onSelect={(item) => {
+            switch (item) {
+              case "resume":
+                shell.close();
+                return;
+              case "systems":
+                shell.open("systems");
+                return;
+              case "ships":
+                shell.open("ship");
+                return;
+              case "settings":
+                shell.open("settings");
+                return;
+            }
+          }}
+        />
+      ) : null}
+      {/* TASK-53: the shared ship panel (Overview / Cargo / Repair).
+          The dock panel is the same component with the
+          `on-foot-dock` context (see `<DockPanel>` above). */}
+      <ShipPanel
+        client={status === "online" ? client : null}
+        context={ownOnPad !== null ? "docked-ship" : "in-flight"}
+        open={shell.stack.includes("ship")}
+        onClose={() => shell.back()}
+        inventory={ownInventory}
+        cargo={ownCargo}
+        balance={creditsBalance}
+        authToken={token}
+        energy={hudWeaponState?.energy ?? null}
+        onBalanceChange={setCreditsBalance}
+      />
+      {shell.top === "settings" ? (
+        <div
+          data-testid="drift-settings-placeholder"
+          role="dialog"
+          aria-label="Settings"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(5,6,12,0.78)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 80,
+            fontFamily: "monospace",
+            color: "#e6edf3",
+          }}
+        >
+          <div
+            style={{
+              background: "#0b1018",
+              border: "1px solid rgba(255,255,255,0.15)",
+              padding: 16,
+              fontSize: 12,
+            }}
+          >
+            Settings — quality presets, sensitivity and reduced motion land in TASK-55.
+          </div>
+        </div>
+      ) : null}
       {/* TASK-52: the unified interaction prompt (cone-raycast +
           mining radial) lives inside `<OnFootHUD>` only. The
           callback props were lifted to App.tsx so the WS layer
@@ -717,7 +797,7 @@ export function App(): React.JSX.Element {
           type="button"
           aria-label="Open star chart"
           aria-pressed={chartOpen ? "true" : "false"}
-          onClick={() => setChartOpen(true)}
+          onClick={() => shell.open("systems")}
           style={{
             background: "transparent",
             border: "1px solid rgba(255, 255, 255, 0.25)",
@@ -767,7 +847,7 @@ export function App(): React.JSX.Element {
           toggle all flip `chartOpen`. */}
       <StarChart
         open={chartOpen}
-        onClose={() => setChartOpen(false)}
+        onClose={() => shell.back()}
         overview={overview}
         occupancy={occupancy}
         currentSystemId={client.currentSystemId}
