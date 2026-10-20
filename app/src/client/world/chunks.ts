@@ -92,6 +92,28 @@ export const MID_GRID = 32;
  */
 export const FAR_GRID = 8;
 
+/**
+ * TASK-55: the per-ring grid resolutions as one object. The
+ * streaming pipeline passes the *active* preset's detail in here so
+ * a quality change applies to the next generated chunk without
+ * rebuilding the pipeline.
+ */
+export interface ChunkDetail {
+  /** Cells per chunk side at the near LOD. */
+  near: number;
+  /** Cells per chunk side at the mid LOD. */
+  mid: number;
+  /** Cells per chunk side at the far (impostor) LOD. */
+  far: number;
+}
+
+/** The detail the pipeline uses when no preset is applied (`high`). */
+export const DEFAULT_CHUNK_DETAIL: ChunkDetail = Object.freeze({
+  near: NEAR_GRID,
+  mid: MID_GRID,
+  far: FAR_GRID,
+});
+
 // ---------------------------------------------------------------------------
 // LOD rings
 // ---------------------------------------------------------------------------
@@ -148,10 +170,10 @@ export type ChunkLOD = "near" | "mid" | "far" | "none";
  *   2048 ≤ distance < 8192→ `far`  (impostor)
  *   distance ≥ 8192       → `none` (no surface)
  */
-export function lodFor(distanceM: number): ChunkLOD {
+export function lodFor(distanceM: number, farRadiusM: number = LOD_FAR_RADIUS_M): ChunkLOD {
   if (distanceM < LOD_NEAR_RADIUS_M) return "near";
   if (distanceM < LOD_MID_RADIUS_M) return "mid";
-  if (distanceM < LOD_FAR_RADIUS_M) return "far";
+  if (distanceM < farRadiusM) return "far";
   return "none";
 }
 
@@ -439,18 +461,19 @@ export function generateChunk(
   planet: Planet,
   chunkX: number,
   chunkZ: number,
+  detail: ChunkDetail = DEFAULT_CHUNK_DETAIL,
 ): RenderChunk {
   const start = nowMs();
-  const heightmapNear = buildHeightGrid(seed, planet, chunkX, chunkZ, NEAR_GRID);
+  const heightmapNear = buildHeightGrid(seed, planet, chunkX, chunkZ, detail.near);
 
   // Mid and far LODs are decimations of the near heightfield.
   // Rather than re-sample the noise field at lower resolution, we
   // pick the nearest-neighbour height from the near grid so the
   // mip chain shares the *same* noise samples — guarantees no
   // visible shift when the camera moves across LOD boundaries.
-  const near = buildLodGeometry("near", heightmapNear, NEAR_GRID, NEAR_GRID);
-  const mid = buildLodGeometry("mid", heightmapNear, NEAR_GRID, MID_GRID);
-  const far = buildLodGeometry("far", heightmapNear, NEAR_GRID, FAR_GRID);
+  const near = buildLodGeometry("near", heightmapNear, detail.near, detail.near);
+  const mid = buildLodGeometry("mid", heightmapNear, detail.near, detail.mid);
+  const far = buildLodGeometry("far", heightmapNear, detail.near, detail.far);
 
   const totalTriangles = near.triangleCount + mid.triangleCount + far.triangleCount;
   const generationMs = nowMs() - start;
@@ -672,6 +695,7 @@ export function computeActiveSet(
   worldZ: number,
   speedMps: number = 0,
   chunkSize: number = CHUNK_SIZE_M,
+  farRadiusM: number = LOD_FAR_RADIUS_M,
 ): ActiveChunk[] {
   const radius =
     speedMps >= FAST_MOVEMENT_SPEED_MPS ? ACTIVE_SET_RADIUS_FAST : ACTIVE_SET_RADIUS_DEFAULT;
@@ -692,7 +716,7 @@ export function computeActiveSet(
       const dxm = nearestX - worldX;
       const dzm = nearestZ - worldZ;
       const distanceM = Math.sqrt(dxm * dxm + dzm * dzm);
-      const lod = lodFor(distanceM);
+      const lod = lodFor(distanceM, farRadiusM);
       if (lod === "none") continue;
       out.push({ chunkX, chunkZ, distanceM, lod });
       // Reference `chunkCentreX/Z` so the variables are read by

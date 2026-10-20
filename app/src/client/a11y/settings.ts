@@ -18,20 +18,24 @@
 /** The localStorage key the settings are persisted under. */
 export const STORAGE_KEY = "drift.settings";
 
-/** The settings snapshot shape (frozen — replace it wholesale). */
-export interface SettingsSnapshot {
-  /**
-   * When true the client disables camera shake, slow-mo, particle
-   * FX (debris / smoke / trails), the animated threat ping, and the
-   * warp streak (a plain fade replaces it).
-   *
-   * Default: `false` (the spec asks for an opt-in toggle).
-   */
-  readonly reducedMotion: boolean;
-}
+import {
+  clampSensitivity,
+  DEFAULT_SETTINGS as SHARED_DEFAULT_SETTINGS,
+  sanitizeSettings,
+  type QualityPreset,
+  type Settings,
+} from "@shared/settings.js";
 
-/** The default snapshot — reduced motion is opt-in. */
-export const DEFAULT_SETTINGS: SettingsSnapshot = { reducedMotion: false };
+/**
+ * The settings snapshot — the shared {@link Settings} record
+ * (quality preset + mouse sensitivity + reduced motion). TASK-55
+ * widened the TASK-54 flag into the full record; the type alias is
+ * kept so the existing FX / overlay call sites stay readable.
+ */
+export type SettingsSnapshot = Settings;
+
+/** The default snapshot — high quality, 1.0× sensitivity, motion on. */
+export const DEFAULT_SETTINGS: SettingsSnapshot = SHARED_DEFAULT_SETTINGS;
 
 /** Listener signature for {@link SettingsStore.subscribe}. */
 export type SettingsListener = () => void;
@@ -63,7 +67,10 @@ export class SettingsStore {
 
   constructor(options: SettingsStoreOptions = {}) {
     this.storage = options.storage ?? defaultStorage();
-    this.snapshot = { ...DEFAULT_SETTINGS, ...readPersisted(this.storage), ...options.initial };
+    this.snapshot = sanitizeSettings({
+      ...readPersisted(this.storage),
+      ...options.initial,
+    });
   }
 
   /** The current snapshot (stable reference between changes). */
@@ -79,8 +86,57 @@ export class SettingsStore {
 
   /** Enable or disable reduced motion. Takes effect immediately. */
   setReducedMotion = (reducedMotion: boolean): void => {
-    if (this.snapshot.reducedMotion === reducedMotion) return;
-    this.snapshot = { ...this.snapshot, reducedMotion };
+    this.commit({ ...this.snapshot, reducedMotion });
+  };
+
+  /** Flip the reduced-motion flag. */
+  toggleReducedMotion = (): void => {
+    this.setReducedMotion(!this.snapshot.reducedMotion);
+  };
+
+  /**
+   * TASK-55: switch the quality preset. Immediate (no debounce) —
+   * the pipeline re-tunes on its next tick via the SettingsBridge.
+   */
+  setQuality = (quality: QualityPreset): void => {
+    this.commit({ ...this.snapshot, quality });
+  };
+
+  /**
+   * TASK-55: set the mouse-look multiplier. Clamped to
+   * `[0.5, 2.0]` on the 0.1 step; applies on the next input frame.
+   */
+  setSensitivity = (sensitivity: number): void => {
+    this.commit({ ...this.snapshot, sensitivity: clampSensitivity(sensitivity) });
+  };
+
+  /**
+   * TASK-55: replace the whole snapshot (session restore). Values
+   * are sanitised first, so a corrupt server payload degrades to
+   * the defaults rather than poisoning the client.
+   */
+  hydrate = (patch: unknown): void => {
+    this.commit(sanitizeSettings(patch));
+  };
+
+  /** TASK-55: restore the shipped defaults. */
+  reset = (): void => {
+    this.commit(DEFAULT_SETTINGS);
+  };
+
+  /**
+   * Shared commit path: no-op on an unchanged snapshot (so an
+   * unchanged `PUT` never re-renders the panel), then notify.
+   */
+  private commit(next: SettingsSnapshot): void {
+    if (
+      next.quality === this.snapshot.quality &&
+      next.sensitivity === this.snapshot.sensitivity &&
+      next.reducedMotion === this.snapshot.reducedMotion
+    ) {
+      return;
+    }
+    this.snapshot = next;
     this.persist();
     for (const listener of this.listeners) {
       try {
@@ -89,12 +145,7 @@ export class SettingsStore {
         // A faulty listener must not break the settings update.
       }
     }
-  };
-
-  /** Flip the reduced-motion flag. */
-  toggleReducedMotion = (): void => {
-    this.setReducedMotion(!this.snapshot.reducedMotion);
-  };
+  }
 
   /** Write the current snapshot to storage (best effort). */
   private persist(): void {
@@ -115,8 +166,20 @@ function readPersisted(storage: SettingsStorage | null): Partial<SettingsSnapsho
     if (raw === null) return {};
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed !== "object" || parsed === null) return {};
-    const reducedMotion = (parsed as { reducedMotion?: unknown }).reducedMotion;
-    return typeof reducedMotion === "boolean" ? { reducedMotion } : {};
+    const record = parsed as Record<string, unknown>;
+    // The shared record is readonly, so the patch is assembled as a
+    // mutable local before it is handed to the store's constructor.
+    const patch: {
+      reducedMotion?: boolean;
+      quality?: QualityPreset;
+      sensitivity?: number;
+    } = {};
+    if (typeof record.reducedMotion === "boolean") patch.reducedMotion = record.reducedMotion;
+    if (typeof record.quality === "string") {
+      patch.quality = record.quality as QualityPreset;
+    }
+    if (typeof record.sensitivity === "number") patch.sensitivity = record.sensitivity;
+    return patch;
   } catch {
     return {};
   }

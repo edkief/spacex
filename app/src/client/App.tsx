@@ -75,6 +75,8 @@ import { HazardLayer } from "./world/HazardLayer.js";
 import { useMenuShell } from "./ui/menu/MenuShell.js";
 import { MenuPanel } from "./ui/menu/MenuPanel.js";
 import { SettingsPanel } from "./ui/menu/SettingsPanel.js";
+import { settingsBridge } from "./world/settingsBridge.js";
+import { fetchSettings } from "./settings/api.js";
 import { ShipPanel } from "./ui/ship/ShipPanel.js";
 import { WeaponFxLayer } from "./fx/weapons.js";
 import { LiveRegion } from "./a11y/LiveRegion.js";
@@ -240,6 +242,11 @@ export function App(): React.JSX.Element {
     // the FX counters (played / skipped) without scraping the DOM.
     (globalThis as { __driftSettings?: typeof settingsStore }).__driftSettings = settingsStore;
     (globalThis as { __driftFxRegistry?: typeof fxRegistry }).__driftFxRegistry = fxRegistry;
+    // TASK-55: the settings→pipeline bridge, so the e2e can read the
+    // live preset params (draw distance, chunk detail, fx scale)
+    // after switching quality from the settings panel.
+    (globalThis as { __driftSettingsBridge?: typeof settingsBridge }).__driftSettingsBridge =
+      settingsBridge;
     // Expose the toggle setter so the e2e smoke can flip the panel
     // without driving a real keyboard event (the F3 path is covered
     // by the unit suite via direct DOM event dispatch).
@@ -417,6 +424,25 @@ export function App(): React.JSX.Element {
       void client.stop();
     };
   }, [client, notifications, shell]);
+
+  // -----------------------------------------------------------------
+  // TASK-55: restore the persisted settings once a session exists.
+  // A returning player gets their quality preset / sensitivity
+  // before the first frame they steer; a fresh player keeps the
+  // defaults (the endpoint returns them).
+  // -----------------------------------------------------------------
+  const settingsLoadedRef = useRef(false);
+  useEffect(() => {
+    if (token === null || settingsLoadedRef.current) return;
+    settingsLoadedRef.current = true;
+    void fetchSettings(token)
+      .then((settings) => settingsStore.hydrate(settings))
+      .catch(() => {
+        // A failed restore is non-fatal: the local snapshot (local
+        // Storage) still drives this session.
+        settingsLoadedRef.current = false;
+      });
+  }, [token]);
 
   // -----------------------------------------------------------------
   // TASK-7: chart data fetch + 5 s occupancy poll while open.
@@ -809,7 +835,7 @@ export function App(): React.JSX.Element {
       {shell.top === "settings" ? (
         /* TASK-54: the settings surface. It hosts the reduced-motion
            toggle (the shared settings flag the FX registry reads). */
-        <SettingsPanel onClose={() => shell.back()} />
+        <SettingsPanel onClose={() => shell.back()} authToken={token} />
       ) : null}
       {/* TASK-52: the unified interaction prompt (cone-raycast +
           mining radial) lives inside `<OnFootHUD>` only. The

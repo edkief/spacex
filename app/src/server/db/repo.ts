@@ -24,6 +24,7 @@ import { type sqliteSchema } from "./schema.sqlite.js";
 import { type pgSchema } from "./schema.pg.js";
 import { CallsignTakenError, InsufficientCreditsError, NotFoundError } from "./errors.js";
 import type { Inventory } from "@shared/world/inventory.js";
+import type { Settings } from "@shared/settings.js";
 import type {
   CargoItemInput,
   CargoItemRow,
@@ -146,6 +147,21 @@ export interface Repository {
    * `@shared/world/inventoryOps`.
    */
   saveInventory(playerId: string, inventory: Inventory): Promise<Inventory>;
+
+  // Settings (TASK-55)
+  /**
+   * Read the persisted per-player settings. Rows written before
+   * TASK-55 have a NULL column and resolve to the shared defaults
+   * (`DEFAULT_SETTINGS` from `@shared/settings`). Throws
+   * `NotFoundError` for an unknown player.
+   */
+  getSettings(playerId: string): Promise<Settings>;
+  /**
+   * Replace the persisted settings wholesale and echo the stored
+   * record back (post-clamp) so the caller can trust the response.
+   * Unknown players throw `NotFoundError`.
+   */
+  saveSettings(playerId: string, settings: Settings): Promise<Settings>;
 
   // Ships
   getOrCreateStarterShip(playerId: string, classId: ShipClassId): Promise<ShipRow>;

@@ -22,6 +22,7 @@ export {
   NEAR_GRID,
   MID_GRID,
   FAR_GRID,
+  DEFAULT_CHUNK_DETAIL,
   TRIANGLE_BUDGET_DEFAULT,
   chunkCoordFor,
   chunkKey,
@@ -41,9 +42,17 @@ export {
   type LodVertex,
   type RenderChunk,
   type ChunkGeometries,
+  type ChunkDetail,
 } from "./chunks.js";
 
 export { FrameScheduler, type FrameSchedulerOptions, type FrameTask } from "./frameScheduler.js";
+
+export {
+  SettingsBridge,
+  settingsBridge,
+  connectSettingsBridge,
+  type ParamsListener,
+} from "./settingsBridge.js";
 
 export {
   ChunkPipeline,

@@ -251,8 +251,20 @@ test("the whole UI is operable with the keyboard alone", async ({ page, driftSer
   const reducedMotionInput = page.getByTestId("drift-settings-reduced-motion-input");
   await expect(reducedMotionInput).toBeVisible({ timeout: 5_000 });
 
-  // The panel focuses its first control (the checkbox) on open, so
-  // `Space` flips it — keyboard only, no pointer.
+  // TASK-55: the panel focuses its first control on open — the
+  // quality preset group. `Tab` walks to the reduced-motion checkbox
+  // (the focus trap keeps the walk inside the panel) and `Space`
+  // flips it — keyboard only, no pointer.
+  await expect
+    .poll(async () => page.evaluate(() => document.activeElement?.getAttribute("data-testid")))
+    .toBe("drift-settings-quality-high");
+  for (let i = 0; i < 8; i++) {
+    const focused = await page.evaluate(
+      () => document.activeElement?.getAttribute("data-testid"),
+    );
+    if (focused === "drift-settings-reduced-motion-input") break;
+    await page.keyboard.press("Tab");
+  }
   await expect
     .poll(async () => page.evaluate(() => document.activeElement?.getAttribute("data-testid")))
     .toBe("drift-settings-reduced-motion-input");

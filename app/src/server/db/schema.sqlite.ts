@@ -41,6 +41,9 @@ const players = sqliteTable(
     credits: integer("credits").notNull().default(500),
     homeSystemId: text("home_system_id"),
     inventory: text("inventory"),
+    // TASK-55: per-player settings JSON `{quality, sensitivity, reducedMotion}`.
+    // Nullable so a pre-TASK-55 row resolves to the shipped defaults.
+    settings: text("settings"),
     createdAt: text("created_at")
       .notNull()
       .default(sql`(CURRENT_TIMESTAMP)`),

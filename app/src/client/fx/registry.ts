@@ -22,6 +22,7 @@
  */
 
 import { settingsStore } from "../a11y/settings.js";
+import { settingsBridge } from "../world/settingsBridge.js";
 
 /** The cosmetic effect kinds the registry gates. */
 export type FxKind =
@@ -67,6 +68,27 @@ export class FxRegistry {
     }
     this.counters.played += 1;
     return true;
+  }
+
+  /**
+   * TASK-55: the preset's FX spawn-rate multiplier (1.0 / 0.6 /
+   * 0.3). Cosmetic callers scale their particle / effect counts by
+   * this so a `low` preset really does spawn a third of the FX.
+   * Read per call — the preset may change mid-session.
+   */
+  fxScale(): number {
+    return settingsBridge.current().fxQuality;
+  }
+
+  /**
+   * Apply the FX multiplier to a desired effect count — e.g. a
+   * debris burst of 10 spawns `ceil(10 * fxScale())` pieces (never
+   * fewer than 1 while FX are enabled, so an effect never silently
+   * disappears).
+   */
+  scaledCount(count: number): number {
+    if (count <= 0) return 0;
+    return Math.max(1, Math.round(count * this.fxScale()));
   }
 
   /** The live counters (a copy — the caller cannot mutate them). */

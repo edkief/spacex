@@ -38,6 +38,7 @@ import {
   defaultPosition,
 } from "./repo.js";
 import { emptyInventory, validateInventory } from "@shared/world/inventoryOps.js";
+import { DEFAULT_SETTINGS, sanitizeSettings, type Settings } from "@shared/settings.js";
 import type { Inventory } from "@shared/world/inventory.js";
 import { cargoHoldFor } from "@shared/world/cargo.js";
 import { validateCargoHold } from "@shared/world/cargoOps.js";
@@ -56,6 +57,8 @@ export function bindSqliteIdentity(db: BetterSQLite3Database<typeof sqliteSchema
   findPlayerById: (id: string) => Promise<PlayerRow | null>;
   getInventory: (playerId: string) => Promise<Inventory>;
   saveInventory: (playerId: string, inventory: Inventory) => Promise<Inventory>;
+  getSettings: (playerId: string) => Promise<Settings>;
+  saveSettings: (playerId: string, settings: Settings) => Promise<Settings>;
   getOrCreateStarterShip: (playerId: string, classId: ShipClassId) => Promise<ShipRow>;
   findShipById: (id: string) => Promise<ShipRow | null>;
   saveShipState: (id: string, patch: SaveShipStateInput) => Promise<ShipRow>;
@@ -135,6 +138,42 @@ export function bindSqliteIdentity(db: BetterSQLite3Database<typeof sqliteSchema
         throw new NotFoundError("Player", playerId);
       }
       return inventory;
+    },
+
+    // TASK-55: per-player settings. NULL column (pre-TASK-55 rows)
+    // or a malformed payload resolves to the shipped defaults, so a
+    // bad row degrades the player's preferences rather than
+    // breaking their session.
+    async getSettings(playerId: string): Promise<Settings> {
+      const rows = await db
+        .select({ settings: sqliteSchema.players.settings })
+        .from(sqliteSchema.players)
+        .where(eq(sqliteSchema.players.id, playerId))
+        .limit(1);
+      const row = rows[0];
+      if (!row) {
+        throw new NotFoundError("Player", playerId);
+      }
+      const raw = row.settings;
+      if (raw === null || raw === undefined) return DEFAULT_SETTINGS;
+      try {
+        return sanitizeSettings(JSON.parse(String(raw)));
+      } catch {
+        return DEFAULT_SETTINGS;
+      }
+    },
+
+    async saveSettings(playerId: string, settings: Settings): Promise<Settings> {
+      const stored = sanitizeSettings(settings);
+      const result = await db
+        .update(sqliteSchema.players)
+        .set({ settings: JSON.stringify(stored) })
+        .where(eq(sqliteSchema.players.id, playerId))
+        .run();
+      if ((result.changes ?? 0) === 0) {
+        throw new NotFoundError("Player", playerId);
+      }
+      return stored;
     },
 
     async findPlayerByCallsign(callsign: string): Promise<PlayerRow | null> {

@@ -34,10 +34,12 @@
  */
 
 import type { Planet } from "@shared/galaxy/types.js";
+import type { PipelineParams } from "@shared/settings.js";
 
 import {
   ChunkLruCache,
   CHUNK_LRU_CAPACITY,
+  CHUNK_SIZE_M,
   computeActiveSet,
   generateChunk,
   type ActiveChunk,
@@ -50,6 +52,7 @@ import {
   lodFor,
 } from "./chunks.js";
 import { FrameScheduler, type FrameTask } from "./frameScheduler.js";
+import { settingsBridge } from "./settingsBridge.js";
 
 /** Listener for chunk events. `mounted` fires once per chunk the first
  *  time it becomes available; `evicted` fires once when the LRU drops
@@ -80,6 +83,12 @@ export interface ChunkPipelineOptions {
   clock?: ChunkClock;
   /** Optional callbacks — all are no-ops when omitted. */
   callbacks?: ChunkPipelineCallbacks;
+  /**
+   * TASK-55: override the live params source (defaults to the
+   * process-wide `SettingsBridge`). Tests inject a fake bridge so
+   * they don't touch the singleton.
+   */
+  params?: () => PipelineParams;
 }
 
 /**
@@ -133,6 +142,8 @@ export class ChunkPipeline {
 
   private lastTickMs = 0;
   private activeSetSize = 0;
+  /** TASK-55: the live param source (settings preset). */
+  private readonly params: () => PipelineParams;
 
   constructor(opts: ChunkPipelineOptions) {
     this.seed = opts.seed;
@@ -144,6 +155,7 @@ export class ChunkPipeline {
     });
     this.budget = new TriangleBudget(opts.triangleBudget ?? TRIANGLE_BUDGET_DEFAULT);
     this.callbacks = opts.callbacks ?? {};
+    this.params = opts.params ?? ((): PipelineParams => settingsBridge.current());
     this.clock = opts.clock ?? defaultChunkClock;
 
     // Eviction → host callback.
@@ -172,10 +184,15 @@ export class ChunkPipeline {
    */
   tick(): void {
     const start = this.clock();
+    // TASK-55: read the live preset params every frame — a settings
+    // change takes effect on the next tick (no re-init).
+    const params = this.params();
     const activeSet = computeActiveSet(
       this.playerState.x,
       this.playerState.z,
       this.playerState.speed,
+      CHUNK_SIZE_M,
+      params.drawDistanceM,
     );
     this.activeSetSize = activeSet.length;
 
@@ -245,7 +262,13 @@ export class ChunkPipeline {
    * the LRU learns about it.
    */
   private generateAndMount(active: ActiveChunk): void {
-    const chunk = generateChunk(this.seed, this.planet, active.chunkX, active.chunkZ);
+    const chunk = generateChunk(
+      this.seed,
+      this.planet,
+      active.chunkX,
+      active.chunkZ,
+      this.params().chunkDetail,
+    );
     this.lru.set(chunk.key, chunk);
     this.chunkLod.set(chunk.key, active.lod);
     this.budget.record(chunk.key, "near", chunk.geometries.near.triangleCount);

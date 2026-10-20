@@ -10,6 +10,7 @@ import type { ServerConfig } from "./config.js";
 import { registerCallsignRoutes } from "./routes/callsigns.js";
 import { registerPlayersRoutes } from "./routes/players.js";
 import { registerShipsRoutes } from "./routes/ships.js";
+import { registerSettingsRoutes } from "./routes/settings.js";
 import { registerRepairRoute } from "./routes/repair.js";
 import { registerGalaxyHealthRoute } from "./routes/galaxy-health.js";
 import type { Repository } from "./db/repo.js";
@@ -72,6 +73,14 @@ export async function buildApp(
     // own profile (callsign, credits, home system, starter ship). Same
     // deps as the callsign routes so we wire it alongside.
     registerPlayersRoutes(app, {
+      repo: options.repo,
+      sessionSecret: options.sessionSecret,
+      nowMs: options.nowMs,
+    });
+    // TASK-55: per-player settings (quality preset / sensitivity /
+    // reduced motion). Registered next to the player routes because
+    // it is the same auth + repo pattern.
+    registerSettingsRoutes(app, {
       repo: options.repo,
       sessionSecret: options.sessionSecret,
       nowMs: options.nowMs,

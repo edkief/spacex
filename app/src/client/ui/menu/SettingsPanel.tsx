@@ -1,44 +1,94 @@
 /**
- * Settings panel — TASK-54 (the reduced-motion toggle).
+ * Settings panel — TASK-55 (the full settings page; the
+ * reduced-motion toggle landed with TASK-54).
  *
- * A minimal surface inside the ESC shell. It declares itself with
- * `data-menu-surface` so the shell's input gate lets `Tab` /
- * `Enter` / `Space` through (the gate swallows every other key so
- * the game never sees them while a surface is open).
+ * Four sections: the **quality preset**, the **mouse sensitivity**
+ * slider, **reduced motion**, and the read-only **keybind** list,
+ * plus a *Reset to defaults* button.
  *
- * The reduced-motion toggle flips the shared settings flag, which
- * the FX registry reads on the next effect — the change takes
- * effect immediately, with no restart.
+ * There is deliberately no "Apply" button:
  *
- * TASK-55 grows this surface into the full settings page (quality
- * presets, sensitivity); the toggle + the focus behaviour land
- * here.
+ *   - a preset switch applies **immediately** (the streaming
+ *     pipeline re-tunes on its next tick through the
+ *     `SettingsBridge`) and is persisted with one `PUT`,
+ *   - the slider applies on the next input frame and the write is
+ *     **debounced 300 ms** so a drag burst is one request,
+ *   - the toggle applies on the next frame, one `PUT`.
+ *
+ * The panel declares itself with `data-menu-surface` so the shell's
+ * input gate lets `Tab` / `Enter` / `Space` / arrows through while
+ * still swallowing the game keys.
+ *
+ * @see ./SettingsPanel.test.tsx
  */
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import type * as React from "react";
 
 import { cycleFocus, focusableWithin } from "./focusTrap.js";
+import { QualityButtons } from "./QualityButtons.js";
+import { KeybindList, ReducedMotionToggle, SensitivitySlider } from "./SettingsSections.js";
 import { settingsStore } from "../../a11y/settings.js";
+import { createSettingsSaver, type SettingsSaver } from "../../settings/api.js";
+import { DEFAULT_SETTINGS, type QualityPreset, type Settings } from "@shared/settings.js";
 
 /** Props for the settings panel. */
 export interface SettingsPanelProps {
   /** Called when the surface is dismissed. */
   onClose?: () => void;
+  /**
+   * Bearer token used for the settings writes. When omitted the
+   * panel still works (settings apply live and persist to
+   * localStorage) but nothing is sent to the server.
+   */
+  authToken?: string | null;
 }
 
-/**
- * The settings surface. Mounted by `App.tsx` while the `settings`
- * surface is on top of the menu stack.
- */
-export function SettingsPanel({ onClose }: SettingsPanelProps): React.JSX.Element {
+/** The settings surface. Mounted by `App.tsx` while `settings` is on top. */
+export function SettingsPanel({ onClose, authToken }: SettingsPanelProps): React.JSX.Element {
   const panelRef = useRef<HTMLDivElement | null>(null);
-  const reducedMotion = useSyncExternalStore(
+  const snapshot = useSyncExternalStore(
     settingsStore.subscribe,
     settingsStore.getSnapshot,
     settingsStore.getSnapshot,
-  ).reducedMotion;
+  );
 
-  // TASK-54: move focus to the first control when the panel opens.
+  // The saver is created once and reads the token lazily, so a token
+  // that arrives after the panel opened is still picked up.
+  const tokenRef = useRef(authToken ?? null);
+  tokenRef.current = authToken ?? null;
+  const saverRef = useRef<SettingsSaver | null>(null);
+  if (saverRef.current === null) {
+    saverRef.current = createSettingsSaver({
+      getToken: () => tokenRef.current,
+      onSaved: (stored) => settingsStore.hydrate(stored),
+    });
+  }
+
+  // Persist immediately (preset / toggle / reset) and drop any
+  // queued slider write so the two don't race.
+  const persistNow = (patch: Partial<Settings>): void => {
+    void saverRef.current?.saveNow(patch);
+  };
+
+  const onQuality = (next: QualityPreset): void => {
+    settingsStore.setQuality(next);
+    persistNow({ quality: next });
+  };
+  const onSensitivity = (next: number): void => {
+    // Live: applies to the next input frame; the write is debounced.
+    settingsStore.setSensitivity(next);
+    saverRef.current?.queue({ sensitivity: next });
+  };
+  const onReducedMotion = (next: boolean): void => {
+    settingsStore.setReducedMotion(next);
+    persistNow({ reducedMotion: next });
+  };
+  const onReset = (): void => {
+    settingsStore.reset();
+    persistNow({ ...DEFAULT_SETTINGS });
+  };
+
+  // Move focus to the first control when the panel opens (TASK-54).
   useEffect(() => {
     const node = panelRef.current;
     if (node === null) return;
@@ -79,46 +129,61 @@ export function SettingsPanel({ onClose }: SettingsPanelProps): React.JSX.Elemen
           border: "1px solid rgba(255,255,255,0.15)",
           padding: 16,
           fontSize: 12,
-          minWidth: 280,
+          minWidth: 320,
+          display: "grid",
+          gap: 14,
         }}
       >
-        <div style={{ letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 12 }}>
-          Settings
+        <div style={{ letterSpacing: "0.18em", textTransform: "uppercase" }}>Settings</div>
+
+        <section aria-label="Quality">
+          <QualityButtons value={snapshot.quality} onChange={onQuality} />
+          <p style={{ margin: "6px 0 0", fontSize: 10, opacity: 0.7, lineHeight: 1.5 }}>
+            Applies live — chunks already generated keep their detail until they are regenerated.
+          </p>
+        </section>
+
+        <SensitivitySlider value={snapshot.sensitivity} onChange={onSensitivity} />
+
+        <ReducedMotionToggle value={snapshot.reducedMotion} onChange={onReducedMotion} />
+
+        <KeybindList />
+
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button
+            type="button"
+            data-testid="drift-settings-reset"
+            onClick={onReset}
+            style={{
+              background: "transparent",
+              border: "1px solid rgba(255,255,255,0.25)",
+              color: "#e6edf3",
+              padding: "4px 10px",
+              cursor: "pointer",
+              fontFamily: "monospace",
+              fontSize: 11,
+            }}
+          >
+            Reset to defaults
+          </button>
+          <button
+            type="button"
+            data-testid="drift-settings-close"
+            aria-label="Close settings"
+            onClick={() => onClose?.()}
+            style={{
+              background: "transparent",
+              border: "1px solid rgba(255,255,255,0.25)",
+              color: "#e6edf3",
+              padding: "4px 10px",
+              cursor: "pointer",
+              fontFamily: "monospace",
+              fontSize: 11,
+            }}
+          >
+            Close
+          </button>
         </div>
-        <label
-          data-testid="drift-settings-reduced-motion"
-          style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}
-        >
-          <input
-            type="checkbox"
-            data-testid="drift-settings-reduced-motion-input"
-            checked={reducedMotion}
-            onChange={(e) => settingsStore.setReducedMotion(e.currentTarget.checked)}
-          />
-          Reduced motion
-        </label>
-        <p style={{ marginTop: 12, fontSize: 10, opacity: 0.7, lineHeight: 1.5 }}>
-          Disables camera shake, slow motion, particle effects, the animated threat ping and the
-          warp streak. Takes effect immediately.
-        </p>
-        <button
-          type="button"
-          data-testid="drift-settings-close"
-          aria-label="Close settings"
-          onClick={() => onClose?.()}
-          style={{
-            marginTop: 12,
-            background: "transparent",
-            border: "1px solid rgba(255,255,255,0.25)",
-            color: "#e6edf3",
-            padding: "4px 10px",
-            cursor: "pointer",
-            fontFamily: "monospace",
-            fontSize: 11,
-          }}
-        >
-          Close
-        </button>
       </div>
     </div>
   );

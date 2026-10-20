@@ -103,6 +103,10 @@ export function registerCallsignRoutes(app: FastifyInstance, deps: CallsignsDeps
     if (profile === null) {
       return reply.code(401).send(errBody("unauthenticated", "Token invalid or expired"));
     }
+    // TASK-55: the session response carries the player's settings so
+    // the first frame after a reconnect renders with the persisted
+    // preset / sensitivity (a fresh player gets the defaults).
+    const settings = await deps.repo.getSettings(profile.playerId);
     return reply.code(200).send({
       playerId: profile.playerId,
       callsign: profile.callsign,
@@ -110,6 +114,7 @@ export function registerCallsignRoutes(app: FastifyInstance, deps: CallsignsDeps
       homeSystemId: profile.homeSystemId,
       shipId: profile.shipId,
       tokenExpiresAt: profile.tokenExpiresAt,
+      settings,
     });
   });
 

@@ -61,6 +61,8 @@ export const players = pgTable(
     credits: integer("credits").notNull().default(500),
     homeSystemId: text("home_system_id"),
     inventory: jsonb("inventory"),
+    // TASK-55: per-player settings JSON `{quality, sensitivity, reducedMotion}`.
+    settings: jsonb("settings"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("players_callsign_unique").on(t.callsign)],

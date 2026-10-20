@@ -40,6 +40,7 @@ import {
   defaultPosition,
 } from "./repo.js";
 import { emptyInventory, validateInventory } from "@shared/world/inventoryOps.js";
+import { DEFAULT_SETTINGS, sanitizeSettings, type Settings } from "@shared/settings.js";
 import type { Inventory } from "@shared/world/inventory.js";
 import { cargoHoldFor } from "@shared/world/cargo.js";
 import { validateCargoHold } from "@shared/world/cargoOps.js";
@@ -56,6 +57,8 @@ export function bindPgIdentity(db: NodePgDatabase<typeof pgSchema>): {
   findPlayerById: (id: string) => Promise<PlayerRow | null>;
   getInventory: (playerId: string) => Promise<Inventory>;
   saveInventory: (playerId: string, inventory: Inventory) => Promise<Inventory>;
+  getSettings: (playerId: string) => Promise<Settings>;
+  saveSettings: (playerId: string, settings: Settings) => Promise<Settings>;
   getOrCreateStarterShip: (playerId: string, classId: ShipClassId) => Promise<ShipRow>;
   findShipById: (id: string) => Promise<ShipRow | null>;
   saveShipState: (id: string, patch: SaveShipStateInput) => Promise<ShipRow>;
@@ -141,6 +144,36 @@ export function bindPgIdentity(db: NodePgDatabase<typeof pgSchema>): {
         throw new NotFoundError("Player", playerId);
       }
       return inventory;
+    },
+
+    // TASK-55: per-player settings (jsonb). NULL (pre-TASK-55 row)
+    // or a malformed payload resolves to the shipped defaults.
+    async getSettings(playerId: string): Promise<Settings> {
+      const rows = await db
+        .select({ settings: pgSchema.players.settings })
+        .from(pgSchema.players)
+        .where(eq(pgSchema.players.id, playerId))
+        .limit(1);
+      const row = rows[0];
+      if (!row) {
+        throw new NotFoundError("Player", playerId);
+      }
+      const raw = row.settings;
+      if (raw === null || raw === undefined) return DEFAULT_SETTINGS;
+      return sanitizeSettings(raw);
+    },
+
+    async saveSettings(playerId: string, settings: Settings): Promise<Settings> {
+      const stored = sanitizeSettings(settings);
+      const result = await db
+        .update(pgSchema.players)
+        .set({ settings: stored })
+        .where(eq(pgSchema.players.id, playerId))
+        .returning({ id: pgSchema.players.id });
+      if (result.length === 0) {
+        throw new NotFoundError("Player", playerId);
+      }
+      return stored;
     },
 
     async getOrCreateStarterShip(playerId: string, classId: ShipClassId): Promise<ShipRow> {
