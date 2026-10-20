@@ -60,6 +60,10 @@ const AUDIT_FN = `
       if (name === '') name = (el.getAttribute('title') ?? '').trim();
       if (name === '') name = (el.getAttribute('placeholder') ?? '').trim();
       if (name === '') {
+        const label = el.closest('label');
+        if (label !== null) name = (label.textContent ?? '').trim();
+      }
+      if (name === '') {
         problems.push(el.tagName.toLowerCase() + (el.getAttribute('data-testid') ? '[' + el.getAttribute('data-testid') + ']' : ''));
       }
     }
@@ -123,13 +127,15 @@ test("the whole UI is operable with the keyboard alone", async ({ page, driftSer
   await expect(page.getByTestId("drift-canvas")).toHaveAttribute("aria-label", /3D view/);
 
   // ---- 3. Every interactive element has an accessible name ------------
-  const unlabeled = await page.evaluate(
-    ([fn, selector]) => {
-      const audit = eval(fn) as (s: string) => string[];
-      return audit(selector);
-    },
-    [AUDIT_FN, INTERACTIVE_SELECTOR] as [string, string],
-  );
+  const auditDom = async (): Promise<string[]> =>
+    page.evaluate(
+      ([fn, selector]) => {
+        const audit = eval(fn) as (s: string) => string[];
+        return audit(selector);
+      },
+      [AUDIT_FN, INTERACTIVE_SELECTOR] as [string, string],
+    );
+  const unlabeled = await auditDom();
   expect(unlabeled, `unlabeled interactive elements: ${unlabeled.join(", ")}`).toEqual([]);
 
   // ---- 4. The chart opens + warps with the keyboard --------------------
@@ -299,6 +305,14 @@ test("the whole UI is operable with the keyboard alone", async ({ page, driftSer
   expect(fxCounters!.skipped, "the FX must be skipped, not played").toBeGreaterThan(0);
 
   await page.screenshot({ path: path.join(SHOTS_DIR, "TASK-54-2.png") });
+
+  // The open settings surface is audited too — every control on it
+  // carries an accessible name.
+  const unlabeledSettings = await auditDom();
+  expect(
+    unlabeledSettings,
+    `unlabeled interactive elements in the settings panel: ${unlabeledSettings.join(", ")}`,
+  ).toEqual([]);
 
   // ---- 9. No pointer events were dispatched -----------------------------
   expect(pointerEvents, "the keyboard-only spec must not dispatch mouse events").toBe(0);

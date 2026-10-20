@@ -78,6 +78,14 @@ export function accessibleName(el: AuditElement, root?: AuditRoot): string {
   if (title !== null && title.trim() !== "") return title.trim();
   const placeholder = el.getAttribute("placeholder");
   if (placeholder !== null && placeholder.trim() !== "") return placeholder.trim();
+  // Form controls: an associated <label> (wrapping or `for=`) is
+  // the last resort (HTML-AAM rule 4).
+  if (el.closest !== undefined) {
+    const wrapping = el.closest("label");
+    if (wrapping !== null && (wrapping.textContent ?? "").trim() !== "") {
+      return (wrapping.textContent ?? "").trim();
+    }
+  }
   return "";
 }
 

@@ -184,6 +184,8 @@ export function InteractionPrompt(props: InteractionPromptProps): React.JSX.Elem
   return (
     <div
       data-testid="drift-interact-prompt"
+      role="status"
+      aria-label={`Prompt: ${promptAnnouncementText(prompt.prompt)}`}
       data-target-id={prompt.targetId}
       data-action={prompt.action}
       style={{

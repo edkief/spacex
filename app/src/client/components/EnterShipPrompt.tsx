@@ -148,6 +148,8 @@ export function EnterShipPrompt(props: EnterShipPromptProps): React.JSX.Element 
   return (
     <div
       data-testid="drift-enter-ship-prompt"
+      role="status"
+      aria-label="Prompt: press E to board your ship"
       style={{
         position: "absolute",
         left: "50%",

@@ -157,6 +157,21 @@ PROJECT_ROOT
 │   │   │   ├── testHook.ts        # Dev-only `window.__driftCameraRig` seam (createCameraRigTestHook + install + uninstall) — tree-shaken from prod by `import.meta.env.DEV` guard
 │   │   │   ├── testHook.dom.test.ts # 3 cases: happy-dom browser-shape integration (install + full cockpit↔onfoot cycle + re-install)
 │   │   │   └── index.ts           # Barrel re-exporting CameraRig + constants + math helpers + test hook
+│   │   │   ├── a11y/            # TASK-54 — the accessibility core (settings store, announcement queue, live regions, contrast math, name audit)
+│   │   │   │   ├── settings.ts          # SettingsStore — the shared `reducedMotion` flag (default off, persisted under `drift.settings`)
+│   │   │   │   ├── announcer.ts         # The screen-reader announcement queue — max 1 pending + 2 s min interval, combat > navigation > chat
+│   │   │   │   ├── LiveRegion.tsx       # The two polite aria-live regions — the 1 Hz HUD summary + the queued announcements
+│   │   │   │   ├── summary.ts           # formatHudSummary — "Speed 120 meters per second. Hull 80 percent."
+│   │   │   │   ├── promptText.ts        # promptAnnouncementText — "[E] Take iron" → "E to take iron"
+│   │   │   │   ├── wireAnnouncements.ts # Joins/leaves, kills and target lock → the queue (with their priorities)
+│   │   │   │   ├── audit.ts             # findUnlabeledInteractive — the reusable accessible-name checker
+│   │   │   │   ├── contrast.ts          # The WCAG relative-luminance + contrast-ratio math
+│   │   │   │   └── *.test.ts(x)         # 65 cases across the module (queue, settings, summary, live region, audit, contrast, wiring)
+│   │   │   ├── fx/              # Client-side cosmetic effects
+│   │   │   │   ├── registry.ts          # TASK-54 — the FX gate: allow(kind) + the played/skipped counters (the reduced-motion test seam)
+│   │   │   │   ├── weapons.ts           # WeaponFxLayer — laser flashes, missile tracers, impact flashes + screen shake (gated by the registry)
+│   │   │   │   ├── destruction.ts       # DestructionStore — explosion + debris + slow-mo + the SHIP LOST moment (gated by the registry)
+│   │   │   │   └── registry.test.ts     # 6 cases: play vs skip, per-kind breakdown, immediate effect when the flag flips
 │   │   │   ├── combat/          # Client-side combat stores + HUD math (killFeed.ts + targeting.ts from TASK-44/47; hud/ from TASK-50)
 │   │   │   │   ├── hud/           # TASK-50 — pure HUD math: projection.ts (world → screen + hide rules), energy.ts (energy band + loadout counts), threatPing.ts (bearing → wedge), layout.ts (slots + disjointness), timing.ts (frame-monitor `hud` budget)
 │   │   │   ├── components/      # UI sub-components (CanvasStage.tsx + PlayerList + ToastStack + ChatLog + ExitShipPrompt for TASK-15/16/31)
@@ -188,16 +203,19 @@ PROJECT_ROOT
 │   │   │   │   ├── warp.ts               # WarpStore — state machine: idle → warping-in → awaiting → warping-out → idle (TASK-7 stub; TASK-8 wires the WS flow)
 │   │   │   │   └── warp.test.ts          # 21 cases: state transitions + helpers + faulty-listener tolerance (TASK-7)
 │   │   │   ├── ui/              # Standalone full-screen UI overlays (TASK-7 + TASK-53)
-│   │   │   │   ├── StarChart.tsx         # Fullscreen DOM/SVG galaxy map overlay — systems + edges + occupancy + Warp button (TASK-7)
+│   │   │   │   ├── StarChart.tsx         # Fullscreen DOM/SVG galaxy map overlay — systems + edges + occupancy + Warp button (TASK-7); keyboard-operable surface (TASK-54: focus trap + `data-menu-surface`)
 │   │   │   │   ├── StarChart.test.tsx    # 15 cases: rendering + formatters + spectral colours (TASK-7)
+│   │   │   │   ├── theme.ts              # TASK-54 — the design tokens (colour palette) + the CONTRAST_PAIRS table asserted by the WCAG AA test
 │   │   │   │   ├── menu/             # TASK-53 — the ESC menu shell (stack of transient surfaces + input gate)
 │   │   │   │   │   ├── menuStack.ts       # Pure stack helpers — pushSurface / popSurface / topSurface / surfaceForMenuItem / PANEL_ALLOWED_KEYS
-│   │   │   │   │   ├── MenuShell.tsx      # React context owning the surface stack; capture-phase keydown gate (game input suppressed while open) + focus restore
+│   │   │   │   │   ├── MenuShell.tsx      # React context owning the surface stack; capture-phase keydown gate (game input suppressed while open) + focus restore + the `data-menu-surface` escape hatch (TASK-54)
 │   │   │   │   │   ├── MenuPanel.tsx      # The centred ESC menu — Resume / Systems / Ships / Settings + callsign & credits footer
-│   │   │   │   │   ├── focusTrap.ts       # focusableWithin + cycleFocus (Tab wrapping inside a panel)
+│   │   │   │   │   ├── SettingsPanel.tsx  # TASK-54 — the settings surface + the reduced-motion toggle (keyboard operable, immediate effect)
+│   │   │   │   │   ├── focusTrap.ts       # focusableWithin + cycleFocus (Tab wrapping inside a panel; structural checks so the SVG chart nodes count — TASK-54)
 │   │   │   │   │   ├── menuStack.test.ts  # 8 cases: stack push/pop/top + menu-item mapping
-│   │   │   │   │   ├── MenuShell.test.tsx # 6 cases: ESC open/close, one-level pop, input suppression (incl. inside the panel), focus trap + restore
-│   │   │   │   │   └── MenuPanel.test.tsx # 5 cases: menu items, footer, first-item focus, arrow keys, activation
+│   │   │   │   │   ├── MenuShell.test.tsx # 7 cases: ESC open/close, one-level pop, input suppression (incl. inside the panel), focus trap + restore, data-menu-surface key pass-through
+│   │   │   │   │   ├── MenuPanel.test.tsx # 5 cases: menu items, footer, first-item focus, arrow keys, activation
+│   │   │   │   │   └── SettingsPanel.test.tsx # 4 cases: dialog + toggle, first-control focus, the checkbox flips the shared flag, Tab stays inside
 │   │   │   │   └── ship/             # TASK-53 — the ONE ship/dock panel (context-driven tab set)
 │   │   │   │       ├── ShipPanel.tsx      # Shared tab shell — Overview / Cargo / Repair / Sell + the dock right rail (credits + sales log + floats)
 │   │   │   │       ├── panelTabs.ts       # tabsForContext (docked-ship / in-flight / on-foot-dock) + defaultTabForContext + cycleTab
@@ -394,6 +412,7 @@ PROJECT_ROOT
 │       ├── atmosphere.spec.ts   # TASK-28 — Playwright smoke for the haze overlay + re-entry rim
 │       ├── disembark.spec.ts  # TASK-31 — Playwright smoke for the exit-ship prompt + docked indicator wiring (full scripted flight → dock → disembark is queued behind the flight-assist harness): haze ramps up at surface (terran), per-planet density >20% difference, re-entry fires above 200 u/s, screenshots
 │   │       ├── scaffold.spec.ts # Playwright smoke (canvas + /api/health) (TASK-68, fixture-rewritten in TASK-70)
+│   │       ├── keyboardOnly.spec.ts # TASK-54 — the keyboard-only a11y proof: the whole UI driven with key events (no mouse events at all) + the accessible-name DOM walk + the reduced-motion FX assertion
 │   │       ├── star-chart.spec.ts # Playwright smoke (open chart via M key + Systems button, click a node, screenshot the open chart, verify Warp button enables with the shortest-hop warp time) (TASK-7)
 │   │       ├── warp.spec.ts     # Playwright smoke (open chart via M, click a non-current system, click Warp, assert overlay mounts + systemId flips to target + total duration 2.5-7 s + overlay hides, screenshot pre/post) (TASK-8)
 │   ├── scripts/

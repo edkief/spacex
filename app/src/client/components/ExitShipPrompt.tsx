@@ -99,6 +99,8 @@ export function ExitShipPrompt(props: ExitShipPromptProps): React.JSX.Element | 
   return (
     <div
       data-testid="drift-exit-ship-prompt"
+      role="status"
+      aria-label="Prompt: press E to exit the ship and continue on foot"
       style={{
         position: "absolute",
         left: "50%",
