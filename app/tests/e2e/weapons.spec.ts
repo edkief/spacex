@@ -170,18 +170,19 @@ test.describe("weapons: laser / missile fire FX (TASK-43)", () => {
       w.__driftClient?.sendSelectWeapon?.("laser");
     });
 
-    // Wait for the weapon HUD to render. The component polls
-    // at 250 ms cadence, so give it ~500 ms.
-    const weaponHud = page.locator('[data-testid="drift-weapon-hud"]');
+    // TASK-50: the weapon / energy readout now lives in the
+    // combat HUD (`<CombatHUD>` → `<WeaponReadout>`), which polls
+    // the `weapon_state` snapshot at the 10 Hz HUD cadence.
+    const weaponHud = page.locator('[data-testid="drift-weapon-readout"]');
     await expect(weaponHud).toBeVisible({ timeout: 3_000 });
+    await expect(page.locator('[data-testid="drift-energy-bar"]')).toBeVisible();
 
-    // The HUD shows "Pulse Laser" as the active weapon name
-    // (scouts have only lasers; even an interceptor that
-    // selected `laser` shows "Pulse Laser"). The energy bar
-    // is rendered as a div — just confirm the HUD mounts and
-    // has rendered text content.
+    // The readout shows `LASER` in the `1` selector slot (scouts
+    // have only lasers; even an interceptor that selected `laser`
+    // shows the LASER slot as active) plus the live energy value.
     const text = await weaponHud.textContent();
     expect(text).toBeTruthy();
     expect(text?.toLowerCase()).toContain("laser");
+    expect(text).toContain("/100");
   });
 });

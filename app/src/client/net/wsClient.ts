@@ -1049,6 +1049,27 @@ export class DriftClient {
   }
 
   /**
+   * TASK-50: e2e / dev seam — push a `weapon_state` snapshot into
+   * the client cache without a server round-trip, so the combat
+   * HUD's weapon readout (selector + energy band + missile count)
+   * can be screenshotted deterministically. Production only ever
+   * writes `weaponState` from the real `weapon_state` frame.
+   */
+  __fireWeaponStateForTest(payload: {
+    activeWeapon: "laser" | "missile";
+    energy: number;
+    locked?: boolean;
+    lockedUntilMs?: number;
+  }): void {
+    this.weaponState = {
+      activeWeapon: payload.activeWeapon,
+      energy: payload.energy,
+      locked: payload.locked ?? false,
+      lockedUntilMs: payload.lockedUntilMs ?? 0,
+    };
+  }
+
+  /**
    * TASK-43: send a weapon fire intent. The server is the
    * source of truth for rate / energy / range / LOS; denied
    * fires surface as an `error` frame (no FX).

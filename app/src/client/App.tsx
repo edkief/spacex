@@ -62,9 +62,11 @@ import { StarChart, type OccupancyBySystem } from "./ui/StarChart.js";
 import { WarpStore } from "./state/warp.js";
 import { DebugOverlay } from "./perf/DebugOverlay.js";
 import { FrameMonitor } from "./perf/frameMonitor.js";
-import { WeaponHud } from "./components/WeaponHud.js";
+import { CombatHUD } from "./components/CombatHUD.js";
+import { useWeaponStatePoll } from "./components/WeaponReadout.js";
+import { useHudTargetSource } from "./components/useHudTargetSource.js";
+import { targetBoxScreenOverride } from "./components/TargetBox.js";
 import { WeaponFxHud } from "./components/WeaponFxHud.js";
-import { KillFeed } from "./components/KillFeed.js";
 import { DestructionFx } from "./components/DestructionFx.js";
 import { ExposureMeter } from "./components/ExposureMeter.js";
 import { HazardLayer } from "./world/HazardLayer.js";
@@ -92,6 +94,34 @@ export function App(): React.JSX.Element {
   // is still constructed (cheap — a 300-slot Float64Array) so future
   // instrumentation work doesn't have to fork the import graph.
   const frameMonitor = useMemo(() => new FrameMonitor(), []);
+  // TASK-50: combat-HUD inputs. `hudWeaponState` polls the WS
+  // `weapon_state` snapshot at the 10 Hz HUD cadence; the target
+  // source samples the live entity buffers (own ship + locked
+  // target) so the target box can project world → screen.
+  const hudWeaponState = useWeaponStatePoll(useCallback(() => client.getWeaponState(), [client]));
+  const hudTargetSource = useHudTargetSource(client);
+  // TASK-50: e2e seam — pin the target box to a fixed screen point
+  // so the Playwright screenshot is deterministic. `null` in
+  // normal play, so the box always uses the live projection.
+  const [hudOverrideTick, setHudOverrideTick] = useState(0);
+  const hudTargetScreenOverride = useMemo(
+    () => (hudOverrideTick > 0 ? targetBoxScreenOverride.current : null),
+    [hudOverrideTick],
+  );
+  useEffect(() => {
+    (
+      globalThis as {
+        __driftCombatHud?: {
+          setTargetScreenOverride: (p: { x: number; y: number } | null) => void;
+        };
+      }
+    ).__driftCombatHud = {
+      setTargetScreenOverride: (p) => {
+        targetBoxScreenOverride.current = p;
+        setHudOverrideTick((t) => t + 1);
+      },
+    };
+  }, []);
   // TASK-43: weapon FX layer. Owned by the top-level shell so
   // every component that receives `combat_event` frames can
   // route them into the FX layer without re-creating the
@@ -791,13 +821,31 @@ export function App(): React.JSX.Element {
           at 30 Hz so flashes animate smoothly without flooding
           React with state updates. */}
       <WeaponFxHud layer={weaponFx} />
-      {/* TASK-47: kill feed (top-center, last 5 kills, 10 s TTL).
-          Fed by `combat_event { kind: 'kill' }` frames routed
-          through `client.getKillFeed().applyKillEvent`. PvP kills
-          render white, player-vs-AI kills grey. Mounts only when
-          the underlying store has entries (so the slot stays
-          invisible during a calm minute of flight). */}
-      <KillFeed store={client.getKillFeed()} />
+      {/* TASK-50: the assembled combat HUD — target box (world-anchored
+          bracket), weapon / energy readout (bottom-center, above the
+          prompt line), threat ping (screen-edge wedge) and the kill
+          feed (top-center). Every region lives in its slot from
+          `combat/hud/layout.ts`, so the combat HUD never overlaps the
+          prompt line, the player list, the chat or the debug overlay
+          (the disjointness test pins that). State lands at the 10 Hz
+          snapshot cadence; the only per-frame work is the target-box
+          projection, which writes a ref'd style inside the `hud`
+          frame-monitor budget. */}
+      <CombatHUD
+        targeting={client.getTargeting()}
+        killFeed={client.getKillFeed()}
+        weaponState={hudWeaponState}
+        targetSource={hudTargetSource}
+        monitor={frameMonitor}
+        onSelectWeapon={(weapon) => {
+          try {
+            client.sendSelectWeapon(weapon);
+          } catch {
+            // Same swallow rationale as the other HUD callbacks.
+          }
+        }}
+        targetScreenOverride={hudTargetScreenOverride}
+      />
       {/* TASK-49: destruction FX layer — explosion + 1 s slow-mo +
           the 2 s "SHIP LOST" moment + wreck killer markers. Fed by
           `combat_event { kind: 'destroyed' }` frames through
@@ -816,13 +864,6 @@ export function App(): React.JSX.Element {
           markers; hidden when the player is nowhere near a
           hazard. */}
       <HazardLayer store={client.getHazardStore()} />
-      {/* TASK-43: weapon HUD stub (active weapon name + energy bar +
-          lockout indicator). The full HUD is TASK-50; for now this
-          proves the energy + weapon-selector wiring without
-          colliding with the existing weight-bar / cargo-panel
-          hooks. Mounts only when a snapshot is available so the
-          HUD doesn't flicker mid-handshake. */}
-      <WeaponHud client={client} />
       {/* TASK-17: "Connection lost" overlay. Renders when the
           DriftClient's retry budget is exhausted. The Retry button
           re-runs `start()` which re-claims a fresh token (the
