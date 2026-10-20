@@ -83,6 +83,7 @@ import { ChatStore } from "./chat.js";
 import { RemoteEntityBuffer } from "./prediction.js";
 import { TargetingStore } from "../combat/targeting.js";
 import { KillFeedStore } from "../combat/killFeed.js";
+import { DestructionStore } from "../fx/destruction.js";
 import { HazardStore, markersFromEntities } from "../world/hazards.js";
 import type { NotificationStore } from "./notifications.js";
 
@@ -373,6 +374,8 @@ export class DriftClient {
    * store caps entries at 5 and expires them after 10 s.
    */
   private readonly killFeed = new KillFeedStore();
+  /** TASK-49: destruction FX store (explosion + SHIP LOST + wreck markers). */
+  private readonly destruction = new DestructionStore();
   /**
    * TASK-48: per-player hazard store. The server pushes
    * `hazard_update` frames every tick while the player is on
@@ -1011,6 +1014,17 @@ export class DriftClient {
   getKillFeed(): KillFeedStore {
     return this.killFeed;
   }
+
+  /**
+   * TASK-49: accessor for the destruction FX store. The
+   * `<DestructionFx>` layer subscribes to it; the store is fed
+   * `combat_event { kind: 'destroyed' }` frames (explosion + slow-mo
+   * + the 2 s "SHIP LOST" moment) and the wreck rows of every
+   * `entity_update` (killer markers).
+   */
+  getDestruction(): DestructionStore {
+    return this.destruction;
+  }
   /**
    * TASK-48: accessor for the per-player hazard store. The HUD
    * (exposure meter, in-world hazard layer) calls this from its
@@ -1630,6 +1644,11 @@ export class DriftClient {
           };
           this.killFeed.applyKillEvent(evt, { resolver, isPlayerId });
         }
+        // TASK-49: destruction pipeline. Every `destroyed` event
+        // spawns an explosion + the 1 s slow-mo dip; when the server
+        // attached a `respawn` summary (i.e. the destroyed ship was
+        // ours) the store also opens the 2 s "SHIP LOST" moment.
+        this.destruction.applyCombatEvent(payload as never);
         return;
       }
       case "state_snapshot":

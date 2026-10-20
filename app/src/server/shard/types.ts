@@ -34,6 +34,7 @@ import type { ProtocolEntityState, ProtocolShipClassId } from "@shared/protocol/
 import type { ChatRingBuffer } from "../chat.js";
 import type { ShipRow } from "../db/types.js";
 import type { CargoHold } from "@shared/world/cargo.js";
+import type { SystemPad } from "@shared/world/pads.js";
 
 import type { SimLoop, SimLoopStats } from "./sim.js";
 import type { AiStateRecord } from "./ai.js";
@@ -652,6 +653,16 @@ export interface ShardSystemContext {
    * TASK-29 — those run without pad detection.
    */
   readonly padsForPlanet?: (planetId: string) => readonly FlightPad[] | undefined;
+  /**
+   * TASK-49: every pad in the system in **world space** (the
+   * `SystemPad` list the router already derives for TASK-29).
+   * Consumed by the destruction handler's nearest-dock lookup —
+   * the per-planet view above can't answer "which of the system's
+   * pads is nearest to this position" without re-walking planets.
+   * `undefined` for hand-built test fixtures; the destruction
+   * module falls back to composing `padsForPlanet`.
+   */
+  readonly padsForSystem?: () => readonly SystemPad[];
 }
 
 /**

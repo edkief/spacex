@@ -98,6 +98,10 @@ export type WeaponId = "laser" | "missile";
  *   - `'line-of-sight'`  — terrain occluded the ray. Space regime
  *                          skips LOS entirely (the spec calls out
  *                          that "space has no LOS").
+ *   - `'docked-target'`  — TASK-49: the target is landed on a pad
+ *                          (`onPad !== null`). Docks are safe zones
+ *                          in v1, so the shot passes over the ship
+ *                          without touching it.
  *   - `'not-attackable'` — the source or the target is a kind
  *                          that the resolver refuses to dispatch
  *                          against (e.g. characters can't shoot
@@ -110,6 +114,7 @@ export type ResolveHitRejection =
   | "dead-target"
   | "out-of-range"
   | "line-of-sight"
+  | "docked-target"
   | "not-attackable";
 
 /**
@@ -239,6 +244,14 @@ export function resolveHit(args: {
   //    not-attackable one.
   if (target.hull <= 0) {
     return { ok: false, rejection: "dead-target", apply: null, hitEvent: null };
+  }
+
+  // 4b. TASK-49: a docked ship is invulnerable in v1 — the dock is
+  //     a safe zone. We reject *before* the LOS check so the shot
+  //     simply passes over the pad; a player parked at a station
+  //     can never be shot off their own landing pad.
+  if (target.onPad !== null) {
+    return { ok: false, rejection: "docked-target", apply: null, hitEvent: null };
   }
 
   // 5. Source kind gate. The combat core is "ship vs ship" in v1

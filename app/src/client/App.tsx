@@ -65,6 +65,7 @@ import { FrameMonitor } from "./perf/frameMonitor.js";
 import { WeaponHud } from "./components/WeaponHud.js";
 import { WeaponFxHud } from "./components/WeaponFxHud.js";
 import { KillFeed } from "./components/KillFeed.js";
+import { DestructionFx } from "./components/DestructionFx.js";
 import { ExposureMeter } from "./components/ExposureMeter.js";
 import { HazardLayer } from "./world/HazardLayer.js";
 import { WeaponFxLayer } from "./fx/weapons.js";
@@ -797,6 +798,11 @@ export function App(): React.JSX.Element {
           the underlying store has entries (so the slot stays
           invisible during a calm minute of flight). */}
       <KillFeed store={client.getKillFeed()} />
+      {/* TASK-49: destruction FX layer — explosion + 1 s slow-mo +
+          the 2 s "SHIP LOST" moment + wreck killer markers. Fed by
+          `combat_event { kind: 'destroyed' }` frames through
+          `client.getDestruction()`. */}
+      <DestructionFx store={client.getDestruction()} />
       {/* TASK-48: bottom-right exposure meter. Renders the
           player's personal hazard pool + recovering badge.
           Mounts unconditionally; returns null when the store

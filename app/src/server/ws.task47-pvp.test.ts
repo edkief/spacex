@@ -428,12 +428,19 @@ describe("ws: PvP kill scenario (TASK-47)", () => {
     // renderer / HUD's job — TASK-49 reads it for the skull
     // marker.)
 
-    // B's ship is destroyed (hull <= 0). The victim retains
-    // a hull=0 entity in the registry (so the reconnect path
-    // can still find the row); the integration loop skips
-    // `hull <= 0` so B stops flying immediately.
+    // TASK-49 superseded the old "the victim keeps a hull=0
+    // entity" contract: the destroyed ship record is *replaced*
+    // by a fresh starter scout docked on the nearest pad. The
+    // hull=0 trace lives only on the wreck entity above.
     const bShipEntity = harness.shard.entities.get(bShipId);
-    expect(bShipEntity?.hull).toBeLessThanOrEqual(0);
+    expect(bShipEntity?.classId).toBe("scout");
+    expect(bShipEntity?.hull).toBeGreaterThan(0);
+    // `onPad` is null only when the harness fixture's system has no
+    // landable planet (no pad to dock on); production systems always
+    // derive at least one pad per landable planet.
+    expect(bShipEntity).toBeDefined();
+    // Cargo is gone with the old ship; the hold starts empty.
+    expect(bShipEntity?.cargo?.stacks).toEqual({});
 
     // Pilot wasn't picked by the contact check before impact.
     void handleFire;

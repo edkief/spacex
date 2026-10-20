@@ -125,6 +125,10 @@ export function buildShardContext(options: BuildShardContextOptions): ShardSyste
     galaxySeed: seed,
     // TASK-29: pad registry for in-tick dock detection.
     padsForPlanet,
+    // TASK-49: the same pad list in world space, exposed as a flat
+    // accessor so the destruction handler can pick the nearest
+    // dock by 3D distance without re-walking the planets.
+    padsForSystem: () => systemPads,
   };
 }
 

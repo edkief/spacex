@@ -357,6 +357,10 @@ export function pickAggroTarget(args: {
     if (id === args.ai.id) continue;
     if (candidate.kind !== "player") continue;
     if (candidate.hull <= 0) continue;
+    // TASK-49: docks are safe zones — a landed player is never a
+    // valid aggro target (matches `resolveHit`'s docked-target
+    // rejection).
+    if (candidate.onPad !== null) continue;
     // Distance gate.
     const dx = candidate.pos.x - args.ai.pos.x;
     const dy = candidate.pos.y - args.ai.pos.y;

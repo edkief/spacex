@@ -606,6 +606,7 @@ function mapRejectionToCode(
     | "dead-target"
     | "out-of-range"
     | "line-of-sight"
+    | "docked-target"
     | "not-attackable",
 ): "out-of-range" | "not-attackable" | "self-target" | "no-target" {
   switch (rejection) {

@@ -50,6 +50,7 @@ import type { DamageSource } from "@shared/physics/damage.js";
 
 import { makeWreckEntity, makeWreckId } from "./entity.js";
 import { broadcastCombatEvent } from "./combat-events.js";
+import { handleShipDestruction } from "./destruction.js";
 import { RESPAWN_DELAY_MS, scheduleAiRespawn } from "./ai-respawn.js";
 import { noteAiDamagedBy } from "./ai.js";
 import type { Shard, SimEntity } from "./types.js";
@@ -317,11 +318,20 @@ export function applyCombatDamage(args: {
   entity.vel.y = 0;
   entity.vel.z = 0;
 
+  // TASK-49: run the destruction transaction *before* the broadcast
+  // so the `destroyed` frame can carry the respawn summary (the
+  // client uses it to drive the 2 s "SHIP LOST" moment). The
+  // transaction deletes the cargo, replaces the ship record with a
+  // fresh starter scout at the nearest dock, and leaves the wreck
+  // as the only surviving trace of the old ship.
+  const outcome = handleShipDestruction({ shard, destroyed: entity, wreckId, tick: args.tick });
+
   broadcastCombatEvent(shard, {
     kind: "destroyed",
     target: entity.id,
     source: { kind: args.source.kind, id: args.source.id },
     tick: args.tick,
+    ...(outcome.respawn !== null ? { respawn: outcome.respawn } : {}),
   });
 
   // TASK-42: fire a `kill` event whenever the source is a player

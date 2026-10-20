@@ -1232,6 +1232,23 @@ export const CombatEventSchema = z.discriminatedUnion("kind", [
         })
         .strict(),
       tick: z.number().int().nonnegative(),
+      // TASK-49: respawn summary. Present only when the destroyed
+      // ship belonged to a connected player — the client uses it to
+      // drive the 2 s "SHIP LOST" moment (callsign, killer, "Respawning
+      // at <nearest dock>"). The server has already respawned the
+      // player by the time this frame lands; the payload is
+      // presentation only.
+      respawn: z
+        .object({
+          wreckId: z.string().min(1),
+          padId: z.string(),
+          planetId: z.string(),
+          callsign: z.string().min(1),
+          killer: z.string().nullable(),
+          cargoLost: z.record(z.string(), z.number().finite().nonnegative()),
+        })
+        .strict()
+        .optional(),
     })
     .strict(),
   // TASK-46: an AI has begun its 1 s acquire timer on a player.
