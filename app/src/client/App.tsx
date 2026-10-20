@@ -950,6 +950,7 @@ export function App(): React.JSX.Element {
           snapshot={shipHudOverride ?? shipHud.snapshot}
           flashController={hitFlashController}
           monitor={frameMonitor}
+          onOpenCargo={() => shell.open("ship")}
         />
       ) : (
         /* TASK-52: on-foot HUD — exposure meter, weight bar,

@@ -90,6 +90,11 @@ export interface ShipHUDProps {
   monitor?: FrameMonitor | null;
   /** When `false`, the entire HUD collapses to `null` (for tests). */
   enabled?: boolean;
+  /**
+   * TASK-53: opens the ship panel (Cargo tab) from the docked
+   * HUD's `Cargo` chip.
+   */
+  onOpenCargo?: () => void;
 }
 
 /** Compute the speed magnitude (m/s) from the local-ship velocity. */
@@ -141,6 +146,7 @@ export function ShipHUD(props: ShipHUDProps): React.JSX.Element | null {
         padId={snap.onPad}
         stationName={stationName}
         actions={["exit_ship", "cargo", "dock"]}
+        onCargo={props.onOpenCargo}
       />
       <NavReadout inputs={inputs} monitor={props.monitor ?? null} />
       <VitalsBar hull={snap.hull} shields={snap.shields} classId={snap.classId} flashing={flash} />

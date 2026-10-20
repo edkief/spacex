@@ -32,6 +32,11 @@ export interface DockedTagProps {
    * the DOCKED tag so the player sees the available prompts.
    */
   actions?: readonly string[] | null;
+  /**
+   * Called when the player activates the `cargo` chip. When it is
+   * omitted the chips stay static hints (the pre-TASK-53 look).
+   */
+  onCargo?: () => void;
 }
 
 const ACTION_LABELS: Record<string, string> = {
@@ -45,6 +50,19 @@ const ACTION_LABELS: Record<string, string> = {
 export function dockActionLabel(action: string): string {
   return ACTION_LABELS[action] ?? action;
 }
+
+/** The shared chip style (static hint + clickable button share it). */
+const actionChipStyle: React.CSSProperties = {
+  padding: "2px 6px",
+  background: "rgba(12, 16, 24, 0.78)",
+  color: "#e6edf3",
+  border: "1px solid rgba(230, 237, 243, 0.25)",
+  borderRadius: 3,
+  fontSize: 10,
+  letterSpacing: "0.06em",
+  fontFamily: "inherit",
+  cursor: "pointer",
+};
 
 /**
  * Docked-state pill. Renders only when `padId !== null &&
@@ -112,23 +130,24 @@ export function DockedTag(props: DockedTagProps): React.JSX.Element | null {
           flexWrap: "wrap",
         }}
       >
-        {actions.map((a) => (
-          <span
-            key={a}
-            data-action={a}
-            style={{
-              padding: "2px 6px",
-              background: "rgba(12, 16, 24, 0.78)",
-              color: "#e6edf3",
-              border: "1px solid rgba(230, 237, 243, 0.25)",
-              borderRadius: 3,
-              fontSize: 10,
-              letterSpacing: "0.06em",
-            }}
-          >
-            {dockActionLabel(a)}
-          </span>
-        ))}
+        {actions.map((a) =>
+          a === "cargo" && props.onCargo !== undefined ? (
+            <button
+              key={a}
+              type="button"
+              data-action={a}
+              data-testid="drift-ship-cargo-button"
+              onClick={props.onCargo}
+              style={actionChipStyle}
+            >
+              {dockActionLabel(a)}
+            </button>
+          ) : (
+            <span key={a} data-action={a} style={actionChipStyle}>
+              {dockActionLabel(a)}
+            </span>
+          ),
+        )}
       </div>
     </div>
   );
