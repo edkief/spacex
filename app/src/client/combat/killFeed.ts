@@ -98,6 +98,18 @@ export class KillFeedStore {
   private entries: KillFeedEntry[] = [];
   private listeners = new Set<() => void>();
   private nextEntryId = 1;
+  /**
+   * Stable snapshot reference. Rebuilt only when entries change
+   * (apply/reap/clear) so `useSyncExternalStore` callers don't
+   * loop on every render — React's snapshot identity check
+   * requires that we return the same reference when state is
+   * unchanged.
+   */
+  private cachedSnapshot: readonly KillFeedEntry[] = [];
+
+  constructor() {
+    this.cachedSnapshot = this.entries;
+  }
 
   // ---- Reads --------------------------------------------------------------
 
@@ -106,10 +118,22 @@ export class KillFeedStore {
     return this.entries;
   }
 
-  /** Stable snapshot for React `useSyncExternalStore`. */
+  /**
+   * Stable snapshot for React `useSyncExternalStore`.
+   *
+   * Reaping runs eagerly here (matches the legacy contract
+   * the unit tests rely on) **only when at least one entry
+   * actually expired** — otherwise we'd allocate a new array
+   * reference every read and trip React's infinite-loop
+   * guard. The cached snapshot reference is rebuilt on every
+   * mutation so the React consumer sees a fresh reference
+   * precisely when state changed.
+   */
   snapshot(nowMs?: number): readonly KillFeedEntry[] {
-    this.reapExpired(nowMs);
-    return this.entries;
+    if (nowMs !== undefined) {
+      this.reapExpired(nowMs);
+    }
+    return this.cachedSnapshot;
   }
 
   subscribe(listener: () => void): () => void {
@@ -175,21 +199,33 @@ export class KillFeedStore {
     if (this.entries.length > KILL_FEED_MAX_ENTRIES) {
       this.entries.splice(0, this.entries.length - KILL_FEED_MAX_ENTRIES);
     }
+    this.rebuildSnapshot();
     this.emit();
   }
 
   /**
-   * Force-reap expired entries. Called automatically by
-   * `snapshot()` so the renderer doesn't need its own timer.
+   * Force-reap expired entries. Called by mutators and (when an
+   * explicit `nowMs` is passed) by `snapshot()` — the test
+   * suite relies on the eager-read contract. Only allocates a
+   * fresh array when something actually expired so a no-op
+   * reap doesn't trigger React's infinite-loop guard.
+   *
    * Returns the number of entries removed (zero when nothing
    * expired) so the renderer can also drive a manual reap on
    * a slow tick.
    */
   reapExpired(nowMs: number = Date.now()): number {
-    const before = this.entries.length;
-    this.entries = this.entries.filter((e) => e.expiresAt > nowMs);
-    const removed = before - this.entries.length;
-    if (removed > 0) this.emit();
+    // Cheap pre-check: walk the array once to count expired
+    // entries before allocating a fresh array via `filter()`.
+    let removed = 0;
+    for (const entry of this.entries) {
+      if (entry.expiresAt <= nowMs) removed += 1;
+    }
+    if (removed > 0) {
+      this.entries = this.entries.filter((e) => e.expiresAt > nowMs);
+      this.rebuildSnapshot();
+      this.emit();
+    }
     return removed;
   }
 
@@ -197,7 +233,18 @@ export class KillFeedStore {
   clear(): void {
     if (this.entries.length === 0) return;
     this.entries = [];
+    this.rebuildSnapshot();
     this.emit();
+  }
+
+  /**
+   * Rebuild the cached snapshot reference. Called by every
+   * mutator so the next `snapshot()` call returns a fresh
+   * reference (and `useSyncExternalStore` re-renders) only
+   * when state actually changed.
+   */
+  private rebuildSnapshot(): void {
+    this.cachedSnapshot = this.entries;
   }
 
   // ---- Internals ----------------------------------------------------------

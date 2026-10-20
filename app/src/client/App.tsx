@@ -804,10 +804,11 @@ export function App(): React.JSX.Element {
           by default and only "lights up" when a hazard_update
           lands). */}
       <ExposureMeter store={client.getHazardStore()} />
-      {/* TASK-48: bottom-left in-world hazard marker count.
-          Sourced from the live entity_update snapshot; we
-          track drone markers for v1 (the cell-render layer
-          depends on the chunk pipeline and is deferred). */}
+      {/* TASK-48: bottom-left hazard scope (storm discs, rad-zone
+          discs, drone glyphs within 500 m). Fed by the
+          `hazard_update` cell list + the entity_update drone
+          markers; hidden when the player is nowhere near a
+          hazard. */}
       <HazardLayer store={client.getHazardStore()} />
       {/* TASK-43: weapon HUD stub (active weapon name + energy bar +
           lockout indicator). The full HUD is TASK-50; for now this

@@ -825,6 +825,30 @@ export const MiningUpdateSchema = z
  * animation when the meter ticks down (so the player sees the
  * damage land, not just the final value).
  */
+/**
+ * One hazard cell as streamed to the client (TASK-48).
+ *
+ * Cells are seed-derived on both sides, but the server owns
+ * which ones are *near* the player (it already walks the cell
+ * map for the exposure pass), so it ships the culled list on the
+ * `hazard_update` frame instead of making the client re-derive
+ * placement. `kind` drives the client's disc colour:
+ * storm (violet swirl), radzone (green glow), drones (cell only —
+ * the drones inside stream as `kind: 'drone'` entities).
+ */
+export const HazardCellWireSchema = z
+  .object({
+    hazardId: z.string().min(1),
+    kind: z.enum(["storm", "radzone", "drones"]),
+    /** World-space `[x, y, z]` centre. */
+    pos: z.tuple([z.number(), z.number(), z.number()]),
+    /** Cell radius in metres (100..400). */
+    radius: z.number().finite().positive(),
+    /** Damage per second (0 for drone cells). */
+    intensity: z.number().finite().nonnegative(),
+  })
+  .strict();
+
 export const HazardUpdateSchema = z
   .object({
     exposure: z.number().finite().min(0).max(50),
@@ -833,6 +857,19 @@ export const HazardUpdateSchema = z
     inHazard: z.boolean(),
     /** Optional: last single-tick exposure damage (for HUD flash). */
     recentDamage: z.number().finite().nonnegative().optional(),
+    /**
+     * Optional: hazard cells within `HAZARD_VISIBLE_RANGE_M` of the
+     * player, for the in-world disc renderer. Absent when the
+     * player is nowhere near a hazard (the common case).
+     */
+    cells: z.array(HazardCellWireSchema).max(16).optional(),
+    /**
+     * Optional: the player's own world anchor (character or ship
+     * position) used for the exposure pass. The client uses it as
+     * the centre of the hazard scope so discs are drawn relative
+     * to "here" rather than absolute world coords.
+     */
+    anchor: z.tuple([z.number(), z.number(), z.number()]).optional(),
   })
   .strict();
 

@@ -49,6 +49,41 @@
           opacity: 0;
         }
       }
+      /* TASK-48: storm-cell swirl. The dashed ring around the
+         hazard disc rotates so the cell reads as a storm rather
+         than a static marker. 6 s per revolution. */
+      @keyframes drift-hazard-swirl {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .drift-hazard-swirl {
+        animation: drift-hazard-swirl 6s linear infinite;
+      }
+      /* TASK-48: exposure meter pulses. The bar flashes red
+         below 10 % of the pool and the SHIELD BURN badge
+         breathes while the player is recovering. */
+      @keyframes drift-meter-pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.45;
+        }
+      }
+      @keyframes drift-recovering-pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.4;
+        }
+      }
     </style>
   </head>
   <body>

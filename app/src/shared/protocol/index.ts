@@ -228,6 +228,8 @@ export {
   PresenceSchema,
   TargetUpdateSchema,
   CombatEventSchema,
+  HazardCellWireSchema,
+  HazardUpdateSchema,
   type ProtocolCombatEvent,
   // Inferred types
   type ProtocolInventoryUpdate,

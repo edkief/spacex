@@ -200,8 +200,7 @@ export function applyCombatDamage(args: {
   // (TASK-49). Missing attribution is a non-fatal no-op for the
   // kill event (the `destroyed` event still fires either way).
   const killer:
-    | { entityId: string; kind: "player" | "ai" | "drone"; weapon: "laser" | "missile" }
-    | undefined =
+    { entityId: string; kind: "player" | "ai" | "drone"; weapon: "laser" | "missile" } | undefined =
     args.sourceEntityId !== undefined && args.weapon !== undefined
       ? {
           entityId: args.sourceEntityId,

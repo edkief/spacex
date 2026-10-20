@@ -60,6 +60,7 @@ import {
   HAZARD_RADZONE_DAMAGE_PER_S,
   HAZARD_RECOVER_DURATION_MS,
   HAZARD_STORM_DAMAGE_PER_S,
+  HAZARD_VISIBLE_RANGE_M,
   type HazardCell,
 } from "@shared/world/hazards.js";
 
@@ -149,6 +150,16 @@ export function pushHazardUpdate(
     recoveringUntilMs: number;
     inHazard: boolean;
     recentDamage?: number;
+    /** Nearby hazard cells for the client's disc renderer. */
+    cells?: Array<{
+      hazardId: string;
+      kind: HazardCell["kind"];
+      pos: [number, number, number];
+      radius: number;
+      intensity: number;
+    }>;
+    /** Player world anchor, used as the hazard scope centre. */
+    anchor?: [number, number, number];
   },
 ): void {
   shard.send(connId, { type: "hazard_update", payload });
@@ -279,6 +290,8 @@ export function advanceHazards(
       recoveringUntilMs: state.recoveringUntilMs,
       inHazard: state.inHazard,
       recentDamage: state.lastDamage > 0 ? state.lastDamage : undefined,
+      cells: nearbyCellsFor(shard, anchor.pos),
+      anchor: [anchor.pos.x, anchor.pos.y, anchor.pos.z],
     });
     // After pushing, clear the lastDamage so the HUD only sees
     // the damage once per tick.
@@ -756,6 +769,56 @@ function isInsideCell(pos: { x: number; y: number; z: number }, cell: ShardHazar
 export function listHazardCells(shard: Shard): readonly ShardHazardCell[] {
   return [...shard.hazardCells.values()];
 }
+
+/**
+ * Cells within `HAZARD_VISIBLE_RANGE_M` of `pos`, sorted by
+ * distance ascending and capped at `MAX_HAZARD_CELLS_PER_FRAME`
+ * (the wire schema's array ceiling).
+ *
+ * The client's disc renderer draws ground discs + icons only
+ * inside the 500 m spec range, so culling here keeps the
+ * `hazard_update` frame small (usually zero cells). Sorting by
+ * distance means the cap keeps the *closest* cells, not an
+ * arbitrary map-order prefix.
+ */
+export function nearbyCellsFor(
+  shard: Shard,
+  pos: { x: number; y: number; z: number },
+): Array<{
+  hazardId: string;
+  kind: HazardCell["kind"];
+  pos: [number, number, number];
+  radius: number;
+  intensity: number;
+}> {
+  const hits: Array<{ cell: ShardHazardCell; distSq: number }> = [];
+  for (const cell of shard.hazardCells.values()) {
+    const dx = pos.x - cell.pos.x;
+    const dz = pos.z - cell.pos.z;
+    const distSq = dx * dx + dz * dz;
+    // A cell just outside the range still shows its leading edge,
+    // so include it when the player is within range + radius.
+    const reach = HAZARD_VISIBLE_RANGE_M + cell.radius;
+    if (distSq > reach * reach) continue;
+    hits.push({ cell, distSq });
+  }
+  hits.sort((a, b) => (a.distSq === b.distSq ? 0 : a.distSq < b.distSq ? -1 : 1));
+  return hits.slice(0, MAX_HAZARD_CELLS_PER_FRAME).map(({ cell }) => ({
+    hazardId: cell.hazardId,
+    kind: cell.kind,
+    pos: [cell.pos.x, cell.pos.y, cell.pos.z] as [number, number, number],
+    radius: cell.radius,
+    intensity: cell.intensity,
+  }));
+}
+
+/**
+ * Hard cap on how many cells ride along on a `hazard_update`
+ * frame. Mirrors the wire schema's `.max(16)` so a pathological
+ * layout (a planet with 8 cells all in range) can never produce
+ * a frame the client rejects.
+ */
+export const MAX_HAZARD_CELLS_PER_FRAME = 16;
 
 /** Public list of all outstanding drone respawn timers. */
 export function listDroneRespawns(shard: Shard): readonly ShardDroneRespawn[] {

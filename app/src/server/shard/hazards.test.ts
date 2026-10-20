@@ -37,6 +37,8 @@ import {
   ensurePlayerHazardState,
   killDrone,
   listHazardCells,
+  MAX_HAZARD_CELLS_PER_FRAME,
+  nearbyCellsFor,
   listDroneRespawns,
   registerHazardCells,
   spawnDrone,
@@ -982,5 +984,106 @@ describe("spec-pinned constants", () => {
     expect(HAZARD_RECOVER_DURATION_MS).toBe(5_000);
     expect(HAZARD_STORM_DAMAGE_PER_S).toBe(2);
     expect(HAZARD_RADZONE_DAMAGE_PER_S).toBe(5);
+  });
+});
+
+describe("nearbyCellsFor — hazard cell streaming (TASK-48 client discs)", () => {
+  /** Register a cell on a shard at `pos` with `radius`. */
+  function place(
+    shard: Shard,
+    hazardId: string,
+    pos: { x: number; y: number; z: number },
+    radius: number,
+    kind: "storm" | "radzone" | "drones" = "storm",
+  ): void {
+    shard.hazardCells.set(
+      hazardId,
+      makeCell({
+        hazardId,
+        planetId: "p1",
+        kind,
+        pos,
+        radius,
+        intensity: kind === "radzone" ? HAZARD_RADZONE_DAMAGE_PER_S : HAZARD_STORM_DAMAGE_PER_S,
+        droneCount: 0,
+        droneIdPrefix: `drone:${hazardId}`,
+      }),
+    );
+  }
+
+  it("returns cells within the 500 m client range", () => {
+    const shard = makeHazardShard();
+    place(shard, "h-near", { x: 300, y: 0, z: 0 }, 100);
+    const cells = nearbyCellsFor(shard, { x: 0, y: 0, z: 0 });
+    expect(cells.length).toBe(1);
+    expect(cells[0]?.hazardId).toBe("h-near");
+    expect(cells[0]?.pos).toEqual([300, 0, 0]);
+    expect(cells[0]?.radius).toBe(100);
+  });
+
+  it("culls cells past the range + radius reach", () => {
+    const shard = makeHazardShard();
+    place(shard, "h-far", { x: 5_000, y: 0, z: 0 }, 100);
+    expect(nearbyCellsFor(shard, { x: 0, y: 0, z: 0 }).length).toBe(0);
+  });
+
+  it("sorts by distance so the cap keeps the closest cells", () => {
+    const shard = makeHazardShard();
+    place(shard, "h-far", { x: 400, y: 0, z: 0 }, 50);
+    place(shard, "h-near", { x: 50, y: 0, z: 0 }, 50);
+    const cells = nearbyCellsFor(shard, { x: 0, y: 0, z: 0 });
+    expect(cells.map((c) => c.hazardId)).toEqual(["h-near", "h-far"]);
+  });
+
+  it("caps the list at the wire-schema maximum", () => {
+    const shard = makeHazardShard();
+    for (let i = 0; i < 24; i++) {
+      place(shard, `h-${i}`, { x: i * 5, y: 0, z: 0 }, 10);
+    }
+    expect(nearbyCellsFor(shard, { x: 0, y: 0, z: 0 }).length).toBe(MAX_HAZARD_CELLS_PER_FRAME);
+  });
+
+  it("advanceHazards ships the nearby cells + anchor on the frame", () => {
+    const shard = makeHazardShard();
+    place(shard, "h-rad", { x: 40, y: 0, z: 0 }, 100, "radzone");
+    const sent: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    shard.send = ((_id: string, msg: { type: string; payload: Record<string, unknown> }) => {
+      sent.push(msg);
+    }) as Shard["send"];
+    const character: SimEntity = {
+      id: "char:player-1",
+      kind: "character",
+      playerId: "player-1",
+      callsign: "TEST",
+      classId: null,
+      hull: 0,
+      shields: 0,
+      pos: { x: 0, y: 0, z: 0 },
+      vel: { x: 0, y: 0, z: 0 },
+      regime: "surface",
+      radius: 1,
+      dead: false,
+      onPad: null,
+      inv: [],
+    } as unknown as SimEntity;
+    shard.entities.set(character.id, character);
+    shard.connections.set("c1", {
+      connId: "c1",
+      playerId: "player-1",
+      callsign: "TEST",
+      shipId: "",
+      entityId: character.id,
+      lastSeq: 0,
+      pendingInput: null,
+      staleDrops: 0,
+    });
+    advanceHazards(shard, { dt: 1, nowMs: 1_000 });
+    const frame = sent.find((m) => m.type === "hazard_update");
+    expect(frame).toBeDefined();
+    expect(frame?.payload.anchor).toEqual([0, 0, 0]);
+    const cells = frame?.payload.cells as Array<{ hazardId: string; kind: string }>;
+    expect(cells.length).toBe(1);
+    expect(cells[0]?.hazardId).toBe("h-rad");
+    expect(cells[0]?.kind).toBe("radzone");
   });
 });

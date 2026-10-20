@@ -35,6 +35,20 @@ export interface HazardMarker {
 }
 
 /**
+ * A hazard **cell** the server culled onto the `hazard_update`
+ * frame (`cells`). The renderer draws a ground disc + icon per
+ * cell; `kind` picks the visual (storm swirl / radzone glow /
+ * drone-cell ring).
+ */
+export interface HazardCellMarker {
+  readonly hazardId: string;
+  readonly kind: HazardKind;
+  readonly pos: { x: number; y: number; z: number };
+  readonly radius: number;
+  readonly intensity: number;
+}
+
+/**
  * Per-player hazard state. Mirrors the server's
  * `ShardPlayerHazardState`.
  */
@@ -79,10 +93,34 @@ export function defaultHazardState(nowMs?: number): HazardState {
 export class HazardStore {
   private state: HazardState;
   private markers: HazardMarker[] = [];
+  private cells: HazardCellMarker[] = [];
+  /** Player world anchor (server-pushed) — scope centre. */
+  private anchor: { x: number; y: number; z: number } | null = null;
   private listeners = new Set<() => void>();
+  /**
+   * Stable snapshot reference. Rebuilt on every mutator call
+   * so `useSyncExternalStore` sees a fresh object only when
+   * state actually changed (otherwise it returns the cached
+   * reference, breaking React's identity check and looping).
+   */
+  private cachedSnapshot: {
+    state: HazardState;
+    markers: readonly HazardMarker[];
+    cells: readonly HazardCellMarker[];
+    anchor: { x: number; y: number; z: number } | null;
+  };
 
   constructor(nowMs?: number) {
     this.state = defaultHazardState(nowMs);
+    this.markers = [];
+    this.cells = [];
+    this.anchor = null;
+    this.cachedSnapshot = {
+      state: this.state,
+      markers: this.markers,
+      cells: this.cells,
+      anchor: this.anchor,
+    };
   }
 
   // ---- Reads --------------------------------------------------------------
@@ -97,9 +135,36 @@ export class HazardStore {
     return this.markers;
   }
 
-  /** Stable snapshot for React `useSyncExternalStore`. */
-  snapshot(): { state: HazardState; markers: readonly HazardMarker[] } {
-    return { state: this.state, markers: this.markers };
+  /** Hazard cells the server culled onto the last update. */
+  getCells(): readonly HazardCellMarker[] {
+    return this.cells;
+  }
+
+  /**
+   * Player world anchor from the last frame, or `null` before the
+   * first `hazard_update`. The hazard scope centres on it.
+   */
+  getAnchor(): { x: number; y: number; z: number } | null {
+    return this.anchor;
+  }
+
+  /**
+   * Stable snapshot for React `useSyncExternalStore`.
+   *
+   * **Important**: this MUST return the same object reference
+   * when nothing has changed, otherwise React's snapshot
+   * identity check triggers an infinite re-render loop with
+   * "The result of getSnapshot should be cached to avoid an
+   * infinite loop". We cache the snapshot and only rebuild it
+   * when `applyHazardUpdate` or `setMarkers` mutates state.
+   */
+  snapshot(): {
+    state: HazardState;
+    markers: readonly HazardMarker[];
+    cells: readonly HazardCellMarker[];
+    anchor: { x: number; y: number; z: number } | null;
+  } {
+    return this.cachedSnapshot;
   }
 
   subscribe(listener: () => void): () => void {
@@ -123,6 +188,22 @@ export class HazardStore {
       recentDamage: payload.recentDamage ?? 0,
       receivedAtMs: nowMs ?? Date.now(),
     };
+    // The server culls the cell list per frame; when the key is
+    // absent the client keeps the previous list so a single
+    // dropped field doesn't blank the discs mid-walk.
+    if (payload.cells !== undefined) {
+      this.cells = payload.cells.map((cell) => ({
+        hazardId: cell.hazardId,
+        kind: cell.kind,
+        pos: { x: cell.pos[0], y: cell.pos[1], z: cell.pos[2] },
+        radius: cell.radius,
+        intensity: cell.intensity,
+      }));
+    }
+    if (payload.anchor !== undefined) {
+      this.anchor = { x: payload.anchor[0], y: payload.anchor[1], z: payload.anchor[2] };
+    }
+    this.rebuildSnapshot();
     for (const listener of this.listeners) listener();
   }
 
@@ -133,6 +214,7 @@ export class HazardStore {
    */
   setMarkers(markers: readonly HazardMarker[]): void {
     this.markers = [...markers];
+    this.rebuildSnapshot();
     for (const listener of this.listeners) listener();
   }
 
@@ -144,7 +226,25 @@ export class HazardStore {
   reset(nowMs?: number): void {
     this.state = defaultHazardState(nowMs);
     this.markers = [];
+    this.cells = [];
+    this.anchor = null;
+    this.rebuildSnapshot();
     for (const listener of this.listeners) listener();
+  }
+
+  /**
+   * Rebuild the cached snapshot reference. Called by every
+   * mutator so the next `snapshot()` call sees a fresh object —
+   * React's `useSyncExternalStore` re-renders when the
+   * reference changes.
+   */
+  private rebuildSnapshot(): void {
+    this.cachedSnapshot = {
+      state: this.state,
+      markers: this.markers,
+      cells: this.cells,
+      anchor: this.anchor,
+    };
   }
 }
 
