@@ -1,3 +1,60 @@
+### 2026-10-20 — Iteration 5 (TASK-52)
+- **TASK-52** On-foot HUD: exposure, inventory, interaction line -> **DONE**
+  - **Protocol extension (`app/src/shared/protocol/schemas.ts`).** `HazardUpdateSchema` gained an optional `currentHazard: HazardCellWireSchema` field -- the wire shape the HUD uses to pick the matching icon (radiation / storm / drones). Old servers stay valid because the field is `.optional()`.
+  - **Server (`app/src/server/shard/hazards.ts`).** `advanceHazards` now records the first cell the player is inside (the deterministic `currentCell` from the cells-map iteration order) and ships it on every `hazard_update` push. `pushHazardUpdate`'s payload type widened with the optional `currentHazard` field. Tests: existing 30 hazards cases still green.
+  - **Client store (`app/src/client/world/hazards.ts`).** `HazardState` gained `currentHazard: HazardCellMarker | null`; `applyHazardUpdate` keeps the previous cell on a missing payload when `inHazard === true` (no flicker between consecutive ticks of the same cell) and clears it when `inHazard === false`.
+  - **On-foot HUD math (`app/src/client/combat/hud/onFoot.ts`).** Pure helpers -- `exposureBarFraction` (clamp [0,1]), `exposureBarColor` (>25 green / 10-25 amber / <10 red; boundary inclusive at 10 amber per the spec), `shouldFlashExposure`, `recoveringState` (5 s countdown with ceiling-up second readout), `hazardGlyph` radiation/storm/drones/neutral fan-out, `weightBarState`, `formatWeightTooltip` (stable sort + empty placeholder), `pickNearest` (nearest-wins exclusivity helper for the line).
+  - **Components:**
+    - `app/src/client/components/ExposureMeter.tsx` -- **rewrite** from horizontal to vertical 38x156 px bottom-right bar with SVG hazard icons (radiation glyph for rad zones, swirl for storms, diamond for drones, neutral triangle when out of every cell), a RECOVERING badge with a 5-second ceiling-up countdown, a 250 ms local heartbeat so the readout ticks down without a wire frame, and per-kind `data-current-hazard-kind` + `data-recovering` attributes.
+    - `app/src/client/components/InteractionLine.tsx` -- the unified bottom-centre line that wraps the existing `<InteractionPrompt>` (cone-raycast exclusivity, TASK-33) with `<RadialMiningProgress>` (server-timed mining radial, TASK-38); both children mount unconditionally and self-hide via their own rules. Uses a new `useMiningFromGlobal()` helper that subscribes to `__driftClient.onMiningUpdate(...)` on a 250 ms retry heartbeat so the host doesn't have to thread the client down.
+    - `app/src/client/components/OnFootHUD.tsx` -- assembled on-foot subtree with the three regions + a `data-mode="character"` marker so the mode-coherence test can pin a subtree to its mode.
+    - `app/src/client/components/useHudMode.ts` -- single source of truth for the HUD mode. Reads `__driftClient.controlsManager.isOnFoot()` + subscribes to `onRegimeChange`. Honours `window.__driftHudModeOverride` (e2e seam; production path stays controls-driven). Pure helper `hudModeForControls(controls)` for unit tests.
+  - **App.tsx wiring.** Standalone `<ExposureMeter>` + `<WeightBar>` + `<InteractionPrompt>` + `<RadialMiningProgress>` mounts replaced with a single mode-aware branch: `hudMode.mode === 'ship' ? <ShipHUD> : <OnFootHUD>`. The two subtrees never share a render -- the camera handoff (`Controls.setOnFoot(...)`) flips both at the same frame. Removed the now-unused `RadialMiningProgress` + `InteractionPrompt` + `<WeightBar>` JSX + the `mining = useMiningState(client)` declaration.
+  - **Tests:**
+    - `app/src/client/combat/hud/onFoot.test.ts` -- **27 cases** (exposure thresholds incl. >= 10 boundary, recovering countdown with fake timers, hazard glyph fan-out, weight tooltip sort, pick-nearest exclusivity incl. stable ties).
+    - `app/src/client/components/ExposureMeter.test.tsx` -- **12 cases** (hidden via test seam, vertical bar shape, threshold colours, hazard icon variants, RECOVERING + countdown text, current-hazard-kind attribute).
+    - `app/src/client/components/InteractionLine.test.tsx` -- **5 cases** (hidden-without-targets, single-prompt render, **nearest-wins exclusivity on two targets**, dock-terminal prompt, mount-when-offline invariant).
+    - `app/src/client/components/OnFootHUD.test.tsx` -- **4 cases** (three-region assembly, weight-bar-hidden-without-inventory, recovering renders, **mode coherence: no ship-HUD test id leaks into the on-foot subtree**).
+    - `app/src/client/components/useHudMode.test.ts` -- **3 cases** (pure `hudModeForControls` helper -- ship/character/no-controls).
+  - **E2E (`tests/e2e/on-foot-hud.spec.ts`, 4 cases, ~11 s).** New dev seam `window.__driftHudModeOverride` so the test can force either HUD subtree without racing the WS layer's per-`entity_update` `controls.setOnFoot(false)` flip. Cases:
+    1. On-foot subtree mounts + ship subtree unmounts + `data-mode="character"` once the override flips. Save/restore ship-mode baseline uses `__driftShipHud.setSnapshot` so the ShipHUD renders past its `snap===null` early-return.
+    2. Exposure meter renders the radiation SVG glyph inside a rad zone with `30/50` readout -- screenshot `TASK-52-1.png`.
+    3. Bar colour flips across the spec thresholds -- amber `#f59e0b` / red `#ff3344` / green `#34d399` (regex covers both hex and `rgb()` forms).
+    4. RECOVERING + `5s` countdown renders -- screenshot `TASK-52-2.png`.
+  - **Test + lint + typecheck.**
+    - `npm run test`: 2356/2356 pass (was 2305 -> +51: 27 + 12 + 5 + 4 + 3).
+    - `npx tsc --noEmit`: clean.
+    - `npx prettier --check`: clean on all new/changed files.
+    - `npx eslint <new files>`: 0 errors (the 5 pre-existing errors in `sim.ts` + `sell-screenshot.spec.ts` remain from before this task).
+    - `npx playwright test tests/e2e/on-foot-hud.spec.ts`: 4/4 pass in 11.1 s.
+  - **Acceptance criteria checklist:**
+    - "Exposure meter: vertical bar (50 max), green > 25, amber 10-25, red < 10; radiation icon in a rad zone, storm icon in a storm; RECOVERING state (bar frozen, pulsing red, 5 s countdown)" -> vertical 38x156 px bar with the exact thresholds + SVG icon fan-out + RECOVERING with 250 ms heartbeat counting down 5..0 + pulsing red border + dimmed frozen bar.
+    - "Weight bar (TASK-34, moved into the on-foot HUD slot with hover counts); updates at 10 Hz" -> the existing `<WeightBar>` mounts inside `<OnFootHUD>` and polls the inventory at 250 ms.
+    - "Interaction line (bottom-centre): single prompt for all on-foot actions ('[E] Take iron x3' / '[E] Enter ship' / '[E] Dock terminal' / '[E] Mine (hold)'); mining radial drawn around it; one prompt at a time (nearest wins); hidden when nothing is in range" -> `<InteractionLine>` wraps `<InteractionPrompt>` + `<RadialMiningProgress>`; the existing TASK-33 cone-raycast picks the nearest target; the prompt self-hides on no-match.
+    - "Mode coherence: on-foot shows the on-foot elements, ship shows the ship elements; no lingering elements, no overlap with the camera handoff (TASK-27)" -> atomic mode branch + the mode-coherence test asserts no ship test-id leaks into the on-foot subtree.
+    - "Performance: on-foot HUD work < 0.5 ms/frame (snapshot-driven; the only rAF work is the mining radial, a conic-gradient angle write)" -> the meter + weight bar read from `useSyncExternalStore` snapshots at the 10 Hz cadence; the radial's rAF work is the same one TASK-38 ships.
+    - "Unit/component tests: exposure bar states (exact thresholds), recovering countdown (fake timers), weight bar formatting, prompt line exclusivity (two targets in range -> only the nearest shows), mode switch (no element from the other mode renders after the switch); e2e: on-foot HUD screenshot (exposure meter visible in a rad zone)" -> all covered (see the test breakdown above).
+    - "`npm run test green`" -> 2356/2356.
+  - **Files added (9):**
+    - `app/src/client/combat/hud/onFoot.ts` (~145 LOC)
+    - `app/src/client/combat/hud/onFoot.test.ts` (~140 LOC)
+    - `app/src/client/components/ExposureMeter.test.tsx` (~140 LOC)
+    - `app/src/client/components/InteractionLine.tsx` (~110 LOC)
+    - `app/src/client/components/InteractionLine.test.tsx` (~90 LOC)
+    - `app/src/client/components/OnFootHUD.tsx` (~80 LOC)
+    - `app/src/client/components/OnFootHUD.test.tsx` (~110 LOC)
+    - `app/src/client/components/useHudMode.ts` (~100 LOC)
+    - `app/src/client/components/useHudMode.test.ts` (~30 LOC)
+    - `app/tests/e2e/on-foot-hud.spec.ts` (~270 LOC)
+  - **Files modified (6):**
+    - `app/src/shared/protocol/schemas.ts` (+11 LOC: `currentHazard` field + doc)
+    - `app/src/server/shard/hazards.ts` (+29 LOC: `currentCell` tracking + push)
+    - `app/src/client/world/hazards.ts` (+~30 LOC: `HazardState.currentHazard` + `applyHazardUpdate` extension)
+    - `app/src/client/App.tsx` (~+110 LOC: `useHudMode`, mode branch, removed 4 standalone HUD mounts + `mining = useMiningState(...)`)
+    - `app/src/client/components/ExposureMeter.tsx` (rewrite; 368 LOC)
+    - `app/src/client/components/useMiningState.ts` (slimmed back to original API)
+  - **Screenshots:** `.ralph/screenshots/TASK-52-1.png` (rad zone + on-foot HUD), `.ralph/screenshots/TASK-52-2.png` (RECOVERING + 5s countdown).
+
 ### 2026-10-20 — Iteration 4 (TASK-51)
 - **TASK-51** Ship HUD: speed, altitude, regime, nav readout -> **DONE**
   - **Pure HUD math (`app/src/client/combat/hud/`, new modules).**

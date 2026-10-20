@@ -858,6 +858,17 @@ export const HazardUpdateSchema = z
     /** Optional: last single-tick exposure damage (for HUD flash). */
     recentDamage: z.number().finite().nonnegative().optional(),
     /**
+     * TASK-52: optional pointer to the hazard cell the player is
+     * *currently* inside. Drives the on-foot exposure meter's icon
+     * (radiation glyph for `radzone`, swirl glyph for `storm`,
+     * drone glyph for `drones`). Absent when `inHazard === false`
+     * — the client falls back to a neutral hazard glyph. Optional
+     * because the v1 server culls this only while the player is
+     * inside a cell; every other frame keeps the previously
+     * reported `currentHazard` and lets it clear via `inHazard`.
+     */
+    currentHazard: HazardCellWireSchema.optional(),
+    /**
      * Optional: hazard cells within `HAZARD_VISIBLE_RANGE_M` of the
      * player, for the in-world disc renderer. Absent when the
      * player is nowhere near a hazard (the common case).

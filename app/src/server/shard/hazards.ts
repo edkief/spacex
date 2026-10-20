@@ -150,6 +150,14 @@ export function pushHazardUpdate(
     recoveringUntilMs: number;
     inHazard: boolean;
     recentDamage?: number;
+    /** TASK-52: hazard cell the player is inside (drives the HUD icon). */
+    currentHazard?: {
+      hazardId: string;
+      kind: HazardCell["kind"];
+      pos: [number, number, number];
+      radius: number;
+      intensity: number;
+    };
     /** Nearby hazard cells for the client's disc renderer. */
     cells?: Array<{
       hazardId: string;
@@ -260,9 +268,16 @@ export function advanceHazards(
     const state = ensurePlayerHazardState(shard, connId);
     let totalDamagePerSecond = 0;
     let inHazard = false;
+    // TASK-52: track which hazard cell the player is currently
+    // inside so the HUD can show the matching glyph (radiation /
+    // storm / drones). When two cells overlap we pick the first
+    // match — the per-tick order is deterministic because the
+    // cell map is keyed by `hazardId`.
+    let currentCell: HazardCell | null = null;
     for (const cell of shard.hazardCells.values()) {
       if (!isInsideCell(anchor.pos, cell)) continue;
       inHazard = true;
+      if (currentCell === null) currentCell = cell;
       if (cell.kind === "storm") totalDamagePerSecond += HAZARD_STORM_DAMAGE_PER_S;
       else if (cell.kind === "radzone") totalDamagePerSecond += HAZARD_RADZONE_DAMAGE_PER_S;
       // Drone cells don't damage exposure directly (drones attack
@@ -290,6 +305,20 @@ export function advanceHazards(
       recoveringUntilMs: state.recoveringUntilMs,
       inHazard: state.inHazard,
       recentDamage: state.lastDamage > 0 ? state.lastDamage : undefined,
+      // TASK-52: ship the current cell to the client so the
+      // on-foot HUD can decide which icon to render. Absent
+      // when the player isn't inside a cell (the schema's
+      // `.optional()` keeps old frames valid).
+      currentHazard:
+        currentCell === null
+          ? undefined
+          : {
+              hazardId: currentCell.hazardId,
+              kind: currentCell.kind,
+              pos: [currentCell.pos.x, currentCell.pos.y, currentCell.pos.z],
+              radius: currentCell.radius,
+              intensity: currentCell.intensity,
+            },
       cells: nearbyCellsFor(shard, anchor.pos),
       anchor: [anchor.pos.x, anchor.pos.y, anchor.pos.z],
     });

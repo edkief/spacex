@@ -421,10 +421,10 @@
   },
   {
     "id": "TASK-52",
-    "title": "On-foot HUD: prompt, inventory strip, objective hint",
+    "title": "On-foot HUD: exposure, inventory, interaction line",
     "category": "ui-ux",
     "specFilePath": ".ralph/tasks/TASK-52.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-53",

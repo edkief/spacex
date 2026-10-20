@@ -38,9 +38,10 @@ export interface UseMiningResult {
 }
 
 /**
- * Subscribe to the DriftClient's mining_update stream. Returns
- * the latest echo + a wall-clock anchor the radial can interpolate
- * from.
+ * Subscribe to the supplied DriftClient's mining_update stream.
+ * Returns the latest echo + a wall-clock anchor the radial can
+ * interpolate from. Returns `{ update: null, ... }` when no
+ * channel is active.
  */
 export function useMiningState(client: DriftClient): UseMiningResult {
   const [update, setUpdate] = useState<MiningUpdate | null>(null);

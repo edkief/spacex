@@ -63,6 +63,13 @@ export interface HazardState {
   recentDamage: number;
   /** Wall-clock ms when this snapshot landed (for fade timing). */
   receivedAtMs: number;
+  /**
+   * TASK-52: hazard cell the player is *currently* inside. Drives
+   * the on-foot exposure meter's icon (`storm` -> swirl,
+   * `radzone` -> radiation, `drones` -> hostile-drone glyph).
+   * `null` when the player is out of every cell.
+   */
+  currentHazard: HazardCellMarker | null;
 }
 
 /** Defaults for a fresh store (the player hasn't seen any hazards yet). */
@@ -73,6 +80,7 @@ export function defaultHazardState(nowMs?: number): HazardState {
     inHazard: false,
     recentDamage: 0,
     receivedAtMs: nowMs ?? Date.now(),
+    currentHazard: null,
   };
 }
 
@@ -187,6 +195,28 @@ export class HazardStore {
       inHazard: payload.inHazard,
       recentDamage: payload.recentDamage ?? 0,
       receivedAtMs: nowMs ?? Date.now(),
+      // TASK-52: optional `currentHazard` pointer. When the
+      // payload omits the field we keep the previous value so
+      // the icon doesn't flicker between two ticks of the same
+      // cell; when `inHazard === false` we clear it explicitly
+      // (the server omits the field for "out of hazard" frames
+      // too).
+      currentHazard:
+        payload.currentHazard !== undefined
+          ? {
+              hazardId: payload.currentHazard.hazardId,
+              kind: payload.currentHazard.kind,
+              pos: {
+                x: payload.currentHazard.pos[0],
+                y: payload.currentHazard.pos[1],
+                z: payload.currentHazard.pos[2],
+              },
+              radius: payload.currentHazard.radius,
+              intensity: payload.currentHazard.intensity,
+            }
+          : payload.inHazard
+            ? this.state.currentHazard
+            : null,
     };
     // The server culls the cell list per frame; when the key is
     // absent the client keeps the previous list so a single

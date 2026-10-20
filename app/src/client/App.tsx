@@ -44,12 +44,9 @@ import {
   useOwnShipOnPad as useExitPromptShipOnPad,
 } from "./components/ExitShipPrompt.js";
 import { EnterShipPrompt, useEnterShipState } from "./components/EnterShipPrompt.js";
-import { InteractionPrompt } from "./components/InteractionPrompt.js";
-import { WeightBar, useOwnInventory } from "./components/WeightBar.js";
+import { useOwnInventory } from "./components/WeightBar.js";
 import { CargoPanel, useOwnCargo } from "./components/CargoPanel.js";
 import { DockPanel } from "./components/DockPanel.js";
-import { RadialMiningProgress } from "./components/RadialMiningProgress.js";
-import { useMiningState } from "./components/useMiningState.js";
 import { useInteractables, useLocalInteractor } from "./components/useInteractables.js";
 import {
   currentAtmosphereStateProvider,
@@ -72,7 +69,8 @@ import { installVitalsFlashStyle } from "./components/VitalsBar.js";
 import { targetBoxScreenOverride } from "./components/TargetBox.js";
 import { WeaponFxHud } from "./components/WeaponFxHud.js";
 import { DestructionFx } from "./components/DestructionFx.js";
-import { ExposureMeter } from "./components/ExposureMeter.js";
+import { OnFootHUD } from "./components/OnFootHUD.js";
+import { useHudMode } from "./components/useHudMode.js";
 import { HazardLayer } from "./world/HazardLayer.js";
 import { WeaponFxLayer } from "./fx/weapons.js";
 import type { GalaxyOverview } from "@shared/galaxy/overview.js";
@@ -137,6 +135,11 @@ export function App(): React.JSX.Element {
   // for the lifetime of the app — their internal listeners outlive
   // transient HUD mounts.
   const shipHud = useShipHudSource({});
+  // TASK-52: HUD mode selector. Reads `__driftClient.controls.isOnFoot()`
+  // every 250 ms and on every regime-change event so the ship / on-foot
+  // subtree swap is atomic with the camera handoff. The host chooses
+  // which subtree to mount in the JSX below.
+  const hudMode = useHudMode();
   const hitFlashController = useMemo(() => {
     installVitalsFlashStyle();
     return new HitFlashController();
@@ -581,11 +584,10 @@ export function App(): React.JSX.Element {
   // The DockPanel renders it in the right rail so the player
   // sees the count tick up on every sell.
   const [creditsBalance, setCreditsBalance] = useState(0);
-  // TASK-38: mining state — server-timed radial progress driven
-  // by `mining_update` echoes. The hook is independent of the
-  // WS online state so a connection drop cancels the radial via
-  // a stale `update` snapshot.
-  const mining = useMiningState(client);
+  // TASK-38: mining echoes are now consumed inside `<OnFootHUD>`
+  // via its `useMiningFromGlobal()` hook — the radial lives
+  // inside `<InteractionLine>` so the affordance + the prompt
+  // stay in the same subtree (the ship HUD can't mine).
 
   return (
     <div
@@ -638,11 +640,6 @@ export function App(): React.JSX.Element {
           character → ship entity switch and fires an
           `enter_ship_ok` ack so the camera + controls swap back
           to the cockpit on the same frame. */}
-      <RadialMiningProgress
-        update={mining.update}
-        receivedAtMs={mining.receivedAtMs}
-        enabled={status === "online"}
-      />
       <EnterShipPrompt
         shipId={enterShipState.shipId}
         characterPos={enterShipState.characterPos}
@@ -659,11 +656,9 @@ export function App(): React.JSX.Element {
           in the live snapshot through `interactableFromWire`,
           runs the cone raycast, and shows a single "[E] …" pill
           when a candidate lands inside the 3 m × 30° forward
-          cone. Hides entirely on no-match. */}
-      {/* TASK-34: on-foot inventory HUD. Bottom-right weight bar
-          (weightUsed / 40) + per-stack tooltip on hover. Hidden
-          until the first `inventory_update` frame lands. */}
-      <WeightBar inventory={ownInventory} />
+          cone. Hides entirely on no-match. The TASK-52 on-foot
+          HUD now hosts its own unified `<InteractionLine>` —
+          see the `<OnFootHUD>` mount below. */}
       {/* TASK-39: cargo transfer modal. Opens via the on-foot
           "Open cargo" prompt at the docked ship (TASK-33 registry
           slot). The panel is keyboard-friendly: `Esc` closes via
@@ -692,49 +687,10 @@ export function App(): React.JSX.Element {
         open={dockPanelOpen}
         onClose={() => setDockPanelOpen(false)}
       />
-      <InteractionPrompt
-        interactor={localInteractor}
-        interactables={interactables}
-        enabled={status === "online"}
-        onInteract={(targetId, action) => {
-          try {
-            client.sendInteract(targetId, action);
-          } catch {
-            // Same swallow rationale as above; the `enabled` gate
-            // already prevents the common path.
-          }
-        }}
-        // TASK-35: ship targets (action `'enter'`) route through
-        // `sendEnterShip` instead of the generic interact path.
-        // The two paths share the same keyboard handler so the
-        // registry-side prompt text + visible affordance stay
-        // consistent for the player.
-        onEnter={() => {
-          try {
-            client.sendEnterShip();
-          } catch {
-            // Same swallow rationale.
-          }
-        }}
-        // TASK-38: hold-E mining — keydown sends `mine`, keyup
-        // sends `mine_stop`. The radial progress component reads
-        // the server's `mining_update` echoes to render the
-        // 1.5 s sweep + the "+1 iron" float.
-        onMineStart={(targetId) => {
-          try {
-            client.sendMine(targetId);
-          } catch {
-            // Same swallow rationale.
-          }
-        }}
-        onMineStop={() => {
-          try {
-            client.sendMineStop();
-          } catch {
-            // Same swallow rationale.
-          }
-        }}
-      />
+      {/* TASK-52: the unified interaction prompt (cone-raycast +
+          mining radial) lives inside `<OnFootHUD>` only. The
+          callback props were lifted to App.tsx so the WS layer
+          stays the single owner of the dispatch paths. */}
       <header
         data-testid="drift-header"
         style={{
@@ -896,29 +852,75 @@ export function App(): React.JSX.Element {
         }}
         targetScreenOverride={hudTargetScreenOverride}
       />
-      {/* TASK-51: ship HUD — speed / altitude / regime / nav /
-          docked tag / vitals bar. Reads the local predictor's
-          `state()` at the 10 Hz HUD cadence (same pattern as the
-          combat HUD above). The `flashController` is fed by
-          `combat_event { kind: 'hit' | 'damaged' }` frames that
-          resolve to a self-target. */}
-      <ShipHUD
-        snapshot={shipHudOverride ?? shipHud.snapshot}
-        flashController={hitFlashController}
-        monitor={frameMonitor}
-      />
+      {/* TASK-52: HUD mode switch — the ship and on-foot subtrees
+          never render at the same time. `useHudMode()` reads the
+          `__driftClient.controls.isOnFoot()` bit and reflects it
+          into a `hudMode.mode ∈ { 'ship', 'character' }` value
+          so the swap is atomic with the camera handoff (the
+          `Controls.setOnFoot(...)` impl fires on the same frame
+          the entity_update envelopes land). */}
+      {hudMode.mode === "ship" ? (
+        /* TASK-51: ship HUD — speed / altitude / regime / nav /
+           docked tag / vitals bar. Reads the local predictor's
+           `state()` at the 10 Hz HUD cadence (same pattern as
+           the combat HUD above). The `flashController` is fed
+           by `combat_event { kind: 'hit' | 'damaged' }` frames
+           that resolve to a self-target. */
+        <ShipHUD
+          snapshot={shipHudOverride ?? shipHud.snapshot}
+          flashController={hitFlashController}
+          monitor={frameMonitor}
+        />
+      ) : (
+        /* TASK-52: on-foot HUD — exposure meter, weight bar,
+           unified interaction line. Hides the weapon/target-box
+           regions (those live in <CombatHUD>) by mounting only
+           the on-foot subtree. */
+        <OnFootHUD
+          hazardStore={client.getHazardStore()}
+          interactor={localInteractor}
+          interactables={interactables}
+          enabled={status === "online"}
+          monitor={frameMonitor}
+          onInteract={(targetId, action) => {
+            try {
+              client.sendInteract(targetId, action);
+            } catch {
+              // Same swallow rationale; the `enabled` prop already
+              // gates on `online`.
+            }
+          }}
+          onEnter={() => {
+            try {
+              client.sendEnterShip();
+            } catch {
+              // Same swallow rationale.
+            }
+          }}
+          onMineStart={(targetId) => {
+            try {
+              client.sendMine(targetId);
+            } catch {
+              // Same swallow rationale.
+            }
+          }}
+          onMineStop={() => {
+            try {
+              client.sendMineStop();
+            } catch {
+              // Same swallow rationale.
+            }
+          }}
+        />
+      )}
       {/* TASK-49: destruction FX layer — explosion + 1 s slow-mo +
           the 2 s "SHIP LOST" moment + wreck killer markers. Fed by
           `combat_event { kind: 'destroyed' }` frames through
-          `client.getDestruction()`. */}
+          `client.getDestruction()`. Rendered regardless of HUD
+          mode so the explosion stays on screen even while the
+          on-foot HUD mounts (the FX layer has its own timer +
+          canvas and doesn't depend on the HUD mode). */}
       <DestructionFx store={client.getDestruction()} />
-      {/* TASK-48: bottom-right exposure meter. Renders the
-          player's personal hazard pool + recovering badge.
-          Mounts unconditionally; returns null when the store
-          hasn't been populated (the meter shows the full bar
-          by default and only "lights up" when a hazard_update
-          lands). */}
-      <ExposureMeter store={client.getHazardStore()} />
       {/* TASK-48: bottom-left hazard scope (storm discs, rad-zone
           discs, drone glyphs within 500 m). Fed by the
           `hazard_update` cell list + the entity_update drone
