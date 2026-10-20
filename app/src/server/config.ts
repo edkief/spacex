@@ -57,6 +57,12 @@ export interface ServerConfig {
   dbPath: string;
   /** Hard cap on concurrently loaded system shards (TASK-11). */
   systemInstanceCount: number;
+  /**
+   * Directory holding the built client to serve. Empty in dev, where Vite
+   * serves the client; set to the vite `dist/client` output in the
+   * production container image so the API process also serves the client.
+   */
+  staticDir: string;
   /** Absolute path to the project root, exposed for tests and tooling. */
   projectRoot: string;
 }
@@ -81,6 +87,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     dbDriver: driver,
     dbPath: str(env.DB_PATH, "./data/drift.db"),
     systemInstanceCount: num(env.SYSTEM_INSTANCE_COUNT, 3),
+    staticDir: str(env.STATIC_DIR, ""),
     projectRoot: PROJECT_ROOT,
   };
 }

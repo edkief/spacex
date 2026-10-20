@@ -24,6 +24,7 @@ import { assertValidSecret } from "./auth/token.js";
 import { buildAuthResolver, buildLogoutResolver } from "./auth/resolver.js";
 import { ShardFlushService, DEFAULT_FLUSH_INTERVAL_MS } from "./shard/persist.js";
 import { GalaxyRouter } from "./galaxy/router.js";
+import { registerStaticClient } from "./static.js";
 import { buildRouterJoinResolver } from "./galaxy/join-resolver.js";
 import { buildRouterWarpResolver } from "./galaxy/warp-resolver.js";
 import {
@@ -189,6 +190,12 @@ async function main(): Promise<void> {
       return null;
     },
   });
+
+  // Production image: the same process also serves the built client so the
+  // browser talks to one origin. Unset in dev, where Vite serves the client.
+  if (serverConfig.staticDir) {
+    await registerStaticClient(app, serverConfig.staticDir);
+  }
 
   // TASK-24: per-shard ship flush service. The interval cadence is
   // configurable via `SHARD_FLUSH_INTERVAL_MS` (default 30 s). The

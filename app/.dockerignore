@@ -1,0 +1,14 @@
+node_modules
+dist
+dist-server
+data
+tests
+test-results
+playwright-report
+smoke-*.mjs
+*.tsbuildinfo
+.env
+.env.*
+Dockerfile
+.dockerignore
+.k8s-build.yaml
