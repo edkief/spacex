@@ -99,6 +99,11 @@ export function ChatLog({ store, canSend = true, onSend }: ChatLogProps): React.
 
   // Toggle the input on Enter (global) only when no other input is
   // focused — we don't want to hijack Enter on the chat input itself.
+  //
+  // TASK-54: the global Enter shortcut must also yield to the
+  // focused *control*. Before this fix, pressing `Enter` on a
+  // star-chart node selected the system AND opened the chat input
+  // (stealing the focus), which broke the keyboard-only flow.
   useEffect(() => {
     if (!canSend) return;
     const onKey = (ev: KeyboardEvent): void => {
@@ -108,6 +113,15 @@ export function ChatLog({ store, canSend = true, onSend }: ChatLogProps): React.
         active instanceof HTMLTextAreaElement ||
         (active instanceof HTMLElement && active.isContentEditable);
       if (inTextField) return;
+      // A focused control owns its `Enter` key (buttons, chart
+      // nodes, menu items) — the chat shortcut stands down.
+      const target = ev.target;
+      if (
+        target instanceof Element &&
+        target.closest("button, [role='button'], [role='menuitem'], a[href], [tabindex]") !== null
+      ) {
+        return;
+      }
       if (ev.key === "Enter") {
         ev.preventDefault();
         setInputOpen(true);

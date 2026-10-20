@@ -32,6 +32,8 @@
 
 import type { ProtocolCombatEvent } from "@shared/protocol/index.js";
 
+import { fxRegistry } from "./registry.js";
+
 // ---------------------------------------------------------------------------
 // Lightweight entity lookup — the FX layer only needs the
 // target's world position to draw the impact flash. The full
@@ -165,6 +167,8 @@ export class WeaponFxLayer {
     if (args.kind === "denied") return;
     const now = Date.now();
     if (args.kind === "laser") {
+      // TASK-54: reduced motion suppresses the muzzle flash.
+      if (!fxRegistry.allow("laser-flash")) return;
       // Laser flash line — we don't know the target's world
       // position from the ack alone, so we draw a short muzzle
       // spark in front of the camera. The full hit flash comes
@@ -179,6 +183,8 @@ export class WeaponFxLayer {
         id: this.nextId(),
       });
     } else if (args.kind === "missile" && args.projectileId !== null) {
+      // TASK-54: reduced motion suppresses the tracer + smoke trail.
+      if (!fxRegistry.allow("missile-tracer")) return;
       this.spawnMissileTracer({
         id: args.projectileId,
         x: window.innerWidth / 2,
@@ -219,12 +225,16 @@ export class WeaponFxLayer {
         : null;
       const x = screenPos?.x ?? window.innerWidth / 2;
       const y = screenPos?.y ?? window.innerHeight / 2;
+      // TASK-54: reduced motion suppresses the impact flash and the
+      // camera shake (both are counted by the FX registry).
+      if (!fxRegistry.allow("impact-flash")) return;
+      const shakeAllowed = fxRegistry.allow("screen-shake");
       this.spawnImpact({
         id: this.nextId(),
         x,
         y,
         expiresAt: now + IMPACT_FLASH_MS,
-        shakePx: SHAKE_PX,
+        shakePx: shakeAllowed ? SHAKE_PX : 0,
         kind: event.kind === "destroyed" ? "destroyed" : "hit",
       });
       // Trigger the screen shake for all clients on every hit /

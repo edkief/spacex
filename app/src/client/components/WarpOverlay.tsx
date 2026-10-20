@@ -35,6 +35,7 @@ import { useEffect, useRef, useState } from "react";
 import type * as React from "react";
 
 import { isWarpInFlight, type WarpState, type WarpStore } from "../state/warp.js";
+import { settingsStore } from "../a11y/settings.js";
 
 /** Default overlay duration for each leg of the warp. */
 export const WARP_PHASE_MS = 2_000;
@@ -164,15 +165,19 @@ function useWarpCompletion(warpStore: WarpStore, phaseMs: number, now: () => num
  */
 function WarpLayer({ phase }: { phase: VisualPhase }): React.JSX.Element | null {
   if (!phase.visible) return null;
+  // TASK-54: reduced motion swaps the streak layer for a plain
+  // cross-fade (no scaling, no moving streaks).
+  const reducedMotion = settingsStore.getSnapshot().reducedMotion;
   // Cap the easing so a sluggish tick doesn't push the streak
   // beyond 100% (which would just look paused).
   const pct = Math.min(1, Math.max(0, phase.elapsedMs / WARP_PHASE_MS));
   // Pull-from-infinity for the in leg (zoom in), release for the
   // out leg (zoom out).
-  const scale = phase.leg === "in" ? 0.5 + pct * 0.7 : 1.2 - pct * 0.2;
+  const scale = reducedMotion ? 1 : phase.leg === "in" ? 0.5 + pct * 0.7 : 1.2 - pct * 0.2;
   return (
     <div
       data-testid="drift-warp-overlay"
+      data-reduced-motion={reducedMotion ? "true" : "false"}
       aria-hidden="true"
       style={{
         position: "absolute",
@@ -196,11 +201,13 @@ function WarpLayer({ phase }: { phase: VisualPhase }): React.JSX.Element | null 
     >
       {/* Streaks — three translucent bars that animate outward.
           Cheap CSS keyframes so the warp feels directional without
-          a shader. */}
+          a shader. TASK-54: hidden entirely under reduced motion
+          (the plain fade above replaces it). */}
       <div
         style={{
           position: "absolute",
           inset: 0,
+          display: reducedMotion ? "none" : "block",
           background:
             "repeating-linear-gradient(115deg, rgba(180,210,255,0.0) 0 12px, rgba(180,210,255,0.35) 12px 14px, rgba(180,210,255,0.0) 14px 32px)",
           mixBlendMode: "screen",

@@ -22,6 +22,7 @@ import {
   threatWedgeState,
 } from "../combat/hud/threatPing.js";
 import type { FrameMonitor } from "../perf/frameMonitor.js";
+import { settingsStore } from "../a11y/settings.js";
 
 /** Props for the `ThreatPingHud`. */
 export interface ThreatPingHudProps {
@@ -53,6 +54,13 @@ export function ThreatPingHud(props: ThreatPingHudProps): React.JSX.Element | nu
   useEffect(() => {
     const node = nodeRef.current;
     if (node === null || ping === null) return;
+    // TASK-54: reduced motion replaces the animated wedge with a
+    // static icon (no rAF loop, no rotation, no fade).
+    if (settingsStore.getSnapshot().reducedMotion) {
+      node.style.opacity = "0.9";
+      node.style.transform = `rotate(${ping.bearing.toFixed(2)}deg)`;
+      return;
+    }
     let raf = 0;
     let cancelled = false;
     const tick = (): void => {
@@ -75,6 +83,7 @@ export function ThreatPingHud(props: ThreatPingHudProps): React.JSX.Element | nu
 
   if (ping === null) return null;
   const inset = props.insetPx ?? 0;
+  const reducedMotion = settingsStore.getSnapshot().reducedMotion;
   const gradient = threatWedgeGradient(THREAT_WEDGE_ARC_DEG);
   return (
     <div
@@ -89,11 +98,13 @@ export function ThreatPingHud(props: ThreatPingHudProps): React.JSX.Element | nu
         width: WEDGE_SIZE_PX,
         height: WEDGE_SIZE_PX,
         borderRadius: "50%",
-        background: gradient,
-        maskImage:
-          "radial-gradient(circle at 50% 50%, transparent 42%, black 46%, black 62%, transparent 66%)",
-        WebkitMaskImage:
-          "radial-gradient(circle at 50% 50%, transparent 42%, black 46%, black 62%, transparent 66%)",
+        background: reducedMotion ? "#ff4040" : gradient,
+        maskImage: reducedMotion
+          ? "none"
+          : "radial-gradient(circle at 50% 50%, transparent 42%, black 46%, black 62%, transparent 66%)",
+        WebkitMaskImage: reducedMotion
+          ? "none"
+          : "radial-gradient(circle at 50% 50%, transparent 42%, black 46%, black 62%, transparent 66%)",
         opacity: 0,
         pointerEvents: "none",
         zIndex: 930,

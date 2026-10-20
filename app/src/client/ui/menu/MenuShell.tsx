@@ -161,12 +161,13 @@ export function MenuShellProvider({
       if (!isMenuOpen(stack)) return;
       const target = ev.target;
       const panel = panelRef.current;
-      if (
-        panel !== null &&
-        target instanceof Node &&
-        panel.contains(target) &&
-        isPanelAllowedKey(ev.key)
-      ) {
+      const inPanel = panel !== null && target instanceof Node && panel.contains(target);
+      // TASK-54: a surface may also declare itself with the
+      // `data-menu-surface` attribute (the star chart does). Keys
+      // the surface handles itself (Tab / Enter / arrows) must
+      // reach it — otherwise the surface is mouse-only.
+      const inSurface = target instanceof Element && target.closest("[data-menu-surface]") !== null;
+      if ((inPanel || inSurface) && isPanelAllowedKey(ev.key)) {
         // The panel handles this key itself (Tab / Enter / arrows).
         return;
       }

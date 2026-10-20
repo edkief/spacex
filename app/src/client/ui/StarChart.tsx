@@ -41,12 +41,13 @@
  * (defaults to a no-op so non-WS tests can render the chart).
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type * as React from "react";
 
 import type { GalaxyOverview, OverviewSystemNode } from "@shared/galaxy/overview.js";
 import type { SpectralClass } from "@shared/galaxy/types.js";
 import { isWarpInFlight, type WarpStore } from "../state/warp.js";
+import { cycleFocus } from "./menu/focusTrap.js";
 
 // ---------------------------------------------------------------------------
 // Spectral class colours
@@ -185,6 +186,11 @@ export function StarChart({
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [warpStateKind, setWarpStateKind] = useState<string>("idle");
+  // TASK-54: the chart is a focus-managed surface. It declares
+  // itself with `data-menu-surface` so the shell's input gate lets
+  // its own keys (Tab / Enter / arrows) through instead of
+  // swallowing them, and it focuses its first control on open.
+  const panelRef = useRef<HTMLDivElement | null>(null);
 
   // -------------------------------------------------------------------
   // Warp store subscription (optional)
@@ -220,6 +226,19 @@ export function StarChart({
     if (!open) {
       setSelectedId(null);
     }
+  }, [open]);
+
+  // TASK-54: move focus into the chart when it opens so the
+  // keyboard flow starts inside the surface (the shell restores the
+  // focus to the trigger when the surface closes).
+  useEffect(() => {
+    if (!open) return;
+    const node = panelRef.current;
+    if (node === null) return;
+    const first = node.querySelector<HTMLElement>(
+      "[data-menu-surface-first], button, [tabindex]:not([tabindex='-1'])",
+    );
+    first?.focus();
   }, [open]);
 
   // -------------------------------------------------------------------
@@ -286,10 +305,19 @@ export function StarChart({
 
   return (
     <div
+      ref={panelRef}
       data-testid="drift-star-chart"
+      data-menu-surface="star-chart"
       role="dialog"
       aria-modal="true"
       aria-label="Star chart"
+      onKeyDown={(ev) => {
+        // TASK-54: `Tab` cycles inside the chart (the focus trap).
+        if (ev.key === "Tab") {
+          ev.preventDefault();
+          cycleFocus(panelRef.current, ev.shiftKey ? -1 : 1);
+        }
+      }}
       style={{
         position: "absolute",
         inset: 0,

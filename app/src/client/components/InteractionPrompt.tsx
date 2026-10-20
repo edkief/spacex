@@ -49,6 +49,8 @@ import {
   type Interactor,
   type InteractionPrompt,
 } from "../input/interaction.js";
+import { announcer } from "../a11y/announcer.js";
+import { promptAnnouncementText } from "../a11y/promptText.js";
 
 const PROMPT_KEY = "KeyE";
 
@@ -113,6 +115,16 @@ export function InteractionPrompt(props: InteractionPromptProps): React.JSX.Elem
   useEffect(() => {
     setPressed(false);
   }, [targetKey]);
+
+  // TASK-54: announce the prompt for screen readers ("E to take
+  // iron, 3 units"). The announcer rate-limits so a prompt that
+  // flickers in and out doesn't spam the reader.
+  useEffect(() => {
+    if (prompt === null) return;
+    const spoken = promptAnnouncementText(prompt.prompt);
+    if (spoken === "") return;
+    announcer.announce(spoken, "navigation");
+  }, [targetKey, prompt]);
 
   useEffect(() => {
     if (prompt === null) return;

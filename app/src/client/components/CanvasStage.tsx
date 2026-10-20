@@ -205,7 +205,22 @@ function initStarfield(canvas: HTMLCanvasElement, dpr: number): StarfieldHandle 
  * will own this same canvas; the e2e harness relies on the
  * starfield to verify that headless WebGL is live.
  */
-export function CanvasStage(): React.JSX.Element {
+export interface CanvasStageProps {
+  /**
+   * TASK-54: the accessible name for the canvas. The canvas is a
+   * single opaque 3-D view, so it is exposed as `role="img"` with
+   * a label that names the system the player is flying in.
+   */
+  label?: string;
+}
+
+/**
+ * The Drift main canvas. Renders a deterministic WebGL starfield
+ * that fills the viewport. Future three.js rendering (TASK-26+)
+ * will own this same canvas; the e2e harness relies on the
+ * starfield to verify that headless WebGL is live.
+ */
+export function CanvasStage(props: CanvasStageProps = {}): React.JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const handleRef = useRef<StarfieldHandle | null>(null);
 
@@ -248,6 +263,8 @@ export function CanvasStage(): React.JSX.Element {
       ref={canvasRef}
       id="drift-canvas"
       data-testid="drift-canvas"
+      role="img"
+      aria-label={props.label ?? "3D view: flying in space"}
       style={{ display: "block", width: "100vw", height: "100vh" }}
     />
   );

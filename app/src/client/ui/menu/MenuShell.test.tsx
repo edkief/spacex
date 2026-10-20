@@ -184,4 +184,41 @@ describe("MenuShell (TASK-53)", () => {
     pressKey("Escape");
     expect(document.activeElement).toBe(gameButton);
   });
+
+  it("lets a `data-menu-surface` element handle its own keys (TASK-54)", () => {
+    // The star chart (and the settings panel) declare themselves
+    // with `data-menu-surface`. The gate must let their own keys
+    // (Tab / Enter / arrows) through — otherwise the surface would
+    // be mouse-only — while still swallowing the game keys.
+    const seen: string[] = [];
+    mount((key) => seen.push(key));
+    pressKey("Escape");
+    seen.length = 0;
+
+    const surface = document.createElement("div");
+    surface.setAttribute("data-menu-surface", "star-chart");
+    const node = document.createElement("button");
+    surface.appendChild(node);
+    container.appendChild(surface);
+    node.focus();
+
+    // `Enter` inside the surface reaches the game listener (the
+    // surface is allowed to handle it).
+    act(() => {
+      node.dispatchEvent(
+        new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+      );
+    });
+    expect(seen).toEqual(["Enter"]);
+
+    // A game key (e.g. `w`) is still swallowed while the surface is
+    // open.
+    seen.length = 0;
+    act(() => {
+      node.dispatchEvent(
+        new window.KeyboardEvent("keydown", { key: "w", bubbles: true, cancelable: true }),
+      );
+    });
+    expect(seen).toEqual([]);
+  });
 });

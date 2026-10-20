@@ -29,6 +29,8 @@
 
 import type { ProtocolCombatEvent } from "@shared/protocol/index.js";
 
+import { fxRegistry } from "./registry.js";
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -152,18 +154,25 @@ export class DestructionStore {
    */
   applyCombatEvent(evt: ProtocolCombatEvent, nowMs: number = Date.now()): boolean {
     if (evt.kind !== "destroyed") return false;
-    this.explosions = [
-      ...this.explosions,
-      {
-        id: `boom-${this.seq++}`,
-        x: 0,
-        y: 0,
-        z: 0,
-        startedAt: nowMs,
-      },
-    ];
-    this.timeScale = SLOWMO_SCALE;
-    this.slowMoUntil = nowMs + SLOWMO_MS;
+    // TASK-54: reduced motion suppresses the explosion (and the
+    // debris that rides on it) + the slow-mo dip. The "SHIP LOST"
+    // moment is plain text, so it still shows.
+    if (fxRegistry.allow("explosion")) {
+      this.explosions = [
+        ...this.explosions,
+        {
+          id: `boom-${this.seq++}`,
+          x: 0,
+          y: 0,
+          z: 0,
+          startedAt: nowMs,
+        },
+      ];
+    }
+    if (fxRegistry.allow("slow-mo")) {
+      this.timeScale = SLOWMO_SCALE;
+      this.slowMoUntil = nowMs + SLOWMO_MS;
+    }
     const respawn = evt.respawn;
     if (respawn !== undefined) {
       this.shipLost = {

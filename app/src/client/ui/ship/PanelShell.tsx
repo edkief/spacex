@@ -5,9 +5,10 @@
  * backdrop, the title row with the `Esc` button, and the tab bar.
  * The panel body is passed in as `children`.
  */
+import { useEffect, useRef } from "react";
 import type * as React from "react";
 
-import { cycleFocus } from "../menu/focusTrap.js";
+import { cycleFocus, focusableWithin } from "../menu/focusTrap.js";
 import { SHIP_PANEL_TAB_LABELS, type ShipPanelTabId } from "./panelTabs.js";
 
 /** Props for the panel shell. */
@@ -47,6 +48,24 @@ export function PanelShell({
   rail,
   panelRef,
 }: PanelShellProps): React.JSX.Element {
+  const localRef = useRef<HTMLDivElement | null>(null);
+  const setRef = (node: HTMLDivElement | null): void => {
+    localRef.current = node;
+    if (typeof panelRef === "function") {
+      panelRef(node);
+    } else if (panelRef !== null && panelRef !== undefined) {
+      (panelRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+    }
+  };
+  // TASK-54: when the panel opens, move focus to its first focusable
+  // control so the keyboard flow starts inside the surface (the
+  // shell restores focus to the trigger when the panel closes).
+  useEffect(() => {
+    const node = localRef.current;
+    if (node === null) return;
+    const first = focusableWithin(node)[0];
+    (first ?? node).focus();
+  }, []);
   return (
     <div
       data-testid={`${testId}-backdrop`}
@@ -66,10 +85,11 @@ export function PanelShell({
       }}
     >
       <div
-        ref={panelRef}
+        ref={setRef}
         data-testid={testId}
         role="dialog"
         aria-label={title}
+        tabIndex={-1}
         style={{
           position: "relative",
           width: 760,

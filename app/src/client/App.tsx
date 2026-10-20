@@ -27,7 +27,7 @@
  *     v1; the spec calls out that it must NOT block the ESC menu
  *     (a future TASK-58 wires the menu).
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type * as React from "react";
 
 import { PlayerList } from "./components/PlayerList.js";
@@ -74,8 +74,14 @@ import { useHudMode } from "./components/useHudMode.js";
 import { HazardLayer } from "./world/HazardLayer.js";
 import { useMenuShell } from "./ui/menu/MenuShell.js";
 import { MenuPanel } from "./ui/menu/MenuPanel.js";
+import { SettingsPanel } from "./ui/menu/SettingsPanel.js";
 import { ShipPanel } from "./ui/ship/ShipPanel.js";
 import { WeaponFxLayer } from "./fx/weapons.js";
+import { LiveRegion } from "./a11y/LiveRegion.js";
+import { announcer } from "./a11y/announcer.js";
+import { wireAnnouncements } from "./a11y/wireAnnouncements.js";
+import { settingsStore } from "./a11y/settings.js";
+import { fxRegistry } from "./fx/registry.js";
 import type { GalaxyOverview } from "@shared/galaxy/overview.js";
 
 /**
@@ -229,6 +235,11 @@ export function App(): React.JSX.Element {
     // cost in prod is negligible (one 300-slot Float64Array) but
     // consumers of the seam should treat it as undefined in prod builds.
     (globalThis as { __driftFrameMonitor?: FrameMonitor }).__driftFrameMonitor = frameMonitor;
+    // TASK-54: expose the accessibility settings store + the FX
+    // registry so the e2e harness can flip reduced motion and read
+    // the FX counters (played / skipped) without scraping the DOM.
+    (globalThis as { __driftSettings?: typeof settingsStore }).__driftSettings = settingsStore;
+    (globalThis as { __driftFxRegistry?: typeof fxRegistry }).__driftFxRegistry = fxRegistry;
     // Expose the toggle setter so the e2e smoke can flip the panel
     // without driving a real keyboard event (the F3 path is covered
     // by the unit suite via direct DOM event dispatch).
@@ -546,6 +557,18 @@ export function App(): React.JSX.Element {
 
   const store = client.presenceStore;
 
+  // TASK-54: wire the transient game events (joins / leaves, kills,
+  // target lock) into the screen-reader announcement queue. The
+  // queue itself enforces the "max 1 pending + 2 s min interval"
+  // rule so a firefight never floods the reader.
+  useEffect(() => {
+    return wireAnnouncements({
+      presence: client.presenceStore,
+      killFeed: client.getKillFeed(),
+      targeting: client.getTargeting(),
+    });
+  }, [client]);
+
   // Indicate whether the dev-only debug overlay is mounted at all.
   // In production builds `import.meta.env.DEV` is `false` and we
   // skip the JSX entirely — Vite's build steps the `import` of the
@@ -592,6 +615,45 @@ export function App(): React.JSX.Element {
   // The DockPanel renders it in the right rail so the player
   // sees the count tick up on every sell.
   const [creditsBalance, setCreditsBalance] = useState(0);
+  // TASK-54: the 1 Hz screen-reader summary. The live region polls
+  // this every second (never at the 10 Hz HUD cadence) and speaks a
+  // single sentence: "Speed 120 meters per second. Hull 80 percent."
+  const summaryRef = useRef({
+    speedMps: null as number | null,
+    hull: null as number | null,
+    hullMax: 100 as number | null,
+    credits: 0 as number | null,
+    exposure: null as number | null,
+    exposureMax: 50 as number | null,
+  });
+  useEffect(() => {
+    const snap = shipHudOverride ?? shipHud.snapshot;
+    const hazard = client.getHazardStore().getState();
+    summaryRef.current = {
+      speedMps:
+        snap === null
+          ? null
+          : Math.sqrt(snap.vel.x * snap.vel.x + snap.vel.y * snap.vel.y + snap.vel.z * snap.vel.z),
+      hull: snap?.hull ?? null,
+      hullMax: 100,
+      credits: creditsBalance,
+      exposure: hazard.exposure,
+      exposureMax: 50,
+    };
+  }, [shipHudOverride, shipHud.snapshot, creditsBalance, client]);
+  // TASK-54: announce "low energy" when the weapon energy drops
+  // below the warning band. The announcer's rate limit keeps it
+  // from repeating every tick.
+  const lastEnergyBand = useRef<string | null>(null);
+  useEffect(() => {
+    const energy = hudWeaponState?.energy ?? null;
+    if (energy === null) return;
+    const band = energy < 10 ? "critical" : energy < 25 ? "low" : "ok";
+    if (band === lastEnergyBand.current) return;
+    lastEnergyBand.current = band;
+    if (band === "critical") announcer.announce("Critical energy.", "combat");
+    else if (band === "low") announcer.announce("Low energy.", "combat");
+  }, [hudWeaponState?.energy]);
   // TASK-38: mining echoes are now consumed inside `<OnFootHUD>`
   // via its `useMiningFromGlobal()` hook — the radial lives
   // inside `<InteractionLine>` so the affordance + the prompt
@@ -607,7 +669,13 @@ export function App(): React.JSX.Element {
         fontFamily: "system-ui, sans-serif",
       }}
     >
-      <CanvasStage />
+      <CanvasStage label={`3D view: flying in system ${client.currentSystemId ?? "unknown"}`} />
+      {/* TASK-54: the screen-reader channel. The status region is
+          refreshed at 1 Hz (never at the 10 Hz HUD cadence) so the
+          reader gets one sentence per second instead of a stream of
+          partial numbers; the announcement region carries the
+          queued transient events (joins, kills, target lock). */}
+      <LiveRegion readSummary={() => summaryRef.current} />
       {/* TASK-28: atmosphere haze overlay (skybox → planet transition).
           Reads the same `boundaryFactor` as the physics drag ramp, so
           the visual and physical boundaries cannot desync. The provider
@@ -739,33 +807,9 @@ export function App(): React.JSX.Element {
         onBalanceChange={setCreditsBalance}
       />
       {shell.top === "settings" ? (
-        <div
-          data-testid="drift-settings-placeholder"
-          role="dialog"
-          aria-label="Settings"
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(5,6,12,0.78)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 80,
-            fontFamily: "monospace",
-            color: "#e6edf3",
-          }}
-        >
-          <div
-            style={{
-              background: "#0b1018",
-              border: "1px solid rgba(255,255,255,0.15)",
-              padding: 16,
-              fontSize: 12,
-            }}
-          >
-            Settings — quality presets, sensitivity and reduced motion land in TASK-55.
-          </div>
-        </div>
+        /* TASK-54: the settings surface. It hosts the reduced-motion
+           toggle (the shared settings flag the FX registry reads). */
+        <SettingsPanel onClose={() => shell.back()} />
       ) : null}
       {/* TASK-52: the unified interaction prompt (cone-raycast +
           mining radial) lives inside `<OnFootHUD>` only. The
