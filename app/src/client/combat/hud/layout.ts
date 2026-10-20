@@ -14,6 +14,7 @@
  */
 
 import { FOV_DEG } from "../../camera/cameraMath.js";
+import { VITALS_BAR_HEIGHT_PX, VITALS_BAR_WIDTH_PX } from "./vitals.js";
 
 /** Reference viewport the layout test pins (spec). */
 export const HUD_REFERENCE_VIEWPORT_W = 1280;
@@ -43,11 +44,20 @@ export interface HudRect {
 /** The combat HUD regions. */
 export type CombatHudSlot = "killFeed" | "targetBox" | "weaponReadout" | "threatPing";
 
+/**
+ * The ship HUD regions (TASK-51) — speed / altitude / regime sit
+ * below the player list, the vitals bar slots above the chat log
+ * (under it on the column), and the nav readout floats near the
+ * chart button so the chevron points to the chart selection.
+ */
+export type ShipHudSlot =
+  "speedReadout" | "altitudeReadout" | "regimeTag" | "dockedTag" | "vitalsBar" | "navReadout";
+
 /** Non-combat regions the combat HUD must not cover. */
 export type ReservedHudSlot = "prompt" | "playerList" | "chat" | "debug" | "weightBar" | "header";
 
 /** Every region name the layout test reasons about. */
-export type HudSlotName = CombatHudSlot | ReservedHudSlot;
+export type HudSlotName = CombatHudSlot | ShipHudSlot | ReservedHudSlot;
 
 /** Resolved layout at a viewport size. */
 export type HudLayout = Readonly<Record<HudSlotName, HudRect>>;
@@ -64,6 +74,14 @@ const SIZES: Readonly<Record<HudSlotName, { width: number; height: number }>> = 
     width: HUD_REFERENCE_VIEWPORT_W,
     height: HUD_REFERENCE_VIEWPORT_H,
   },
+  // Ship HUD (TASK-51):
+  speedReadout: { width: 220, height: 30 },
+  altitudeReadout: { width: 160, height: 22 },
+  regimeTag: { width: 88, height: 20 },
+  dockedTag: { width: 220, height: 28 },
+  vitalsBar: { width: VITALS_BAR_WIDTH_PX, height: VITALS_BAR_HEIGHT_PX },
+  navReadout: { width: 220, height: 44 },
+  // Reserved (non-combat) regions.
   prompt: { width: 420, height: 44 },
   playerList: { width: 240, height: 220 },
   chat: { width: 320, height: 200 },
@@ -71,6 +89,12 @@ const SIZES: Readonly<Record<HudSlotName, { width: number; height: number }>> = 
   weightBar: { width: 180, height: 56 },
   header: { width: 320, height: 40 },
 };
+
+/** Vertical offset of the speed readout above the player-list top. */
+const SPEED_READOUT_OFFSET_PX = 110;
+
+/** Vertical gap between the chat log and the vitals bar. */
+const VITALS_BAR_CHAT_GAP_PX = 8;
 
 /**
  * Resolve every slot for a viewport. Sizes are fixed pixels; the
@@ -87,6 +111,8 @@ export function hudSlots(
   h: number = HUD_REFERENCE_VIEWPORT_H,
 ): HudLayout {
   const centeredX = (width: number): number => Math.round((w - width) / 2);
+  const chatTopPx = 72;
+  const playerListTopPx = Math.round(h - SIZES.playerList.height - 16);
   return {
     killFeed: { left: centeredX(SIZES.killFeed.width), top: 8, ...SIZES.killFeed },
     targetBox: {
@@ -100,6 +126,37 @@ export function hudSlots(
       ...SIZES.weaponReadout,
     },
     threatPing: { left: 0, top: 0, ...SIZES.threatPing },
+    // Ship HUD (TASK-51) — speeds cluster left of the chart button:
+    speedReadout: {
+      left: 16,
+      top: playerListTopPx - SPEED_READOUT_OFFSET_PX,
+      ...SIZES.speedReadout,
+    },
+    altitudeReadout: {
+      left: 16,
+      top: playerListTopPx - SPEED_READOUT_OFFSET_PX + 34,
+      ...SIZES.altitudeReadout,
+    },
+    regimeTag: {
+      left: 16,
+      top: playerListTopPx - SPEED_READOUT_OFFSET_PX + 60,
+      ...SIZES.regimeTag,
+    },
+    dockedTag: {
+      left: 16,
+      top: 60,
+      ...SIZES.dockedTag,
+    },
+    vitalsBar: {
+      left: 16,
+      top: chatTopPx + SIZES.chat.height + VITALS_BAR_CHAT_GAP_PX,
+      ...SIZES.vitalsBar,
+    },
+    navReadout: {
+      left: Math.round(w - SIZES.navReadout.width - 16),
+      top: 60,
+      ...SIZES.navReadout,
+    },
     // Reserved (non-combat) regions.
     prompt: {
       left: centeredX(SIZES.prompt.width),
@@ -108,10 +165,10 @@ export function hudSlots(
     },
     playerList: {
       left: 16,
-      top: Math.round(h - SIZES.playerList.height - 16),
+      top: playerListTopPx,
       ...SIZES.playerList,
     },
-    chat: { left: 16, top: 72, ...SIZES.chat },
+    chat: { left: 16, top: chatTopPx, ...SIZES.chat },
     debug: { left: w - SIZES.debug.width - 16, top: 16, ...SIZES.debug },
     weightBar: {
       left: w - SIZES.weightBar.width - 16,
@@ -131,6 +188,10 @@ export const HUD_DISJOINT_SLOTS: readonly HudSlotName[] = [
   "playerList",
   "chat",
   "debug",
+  "speedReadout",
+  "altitudeReadout",
+  "regimeTag",
+  "vitalsBar",
 ];
 
 /** Do two rects share any area? Touching edges do **not** count. */

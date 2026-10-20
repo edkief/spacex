@@ -65,6 +65,10 @@ import { FrameMonitor } from "./perf/frameMonitor.js";
 import { CombatHUD } from "./components/CombatHUD.js";
 import { useWeaponStatePoll } from "./components/WeaponReadout.js";
 import { useHudTargetSource } from "./components/useHudTargetSource.js";
+import { ShipHUD, type ShipHudSnapshot } from "./components/ShipHUD.js";
+import { useShipHudSource } from "./components/useShipHudSource.js";
+import { HitFlashController } from "./combat/hud/vitals.js";
+import { installVitalsFlashStyle } from "./components/VitalsBar.js";
 import { targetBoxScreenOverride } from "./components/TargetBox.js";
 import { WeaponFxHud } from "./components/WeaponFxHud.js";
 import { DestructionFx } from "./components/DestructionFx.js";
@@ -127,6 +131,52 @@ export function App(): React.JSX.Element {
   // route them into the FX layer without re-creating the
   // active flash / tracer / impact arrays.
   const weaponFx = useMemo(() => new WeaponFxLayer(), []);
+  // TASK-51: ship HUD source (10 Hz snapshot of the local ship's
+  // position + regime + hull + shields) + the hit-flash controller
+  // (fed by `combat_event` and `__fireSelfHitForTest`). Both live
+  // for the lifetime of the app — their internal listeners outlive
+  // transient HUD mounts.
+  const shipHud = useShipHudSource({});
+  const hitFlashController = useMemo(() => {
+    installVitalsFlashStyle();
+    return new HitFlashController();
+  }, []);
+  // TASK-51: dev seam — e2e tests can inject a synthetic snapshot
+  // for the ship HUD via `window.__driftShipHud.setSnapshot(...)`.
+  // In production the hook is left alone so the App keeps reading
+  // the predictor.
+  const [shipHudOverride, setShipHudOverride] = useState<ShipHudSnapshot | null>(null);
+  // Self-hit subscriber: matches the wire shape's `entity:<shipId>`
+  // against the local player's callsign (the same comparison the
+  // server uses to mint `targetedBy` entries).
+  useEffect(() => {
+    // TASK-51: dev seam — installs `window.__driftShipHud` so the
+    // e2e harness can drive a synthetic snapshot without a live
+    // predictor (the production-side predictor wiring lands in a
+    // later task — for now the ship HUD reads whatever the dev
+    // seam provides OR falls back to the polled predictor state).
+    (
+      globalThis as { __driftShipHud?: { setSnapshot(s: ShipHudSnapshot | null): void } }
+    ).__driftShipHud = {
+      setSnapshot: (s) => setShipHudOverride(s),
+    };
+    return () => {
+      (globalThis as { __driftShipHud?: unknown }).__driftShipHud = undefined;
+    };
+  }, []);
+  useEffect(() => {
+    const offSelfHit = client.onSelfHit((event) => {
+      const selfId = client.currentCallsign
+        ? `entity:${client.currentCallsign.toLowerCase()}`
+        : null;
+      if (selfId === null) return;
+      if (event.target !== selfId) return;
+      hitFlashController.recordSelfHit(Date.now());
+    });
+    return () => {
+      offSelfHit();
+    };
+  }, [client, hitFlashController]);
   // TASK-46: wire the DriftClient to the notification store so the
   // server's `ai_acquiring` combat events can push an
   // "ACQUIRING" toast into the ToastStack.
@@ -845,6 +895,17 @@ export function App(): React.JSX.Element {
           }
         }}
         targetScreenOverride={hudTargetScreenOverride}
+      />
+      {/* TASK-51: ship HUD — speed / altitude / regime / nav /
+          docked tag / vitals bar. Reads the local predictor's
+          `state()` at the 10 Hz HUD cadence (same pattern as the
+          combat HUD above). The `flashController` is fed by
+          `combat_event { kind: 'hit' | 'damaged' }` frames that
+          resolve to a self-target. */}
+      <ShipHUD
+        snapshot={shipHudOverride ?? shipHud.snapshot}
+        flashController={hitFlashController}
+        monitor={frameMonitor}
       />
       {/* TASK-49: destruction FX layer — explosion + 1 s slow-mo +
           the 2 s "SHIP LOST" moment + wreck killer markers. Fed by

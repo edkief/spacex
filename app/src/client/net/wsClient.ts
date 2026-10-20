@@ -357,6 +357,11 @@ export class DriftClient {
       denialCode: string | null;
     }) => void
   >();
+  /** TASK-51: synthetic self-hit subscriber set — driven by the
+   *  ShipHUD vitals-bar's hit-flash controller. */
+  private readonly selfHitListeners = new Set<
+    (event: { kind: "hit" | "damaged"; target: string }) => void
+  >();
   /**
    * TASK-44: targeting store + listener set. Fires on every
    * `target_locked` / `target_released` / `target_update`
@@ -878,6 +883,35 @@ export class DriftClient {
         // Swallow — same rationale as the WS path.
       }
     }
+  }
+
+  /**
+   * TASK-51: synthetic `combat_event { kind: 'hit' | 'damaged' }`
+   * seam for e2e screenshots. Drives the ShipHUD vitals-bar flash
+   * without a real `combat_event` round-trip from the server.
+   * Production never reaches this seam.
+   */
+  __fireSelfHitForTest(args: { kind: "hit" | "damaged"; target: string }): void {
+    for (const listener of this.selfHitListeners) {
+      try {
+        listener(args);
+      } catch {
+        // Swallow — same rationale as the WS path.
+      }
+    }
+  }
+
+  /**
+   * TASK-51: subscribe to self-hit events. Listeners decide
+   * whether `target` matches the local ship id before flipping
+   * the flash controller (the `TargetingStore.applyCombatEvent`
+   * filter on `source !== self` is the server-side reference).
+   */
+  onSelfHit(listener: (event: { kind: "hit" | "damaged"; target: string }) => void): () => void {
+    this.selfHitListeners.add(listener);
+    return () => {
+      this.selfHitListeners.delete(listener);
+    };
   }
 
   /**
@@ -1670,6 +1704,35 @@ export class DriftClient {
         // attached a `respawn` summary (i.e. the destroyed ship was
         // ours) the store also opens the 2 s "SHIP LOST" moment.
         this.destruction.applyCombatEvent(payload as never);
+        // TASK-51: self-hit pipeline. Forward every `hit` /
+        // `damaged` event with a target id (the wire shape carriers
+        // either `target: <id>` for the `damaged` kind or
+        // `target: <id>` for the `hit` kind) to the
+        // `selfHitListeners`. The host (App.tsx) wires each listener
+        // into a `HitFlashController`, gated on `target ===
+        // selfEntityId`. This is intentionally separate from the
+        // targeting-store threat-ping path so the flash doesn't
+        // piggy-back on the warning-only HUD rail.
+        if (
+          (payload as { kind?: string }).kind === "hit" ||
+          (payload as { kind?: string }).kind === "damaged"
+        ) {
+          const evtAny = payload as {
+            kind: "hit" | "damaged";
+            target?: string;
+            targetEntityId?: string;
+          };
+          const targetId = evtAny.target ?? evtAny.targetEntityId;
+          if (typeof targetId === "string" && targetId.length > 0) {
+            for (const listener of this.selfHitListeners) {
+              try {
+                listener({ kind: evtAny.kind, target: targetId });
+              } catch {
+                // Swallow — same rationale as other listeners.
+              }
+            }
+          }
+        }
         return;
       }
       case "state_snapshot":
