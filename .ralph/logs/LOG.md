@@ -1,3 +1,34 @@
+### 2026-10-20 — Iteration 1 (TASK-53)
+- **TASK-53** Menu shell: ESC menu, pause, and the dock panel assembly -> **DONE**
+  - **Menu shell (`app/src/client/ui/menu/`, new).**
+    - `menuStack.ts` — pure stack helpers: `MenuSurface = "menu" | "systems" | "ship" | "dock" | "settings"`, `pushSurface` / `popSurface` / `topSurface` / `isMenuOpen` / `hasSurface`, `surfaceForMenuItem` (Resume -> `null`, Systems -> `systems`, Ships -> `ship`, Settings -> `settings`) and `PANEL_ALLOWED_KEYS` (the only keys a panel may handle itself).
+    - `MenuShell.tsx` — the React context that owns the stack (`open` / `close` / `back` / `registerPanel`). A **capture-phase** `window` keydown listener is the input gate: `ESC` opens the menu when nothing is open and pops exactly one level otherwise (panel -> menu -> closed); every other key is `preventDefault` + `stopPropagation`ed while a surface is open, so the game's own window-level handlers never see it. The element focused before the menu opened is restored when the stack empties.
+    - `MenuPanel.tsx` — the centred ESC menu: Resume / Systems / Ships / Settings, the callsign + credits footer, arrow-key focus movement, `Tab` cycling (trapped) and `Enter` activation. It documents that the world keeps running while the menu is open (multiplayer — this is an overlay, not a pause).
+    - `focusTrap.ts` — `focusableWithin` + `cycleFocus` (pure DOM helpers, unit-testable).
+  - **One ship/dock panel (`app/src/client/ui/ship/`, new).**
+    - `ShipPanel.tsx` — the single implementation shared by the ship panel and the dock panel. The tab set is context-driven (`panelTabs.ts`): `docked-ship` -> Overview / Cargo / Repair, `in-flight` -> Overview / Cargo, `on-foot-dock` -> Overview / Cargo / Sell (Sell active on open). Arrow keys switch tabs, `Tab` cycles inside the panel, `ESC` is owned by the shell. The dock context also renders the right rail (credits counter + recent-sales log + the floating "+N cr" texts fed by `sell_ok`).
+    - `OverviewTab.tsx` — TASK-19 class stats, the hull / shield / energy bars and the three livery colour pickers.
+    - `RepairTab.tsx` — the TASK-23 `repairCost` preview (the same formula the server uses) + the Repair button, enabled only while the ship is `docked` and disabled with an explicit reason otherwise.
+    - `SellTab.tsx` — the TASK-40 sell table (price / sellable / max earn + Sell 1 / Sell all).
+    - `CargoTransferView.tsx` + `cargoRows.tsx` — the TASK-39 backpack <-> hold transfer table, extracted so the cargo modal and the panel's Cargo tab share one implementation.
+    - `PanelShell.tsx` — the shared modal chrome (backdrop + title row + tab bar + the Tab focus trap + the arrow-key tab switch) and `DockRail.tsx` — the dock right rail (credits counter + recent-sales log + the floating "+N cr" texts). Both are extracted so every file stays inside the AGENTS.md 200-300 line cap (`ShipPanel.tsx` is 288 lines).
+    - `livery.ts` — `createLiverySaver`, the 500 ms debounce that collapses a burst of picker edits into ONE `POST /api/ships/livery`.
+    - `shipApi.ts` — `fetchShip` / `saveLivery` / `repairShip` over `GET /api/ships`, `POST /api/ships/livery`, `POST /api/ships/repair`.
+  - **Refactors.**
+    - `components/DockPanel.tsx` is now a thin wrapper over `ShipPanel` (`on-foot-dock`) — the old 584-line modal with duplicated Sell markup is gone; every `drift-dock-panel-*` test id is preserved (the panel takes a `testId` prefix).
+    - `components/CargoPanel.tsx` reuses the extracted `CargoTransferView` (584 -> 208 lines).
+  - **Wiring (`App.tsx` + `main.tsx`).** `main.tsx` wraps the tree in `<MenuShellProvider>`; `App.tsx` derives the star-chart open state from the shell stack (the chart is the `systems` surface), opens the menu on `ESC`, routes the server's `ui_open { ui: "dock" }` into the `dock` surface, mounts `<MenuPanel>` / `<ShipPanel>` / the settings placeholder and keeps the `M` key chart toggle.
+  - **Tests (24 new cases).**
+    - `app/src/client/ui/menu/menuStack.test.ts` — 8 cases (push/pop/top, duplicate push, menu-item mapping).
+    - `app/src/client/ui/menu/MenuShell.test.tsx` — 6 cases (ESC opens + closes, one-level pop, game-input suppression while open — including when the focus sits inside the panel, focus trap + focus restore).
+    - `app/src/client/ui/menu/MenuPanel.test.tsx` — 5 cases (items, footer, first-item focus, arrow keys, activation).
+    - `app/src/client/ui/ship/ShipPanel.test.tsx` — 7 cases (context tab sets, dock opens on Sell, arrow-key tab switching, docked/undocked Repair button + reason, cost preview, livery debounce: 5 rapid edits -> 1 request).
+    - e2e `app/tests/e2e/menu.spec.ts` — ESC opens the menu (screenshot `TASK-53-1.png`), the game input is suppressed (the weapon slot does not change), Systems opens the star chart, ESC pops chart -> menu -> closed, no console errors.
+  - **Verification.** `npm run test`: 2380/2380 pass (was 2356 -> +24). One unrelated server test (`src/server/galaxy/router.presence.test.ts` — "100 sequential join/leave cycles don't leak timer handles") times out on this machine; verified as **pre-existing** on a clean `HEAD~1` worktree (it fails there too). `npx tsc --noEmit`: clean. `npx eslint` + `npx prettier --check`: clean on every new/changed file. `npx playwright test tests/e2e/menu.spec.ts` 1/1 pass. Regression e2e: `sell` + `sell-screenshot` + `inventory` + `interact` + `weapons` + `chat` + `enter-ship` all pass. NOTE: `tests/e2e/star-chart.spec.ts` is flaky **before** this task (verified on a clean `HEAD~1` worktree: 2 of 3 runs fail) — it races the `enter_system` frame for the player's system id and the seed-dependent chart layout can overlap two star nodes.
+  - **Files added (12):** `app/src/client/ui/menu/{menuStack.ts,menuStack.test.ts,MenuShell.tsx,MenuShell.test.tsx,MenuPanel.tsx,MenuPanel.test.tsx,focusTrap.ts}`, `app/src/client/ui/ship/{ShipPanel.tsx,ShipPanel.test.tsx,panelTabs.ts,OverviewTab.tsx,RepairTab.tsx,SellTab.tsx,CargoTransferView.tsx,livery.ts,shipApi.ts}`, `app/tests/e2e/menu.spec.ts`.
+  - **Files modified (5):** `app/src/client/App.tsx`, `app/src/client/main.tsx`, `app/src/client/components/DockPanel.tsx`, `app/src/client/components/CargoPanel.tsx`, `.ralph/{tasks.json,STRUCTURE.md}`.
+  - **Screenshot:** `.ralph/screenshots/TASK-53-1.png` (the centred ESC menu with the four items + the callsign/credits footer over the live starfield).
+
 ### 2026-10-20 — Iteration 5 (TASK-52)
 - **TASK-52** On-foot HUD: exposure, inventory, interaction line -> **DONE**
   - **Protocol extension (`app/src/shared/protocol/schemas.ts`).** `HazardUpdateSchema` gained an optional `currentHazard: HazardCellWireSchema` field -- the wire shape the HUD uses to pick the matching icon (radiation / storm / drones). Old servers stay valid because the field is `.optional()`.

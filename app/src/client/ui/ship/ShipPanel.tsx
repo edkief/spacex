@@ -23,18 +23,17 @@ import type { Inventory } from "@shared/world/inventory.js";
 import { RESOURCE_CATALOG, type ResourceId } from "@shared/resources.js";
 
 import type { DriftClient } from "../../net/wsClient.js";
-import { cycleFocus } from "../menu/focusTrap.js";
 import { useOptionalMenuShell } from "../menu/MenuShell.js";
 import { createLiverySaver, type LiveryColors } from "./livery.js";
 import {
-  cycleTab,
   defaultTabForContext,
-  SHIP_PANEL_TAB_LABELS,
   tabsForContext,
   type ShipPanelContext,
   type ShipPanelTabId,
 } from "./panelTabs.js";
+import { DockRail } from "./DockRail.js";
 import { OverviewTab } from "./OverviewTab.js";
+import { PanelShell } from "./PanelShell.js";
 import { RepairTab } from "./RepairTab.js";
 import { SellTab, type SellRow } from "./SellTab.js";
 import { fetchShip, repairShip, saveLivery, type ShipInfo } from "./shipApi.js";
@@ -222,21 +221,6 @@ export function ShipPanel({
     });
   }, [inventory, cargo]);
 
-  const onKeyDown = useCallback(
-    (ev: React.KeyboardEvent<HTMLDivElement>) => {
-      if (ev.key === "Tab") {
-        ev.preventDefault();
-        cycleFocus(panelRef.current, ev.shiftKey ? -1 : 1);
-        return;
-      }
-      if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {
-        ev.preventDefault();
-        setTab((prev) => cycleTab(tabs, prev, ev.key === "ArrowRight" ? 1 : -1));
-      }
-    },
-    [tabs],
-  );
-
   if (!open) return null;
 
   const body = ((): React.JSX.Element => {
@@ -280,205 +264,21 @@ export function ShipPanel({
   })();
 
   return (
-    <div
-      data-testid={`${testId}-backdrop`}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(5,6,12,0.78)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 60,
-        fontFamily: "system-ui, sans-serif",
-        color: "#e6edf3",
-      }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <PanelShell
+      title={context === "on-foot-dock" ? "Dock terminal" : "Ship"}
+      testId={testId}
+      tabs={tabs}
+      activeTab={tab}
+      onTab={setTab}
+      onClose={onClose}
+      panelRef={setPanelRef}
+      rail={
+        context === "on-foot-dock" ? (
+          <DockRail balance={balance} log={log} floats={floats} testIdPrefix={testId} />
+        ) : null
+      }
     >
-      <div
-        ref={setPanelRef}
-        data-testid={testId}
-        role="dialog"
-        aria-label={context === "on-foot-dock" ? "Dock terminal" : "Ship"}
-        data-context={context}
-        onKeyDown={onKeyDown}
-        style={{
-          position: "relative",
-          width: 760,
-          maxWidth: "92vw",
-          background: "#0b1018",
-          border: "1px solid rgba(255,255,255,0.15)",
-          padding: 16,
-          fontFamily: "monospace",
-          fontSize: 12,
-          color: "#e6edf3",
-          boxShadow: "0 20px 60px rgba(0,0,0,0.55)",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: 12,
-          }}
-        >
-          <div style={{ fontSize: 14, letterSpacing: "0.12em", textTransform: "uppercase" }}>
-            {context === "on-foot-dock" ? "Dock terminal" : "Ship"}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close panel"
-            style={{
-              background: "transparent",
-              border: "1px solid rgba(255,255,255,0.25)",
-              color: "#e6edf3",
-              padding: "4px 10px",
-              cursor: "pointer",
-              fontFamily: "monospace",
-              fontSize: 11,
-            }}
-          >
-            Esc
-          </button>
-        </div>
-
-        <div
-          role="tablist"
-          aria-label="Ship panel tabs"
-          style={{
-            display: "flex",
-            gap: 8,
-            borderBottom: "1px solid rgba(255,255,255,0.12)",
-            marginBottom: 12,
-          }}
-        >
-          {tabs.map((id) => (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              aria-selected={tab === id}
-              data-testid={`${testId}-tab-${id}`}
-              onClick={() => setTab(id)}
-              style={{
-                background: "transparent",
-                border: "none",
-                color: tab === id ? "#7adfff" : "rgba(230,237,243,0.55)",
-                padding: "6px 12px",
-                cursor: "pointer",
-                fontFamily: "monospace",
-                fontSize: 11,
-                letterSpacing: "0.12em",
-                textTransform: "uppercase",
-                borderBottom: tab === id ? "2px solid #7adfff" : "2px solid transparent",
-              }}
-            >
-              {SHIP_PANEL_TAB_LABELS[id]}
-            </button>
-          ))}
-        </div>
-
-        {body}
-
-        {context === "on-foot-dock" ? (
-          <div
-            data-testid={`${testId}-balance`}
-            style={{
-              position: "absolute",
-              top: 60,
-              right: 16,
-              width: 200,
-              border: "1px solid rgba(255,255,255,0.12)",
-              padding: 8,
-              background: "rgba(0,0,0,0.3)",
-              fontSize: 11,
-            }}
-          >
-            <div
-              style={{
-                fontSize: 10,
-                letterSpacing: "0.12em",
-                textTransform: "uppercase",
-                marginBottom: 4,
-                opacity: 0.85,
-              }}
-            >
-              Credits
-            </div>
-            <div
-              data-testid={`${testId}-balance-value`}
-              style={{ fontSize: 18, color: "#7adfff", fontWeight: "bold" }}
-            >
-              {balance.toLocaleString()} cr
-            </div>
-            <div
-              style={{
-                marginTop: 12,
-                fontSize: 10,
-                letterSpacing: "0.12em",
-                textTransform: "uppercase",
-                opacity: 0.85,
-              }}
-            >
-              Recent sales
-            </div>
-            <ul
-              data-testid={`${testId}-log`}
-              style={{
-                listStyle: "none",
-                padding: 0,
-                margin: "4px 0 0",
-                maxHeight: 120,
-                overflowY: "auto",
-              }}
-            >
-              {log.length === 0 ? (
-                <li style={{ opacity: 0.5 }}>— no sales yet —</li>
-              ) : (
-                log.map((entry) => (
-                  <li key={entry.id} style={{ fontSize: 10, marginBottom: 2 }}>
-                    {entry.text}
-                  </li>
-                ))
-              )}
-            </ul>
-          </div>
-        ) : null}
-
-        <div
-          aria-hidden
-          style={{
-            position: "absolute",
-            top: 8,
-            left: "50%",
-            transform: "translateX(-50%)",
-            pointerEvents: "none",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 4,
-          }}
-        >
-          {floats.map((f) => (
-            <div
-              key={f.id}
-              data-testid={`${testId}-float`}
-              style={{
-                color: "#7adfff",
-                fontWeight: "bold",
-                fontSize: 16,
-                animation: "drift-mining-float 1s ease-out forwards",
-              }}
-            >
-              {f.text}
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
+      {body}
+    </PanelShell>
   );
 }
