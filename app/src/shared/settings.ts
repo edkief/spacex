@@ -23,6 +23,20 @@ import { z } from "zod";
 /** The three quality presets offered in the settings panel. */
 export type QualityPreset = "high" | "medium" | "low";
 
+/**
+ * The player's device-profile override (TASK-59). `auto` runs the
+ * navigator heuristic (`detectProfile`), `desktop` forces the 60
+ * fps desktop profile and `mobile` forces the 30 fps phone floor.
+ */
+export type DeviceProfile = "auto" | "desktop" | "mobile";
+
+/** The override values the settings row offers, in panel order. */
+export const DEVICE_PROFILE_IDS: readonly DeviceProfile[] = Object.freeze([
+  "auto",
+  "desktop",
+  "mobile",
+] as const);
+
 /** The settings record persisted per player (`players.settings` JSON). */
 export interface Settings {
   /** Quality preset id (default `high`). */
@@ -31,6 +45,8 @@ export interface Settings {
   readonly sensitivity: number;
   /** Reduced-motion flag — TASK-54, default `false`. */
   readonly reducedMotion: boolean;
+  /** Device profile override — TASK-59, default `auto`. */
+  readonly deviceProfile: DeviceProfile;
 }
 
 /**
@@ -49,6 +65,10 @@ export interface PipelineParams {
   readonly starCount: number;
   /** Multiplier on every cosmetic FX spawn rate (1.0 / 0.6 / 0.3). */
   readonly fxQuality: number;
+  /** Atmosphere rendering — TASK-59 (`dome` shader vs flat `haze`). */
+  readonly atmosphere: "dome" | "haze";
+  /** Missile tracer rendering — TASK-59 (`ribbon` vs a single `dot`). */
+  readonly missileTrail: "ribbon" | "dot";
   /**
    * Dynamic shadows are not implemented in v1, so every preset is
    * shadowless. The flag exists so the future shadow pass has a
@@ -64,6 +84,8 @@ export const QUALITY_PRESETS: Readonly<Record<QualityPreset, PipelineParams>> = 
     drawDistanceM: 8_000,
     starCount: 3_000,
     fxQuality: 1.0,
+    atmosphere: "dome",
+    missileTrail: "ribbon",
     shadowless: true,
   }),
   medium: Object.freeze({
@@ -71,6 +93,8 @@ export const QUALITY_PRESETS: Readonly<Record<QualityPreset, PipelineParams>> = 
     drawDistanceM: 6_000,
     starCount: 2_000,
     fxQuality: 0.6,
+    atmosphere: "dome",
+    missileTrail: "ribbon",
     shadowless: true,
   }),
   low: Object.freeze({
@@ -78,6 +102,8 @@ export const QUALITY_PRESETS: Readonly<Record<QualityPreset, PipelineParams>> = 
     drawDistanceM: 4_000,
     starCount: 1_000,
     fxQuality: 0.3,
+    atmosphere: "dome",
+    missileTrail: "ribbon",
     shadowless: true,
   }),
 });
@@ -99,6 +125,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   quality: "high",
   sensitivity: 1.0,
   reducedMotion: false,
+  deviceProfile: "auto",
 });
 
 /** zod schema for the persisted / PUT record (partial on the wire). */
@@ -110,6 +137,7 @@ export const SettingsSchema = z.object({
     .max(SENSITIVITY_MAX)
     .refine((n) => Number.isFinite(n), { message: "sensitivity must be finite" }),
   reducedMotion: z.boolean(),
+  deviceProfile: z.enum(["auto", "desktop", "mobile"]),
 });
 
 /**
@@ -136,11 +164,15 @@ export function sanitizeSettings(input: unknown): Settings {
   const quality = QUALITY_PRESET_IDS.includes(raw.quality as QualityPreset)
     ? (raw.quality as QualityPreset)
     : DEFAULT_SETTINGS.quality;
+  const deviceProfile = DEVICE_PROFILE_IDS.includes(raw.deviceProfile as DeviceProfile)
+    ? (raw.deviceProfile as DeviceProfile)
+    : DEFAULT_SETTINGS.deviceProfile;
   return {
     quality,
     sensitivity: clampSensitivity(raw.sensitivity ?? DEFAULT_SETTINGS.sensitivity),
     reducedMotion:
       typeof raw.reducedMotion === "boolean" ? raw.reducedMotion : DEFAULT_SETTINGS.reducedMotion,
+    deviceProfile,
   };
 }
 

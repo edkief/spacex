@@ -64,6 +64,7 @@ import {
   type PlanetAtmosphere,
 } from "@shared/physics/atmosphere.js";
 import type { Planet } from "@shared/galaxy/types.js";
+import { settingsBridge } from "../world/settingsBridge.js";
 
 /**
  * Anything that knows the player's current atmospheric
@@ -191,6 +192,10 @@ export function AtmosphereOverlay(props: AtmosphereOverlayProps): React.JSX.Elem
   const hazeVisible = hazeAlpha > 0 ? 1 : 0;
 
   const center = props.planetViewportCenter ?? null;
+  // TASK-59: the mobile profile runs no dome shader — the haze is a
+  // flat colour wash instead of the radial gradient, which is the
+  // single most expensive per-frame paint in the overlay.
+  const flatHaze = settingsBridge.current().atmosphere === "haze";
 
   return (
     <div
@@ -198,6 +203,7 @@ export function AtmosphereOverlay(props: AtmosphereOverlayProps): React.JSX.Elem
       data-haze-alpha={hazeAlpha.toFixed(4)}
       data-boundary={boundaryBand.toFixed(4)}
       data-haze-visible={hazeVisible === 1 ? "true" : "false"}
+      data-atmosphere={flatHaze ? "haze" : "dome"}
       aria-hidden="true"
       style={{
         position: "absolute",
@@ -235,7 +241,9 @@ export function AtmosphereOverlay(props: AtmosphereOverlayProps): React.JSX.Elem
           // visually "the atmosphere band, not a filled disc".
           background:
             profile && state
-              ? `radial-gradient(circle at 50% 50%, ${rgbToCss(profile.hazeColor, hazeAlpha * 0.5 * hazeVisible)} 0%, ${rgbToCss(profile.hazeColor, hazeAlpha * 0.9 * hazeVisible)} 30%, ${rgbToCss(profile.hazeColor, 0)} 75%)`
+              ? flatHaze
+                ? rgbToCss(profile.hazeColor, hazeAlpha * 0.85 * hazeVisible)
+                : `radial-gradient(circle at 50% 50%, ${rgbToCss(profile.hazeColor, hazeAlpha * 0.5 * hazeVisible)} 0%, ${rgbToCss(profile.hazeColor, hazeAlpha * 0.9 * hazeVisible)} 30%, ${rgbToCss(profile.hazeColor, 0)} 75%)`
               : "transparent",
           opacity: hazeVisible,
           transition: "opacity 80ms linear, background 80ms linear",

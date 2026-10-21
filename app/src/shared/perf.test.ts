@@ -21,6 +21,8 @@ import {
   PERF_PROFILE_IDS,
   PERF_PROFILES,
   perfProfileFor,
+  pipelineParamsForProfile,
+  PERF_RENDER_FIELDS,
   variancePct,
   type PerfMetrics,
 } from "./perf.js";
@@ -40,8 +42,8 @@ function greenMetrics(over: Partial<PerfMetrics> = {}): PerfMetrics {
 }
 
 describe("PERF_PROFILES", () => {
-  it("has one entry per settings preset", () => {
-    expect([...PERF_PROFILE_IDS]).toEqual([...QUALITY_PRESET_IDS]);
+  it("has one entry per settings preset plus the mobile floor", () => {
+    expect([...PERF_PROFILE_IDS]).toEqual([...QUALITY_PRESET_IDS, "mobile"]);
     for (const id of QUALITY_PRESET_IDS) {
       expect(PERF_PROFILES[id].id).toBe(id);
       expect(perfProfileFor(id)).toBe(PERF_PROFILES[id]);
@@ -199,5 +201,78 @@ describe("variancePct", () => {
     expect(variancePct([10, 10, 10])).toBeCloseTo(0, 6);
     expect(variancePct([10, 20])).toBeCloseTo(((20 - 10) / 15) * 100, 6);
     expect(variancePct([19, 20, 21, 22, 23])).toBeLessThan(20);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TASK-59 — the mobile floor + the "rendering only" schema
+// ---------------------------------------------------------------------------
+
+describe("PERF_PROFILES.mobile", () => {
+  const mobile = PERF_PROFILES.mobile;
+
+  it("carries the acceptance numbers", () => {
+    expect(mobile.targetFps).toBe(30);
+    expect(mobile.frameBudgetMs).toBeCloseTo(33.4, 6);
+    // 3 km draw distance; the far ring ends at 1 km, the mid ring
+    // runs 1-3 km, so only the 3x3 chunk core keeps near detail.
+    expect(mobile.lodRadiiM.far).toBe(3_000);
+    expect(mobile.lodRadiiM.mid).toBe(1_000);
+    expect(mobile.lodRadiiM.near).toBe(512);
+    expect(mobile.chunkDetail).toEqual({ near: 16, mid: 8, far: 4 });
+    expect(mobile.starCount).toBe(2_000);
+    expect(mobile.fxQuality).toBe(0.3);
+    expect(mobile.maxLabels).toBe(8);
+  });
+
+  it("drops the dome shader and the missile ribbon", () => {
+    expect(mobile.atmosphere).toBe("haze");
+    expect(mobile.missileTrail).toBe("dot");
+    expect(PERF_PROFILES.high.atmosphere).toBe("dome");
+    expect(PERF_PROFILES.high.missileTrail).toBe("ribbon");
+  });
+
+  it("caps the FX at or below the low preset", () => {
+    const low = PERF_PROFILES.low;
+    expect(mobile.fxCaps.laserFlash).toBeLessThanOrEqual(low.fxCaps.laserFlash);
+    expect(mobile.fxCaps.missile).toBeLessThanOrEqual(low.fxCaps.missile);
+    expect(mobile.fxCaps.debrisSet).toBeLessThanOrEqual(low.fxCaps.debrisSet);
+  });
+
+  it("expands into pipeline params with a 3 km draw distance", () => {
+    const params = pipelineParamsForProfile(mobile);
+    expect(params.drawDistanceM).toBe(3_000);
+    expect(params.chunkDetail).toEqual(mobile.chunkDetail);
+    expect(params.atmosphere).toBe("haze");
+    expect(params.missileTrail).toBe("dot");
+  });
+
+  it("keeps the three quality presets on their settings-table objects", () => {
+    for (const id of QUALITY_PRESET_IDS) {
+      expect(pipelineParamsForProfile(PERF_PROFILES[id])).toBe(QUALITY_PRESETS[id]);
+    }
+  });
+});
+
+describe("perf table schema (rendering only)", () => {
+  const GAMEPLAY_WORDS =
+    /damage|range|speed|hull|shield|cooldown|reload|cargo|capacity|credits|health|ammo|yield|rate/i;
+
+  it("only carries fields from the render allow-list", () => {
+    for (const id of PERF_PROFILE_IDS) {
+      expect(Object.keys(PERF_PROFILES[id]).sort()).toEqual([...PERF_RENDER_FIELDS].sort());
+    }
+  });
+
+  it("carries no gameplay field at any depth", () => {
+    const walk = (value: unknown, path: string): void => {
+      if (typeof value === "object" && value !== null) {
+        for (const [key, child] of Object.entries(value)) {
+          expect(`${path}.${key}`).not.toMatch(GAMEPLAY_WORDS);
+          walk(child, `${path}.${key}`);
+        }
+      }
+    };
+    for (const id of PERF_PROFILE_IDS) walk(PERF_PROFILES[id], id);
   });
 });

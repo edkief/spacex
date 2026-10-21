@@ -8,7 +8,14 @@
  */
 import type * as React from "react";
 
-import { KEYBINDS, SENSITIVITY_MAX, SENSITIVITY_MIN, SENSITIVITY_STEP } from "@shared/settings.js";
+import {
+  DEVICE_PROFILE_IDS,
+  KEYBINDS,
+  SENSITIVITY_MAX,
+  SENSITIVITY_MIN,
+  SENSITIVITY_STEP,
+  type DeviceProfile,
+} from "@shared/settings.js";
 
 /** Props for {@link SensitivitySlider}. */
 export interface SensitivitySliderProps {
@@ -78,6 +85,73 @@ export function ReducedMotionToggle({
  * The keybind list. Read-only: v1 ships no rebinding (scope cut), so
  * this is documentation of the defaults from `@client/input/controls`.
  */
+/** Props for {@link DeviceProfileRow}. */
+export interface DeviceProfileRowProps {
+  /** Current override. */
+  value: DeviceProfile;
+  /** Called when the player picks a different one. */
+  onChange: (next: DeviceProfile) => void;
+  /** The profile id the override currently resolves to. */
+  resolved?: string;
+}
+
+/**
+ * TASK-59: the *Device profile* row — Auto / Desktop / Mobile. Auto
+ * runs the navigator heuristic; Desktop and Mobile force the
+ * profile. The choice is applied on the **next world load** (the
+ * warp transition re-inits the pipeline), so the row says so.
+ */
+export function DeviceProfileRow({
+  value,
+  onChange,
+  resolved,
+}: DeviceProfileRowProps): React.JSX.Element {
+  const labels: Record<DeviceProfile, string> = {
+    auto: "Auto",
+    desktop: "Desktop",
+    mobile: "Mobile",
+  };
+  return (
+    <div data-testid="drift-settings-device-profile">
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+        <span>Device profile</span>
+        {resolved !== undefined ? (
+          <span data-testid="drift-settings-device-profile-resolved">{resolved}</span>
+        ) : null}
+      </div>
+      <div role="radiogroup" aria-label="Device profile" style={{ display: "flex", gap: 6 }}>
+        {DEVICE_PROFILE_IDS.map((id) => (
+          <button
+            key={id}
+            type="button"
+            role="radio"
+            aria-checked={value === id}
+            data-testid={`drift-settings-device-profile-${id}`}
+            onClick={() => {
+              onChange(id);
+            }}
+            style={{
+              background: value === id ? "#1d4ed8" : "transparent",
+              border: "1px solid rgba(255,255,255,0.25)",
+              color: "#e6edf3",
+              padding: "3px 8px",
+              cursor: "pointer",
+              fontFamily: "monospace",
+              fontSize: 11,
+            }}
+          >
+            {labels[id]}
+          </button>
+        ))}
+      </div>
+      <p style={{ margin: "6px 0 0", fontSize: 10, opacity: 0.7, lineHeight: 1.5 }}>
+        Mobile holds 30 fps on a phone (3 km draw distance, flat haze, fewer FX). Applies on the
+        next system entry.
+      </p>
+    </div>
+  );
+}
+
 export function KeybindList(): React.JSX.Element {
   return (
     <div data-testid="drift-settings-keybinds" style={{ fontSize: 10, lineHeight: 1.6 }}>

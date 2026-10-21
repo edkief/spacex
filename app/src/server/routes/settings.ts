@@ -27,7 +27,9 @@ import { loadSessionProfile } from "../auth/resolver.js";
 import {
   clampSensitivity,
   DEFAULT_SETTINGS,
+  DEVICE_PROFILE_IDS,
   QUALITY_PRESET_IDS,
+  type DeviceProfile,
   type QualityPreset,
   type Settings,
 } from "@shared/settings.js";
@@ -104,6 +106,21 @@ function mergeSettings(current: Settings, body: unknown): Settings {
       throw new InvalidSettingsError("reducedMotion must be a boolean");
     }
     next.reducedMotion = raw.reducedMotion;
+  }
+
+  // TASK-59: the device-profile override. An unknown value is a 400
+  // (same contract as the quality preset) rather than a silent
+  // fall-back to `auto`.
+  if (raw.deviceProfile !== undefined) {
+    if (
+      typeof raw.deviceProfile !== "string" ||
+      !DEVICE_PROFILE_IDS.includes(raw.deviceProfile as DeviceProfile)
+    ) {
+      throw new InvalidSettingsError(
+        `deviceProfile must be one of ${DEVICE_PROFILE_IDS.join(", ")}, got ${JSON.stringify(raw.deviceProfile)}`,
+      );
+    }
+    next.deviceProfile = raw.deviceProfile as DeviceProfile;
   }
 
   return next;

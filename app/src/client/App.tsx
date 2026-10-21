@@ -57,6 +57,7 @@ import { NotificationStore } from "./net/notifications.js";
 import { installDriftDebug } from "./net/driftDebug.js";
 import { StarChart, type OccupancyBySystem } from "./ui/StarChart.js";
 import { WarpStore } from "./state/warp.js";
+import { worldProfileManager } from "./world/worldProfile.js";
 import { DebugOverlay } from "./perf/DebugOverlay.js";
 import { FrameMonitor } from "./perf/frameMonitor.js";
 import { CombatHUD } from "./components/CombatHUD.js";
@@ -273,6 +274,11 @@ export function App(): React.JSX.Element {
 
     const offStatus = client.onStatusChange((next) => {
       setStatus(next);
+      // TASK-59: coming online is the first world load — resolve the
+      // device profile (auto-detect or the player's override) and
+      // push it into the pipeline. No toast on the first load: the
+      // notice is only for a *change* between world loads.
+      if (next === "online") worldProfileManager.loadWorld();
       // The "Connection lost" overlay renders on `lost`. We
       // also forward a notification so a test can observe the
       // transition.
@@ -312,6 +318,17 @@ export function App(): React.JSX.Element {
       // `warping-out` → idle once the streak timer completes.
       window.setTimeout(() => {
         warpStore.worldSwapped(target, Date.now());
+        // TASK-59: the warp transition is the world-load path, so
+        // the device profile (mobile floor / desktop override) is
+        // re-applied here. A changed profile toasts the notice.
+        const applied = worldProfileManager.loadWorld();
+        if (applied.notice !== null) {
+          notifications.push({
+            kind: "profile-applied",
+            text: applied.notice,
+            ts: Date.now(),
+          });
+        }
       }, 50);
       notifications.push({
         kind: "warp-arrived",

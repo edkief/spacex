@@ -30,6 +30,8 @@ describe("quality preset table", () => {
       drawDistanceM: 8_000,
       starCount: 3_000,
       fxQuality: 1.0,
+      atmosphere: "dome",
+      missileTrail: "ribbon",
       shadowless: true,
     });
   });
@@ -40,6 +42,8 @@ describe("quality preset table", () => {
       drawDistanceM: 6_000,
       starCount: 2_000,
       fxQuality: 0.6,
+      atmosphere: "dome",
+      missileTrail: "ribbon",
       shadowless: true,
     });
   });
@@ -50,6 +54,8 @@ describe("quality preset table", () => {
       drawDistanceM: 4_000,
       starCount: 1_000,
       fxQuality: 0.3,
+      atmosphere: "dome",
+      missileTrail: "ribbon",
       shadowless: true,
     });
   });
@@ -119,6 +125,7 @@ describe("sanitizeSettings", () => {
       quality: "low",
       sensitivity: 1.3,
       reducedMotion: true,
+      deviceProfile: "auto",
     });
   });
 
@@ -127,6 +134,7 @@ describe("sanitizeSettings", () => {
       quality: DEFAULT_SETTINGS.quality,
       sensitivity: SENSITIVITY_MAX,
       reducedMotion: false,
+      deviceProfile: DEFAULT_SETTINGS.deviceProfile,
     });
   });
 

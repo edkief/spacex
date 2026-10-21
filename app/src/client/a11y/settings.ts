@@ -22,6 +22,7 @@ import {
   clampSensitivity,
   DEFAULT_SETTINGS as SHARED_DEFAULT_SETTINGS,
   sanitizeSettings,
+  type DeviceProfile,
   type QualityPreset,
   type Settings,
 } from "@shared/settings.js";
@@ -103,6 +104,16 @@ export class SettingsStore {
   };
 
   /**
+   * TASK-59: set the device-profile override (`auto` / `desktop` /
+   * `mobile`). The store records it immediately; the *profile* it
+   * selects is re-applied on the next world load (the pipeline
+   * re-init is not live for the mobile-tier cuts).
+   */
+  setDeviceProfile = (deviceProfile: DeviceProfile): void => {
+    this.commit({ ...this.snapshot, deviceProfile });
+  };
+
+  /**
    * TASK-55: set the mouse-look multiplier. Clamped to
    * `[0.5, 2.0]` on the 0.1 step; applies on the next input frame.
    */
@@ -132,7 +143,8 @@ export class SettingsStore {
     if (
       next.quality === this.snapshot.quality &&
       next.sensitivity === this.snapshot.sensitivity &&
-      next.reducedMotion === this.snapshot.reducedMotion
+      next.reducedMotion === this.snapshot.reducedMotion &&
+      next.deviceProfile === this.snapshot.deviceProfile
     ) {
       return;
     }

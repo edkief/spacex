@@ -29,6 +29,8 @@ import {
   REENTRY_DESATURATION_PEAK_U_S,
 } from "@shared/physics/atmosphere-visuals.js";
 import { makeFlatPlanet, type PlanetAtmosphere } from "@shared/physics/atmosphere.js";
+import { settingsStore } from "../a11y/settings.js";
+import { settingsBridge } from "../world/settingsBridge.js";
 import type { Planet } from "@shared/galaxy/types.js";
 
 const RADIUS = 5_000_000; // 5000 km
@@ -223,5 +225,40 @@ describe("ReentryOverlay: provider snapshot → DOM", () => {
     const color = readAttr(markup, "data-reentry-color");
     // 1.0, 0.55, 0.25 — the spec orange.
     expect(color).toBe("1.0000,0.5500,0.2500");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TASK-59 — the mobile profile drops the dome shader for a flat haze
+// ---------------------------------------------------------------------------
+
+describe("AtmosphereOverlay — flat haze mode (TASK-59)", () => {
+  it("renders the radial dome gradient on a desktop profile", () => {
+    const markup = renderToStaticMarkup(
+      createElement(AtmosphereOverlay, {
+        provider: staticAtmosphereProvider(20_000, -400, TERRAN, PLANET_ATMO),
+      }),
+    );
+    expect(markup).toContain('data-atmosphere="dome"');
+    expect(markup).toContain("radial-gradient");
+  });
+
+  it("renders a flat colour wash when the mobile profile is in force", () => {
+    settingsBridge.setSignals({ maxTouchPoints: 5, deviceMemory: 4, hardwareConcurrency: 4 });
+    settingsStore.setDeviceProfile("mobile");
+    settingsBridge.apply(settingsStore.getSnapshot());
+    try {
+      const markup = renderToStaticMarkup(
+        createElement(AtmosphereOverlay, {
+          provider: staticAtmosphereProvider(20_000, -400, TERRAN, PLANET_ATMO),
+        }),
+      );
+      expect(markup).toContain('data-atmosphere="haze"');
+      expect(markup).not.toContain("radial-gradient");
+    } finally {
+      settingsStore.setDeviceProfile("auto");
+      settingsBridge.setSignals({ maxTouchPoints: 0 });
+      settingsBridge.apply(settingsStore.getSnapshot());
+    }
   });
 });

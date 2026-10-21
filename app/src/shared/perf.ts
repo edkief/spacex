@@ -34,10 +34,14 @@
  *   TASK-26's `TRIANGLE_BUDGET_DEFAULT = 400_000`.
  */
 
-import type { QualityPreset } from "./settings.js";
+import { QUALITY_PRESETS, type PipelineParams, type QualityPreset } from "./settings.js";
 
-/** Profile ids. TASK-59 adds a `mobile` entry to this union. */
-export type PerfProfileId = "high" | "medium" | "low";
+/**
+ * Profile ids. `mobile` is TASK-59's 30 fps floor on a mid-range
+ * phone — a hardware profile, not a quality preset (see
+ * {@link module:deviceProfile}).
+ */
+export type PerfProfileId = "high" | "medium" | "low" | "mobile";
 
 /** LOD ring boundaries, metres. A chunk closer than `near` is full
  *  detail; between `near` and `mid` it is the mid ring; between
@@ -76,6 +80,14 @@ export interface PerfBudgets {
 }
 
 /** One hardware profile: every tuned number the renderer reads. */
+/** How the atmosphere is rendered (TASK-59). The dome shader is the
+ *  desktop look; `haze` is the flat colour wash a phone GPU gets. */
+export type AtmosphereMode = "dome" | "haze";
+
+/** How a missile tracer is drawn (TASK-59). `dot` is one quad at the
+ *  warhead instead of the ≤ 8-quad ribbon. */
+export type MissileTrailMode = "ribbon" | "dot";
+
 export interface PerfProfile {
   readonly id: PerfProfileId;
   /** Frame rate the profile targets; `frameBudgetMs` is 1000 / it. */
@@ -95,7 +107,47 @@ export interface PerfProfile {
   readonly fxCaps: FxCaps;
   /** Per-frame budgets. */
   readonly budgets: PerfBudgets;
+  /** Surface-stream grid detail per LOD ring (mirrors
+   *  `QUALITY_PRESETS[].chunkDetail`, kept here so the mobile
+   *  profile can carry its own). */
+  readonly chunkDetail: ChunkDetailRings;
+  /** Multiplier on every cosmetic FX spawn rate. */
+  readonly fxQuality: number;
+  /** Atmosphere rendering mode (`dome` shader vs a flat haze). */
+  readonly atmosphere: AtmosphereMode;
+  /** Missile tracer rendering (`ribbon` vs a single `dot`). */
+  readonly missileTrail: MissileTrailMode;
 }
+
+/** Cells (grid resolution) per chunk side for each LOD ring. */
+export interface ChunkDetailRings {
+  readonly near: number;
+  readonly mid: number;
+  readonly far: number;
+}
+
+/**
+ * Every field name a {@link PerfProfile} may carry. The table is
+ * **rendering only**: the schema test in `perf.test.ts` walks this
+ * allow-list and fails on any field that smells like gameplay
+ * (damage, range, speed, hull, cooldown, …) — the profile must
+ * never be able to change how the game plays.
+ */
+export const PERF_RENDER_FIELDS: readonly string[] = Object.freeze([
+  "id",
+  "targetFps",
+  "frameBudgetMs",
+  "lodRadiiM",
+  "instanceBatchSize",
+  "maxLabels",
+  "starCount",
+  "fxCaps",
+  "budgets",
+  "chunkDetail",
+  "fxQuality",
+  "atmosphere",
+  "missileTrail",
+]);
 
 /**
  * The table. `high` is the reference desktop client the acceptance
@@ -137,6 +189,10 @@ export const PERF_PROFILES: Readonly<Record<PerfProfileId, PerfProfile>> = Objec
       materials: 40,
       surfaceTriangles: 400_000,
     }),
+    chunkDetail: Object.freeze({ near: 64, mid: 32, far: 8 }),
+    fxQuality: 1.0,
+    atmosphere: "dome",
+    missileTrail: "ribbon",
   }),
   medium: Object.freeze({
     id: "medium",
@@ -153,6 +209,10 @@ export const PERF_PROFILES: Readonly<Record<PerfProfileId, PerfProfile>> = Objec
       materials: 40,
       surfaceTriangles: 400_000,
     }),
+    chunkDetail: Object.freeze({ near: 32, mid: 16, far: 8 }),
+    fxQuality: 0.6,
+    atmosphere: "dome",
+    missileTrail: "ribbon",
   }),
   low: Object.freeze({
     id: "low",
@@ -169,14 +229,53 @@ export const PERF_PROFILES: Readonly<Record<PerfProfileId, PerfProfile>> = Objec
       materials: 24,
       surfaceTriangles: 150_000,
     }),
+    chunkDetail: Object.freeze({ near: 16, mid: 8, far: 4 }),
+    fxQuality: 0.3,
+    atmosphere: "dome",
+    missileTrail: "ribbon",
+  }),
+  /**
+   * TASK-59 — the phone floor. Cuts, in the spec's own words:
+   *
+   *   - **draw distance 3 km** (`lodRadiiM.far = 3_000`),
+   *   - **chunk detail**: the far (flat impostor) ring ends at 1 km
+   *     and the mid ring runs 1–3 km, so the full-detail near ring
+   *     only ever covers the 3×3 chunk core under the player;
+   *   - **2 000 stars**, **8 labels**, **FX quality 0.3**,
+   *   - **no atmosphere dome shader** — a flat colour haze,
+   *   - **missile trails off** — one dot instead of the ribbon.
+   *
+   * `targetFps` / `frameBudgetMs` are 30 / 33.4 ms: this profile is
+   * held to a 30 fps floor, not the 60 fps desktop budget.
+   */
+  mobile: Object.freeze({
+    id: "mobile",
+    targetFps: 30,
+    frameBudgetMs: 33.4,
+    lodRadiiM: Object.freeze({ near: 512, mid: 1_000, far: 3_000 }),
+    instanceBatchSize: 1_024,
+    maxLabels: 8,
+    starCount: 2_000,
+    fxCaps: Object.freeze({ laserFlash: 6, missile: 4, debrisSet: 3 }),
+    budgets: Object.freeze({
+      drawCalls: 80,
+      triangles: 250_000,
+      materials: 24,
+      surfaceTriangles: 150_000,
+    }),
+    chunkDetail: Object.freeze({ near: 16, mid: 8, far: 4 }),
+    fxQuality: 0.3,
+    atmosphere: "haze",
+    missileTrail: "dot",
   }),
 });
 
-/** The profile ids, in preset order. */
+/** The profile ids, in preset order (the device profiles follow). */
 export const PERF_PROFILE_IDS: readonly PerfProfileId[] = Object.freeze([
   "high",
   "medium",
   "low",
+  "mobile",
 ] as const);
 
 /** The profile a fresh client boots with (matches `DEFAULT_SETTINGS`). */
@@ -185,6 +284,29 @@ export const DEFAULT_PERF_PROFILE: PerfProfile = PERF_PROFILES.high;
 /** Resolve the profile backing a settings quality preset. */
 export function perfProfileFor(quality: QualityPreset): PerfProfile {
   return PERF_PROFILES[quality] ?? DEFAULT_PERF_PROFILE;
+}
+
+/**
+ * Expand a perf profile into the pipeline params the chunk stream
+ * reads per tick (TASK-55's `SettingsBridge`). The `high` /
+ * `medium` / `low` profiles expand to exactly their
+ * `QUALITY_PRESETS` entry (pinned by `perf.test.ts`), so the two
+ * tables cannot drift; `mobile` carries its own numbers.
+ */
+export function pipelineParamsForProfile(profile: PerfProfile): PipelineParams {
+  // The three quality presets are the same frozen objects the
+  // settings table holds, so identity comparison keeps working.
+  const preset = QUALITY_PRESETS[profile.id as QualityPreset];
+  if (preset !== undefined) return preset;
+  return {
+    chunkDetail: profile.chunkDetail,
+    drawDistanceM: profile.lodRadiiM.far,
+    starCount: profile.starCount,
+    fxQuality: profile.fxQuality,
+    atmosphere: profile.atmosphere,
+    missileTrail: profile.missileTrail,
+    shadowless: true,
+  };
 }
 
 /** The concurrency cap for one capped FX kind under a profile. */

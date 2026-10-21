@@ -33,6 +33,7 @@
 import type { ProtocolCombatEvent } from "@shared/protocol/index.js";
 
 import { fxRegistry } from "./registry.js";
+import { settingsBridge } from "../world/settingsBridge.js";
 
 // ---------------------------------------------------------------------------
 // Lightweight entity lookup — the FX layer only needs the
@@ -111,6 +112,11 @@ const SHAKE_PX = 2;
 const SHAKE_DURATION_MS = 100;
 const MAX_MISSILE_TRACERS = 16;
 const MAX_TRAIL_QUADS = 8;
+/**
+ * TASK-59: the mobile profile turns missile ribbons off — the HUD
+ * draws a single dot at the warhead instead of an 8-quad ribbon.
+ */
+const DOT_TRAIL_QUADS = 1;
 
 // ---------------------------------------------------------------------------
 // FX layer
@@ -265,7 +271,9 @@ export class WeaponFxLayer {
     tracer.z = pos.z;
     // Trail: newest first.
     tracer.trail.unshift({ x: pos.x, y: pos.y, z: pos.z });
-    while (tracer.trail.length > MAX_TRAIL_QUADS) tracer.trail.pop();
+    const trailCap =
+      settingsBridge.current().missileTrail === "dot" ? DOT_TRAIL_QUADS : MAX_TRAIL_QUADS;
+    while (tracer.trail.length > trailCap) tracer.trail.pop();
     // Update forward direction (unit vector of velocity).
     const speed = Math.sqrt(vel.x * vel.x + vel.y * vel.y + vel.z * vel.z);
     if (speed > 1e-3) {

@@ -17,8 +17,12 @@ import type { Planet } from "@shared/galaxy/types.js";
 const PLANET = { id: "p-settings", radiusM: 6_000_000 } as unknown as Planet;
 
 /** A settings record with only the fields the pipeline reads. */
-function settings(quality: Settings["quality"], sensitivity = 1): Settings {
-  return { quality, sensitivity, reducedMotion: false };
+function settings(
+  quality: Settings["quality"],
+  sensitivity = 1,
+  deviceProfile: Settings["deviceProfile"] = "auto",
+): Settings {
+  return { quality, sensitivity, reducedMotion: false, deviceProfile };
 }
 
 describe("SettingsBridge", () => {

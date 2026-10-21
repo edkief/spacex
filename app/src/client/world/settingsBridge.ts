@@ -17,21 +17,38 @@
  */
 import {
   DEFAULT_SETTINGS,
-  pipelineParamsFor,
-  QUALITY_PRESETS,
   type PipelineParams,
   type QualityPreset,
   type Settings,
 } from "@shared/settings.js";
+import {
+  profileForSettings,
+  readDeviceSignals,
+  type DeviceSignals,
+} from "@shared/deviceProfile.js";
+import { DEFAULT_PERF_PROFILE, pipelineParamsForProfile, type PerfProfile } from "@shared/perf.js";
 import { settingsStore, type SettingsStore } from "../a11y/settings.js";
 
 /** Listener fired when the preset (and therefore the params) change. */
 export type ParamsListener = (params: PipelineParams, prev: PipelineParams) => void;
 
+/** Options for {@link SettingsBridge}. */
+export interface SettingsBridgeOptions {
+  /** Device signals used by the TASK-59 detection heuristic. */
+  readonly signals?: DeviceSignals;
+}
+
 /** The bridge — one instance per client session. */
 export class SettingsBridge {
-  private params: PipelineParams = QUALITY_PRESETS[DEFAULT_SETTINGS.quality];
+  private params: PipelineParams = pipelineParamsForProfile(DEFAULT_PERF_PROFILE);
+  private activeProfile: PerfProfile = DEFAULT_PERF_PROFILE;
+  private activeQuality: QualityPreset = DEFAULT_SETTINGS.quality;
+  private signals: DeviceSignals;
   private readonly listeners = new Set<ParamsListener>();
+
+  constructor(options: SettingsBridgeOptions = {}) {
+    this.signals = options.signals ?? readDeviceSignals();
+  }
 
   /** The pipeline params in force right now. */
   current(): PipelineParams {
@@ -40,11 +57,28 @@ export class SettingsBridge {
 
   /** The preset id backing {@link current}. */
   quality(): QualityPreset {
-    return (
-      (Object.keys(QUALITY_PRESETS) as QualityPreset[]).find(
-        (id) => QUALITY_PRESETS[id] === this.params,
-      ) ?? DEFAULT_SETTINGS.quality
-    );
+    return this.activeQuality;
+  }
+
+  /**
+   * The perf profile in force (TASK-59). This is the *effective*
+   * profile: the `mobile` floor when the device heuristic (or the
+   * player's override) selects it, otherwise the quality preset's
+   * own profile. The FX registry reads its caps from here.
+   */
+  profile(): PerfProfile {
+    return this.activeProfile;
+  }
+
+  /** The device signals the profile heuristic reads (test seam). */
+  deviceSignals(): DeviceSignals {
+    return this.signals;
+  }
+
+  /** Replace the device signals and re-resolve the profile. */
+  setSignals(signals: DeviceSignals): void {
+    this.signals = signals;
+    this.apply(settingsStore.getSnapshot());
   }
 
   /**
@@ -53,10 +87,13 @@ export class SettingsBridge {
    * render).
    */
   apply(settings: Settings): void {
-    const next = pipelineParamsFor(settings.quality);
+    const profile = profileForSettings(settings, this.signals);
+    const next = pipelineParamsForProfile(profile);
     if (next === this.params) return;
     const prev = this.params;
     this.params = next;
+    this.activeProfile = profile;
+    this.activeQuality = settings.quality;
     for (const listener of [...this.listeners]) {
       try {
         listener(next, prev);

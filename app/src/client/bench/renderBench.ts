@@ -36,6 +36,7 @@ import { generateSystemFromStar } from "@shared/galaxy/system.js";
 import type { Planet } from "@shared/galaxy/types.js";
 import {
   alignToVsync,
+  DEFAULT_COST_MODEL,
   DEFAULT_PERF_PROFILE,
   estimateFrameMs,
   evaluateBudgets,
@@ -97,6 +98,25 @@ export interface RenderBenchReport {
   readonly peakDrawCalls: number;
   /** Peak triangles in a single frame. */
   readonly peakTriangles: number;
+  /**
+   * Median *modelled work* frame time before vsync alignment, ms.
+   * This is the machine-independent number the TASK-59 margin
+   * comparison uses (High 12 ms vs Mobile ≤ 8 ms): aligning to
+   * vsync would flatten both profiles to their own budget and
+   * hide the difference.
+   */
+  readonly workMs: number;
+  /**
+   * Median *profile-controlled* frame time, ms: the modelled work
+   * minus the fixed per-frame base and the entity geometry every
+   * profile must draw (ship / deposit / hazard triangles).
+   *
+   * This is what the TASK-59 margin compares. The excluded terms
+   * are identical on every profile — gameplay is never touched by
+   * a rendering profile — so leaving them in would dilute the
+   * margin with cost the mobile cuts never claim to remove.
+   */
+  readonly controlledMs: number;
   /** Peak distinct materials in a single frame. */
   readonly peakMaterials: number;
   /** Measured client CPU cost per frame, ms (mean over the run). */
@@ -150,6 +170,8 @@ export function runRenderBench(options: RenderBenchOptions = {}): RenderBenchRep
   let peakMaterials = 0;
   let peakMetrics: PerfMetrics | null = null;
   let fxCounts: Readonly<Record<string, number>> = {};
+  const workTimes: number[] = [];
+  const controlledTimes: number[] = [];
 
   for (let frame = 0; frame < frames; frame++) {
     const cpuStart = performance.now();
@@ -175,6 +197,18 @@ export function runRenderBench(options: RenderBenchOptions = {}): RenderBenchRep
 
     // 4. Modelled GPU cost, aligned to vsync.
     const modelled = estimateFrameMs(plan.metrics);
+    workTimes.push(modelled);
+    // The profile-controlled slice: everything except the fixed
+    // base and the entity triangles every profile renders.
+    const entityTris = Math.max(0, plan.metrics.triangles - plan.metrics.surfaceTriangles);
+    controlledTimes.push(
+      Math.max(
+        0,
+        modelled -
+          DEFAULT_COST_MODEL.baseMs -
+          (entityTris / 1_000) * DEFAULT_COST_MODEL.perThousandTrianglesMs,
+      ),
+    );
     const frameMs = alignToVsync(modelled + cpuMs, profile);
 
     // The synthetic clock advances by the *modelled* frame time so
@@ -192,6 +226,8 @@ export function runRenderBench(options: RenderBenchOptions = {}): RenderBenchRep
   }
 
   const sorted = sortedFrameTimes(monitor);
+  const sortedWork = [...workTimes].sort((a, b) => a - b);
+  const sortedControlled = [...controlledTimes].sort((a, b) => a - b);
   const budget = evaluateBudgets(peakMetrics ?? ZERO_METRICS, profile);
   const worst = sorted[sorted.length - 1] ?? 0;
   return {
@@ -206,6 +242,8 @@ export function runRenderBench(options: RenderBenchOptions = {}): RenderBenchRep
     peakDrawCalls,
     peakTriangles,
     peakMaterials,
+    workMs: pickPercentile(sortedWork, 0.5),
+    controlledMs: pickPercentile(sortedControlled, 0.5),
     cpuMs: cpuTotal / frames,
     budgetsOk: budget.ok,
     violations: budget.violations,
@@ -243,4 +281,19 @@ function sortedFrameTimes(monitor: FrameMonitor): number[] {
 export function worstCaseReduction(baseline: RenderBenchReport, tuned: RenderBenchReport): number {
   if (baseline.p95Ms <= 0) return 0;
   return (baseline.p95Ms - tuned.p95Ms) / baseline.p95Ms;
+}
+
+/**
+ * TASK-59: the frame-time margin the mobile profile buys over the
+ * desktop one, as a ratio of the *profile-controlled* frame times
+ * (`high.controlledMs / mobile.controlledMs`) — the streaming, FX,
+ * starfield and label work the profile actually tunes. The
+ * acceptance criterion is `>= 1.5` ("if High is 12 ms, Mobile is
+ * ≤ 8 ms in the same headless scene"); the raw total-frame numbers
+ * are reported too (`workMs`) but diluted by the entity geometry
+ * both profiles must draw.
+ */
+export function mobileMargin(high: RenderBenchReport, mobile: RenderBenchReport): number {
+  if (mobile.controlledMs <= 0) return Number.POSITIVE_INFINITY;
+  return high.controlledMs / mobile.controlledMs;
 }

@@ -21,7 +21,7 @@
  * @see ./registry.test.ts
  */
 
-import { fxCapFor, perfProfileFor, type CappedFxKind, type PerfProfile } from "@shared/perf.js";
+import { fxCapFor, type CappedFxKind, type PerfProfile } from "@shared/perf.js";
 import { settingsStore } from "../a11y/settings.js";
 import { settingsBridge } from "../world/settingsBridge.js";
 
@@ -63,8 +63,9 @@ export class FxRegistry {
     debris: [],
   };
   /** TASK-58: the profile whose caps apply. Follows the settings
-   *  bridge by default; tests inject a profile. */
-  private profile: PerfProfile = perfProfileFor(settingsBridge.quality());
+   *  bridge by default; tests inject a profile. TASK-59: that is the
+   *  *effective* profile, so the mobile floor's caps win. */
+  private profile: PerfProfile = settingsBridge.profile();
 
   /**
    * Ask the registry whether an effect may play.
@@ -171,7 +172,7 @@ export class FxRegistry {
   reset(): void {
     this.counters = { played: 0, skipped: 0, skippedByKind: {} };
     this.clearLive();
-    this.profile = perfProfileFor(settingsBridge.quality());
+    this.profile = settingsBridge.profile();
   }
 
   /** Monotonic id source for `spawn()` when the caller passes none. */
@@ -182,11 +183,11 @@ export class FxRegistry {
 export const fxRegistry = new FxRegistry();
 
 /**
- * Connect the registry to the settings bridge (TASK-58): a quality
- * preset change re-caps the live FX immediately. The listener only
- * runs on an actual preset change, so the per-frame path stays a
- * plain `capFor()` lookup.
+ * Connect the registry to the settings bridge (TASK-58/59): a
+ * quality preset *or a device profile* change re-caps the live FX
+ * immediately. The listener only runs on an actual change, so the
+ * per-frame path stays a plain `capFor()` lookup.
  */
 settingsBridge.subscribe(() => {
-  fxRegistry.setProfile(perfProfileFor(settingsBridge.quality()));
+  fxRegistry.setProfile(settingsBridge.profile());
 });

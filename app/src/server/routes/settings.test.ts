@@ -84,7 +84,7 @@ describe("GET/PUT /api/players/settings", () => {
     });
     expect(put.statusCode).toBe(200);
     expect(put.json()).toEqual({
-      settings: { quality: "low", sensitivity: 1.4, reducedMotion: true },
+      settings: { quality: "low", sensitivity: 1.4, reducedMotion: true, deviceProfile: "auto" },
     });
     const get = await h.app.inject({
       method: "GET",
@@ -92,7 +92,7 @@ describe("GET/PUT /api/players/settings", () => {
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(get.json()).toEqual({
-      settings: { quality: "low", sensitivity: 1.4, reducedMotion: true },
+      settings: { quality: "low", sensitivity: 1.4, reducedMotion: true, deviceProfile: "auto" },
     });
   });
 
@@ -111,7 +111,7 @@ describe("GET/PUT /api/players/settings", () => {
       payload: { quality: "medium" },
     });
     expect(res.json()).toEqual({
-      settings: { quality: "medium", sensitivity: 2, reducedMotion: false },
+      settings: { quality: "medium", sensitivity: 2, reducedMotion: false, deviceProfile: "auto" },
     });
   });
 
@@ -210,7 +210,7 @@ describe("GET/PUT /api/players/settings", () => {
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(res.json()).toEqual({
-      settings: { quality: "low", sensitivity: 0.8, reducedMotion: true },
+      settings: { quality: "low", sensitivity: 0.8, reducedMotion: true, deviceProfile: "auto" },
     });
     await app2.close();
 

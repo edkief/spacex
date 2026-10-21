@@ -52,7 +52,15 @@ export {
   settingsBridge,
   connectSettingsBridge,
   type ParamsListener,
+  type SettingsBridgeOptions,
 } from "./settingsBridge.js";
+
+export {
+  WorldProfileManager,
+  worldProfileManager,
+  type WorldProfileResult,
+  type WorldProfileDeps,
+} from "./worldProfile.js";
 
 export {
   ChunkPipeline,

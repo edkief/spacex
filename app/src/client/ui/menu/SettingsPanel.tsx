@@ -26,10 +26,21 @@ import type * as React from "react";
 
 import { cycleFocus, focusableWithin } from "./focusTrap.js";
 import { QualityButtons } from "./QualityButtons.js";
-import { KeybindList, ReducedMotionToggle, SensitivitySlider } from "./SettingsSections.js";
+import {
+  DeviceProfileRow,
+  KeybindList,
+  ReducedMotionToggle,
+  SensitivitySlider,
+} from "./SettingsSections.js";
 import { settingsStore } from "../../a11y/settings.js";
 import { createSettingsSaver, type SettingsSaver } from "../../settings/api.js";
-import { DEFAULT_SETTINGS, type QualityPreset, type Settings } from "@shared/settings.js";
+import { settingsBridge } from "../../world/settingsBridge.js";
+import {
+  DEFAULT_SETTINGS,
+  type DeviceProfile,
+  type QualityPreset,
+  type Settings,
+} from "@shared/settings.js";
 
 /** Props for the settings panel. */
 export interface SettingsPanelProps {
@@ -82,6 +93,12 @@ export function SettingsPanel({ onClose, authToken }: SettingsPanelProps): React
   const onReducedMotion = (next: boolean): void => {
     settingsStore.setReducedMotion(next);
     persistNow({ reducedMotion: next });
+  };
+  // TASK-59: the override is stored immediately; the profile itself
+  // lands on the next world load (the warp re-init).
+  const onDeviceProfile = (next: DeviceProfile): void => {
+    settingsStore.setDeviceProfile(next);
+    persistNow({ deviceProfile: next });
   };
   const onReset = (): void => {
     settingsStore.reset();
@@ -146,6 +163,12 @@ export function SettingsPanel({ onClose, authToken }: SettingsPanelProps): React
         <SensitivitySlider value={snapshot.sensitivity} onChange={onSensitivity} />
 
         <ReducedMotionToggle value={snapshot.reducedMotion} onChange={onReducedMotion} />
+
+        <DeviceProfileRow
+          value={snapshot.deviceProfile}
+          onChange={onDeviceProfile}
+          resolved={settingsBridge.profile().id}
+        />
 
         <KeybindList />
 

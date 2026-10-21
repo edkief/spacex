@@ -31,7 +31,12 @@ beforeEach(() => {
         method: init?.method ?? "GET",
         body: init?.body === undefined ? null : JSON.parse(String(init.body)),
       });
-      const settings = { quality: "high", sensitivity: 1, reducedMotion: false };
+      const settings = {
+        quality: "high",
+        sensitivity: 1,
+        reducedMotion: false,
+        deviceProfile: "auto",
+      };
       return {
         ok: true,
         status: 200,
@@ -138,7 +143,9 @@ describe("createSettingsSaver", () => {
       onSaved: (s) => saved.push(s),
     });
     await saver.saveNow({ sensitivity: 4 });
-    expect(saved).toEqual([{ quality: "high", sensitivity: 1, reducedMotion: false }]);
+    expect(saved).toEqual([
+      { quality: "high", sensitivity: 1, reducedMotion: false, deviceProfile: "auto" },
+    ]);
   });
 
   it("cancel drops the queued patch", () => {

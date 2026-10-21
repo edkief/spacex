@@ -225,6 +225,7 @@ describe("SettingsPanel — quality preset", () => {
       quality: "high",
       sensitivity: 1,
       reducedMotion: false,
+      deviceProfile: "auto",
     });
   });
 });
@@ -282,5 +283,62 @@ describe("SettingsPanel — sensitivity slider", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("SettingsPanel — device profile (TASK-59)", () => {
+  /** Render the panel and return a testid lookup helper. */
+  function open(): (id: string) => HTMLElement {
+    act(() => {
+      root.render(<SettingsPanel />);
+    });
+    return (id) => container.querySelector(`[data-testid="${id}"]`) as HTMLElement;
+  }
+
+  it("renders the Auto / Desktop / Mobile row with the resolved profile", () => {
+    const $ = open();
+    expect($("drift-settings-device-profile-auto").getAttribute("aria-checked")).toBe("true");
+    expect($("drift-settings-device-profile-mobile").getAttribute("aria-checked")).toBe("false");
+    expect($("drift-settings-device-profile-desktop")).not.toBeNull();
+    expect($("drift-settings-device-profile-resolved").textContent).toBe("high");
+  });
+
+  it("selects mobile, stores the override and PUTs it", async () => {
+    const put = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        settings: {
+          quality: "high",
+          sensitivity: 1,
+          reducedMotion: false,
+          deviceProfile: "mobile",
+        },
+      }),
+    })) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", put);
+    act(() => {
+      root.render(<SettingsPanel authToken="tok" />);
+    });
+    await act(async () => {
+      (
+        container.querySelector(
+          '[data-testid="drift-settings-device-profile-mobile"]',
+        ) as HTMLButtonElement
+      ).click();
+    });
+    expect(settingsStore.getSnapshot().deviceProfile).toBe("mobile");
+    const calls = (put as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls;
+    expect(calls).toHaveLength(1);
+    expect(JSON.parse(String(calls[0]![1].body))).toEqual({ deviceProfile: "mobile" });
+  });
+
+  it("re-tunes the bridge to the mobile profile as soon as it is picked", () => {
+    const $ = open();
+    act(() => {
+      $("drift-settings-device-profile-mobile").click();
+    });
+    expect(settingsBridge.profile().id).toBe("mobile");
+    expect(settingsBridge.current().drawDistanceM).toBe(3_000);
   });
 });

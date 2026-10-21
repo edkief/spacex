@@ -19,6 +19,7 @@ import type { Planet } from "@shared/galaxy/types.js";
 import { PERF_PROFILES } from "@shared/perf.js";
 import {
   benchPlanet,
+  mobileMargin,
   runRenderBench,
   SPIKE_THRESHOLD_MS,
   worstCaseReduction,
@@ -132,3 +133,46 @@ describe("runRenderBench — baseline vs tuned delta", () => {
 function benchPlanetCached(): Planet {
   return benchPlanet();
 }
+
+// ---------------------------------------------------------------------------
+// TASK-59 — the mobile floor's frame-time margin over desktop
+// ---------------------------------------------------------------------------
+
+describe("mobile profile margin (TASK-59)", () => {
+  it("holds a ≥ 1.5× frame-time margin over the high profile", () => {
+    const high = runRenderBench({
+      durationMs: FAST_MS,
+      profile: PERF_PROFILES.high,
+      label: "high",
+    });
+    const mobile = runRenderBench({
+      durationMs: FAST_MS,
+      profile: PERF_PROFILES.mobile,
+      label: "mobile",
+    });
+    const margin = mobileMargin(high, mobile);
+    expect(margin).toBeGreaterThanOrEqual(1.5);
+    // Sanity: the mobile profile really is doing less work, not
+    // just aligning to a bigger vsync budget.
+    expect(mobile.workMs).toBeLessThan(high.workMs);
+    expect(mobile.peakTriangles).toBeLessThan(high.peakTriangles);
+    expect(mobile.peakDrawCalls).toBeLessThanOrEqual(high.peakDrawCalls);
+  });
+
+  it("stays inside its own budgets on the worst-case scene", () => {
+    const mobile = runRenderBench({
+      durationMs: FAST_MS,
+      profile: PERF_PROFILES.mobile,
+      label: "mobile-budgets",
+    });
+    expect(mobile.budgetsOk).toBe(true);
+    expect(mobile.violations).toEqual([]);
+    // 30 fps floor: the median frame fits the 33.4 ms budget.
+    expect(mobile.medianMs).toBeLessThanOrEqual(PERF_PROFILES.mobile.frameBudgetMs);
+    expect(mobile.spikes).toBe(0);
+    // FX caps really are lower than the desktop profile's.
+    expect(mobile.fxCounts["missile-tracer"]).toBeLessThanOrEqual(
+      PERF_PROFILES.mobile.fxCaps.missile,
+    );
+  });
+});

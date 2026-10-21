@@ -45,11 +45,7 @@ export const BENCH_SEED = "bench-render-world";
 
 /** Per-ring grid detail for a profile (mirrors `PipelineParams`). */
 export function detailFor(profile: PerfProfile): ChunkDetail {
-  return profile.id === "high"
-    ? { near: 64, mid: 32, far: 8 }
-    : profile.id === "medium"
-      ? { near: 32, mid: 16, far: 8 }
-      : { near: 16, mid: 8, far: 4 };
+  return profile.chunkDetail;
 }
 
 /** Per-profile chunk geometry sample, generated once and reused —
