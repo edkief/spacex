@@ -78,6 +78,10 @@ export interface RenderHostOptions {
    *  `window.__driftRenderHost.remoteMeshCount()` reads the
    *  number from here. */
   remoteMeshCount?: () => number;
+  /** TASK-76: live count of rendered system bodies (star +
+   *  planets). Owned by the `SystemBodyLayer`, surfaced here so
+   *  the e2e seam can read `bodyCount()` off the same host. */
+  bodyCount?: () => number;
 }
 
 /**
@@ -114,10 +118,14 @@ export class RenderHost {
   /** TASK-75: remote-mesh counter provider (see
    *  `RenderHostOptions.remoteMeshCount`). */
   readonly #remoteMeshCount: () => number;
+  /** TASK-76: system-body counter provider (see
+   *  `RenderHostOptions.bodyCount`). */
+  readonly #bodyCount: () => number;
 
   constructor(opts: RenderHostOptions) {
     this.canvas = opts.canvas;
     this.#remoteMeshCount = opts.remoteMeshCount ?? ((): number => 0);
+    this.#bodyCount = opts.bodyCount ?? ((): number => 0);
     this.#quality = opts.quality;
     this.dpr = clampDpr(opts.devicePixelRatio ?? readDefaultDpr());
     // Construct the renderer with `preserveDrawingBuffer: true`.
@@ -205,6 +213,15 @@ export class RenderHost {
    */
   remoteMeshCount(): number {
     return this.#remoteMeshCount();
+  }
+
+  /**
+   * TASK-76: rendered system bodies (the star + its planets) for
+   * the system the client is currently in. `0` until the galaxy
+   * seed resolves and the layer rebuilds.
+   */
+  bodyCount(): number {
+    return this.#bodyCount();
   }
 
   /** The single renderer instance. Most production code goes

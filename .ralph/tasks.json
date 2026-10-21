@@ -529,7 +529,7 @@
     "title": "Seeded system bodies: render the star and its planets",
     "category": "feature",
     "specFilePath": ".ralph/tasks/TASK-76.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-77",

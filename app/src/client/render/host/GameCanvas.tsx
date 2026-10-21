@@ -55,6 +55,8 @@ import { LOOP_GUARD_KEY, startFrameLoop, type FrameLoopHandle } from "./loop.js"
 
 import { buildShipObject, writeShipStateToObject } from "../ship/buildShipObject.js";
 import { RemoteEntityLayer } from "../entities/RemoteEntityLayer.js";
+import { SystemBodyLayer } from "../bodies/SystemBodyLayer.js";
+import { ensureGalaxySeed } from "../../world/seedContext.js";
 
 import type { ShipClassId } from "@shared/ships.js";
 import type { ShipLivery } from "@server/db/types.js";
@@ -111,6 +113,9 @@ export interface GameCanvasClient {
   remoteEntityBuffers: ReadonlyMap<string, RemoteEntityBuffer>;
   /** TASK-75: own ship id (used to build the never-render id). */
   currentShipId: string | null;
+  /** TASK-76: the system the client is currently in. The body
+   *  layer rebuilds whenever this changes (a warp). */
+  currentSystemId: string | null;
 }
 
 /**
@@ -147,6 +152,7 @@ export function GameCanvas(props: GameCanvasProps): React.JSX.Element {
   const loopRef = useRef<FrameLoopHandle | null>(null);
   const shipObjectRef = useRef<ThreeGroup | null>(null);
   const remoteLayerRef = useRef<RemoteEntityLayer | null>(null);
+  const bodyLayerRef = useRef<SystemBodyLayer | null>(null);
 
   // ----- Effect 1: render host + ship mesh + frame loop.
   // This effect mounts ONCE and survives even when
@@ -177,15 +183,26 @@ export function GameCanvas(props: GameCanvasProps): React.JSX.Element {
     (globalThis as { __driftRemoteEntityLayer?: RemoteEntityLayer }).__driftRemoteEntityLayer =
       remoteLayer;
 
+    // TASK-76: seeded system bodies (the star + its planets).
+    // The bodies are derived on the client from the galaxy seed
+    // (`GET /api/health`, fetched once at session start below),
+    // so a warp only rebuilds the meshes — no server traffic.
+    const bodyLayer = new SystemBodyLayer();
+    bodyLayerRef.current = bodyLayer;
+    (globalThis as { __driftSystemBodyLayer?: SystemBodyLayer }).__driftSystemBodyLayer = bodyLayer;
+    void ensureGalaxySeed();
+
     const host = new RenderHost({
       canvas,
       aspect: initialWidth / initialHeight,
       quality: settingsBridge.quality(),
       remoteMeshCount: () => remoteLayer.remoteMeshCount,
+      bodyCount: () => bodyLayer.bodyCount,
     });
     hostRef.current = host;
     (globalThis as { __driftRenderHost?: RenderHost }).__driftRenderHost = host;
     host.scene.add(remoteLayer.root);
+    host.scene.add(bodyLayer.root);
 
     const ship = buildShipObject({
       classId: DEFAULT_CLASS,
@@ -260,6 +277,13 @@ export function GameCanvas(props: GameCanvasProps): React.JSX.Element {
           } catch {
             // Swallow — the layer counts its own errors.
           }
+          // TASK-76: rebuild the star + planets when the system (or
+          // the galaxy seed) changes; a no-op otherwise.
+          try {
+            bodyLayer.sync(liveClient.currentSystemId);
+          } catch {
+            // Swallow — an unknown system renders nothing.
+          }
         }
         const pump = w.__driftPump ?? null;
         const stamped = pump?.tick(dt);
@@ -281,6 +305,15 @@ export function GameCanvas(props: GameCanvasProps): React.JSX.Element {
       window.removeEventListener("resize", fit);
       remoteLayer.dispose();
       remoteLayerRef.current = null;
+      bodyLayer.dispose();
+      bodyLayerRef.current = null;
+      if (
+        (globalThis as { __driftSystemBodyLayer?: SystemBodyLayer }).__driftSystemBodyLayer ===
+        bodyLayer
+      ) {
+        (globalThis as { __driftSystemBodyLayer?: SystemBodyLayer }).__driftSystemBodyLayer =
+          undefined;
+      }
       if (
         (globalThis as { __driftRemoteEntityLayer?: RemoteEntityLayer })
           .__driftRemoteEntityLayer === remoteLayer
