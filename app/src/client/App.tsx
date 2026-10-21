@@ -556,7 +556,10 @@ export function App(): React.JSX.Element {
         fontFamily: "system-ui, sans-serif",
       }}
     >
-      <GameCanvas label={`3D view: flying in system ${client.currentSystemId ?? "unknown"}`} />
+      <GameCanvas
+        label={`3D view: flying in system ${client.currentSystemId ?? "unknown"}`}
+        client={status === "online" ? client : null}
+      />
       {/* TASK-56: the first-launch hint line. Sits above the
           interaction prompt and renders nothing once the guidance
           store reports no visible step. */}

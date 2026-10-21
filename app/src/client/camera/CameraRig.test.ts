@@ -499,6 +499,32 @@ describe("CameraRig — handoff boundary conditions", () => {
 // Ship rotation — the cockpit follows the ship quat
 // ---------------------------------------------------------------------------
 
+describe("CameraRig — TASK-74 external mode (chase camera)", () => {
+  it("can be constructed already in 'external' mode", () => {
+    const rig = makeRig({ initialMode: "external" });
+    expect(rig.mode).toBe("external");
+  });
+  it("external mode pulls the ship into the chase pose", () => {
+    const rig = makeRig({ initialMode: "external" });
+    rig.setShip(SHIP_ORIGIN);
+    rig.setPoseImmediate({ pos: { x: 0, y: 0, z: 0 }, lookAt: { x: 0, y: 0, z: 12 } });
+    rig.update(1); // settle smoothing
+    const pose = rig.getCurrentPose();
+    // chase pose: 8 m back along -Z + 3 m up.
+    expect(pose.pos.z).toBeCloseTo(-8, 1);
+    expect(pose.pos.y).toBeCloseTo(3, 1);
+  });
+  it("external → onfoot triggers a handoff (single-animation rule)", () => {
+    const rig = makeRig({ initialMode: "external" });
+    rig.setShip(SHIP_ORIGIN);
+    rig.setCharacter(CHAR_ORIGIN);
+    rig.setMode("onfoot");
+    expect(rig.isHandoffInFlight).toBe(true);
+    rig.update(HANDOFF_DURATION_MS / 1000);
+    expect(rig.mode).toBe("onfoot");
+  });
+});
+
 describe("CameraRig — cockpit follows the ship quat", () => {
   it("a 90° yaw rotates the cockpit pose 90° in world space", () => {
     const rig = makeRig();

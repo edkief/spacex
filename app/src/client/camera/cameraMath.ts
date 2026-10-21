@@ -58,6 +58,18 @@ export const ON_FOOT_BACK_OFFSET_M = 4;
 /** How far above the character the third-person camera sits (m). */
 export const ON_FOOT_HEIGHT_OFFSET_M = 1.6;
 
+/** TASK-74: chase camera lateral distance behind the ship (m). */
+export const EXTERNAL_BACK_OFFSET_M = 8;
+
+/** TASK-74: chase camera vertical distance above the ship (m). */
+export const EXTERNAL_HEIGHT_OFFSET_M = 3;
+
+/** TASK-74: chase camera look-ahead distance in front of the
+ *  ship (m). The chase camera aims slightly ahead so the ship
+ *  appears at the bottom-third of the frame rather than dead
+ *  centre, which is the standard third-person flight framing. */
+export const EXTERNAL_LOOK_AHEAD_M = 12;
+
 /** Look-ahead distance for the on-foot camera (m). */
 export const ON_FOOT_LOOK_AHEAD_M = 5;
 
@@ -204,6 +216,43 @@ export function onFootPose(character: CharacterState): CameraPose {
   return { pos, lookAt };
 }
 
+/**
+ * TASK-74: chase / external camera pose for flight. The camera
+ * sits `EXTERNAL_BACK_OFFSET_M` metres behind the ship (along
+ * the negated ship-forward axis) and `EXTERNAL_HEIGHT_OFFSET_M`
+ * above, aiming `EXTERNAL_LOOK_AHEAD_M` metres ahead of the
+ * ship so the ship appears at the bottom-third of the frame.
+ *
+ * Like `cockpitPose` the chase pose follows the ship quat, so a
+ * rolling ship rolls the camera with it (the rig's smoothing
+ * masks the per-frame jitter; the smoothFactor already runs at
+ * 100 ms feel).
+ *
+ * If the input is non-finite (a buggy caller feeding NaN) we
+ * fall back to the origin so the rig never poisons downstream
+ * poses.
+ */
+export function chasePose(ship: ShipState): CameraPose {
+  const forward = quatRotateVector(ship.quat as Quat, { x: 0, y: 0, z: 1 });
+  const up = quatRotateVector(ship.quat as Quat, { x: 0, y: 1, z: 0 });
+  const back = { x: -forward.x, y: -forward.y, z: -forward.z };
+  // Camera position = ship - forward * BACK + up * HEIGHT.
+  const pos: Vec3Like = {
+    x: ship.pos.x + back.x * EXTERNAL_BACK_OFFSET_M + up.x * EXTERNAL_HEIGHT_OFFSET_M,
+    y: ship.pos.y + back.y * EXTERNAL_BACK_OFFSET_M + up.y * EXTERNAL_HEIGHT_OFFSET_M,
+    z: ship.pos.z + back.z * EXTERNAL_BACK_OFFSET_M + up.z * EXTERNAL_HEIGHT_OFFSET_M,
+  };
+  const lookAt: Vec3Like = {
+    x: ship.pos.x + forward.x * EXTERNAL_LOOK_AHEAD_M,
+    y: ship.pos.y + forward.y * EXTERNAL_LOOK_AHEAD_M,
+    z: ship.pos.z + forward.z * EXTERNAL_LOOK_AHEAD_M,
+  };
+  if (!isFiniteVec(pos) || !isFiniteVec(lookAt)) {
+    return { pos: { x: 0, y: 0, z: 0 }, lookAt: { x: 0, y: 0, z: 5 } };
+  }
+  return { pos, lookAt };
+}
+
 /** Compute the target pose for the given mode + state. */
 export function targetPoseFor(
   mode: CameraMode,
@@ -213,6 +262,10 @@ export function targetPoseFor(
   if (mode === "cockpit") {
     if (ship === null) return null;
     return cockpitPose(ship);
+  }
+  if (mode === "external") {
+    if (ship === null) return null;
+    return chasePose(ship);
   }
   if (character === null) return null;
   return onFootPose(character);

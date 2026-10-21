@@ -43,7 +43,7 @@ import type { CharacterState, ShipState, Vec3Like } from "./types.js";
  */
 export interface CameraRigTestHook {
   /** The rig's current mode. */
-  mode(): "cockpit" | "onfoot";
+  mode(): "cockpit" | "external" | "onfoot";
   /** True while a handoff animation is in flight. */
   isHandoffInFlight(): boolean;
   /** Total handoffs completed since construction. */
@@ -59,7 +59,7 @@ export interface CameraRigTestHook {
   /** Push a fake character state (on-foot mode target). */
   setCharacter(character: CharacterState | null): void;
   /** Switch the rig's mode (kicks off a handoff if the mode changes). */
-  setMode(mode: "cockpit" | "onfoot"): void;
+  setMode(mode: "cockpit" | "external" | "onfoot"): void;
   /** Apply a mouse-look delta. No-op during a handoff. */
   applyMouseLook(deltaYaw: number, deltaPitch: number): void;
   /** Advance the rig by `dtSeconds` (test uses real wall-clock dt or a fake). */

@@ -29,12 +29,22 @@ export interface QuatLike {
 }
 
 /**
- * The two camera modes the rig knows about. v1 only uses
- * `'cockpit'` and `'onfoot'`. The `'space'` / `'atmosphere'` /
- * `'surface'` *regime* is a gameplay concern owned by TASK-25
- * and is independent of the camera mode.
+ * The camera modes the rig knows about. v1 ships three:
+ *
+ *   - `'cockpit'` — first-person inside the ship; the cockpit
+ *                  pose factory supplies the offset.
+ *   - `'external'`— third-person chase camera. TASK-74 ships the
+ *                  default flight mode here (a cockpit camera
+ *                  shows no ship mesh, which is the B-2 defect
+ *                  the PRD calls out).
+ *   - `'onfoot'`  — third-person camera used while the player is
+ *                  disembarked.
+ *
+ * The `'space'` / `'atmosphere'` / `'surface'` *regime* is a
+ * gameplay concern owned by TASK-25 and is independent of the
+ * camera mode.
  */
-export type CameraMode = "cockpit" | "onfoot";
+export type CameraMode = "cockpit" | "external" | "onfoot";
 
 /** Minimal state the rig needs to know about the active ship. */
 export interface ShipState {

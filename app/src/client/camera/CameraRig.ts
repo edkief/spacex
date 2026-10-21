@@ -97,7 +97,12 @@ interface HandoffState {
 export class CameraRig {
   // -- The single camera. Never replaced. --
   private readonly _perspectiveCamera: PerspectiveCamera;
-  // -- The active mode. Settles at the destination of any handoff. --
+  // -- The active mode. Settles at the destination of any handoff.
+  //    The constructor defaults to `'cockpit'` (preserves the
+  //    TASK-27 spec — the suite can pin the rig without a
+  //    prior `setMode`). The renderer's GameCanvas effect calls
+  //    `setMode('external')` on mount to flip the default
+  //    flight view to chase. --
   private _mode: CameraMode = "cockpit";
   // -- The live targets (set every frame by the renderer). --
   private _ship: ShipState | null = null;
@@ -130,6 +135,11 @@ export class CameraRig {
     terrainClearanceM?: number;
     heightAt?: HeightAtFn;
     planetCenter?: Vec3Like | null;
+    /** TASK-74: explicit starting mode. Defaults to `cockpit`
+     *  (preserves the TASK-27 spec — the renderer's mount path
+     *  flips the rig to `'external'` for the default flight
+     *  view). */
+    initialMode?: CameraMode;
   }) {
     this._perspectiveCamera = new PerspectiveCamera(FOV_DEG, opts.aspect, 0.1, 50_000);
     this._smoothingK = opts.smoothingK ?? SMOOTHING_K;
@@ -138,6 +148,13 @@ export class CameraRig {
     this._terrainClearanceM = opts.terrainClearanceM ?? TERRAIN_CLEARANCE_M;
     this._heightAt = opts.heightAt;
     this._planetCenter = opts.planetCenter ?? null;
+    // TASK-74: keep the default at `cockpit` so the suite can
+    // construct a rig and pin the mode's behaviour without a
+    // prior `setMode` (the renderer flips the rig to
+    // `external` after construction via its GameCanvas effect).
+    if (opts.initialMode !== undefined) {
+      this._mode = opts.initialMode;
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -420,6 +437,9 @@ export class CameraRig {
 
 export {
   COCKPIT_OFFSET_M,
+  EXTERNAL_BACK_OFFSET_M,
+  EXTERNAL_HEIGHT_OFFSET_M,
+  EXTERNAL_LOOK_AHEAD_M,
   FOV_DEG,
   HANDOFF_DURATION_MS,
   HANDOFF_PATH_SAMPLES,
@@ -430,6 +450,7 @@ export {
   PITCH_MAX_RAD,
   SMOOTHING_K,
   TERRAIN_CLEARANCE_M,
+  chasePose,
   clampPitch,
   cockpitPose,
   onFootPose,

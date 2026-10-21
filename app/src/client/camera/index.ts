@@ -15,6 +15,9 @@
 
 export {
   COCKPIT_OFFSET_M,
+  EXTERNAL_BACK_OFFSET_M,
+  EXTERNAL_HEIGHT_OFFSET_M,
+  EXTERNAL_LOOK_AHEAD_M,
   FOV_DEG,
   HANDOFF_DURATION_MS,
   HANDOFF_PATH_SAMPLES,
@@ -26,6 +29,7 @@ export {
   SMOOTHING_K,
   TERRAIN_CLEARANCE_M,
   CameraRig,
+  chasePose,
   clampPitch,
   cockpitPose,
   onFootPose,

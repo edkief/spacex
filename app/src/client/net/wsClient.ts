@@ -80,7 +80,7 @@ import type { WeaponId } from "@shared/weapons.js";
 
 import { PresenceStore } from "./presence.js";
 import { ChatStore } from "./chat.js";
-import { RemoteEntityBuffer } from "./prediction.js";
+import { ClientShipPredictor, RemoteEntityBuffer, simEntityFromWire } from "./prediction.js";
 import { TargetingStore } from "../combat/targeting.js";
 import { KillFeedStore } from "../combat/killFeed.js";
 import { DestructionStore } from "../fx/destruction.js";
@@ -401,6 +401,21 @@ export class DriftClient {
   private status: DriftClientStatus = "idle";
   private playerId: string | null = null;
   private callsign: string | null = null;
+  /**
+   * TASK-74: own ship's id. Set from the claim response so the
+   * predictor knows which entity in the per-entity remote
+   * buffer registry carries the local ship. Stable across
+   * reconnects (the server preserves ship rows).
+   */
+  private shipId: string | null = null;
+  /**
+   * TASK-74: lazily-constructed local ship predictor. The first
+   * call to `get predictor()` allocates it (so cold boots have no
+   * cost when the local ship is disembarked or hasn't been seen
+   * yet). Subsequent `entity_update` frames feed it via the
+   * `maybeReconcilePredictor()` call in `handleMessage`.
+   */
+  private _predictor: ClientShipPredictor | null = null;
   /** Token cached from the original claim; re-used on reconnect. */
   private token: string | null = null;
   /** Home system id from the original claim. */
@@ -464,6 +479,54 @@ export class DriftClient {
   /** Callsign after `auth_ok`, or `null` until then. */
   get currentCallsign(): string | null {
     return this.callsign;
+  }
+
+  /**
+   * TASK-74: own ship's persisted id (from the claim response,
+   * or null until the handshake completes). The predictor uses
+   * this to resolve `entity:<shipId>` in the remote buffer
+   * registry on the first reconcile.
+   */
+  get currentShipId(): string | null {
+    return this.shipId;
+  }
+
+  /**
+   * TASK-74: local ship predictor (lazily constructed from the
+   * first `entity_update` that carries the player ship's
+   * authoritative state). Returns a `ClientShipPredictor` whose
+   * `.state()` exposes the post-reconciliation pos / vel / quat
+   * for the renderer; the predictor itself lives for the lifetime
+   * of the client so e2e harnesses can wait on
+   * `window.__driftClient.predictor.state()`.
+   *
+   * The accessor never returns `null` once the predictor is
+   * live — before construction (no `entity_update` yet for the
+   * own ship) the engine code falls back to a stub that reports
+   * the ship at the origin with zero velocity.
+   */
+  get predictor(): ClientShipPredictor {
+    if (this._predictor === null) {
+      // Default ship class is `scout` — the persisted starter
+      // row ships with that classId (TASK-20), so the
+      // reconciliation path can satisfy its lookup. The first
+      // real `entity_update` carries the canonical `classId`
+      // and `forceSnap`'s the predictor with it.
+      this._predictor = new ClientShipPredictor({
+        serverState: {
+          id: this.shipId !== null ? `entity:${this.shipId}` : "",
+          pos: { x: 0, y: 0, z: 0 },
+          vel: { x: 0, y: 0, z: 0 },
+          quat: { x: 0, y: 0, z: 0, w: 1 },
+          regime: "space",
+          hull: 100,
+          shields: 50,
+          onPad: null,
+        },
+        classId: "scout",
+      });
+    }
+    return this._predictor;
   }
 
   /**
@@ -561,6 +624,9 @@ export class DriftClient {
       this.callsign = claim.callsign;
       this.token = claim.token;
       this.homeSystemId = claim.homeSystemId;
+      // TASK-74: capture the persistent shipId so the predictor
+      // can find the player's own entity in the remote buffer.
+      this.shipId = claim.shipId;
       this.presence.setOwnCallsign(claim.callsign);
       claimed = true;
 
@@ -608,6 +674,13 @@ export class DriftClient {
     this.token = session.token;
     this.callsign = session.callsign;
     this.homeSystemId = session.systemId;
+    // TASK-74: startWithSession does not currently include a
+    // shipId (the boot flow's token carries the claim, not the
+    // ship). The local predictor fallbacks to reading the own
+    // entity's id from the remote buffer registry when
+    // `shipId === null`, so a returning player without a cached
+    // shipId still gets a hydrated predictor on the first
+    // `entity_update` after the handshake.
     this.presence.setOwnCallsign(session.callsign);
     try {
       this.setStatus("connecting");
@@ -1481,6 +1554,82 @@ export class DriftClient {
     this.opts.remoteBufferRegistry?.reset();
   }
 
+  /**
+   * TASK-74: reconcile the local ship predictor against any
+   * own-ship snapshot in an inbound frame. Walks the entity
+   * array once, looking for the entity whose id matches
+   * `entity:<shipId>` OR (when no shipId is cached) whose
+   * callsign matches `currentCallsign`. On match: snap the
+   * predictor's server state, applying the same Quake-III
+   * blend/rewind/force-snap logic the predictor itself owns.
+   *
+   * No-op when the predictor has not been touched yet (cold
+   * mount without any input pump) or the frame doesn't carry
+   * our ship. Called once per `entity_update`/`state_snapshot`
+   * so the server's authoritative ground truth wins over the
+   * local prediction in O(1).
+   */
+  private reconcileOwnShipFromFrame(
+    entities: Parameters<typeof simEntityFromWire>[0][] | never,
+    nowMs: number,
+    lastAppliedSeq: Record<string, number> | undefined,
+  ): void {
+    if (!Array.isArray(entities)) return;
+    if (this.callsign === null) return;
+    const targetId = this.shipId !== null ? `entity:${this.shipId}` : null;
+    let ownEntity: Parameters<typeof simEntityFromWire>[0] | null = null;
+    for (const e of entities) {
+      const ent = e as {
+        id: string;
+        kind?: string;
+        callsign?: string | null;
+      };
+      if (targetId !== null && ent.id === targetId) {
+        ownEntity = e as Parameters<typeof simEntityFromWire>[0];
+        break;
+      }
+      if (
+        targetId === null &&
+        ent.callsign === this.callsign &&
+        (ent.kind === "ship" || ent.kind === undefined) &&
+        typeof ent.id === "string" &&
+        ent.id.startsWith("entity:")
+      ) {
+        ownEntity = e as Parameters<typeof simEntityFromWire>[0];
+        // Cache the shipId once we resolve it via callsign so
+        // subsequent frames use the fast `entity:<shipId>` path.
+        this.shipId = ent.id.slice("entity:".length);
+        break;
+      }
+    }
+    if (ownEntity === null) return;
+    const simLite = simEntityFromWire(ownEntity);
+    const predictor = this._predictor ?? this.predictor;
+    // The wire shape is missing rotation (the predictor's
+    // simulator fields default to identity on the first frame);
+    // subsequent reconciles inherit the previous orientation so
+    // the local rotation never visually jumps when the server
+    // omits quat.
+    const seq =
+      this.playerId !== null && lastAppliedSeq !== undefined
+        ? (lastAppliedSeq[this.playerId] ?? null)
+        : null;
+    // Hydrate the predictor on the very first call so the
+    // initial ship state matches the server's authority rather
+    // than the placeholder origin.
+    if (
+      this._predictor !== null &&
+      this._predictor.state().pos.x === 0 &&
+      this._predictor.state().pos.y === 0 &&
+      this._predictor.state().pos.z === 0 &&
+      (simLite.pos.x !== 0 || simLite.pos.y !== 0 || simLite.pos.z !== 0)
+    ) {
+      predictor.forceSnap(nowMs, simLite);
+      return;
+    }
+    predictor.reconcile({ now: nowMs, serverState: simLite, lastAppliedSeq: seq });
+  }
+
   private async claimCallsignWithRetry(): Promise<ClaimResponse> {
     const fetchImpl = this.opts.fetchImpl ?? (typeof fetch !== "undefined" ? fetch : undefined);
     if (!fetchImpl) throw new Error("no fetch implementation available");
@@ -1817,7 +1966,17 @@ export class DriftClient {
             buf = new RemoteEntityBuffer();
             this.remoteBuffers.set(ent.id, buf);
           }
-          buf.push(nowMs, e as never);
+          // TASK-74: push the **simulator-shaped** entity, not
+          // the raw wire frame. The buffer's interpolator
+          // (`interpolateEntity` in `@client/net/prediction.ts`)
+          // slerps the rotation, which fails on the wire shape
+          // because the protocol omits `quat`. `simEntityFromWire`
+          // fills in the identity quat so the interpolation
+          // path stays finite. Pre-existing behaviour kept the
+          // raw shape; the new render host's per-frame renderer
+          // sampled the buffer enough times per second that
+          // the uncaught exception became noise.
+          buf.push(nowMs, simEntityFromWire(e as Parameters<typeof simEntityFromWire>[0]));
         }
         // TASK-48: extract hazard markers (drones for v1) from the
         // entity list and push them into the hazard store. The
@@ -1825,6 +1984,24 @@ export class DriftClient {
         // in-world marker renderer.
         const typedEntities = entities as Parameters<typeof markersFromEntities>[0];
         this.hazardStore.setMarkers(markersFromEntities(typedEntities));
+        // TASK-74: reconcile the local ship predictor against any
+        // own-ship snapshot in the frame. The predictor is
+        // constructed lazily on first access; we only run the
+        // pipeline when the frame actually carries the local
+        // ship (`callsign === currentCallsign` + matches the
+        // own entity id, or fallback to `entity:<shipId>` from
+        // the claim). The `lastAppliedSeq` map is wire-stable
+        // across both `entity_update` and `state_snapshot`; we
+        // read the entry keyed by our own `playerId` so the
+        // predictor can drop queued inputs the server has
+        // integrated.
+        this.reconcileOwnShipFromFrame(
+          entities as Parameters<ClientShipPredictor["reconcile"]>[0]["serverState"] extends never
+            ? never
+            : Parameters<typeof simEntityFromWire>[0][],
+          nowMs,
+          (payload as { lastAppliedSeq?: Record<string, number> }).lastAppliedSeq,
+        );
         return;
       }
       case "ui_open": {

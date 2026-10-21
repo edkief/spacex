@@ -18,6 +18,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   COCKPIT_OFFSET_M,
+  EXTERNAL_BACK_OFFSET_M,
+  EXTERNAL_HEIGHT_OFFSET_M,
+  EXTERNAL_LOOK_AHEAD_M,
   FOV_DEG,
   HANDOFF_DURATION_MS,
   HANDOFF_PATH_SAMPLES,
@@ -28,6 +31,7 @@ import {
   PITCH_MAX_RAD,
   SMOOTHING_K,
   TERRAIN_CLEARANCE_M,
+  chasePose,
   clampPitch,
   cockpitPose,
   collisionNudge,
@@ -73,6 +77,11 @@ describe("camera constants", () => {
   });
   it("cockpit offset is 0.5 m up, 1.2 m forward", () => {
     expect(COCKPIT_OFFSET_M).toEqual({ x: 0, y: 0.5, z: 1.2 });
+  });
+  it("TASK-74 chase offset is 8 m back + 3 m up (third-person framing)", () => {
+    expect(EXTERNAL_BACK_OFFSET_M).toBe(8);
+    expect(EXTERNAL_HEIGHT_OFFSET_M).toBe(3);
+    expect(EXTERNAL_LOOK_AHEAD_M).toBe(12);
   });
   it("on-foot camera is 4 m behind, 1.6 m up (spec)", () => {
     expect(ON_FOOT_BACK_OFFSET_M).toBe(4);
@@ -557,5 +566,62 @@ describe("lookQuatsFromPoses", () => {
     expect(rotated.x).toBeCloseTo(0, 6);
     expect(rotated.y).toBeCloseTo(1, 6);
     expect(rotated.z).toBeCloseTo(0, 6);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// chasePose (TASK-74)
+// ---------------------------------------------------------------------------
+
+describe("chasePose", () => {
+  it("places the camera 8 m behind + 3 m up the ship's local +Y for identity quat", () => {
+    const ship: ShipState = { pos: { x: 0, y: 0, z: 0 }, quat: IDENTITY };
+    const pose = chasePose(ship);
+    expect(pose.pos.x).toBeCloseTo(0, 6);
+    expect(pose.pos.y).toBeCloseTo(EXTERNAL_HEIGHT_OFFSET_M, 6);
+    expect(pose.pos.z).toBeCloseTo(-EXTERNAL_BACK_OFFSET_M, 6);
+  });
+  it("look-at sits EXTERNAL_LOOK_AHEAD_M ahead of the ship on +Z for identity quat", () => {
+    const ship: ShipState = { pos: { x: 5, y: 7, z: -3 }, quat: IDENTITY };
+    const pose = chasePose(ship);
+    expect(pose.lookAt.x).toBeCloseTo(5, 6);
+    expect(pose.lookAt.y).toBeCloseTo(7, 6);
+    expect(pose.lookAt.z).toBeCloseTo(-3 + EXTERNAL_LOOK_AHEAD_M, 6);
+  });
+  it("rotates with the ship's quat (90° yaw \u2192 camera sits at +X)", () => {
+    const yaw90 = quatFromEuler(Math.PI / 2, 0, 0);
+    const ship: ShipState = { pos: { x: 0, y: 0, z: 0 }, quat: yaw90 };
+    const pose = chasePose(ship);
+    // forward becomes +X; chase offset negates it, so camera sits at (-8, 3, 0).
+    expect(pose.pos.x).toBeCloseTo(-EXTERNAL_BACK_OFFSET_M, 5);
+    expect(pose.pos.y).toBeCloseTo(EXTERNAL_HEIGHT_OFFSET_M, 5);
+    expect(pose.pos.z).toBeCloseTo(0, 5);
+    // look-at should be +X from the ship.
+    expect(pose.lookAt.x).toBeCloseTo(EXTERNAL_LOOK_AHEAD_M, 5);
+  });
+  it("the camera always stays finite (NaN-safe fallback to origin)", () => {
+    const bad: ShipState = {
+      pos: { x: Number.NaN, y: 0, z: 0 },
+      quat: IDENTITY,
+    };
+    const pose = chasePose(bad);
+    expect(Number.isFinite(pose.pos.x)).toBe(true);
+    expect(Number.isFinite(pose.pos.y)).toBe(true);
+    expect(Number.isFinite(pose.pos.z)).toBe(true);
+    expect(Number.isFinite(pose.lookAt.x)).toBe(true);
+    expect(Number.isFinite(pose.lookAt.y)).toBe(true);
+    expect(Number.isFinite(pose.lookAt.z)).toBe(true);
+  });
+});
+
+describe("targetPoseFor — chase mode (TASK-74)", () => {
+  it("returns chasePose when mode is external + ship is supplied", () => {
+    const ship: ShipState = { pos: { x: 0, y: 0, z: 0 }, quat: IDENTITY };
+    const pose = targetPoseFor("external", ship, null);
+    expect(pose).not.toBeNull();
+    expect(pose!.pos.z).toBeCloseTo(-EXTERNAL_BACK_OFFSET_M, 6);
+  });
+  it("returns null when mode is external but no ship is supplied", () => {
+    expect(targetPoseFor("external", null, null)).toBeNull();
   });
 });

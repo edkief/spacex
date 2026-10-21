@@ -515,7 +515,7 @@
     "title": "Local ship: predicted state, ship mesh, flight input and chase camera",
     "category": "feature",
     "specFilePath": ".ralph/tasks/TASK-74.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-75",

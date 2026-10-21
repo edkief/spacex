@@ -265,6 +265,14 @@ describe("interaction: dispatch-site lint (TASK-33)", () => {
       "src/server/shard/combat.resolve.ts",
       "src/server/shard/weapons.ts",
       "src/client/net/prediction.ts",
+      // TASK-74: the WS layer's own-ship detector reads
+      // `kind === "ship"` to pick the player's entity; the
+      // interactive dispatch is the deposit / terminal /
+      // ship registry (this file's reason for existing). The
+      // detector runs once per inbound entity frame on the
+      // local player's row only — it is not the same shape as
+      // an interactive dispatch and is safe inline.
+      "src/client/net/wsClient.ts",
     ]);
     for (const file of sources) {
       const rel = path.relative(clientRoot, file);
