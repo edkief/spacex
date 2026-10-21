@@ -203,6 +203,21 @@ export class FrameMonitor {
     this.latestTriangles = info.render.triangles;
   }
 
+  /**
+   * Every frame time currently held in the rolling window, oldest
+   * first. Off-by-default readers (the TASK-58 benchmark computes
+   * percentiles over the whole run rather than the last 300
+   * frames) use this; the overlay keeps using `getFrameStats`.
+   */
+  sampleFrameTimes(): number[] {
+    const out: number[] = [];
+    const start = (this.head - this.filled + this.ring.length) % this.ring.length;
+    for (let i = 0; i < this.filled; i++) {
+      out.push(this.ring[(start + i) % this.ring.length]!);
+    }
+    return out;
+  }
+
   /** Push the active rendered entity count. */
   recordEntityCount(n: number): void {
     this.latestEntities = n;

@@ -459,7 +459,7 @@
     "title": "LOD/impostor tuning to draw and memory budgets",
     "category": "performance",
     "specFilePath": ".ralph/tasks/TASK-58.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-59",
