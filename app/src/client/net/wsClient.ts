@@ -1372,6 +1372,14 @@ export class DriftClient {
     this.systemId = payload.systemId;
     // Seed the remote buffers with the canonical entities so the
     // future renderer (TASK-26) can hydrate immediately.
+    //
+    // Same fix as the `entity_update` / `state_snapshot` path
+    // (the comment on `simEntityFromWire` below): push the
+    // simulator-shaped lite, not the raw wire frame. The wire
+    // frame has no `quat` field, so `interpolateEntity` would
+    // throw a `Cannot read properties of undefined (reading 'x')`
+    // every frame after the warp until the next `entity_update`
+    // lands and replaces the seed state.
     const nowMs = (this.opts.now ?? Date.now)();
     for (const entity of payload.entities) {
       const ent = entity as { id: string };
@@ -1381,7 +1389,7 @@ export class DriftClient {
         buf = new RemoteEntityBuffer();
         this.remoteBuffers.set(ent.id, buf);
       }
-      buf.push(nowMs, entity as never);
+      buf.push(nowMs, simEntityFromWire(entity as Parameters<typeof simEntityFromWire>[0]));
     }
   }
 

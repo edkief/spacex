@@ -536,6 +536,6 @@
     "title": "Production-path e2e gate plus README/ops documentation",
     "category": "testing",
     "specFilePath": ".ralph/tasks/TASK-77.json",
-    "passes": false
+    "passes": true
   }
 ]

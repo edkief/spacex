@@ -14,7 +14,7 @@ honest list of what v1 does **not** do.
 
 ## 1. Environment variables
 
-The server reads `<repo-root>/.env.local` through `dotenv` (existing process env
+The server reads `<PROJECT_ROOT>/.env.local` through `dotenv` (existing process env
 wins, so a per-shell override always beats the file) — see
 [`app/src/server/config.ts`](../app/src/server/config.ts). `PROJECT_ROOT`
 defaults to the repository root (two levels above `app/`) and decides where
@@ -22,6 +22,43 @@ defaults to the repository root (two levels above `app/`) and decides where
 
 The file is git-ignored. The template in the
 [README quick start](../README.md#quick-start) is the minimum set.
+
+### Production env contract
+
+The Docker image (and the new TASK-77 prod gate) boot the server with **no
+`.env.local` present at all** — `app/.dockerignore` excludes it from the build
+context by design, the same way the prod gate sets `PROJECT_ROOT` to an empty
+tmp dir. That makes the env contract the source of truth: every variable has
+to be passed with `-e FOO=bar` (or `-e FOO` with a host-exported value) and
+the server only knows what it can read from `process.env`. The full list:
+
+| Variable          | Required in prod | What breaks if missing                                              |
+| ----------------- | :--------------: | ------------------------------------------------------------------- |
+| `SESSION_SECRET`  | **yes**          | `assertValidSecret` refuses to boot on an empty / short value.      |
+| `GALAXY_SEED`     | no (default `DRIFT-SEED-0001`) | A different seed = a brand-new galaxy; don't change it on a live world. |
+| `DB_DRIVER`       | no (default `sqlite`)           | Any value other than `sqlite` / `postgres` is a hard boot error.   |
+| `DB_PATH`         | no (default `./data/drift.db`)  | The server creates the SQLite file on first boot; missing parent dirs do **not** fail. |
+| `STATIC_DIR`      | **yes**          | Without it the server boots as API-only — the browser gets a 404 for `/`. |
+| `PORT` / `API_PORT` | no (defaults `3000` and `3001`; the image sets both to `3000`) | The server binds to whatever `API_PORT` says; `PORT` only affects the static client's browser-facing port on a multi-process dev setup. |
+| `PROJECT_ROOT`    | no (default = workspace root)    | Empty `PROJECT_ROOT` ≡ no `.env.local` ≡ env-only config. This is what the image uses. |
+
+The Dockerfile already sets `STATIC_DIR=/app/dist/client`,
+`PORT=3000`, `API_PORT=3000`, and `PROJECT_ROOT=/app`. Operators
+just need to pass `SESSION_SECRET`, `GALAXY_SEED`, and the database
+choice (`DB_DRIVER` + `DB_PATH` for SQLite, or `DB_DRIVER=postgres` +
+`DATABASE_URL`). The TASK-77 prod gate reproduces this exact line
+locally so CI fails loudly when the contract drifts:
+
+```text
+STATIC_DIR=<app>/dist/client \
+PORT=<port> API_PORT=<port> \
+DB_DRIVER=sqlite DB_PATH=<tmp>/drift.db \
+GALAXY_SEED=PROD-E2E-<n> \
+SESSION_SECRET=<64 hex chars> \
+PROJECT_ROOT=<empty tmp dir> \
+LOG_LEVEL=warn \
+node dist-server/index.js
+```
 
 ### Runtime — server
 
@@ -200,6 +237,7 @@ re-auth automatically and receive a full `state_snapshot` resync
 | Frame monitor      | in-game `F3` overlay (dev builds)                                                                                                  |
 | Load gates         | `npm run load:smoke` writes `app/data/load-report.json`                                                                            |
 | Perf sign-off      | `npm run perf:report desktop` writes `app/data/perf-report-desktop.json`                                                           |
+| Production gate    | `npm run test:e2e:prod` rebuilds the client + server and exercises the same `STATIC_DIR=dist/client node dist-server/index.js` command line the image ships (TASK-77) |
 
 ---
 

@@ -89,12 +89,61 @@ To play on the production build instead:
 ```bash
 cd app
 npm run build         # vite build -> dist/client
-npm run build:server  # esbuild bundle -> dist/server
-STATIC_DIR=dist/client npm start
+npm run build:server  # esbuild bundle -> dist-server/
+STATIC_DIR=dist/client node dist-server/index.js
 ```
 
-Full environment reference, Postgres switch, backups and the restart procedure:
-**[docs/ops.md](docs/ops.md)**.
+That `STATIC_DIR=dist/client node dist-server/index.js` command is the same
+command line the Docker image ships (TASK-69) and the same one the new
+production-gate e2e exercises end-to-end (`npm run test:e2e:prod`, see
+[TASK-77](../../.ralph/tasks/TASK-77.json)). No `.env.local` is loaded — the
+container's `.dockerignore` excludes it — so every value below has to be
+passed as an environment variable (`SESSION_SECRET`, `GALAXY_SEED`,
+`DB_DRIVER`, `DB_PATH`, `PORT`/`API_PORT`, `STATIC_DIR`, `PROJECT_ROOT`).
+See **[docs/ops.md](docs/ops.md#1-environment-variables)**.
+
+### What the production build supports today
+
+- **Fly your ship** with `W A S D` (thrust / yaw), `Q E` (roll),
+  `Space` (up), `Shift` (boost), `1` / `2` to switch between laser and
+  missiles, `T` to lock onto the nearest target in a 30° cone. The
+  client-side predictor (`__driftClient.predictor`) reconciles your
+  inputs against the 10 Hz server snapshots so the loop stays smooth
+  even on a 80 ms RTT.
+- **See other players and AI ships** — the renderer's pooled mesh
+  layer mirrors every entity the server ticks (other players, rogue
+  AI, wrecks, drones). Live list in the right-hand rail.
+- **See the star and its planets** — the system body layer derives
+  the star + planets from the same galaxy seed the server uses
+  (`__driftSystemBodyLayer`), so two players in the same system
+  agree down to the wire.
+- **Warp to another star** — `M` to open the chart, click a different
+  star, click Warp. The server runs the canonical 2 s in + 2 s out
+  transition and your `currentSystemId` flips on the next
+  `state_snapshot`.
+- **Claims screen + dock spawning** — type a callsign (3–16
+  characters, letters, digits and dashes) on the home screen,
+  wait for the green _available_ chip, press Claim. The image is
+  backed by SQLite by default (`DB_DRIVER=sqlite`); switch to
+  Postgres via `DB_DRIVER=postgres` + `DATABASE_URL` (see
+  [docs/ops.md](docs/ops.md#2-database-sqlite-and-the-postgres-switch)).
+
+### Known gaps (production v1)
+
+- **On-foot characters render as placeholders.** You can exit the
+  ship and walk around a docked pad, but the character model is
+  not yet drawn — the scene shows a placeholder shape. The
+  physics, regime transition and inventory are wired end-to-end.
+- **Terrain / chunk streaming is not drawn yet.** The earth /
+  surface chunks the streaming pipeline produces are present
+  server-side, but the client-side terrain renderer is not yet
+  wired into the scene tree.
+- **No key rebinding.** The flight / foot / menu bindings in the
+  controls table below are fixed in
+  `app/src/shared/settings.ts` and `app/src/client/input/controls.ts`.
+
+Full environment reference, Postgres switch, backups and the restart
+procedure: **[docs/ops.md](docs/ops.md)**.
 
 ---
 
@@ -153,20 +202,22 @@ v1 has **no key rebinding** (see [docs/ops.md](docs/ops.md#known-gaps)).
 
 Run from `app/`:
 
-| Command                       | What it does                                           |
-| ----------------------------- | ------------------------------------------------------ |
-| `npm run dev`                 | Vite + game server in watch mode                       |
-| `npm test`                    | Full Vitest suite (unit + integration + abuse)         |
-| `npm run test:e2e`            | Playwright end-to-end suite                            |
-| `npm run typecheck`           | `tsc --noEmit`                                         |
-| `npm run lint`                | ESLint + Prettier check                                |
-| `npm run lint:fix`            | ESLint `--fix` + Prettier write                        |
-| `npm run build`               | Client build                                           |
-| `npm run bench:transitions`   | Regime-transition frame budget benchmark (TASK-30)     |
-| `npm run bench:render`        | Worst-case render budget benchmark (TASK-58)           |
-| `npm run bench:tick`          | 20 Hz tick cost benchmark (TASK-61)                    |
-| `npm run load:smoke`          | 30 s / 16-client load acceptance run (TASK-18)         |
-| `npm run perf:report desktop` | Full reference-hardware report + JSON output (TASK-61) |
+| Command                       | What it does                                                                                       |
+| ----------------------------- | -------------------------------------------------------------------------------------------------- |
+| `npm run dev`                 | Vite + game server in watch mode                                                                   |
+| `npm test`                    | Full Vitest suite (unit + integration + abuse)                                                     |
+| `npm run test:e2e`            | Playwright end-to-end suite (dev mode, Vite + tsx). Does **not** include the prod gate.            |
+| `npm run test:e2e:prod`       | Production-build gate (TASK-77): builds the client + server, boots `node dist-server/index.js`, runs the gate spec |
+| `npm run typecheck`           | `tsc --noEmit`                                                                                     |
+| `npm run lint`                | ESLint + Prettier check                                                                            |
+| `npm run lint:fix`            | ESLint `--fix` + Prettier write                                                                    |
+| `npm run build`               | Client build (vite → `dist/client/`)                                                               |
+| `npm run build:server`        | Server bundle (esbuild → `dist-server/index.js`)                                                   |
+| `npm run bench:transitions`   | Regime-transition frame budget benchmark (TASK-30)                                                 |
+| `npm run bench:render`        | Worst-case render budget benchmark (TASK-58)                                                       |
+| `npm run bench:tick`          | 20 Hz tick cost benchmark (TASK-61)                                                                |
+| `npm run load:smoke`          | 30 s / 16-client load acceptance run (TASK-18)                                                     |
+| `npm run perf:report desktop` | Full reference-hardware report + JSON output (TASK-61)                                             |
 
 ## License
 

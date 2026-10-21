@@ -34,6 +34,7 @@
     "src/**/*.tsx",
     "tests/abuse/**/*.ts",
     "tests/load/**/*.ts",
+    "tests/e2e/prod/**/*.ts",
     "scripts/load.ts",
     "scripts/perf-report.ts",
     "scripts/perf-report/**/*.ts",
