@@ -381,6 +381,14 @@ export interface SessionProfile {
   homeSystemId: string | null;
   shipId: string;
   tokenExpiresAt: number;
+  /**
+   * TASK-56: the system the session row is currently bound to
+   * (`sessions.system_id`), or `null` for a session that has never
+   * entered a system. The boot flow joins this when present and
+   * falls back to `homeSystemId` otherwise — the "returning player
+   * re-enters where they left off" memory, with no new column.
+   */
+  lastSystemId: string | null;
 }
 
 /**
@@ -408,6 +416,7 @@ export async function loadSessionProfile(
     homeSystemId: player.homeSystemId,
     shipId: ship.id,
     tokenExpiresAt: base.tokenExpiresAt,
+    lastSystemId: base.systemId,
   };
 }
 

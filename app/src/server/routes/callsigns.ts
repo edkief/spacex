@@ -26,6 +26,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import type { Repository } from "../db/repo.js";
 import { CallsignTakenError } from "../db/errors.js";
 import {
+  CallsignSchema,
   claimCallsign,
   loadSessionProfile,
   revokeSession,
@@ -63,6 +64,35 @@ function errBody(code: string, message: string): { code: string; message: string
  * in-memory repo.
  */
 export function registerCallsignRoutes(app: FastifyInstance, deps: CallsignsDeps): void {
+  // TASK-56: the availability probe the claims screen calls on a
+  // 500 ms debounce while the player types. Deliberately dumb —
+  // format check first (local, no I/O), then a single indexed row
+  // lookup. Always 200 so the client never has to branch on
+  // transport status; the `reason` field carries the verdict.
+  app.get("/api/callsigns/availability", async (req: FastifyRequest, reply: FastifyReply) => {
+    const query = (req.query ?? {}) as { callsign?: unknown };
+    const raw = typeof query.callsign === "string" ? query.callsign.trim() : "";
+    const parsed = CallsignSchema.safeParse(raw);
+    if (!parsed.success) {
+      return reply.code(200).send({
+        callsign: raw,
+        normalized: raw.toLowerCase(),
+        available: false,
+        reason: "invalid-format",
+      });
+    }
+    // The lookup mirrors the claim path exactly (the unique index on
+    // `players.callsign` is case-sensitive), so a probe that says
+    // "taken" always corresponds to a claim that would 409.
+    const taken = await deps.repo.findPlayerByCallsign(parsed.data);
+    return reply.code(200).send({
+      callsign: parsed.data,
+      normalized: parsed.data.toLowerCase(),
+      available: taken === null,
+      reason: taken === null ? "available" : "taken",
+    });
+  });
+
   app.post("/api/callsigns", async (req: FastifyRequest, reply: FastifyReply) => {
     const body = (req.body ?? {}) as { callsign?: unknown };
     const callsign = typeof body.callsign === "string" ? body.callsign : "";
@@ -114,6 +144,13 @@ export function registerCallsignRoutes(app: FastifyInstance, deps: CallsignsDeps
       homeSystemId: profile.homeSystemId,
       shipId: profile.shipId,
       tokenExpiresAt: profile.tokenExpiresAt,
+      // TASK-56: the one-field addition the boot flow needs so a
+      // returning player re-enters the system they left rather
+      // than the home system. v1 always reports the home system
+      // (the server has no "last system" column yet); the field
+      // exists so the client can adopt the real value without a
+      // breaking change later.
+      lastSystemId: profile.lastSystemId ?? profile.homeSystemId,
       settings,
     });
   });

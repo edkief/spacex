@@ -22,7 +22,7 @@ test("scaffold serves React shell with canvas + health proxy", async ({
     if (msg.type() === "error") consoleErrors.push(msg.text());
   });
 
-  await page.goto(`${server.baseURL}/`);
+  await page.goto(`${server.baseURL}/?autoclaim=1`);
   await expect(page).toHaveTitle(/Drift/);
 
   const canvas = page.getByTestId("drift-canvas");

@@ -586,6 +586,46 @@ export class DriftClient {
   }
 
   /**
+   * TASK-56: resume an already-claimed session. Skips the REST
+   * claim entirely (the token was minted by the claims screen or
+   * restored from `localStorage`) and runs the same
+   * `hello → auth → join_system` handshake `start()` uses.
+   *
+   * Returns once the client is `online` (post `enter_system`).
+   * Failure behaviour mirrors `start()`: a handshake error with a
+   * cached token hands off to the auto-reconnect loop instead of
+   * surfacing a dead-end error state.
+   *
+   * @param session token + callsign + the system to join (the boot
+   *   flow prefers the session's last system, falling back to home).
+   */
+  async startWithSession(session: {
+    token: string;
+    callsign: string;
+    systemId: string;
+  }): Promise<void> {
+    if (this.status === "online" || this.status === "joining") return;
+    this.token = session.token;
+    this.callsign = session.callsign;
+    this.homeSystemId = session.systemId;
+    this.presence.setOwnCallsign(session.callsign);
+    try {
+      this.setStatus("connecting");
+      await this.openSession(session.systemId, /* preserve */ false);
+      this.setStatus("online");
+    } catch (err) {
+      if (this.token && !this.isReconnecting) {
+        this.setStatus("reconnecting", (err as Error).message);
+        this.beginReconnectLoop();
+        return;
+      }
+      this.setStatus("error", (err as Error).message);
+      this.emitError(err as Error);
+      throw err;
+    }
+  }
+
+  /**
    * Tear the connection down. Idempotent. On a clean disconnect
    * the store's `leaveAll()` fires so any HUD still mounted can
    * collapse to the empty state.

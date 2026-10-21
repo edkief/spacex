@@ -33,7 +33,7 @@ test("prediction module imports and basic flows work", async ({
   });
 
   // Step 1: the app boots cleanly.
-  await page.goto(`${server.baseURL}/`);
+  await page.goto(`${server.baseURL}/?autoclaim=1`);
   await expect(page).toHaveTitle(/Drift/);
   await expect(page.getByTestId("drift-canvas")).toBeVisible();
 

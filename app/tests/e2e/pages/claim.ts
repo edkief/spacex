@@ -1,11 +1,17 @@
 /**
  * TASK-70 — Page object for the Drift claim/join screen.
  *
- * The Drift client auto-claims a `Drift-<random>` callsign on
- * mount, so the "claim" UI surface is the auto-claim handshake
- * rather than a visible form. The page object exposes the
- * selectors + waits that future e2e tests need to drive the
- * flow without re-typing the magic test-ids everywhere.
+ * Since TASK-56 the shell opens on the claims screen (no stored
+ * token → `ClaimsScreen`). The page object keeps the pre-TASK-56
+ * contract — `bootAndWaitForOnline()` returns with a live session —
+ * by claiming a `Drift-<random>` callsign over the REST API and
+ * seeding the resulting token into `localStorage` BEFORE the first
+ * navigation. The app then takes the "returning player" branch
+ * (`GET /api/session` → join) with no 500 ms probe debounce in the
+ * way.
+ *
+ * The interactive claim path (typing a callsign, the availability
+ * probe, the Claim button) is covered by `first-launch.spec.ts`.
  *
  * Repeated selectors live here so a UI rename only touches one
  * file. The page object pattern (per the e2e-tester skill) is
@@ -40,15 +46,43 @@ export class ClaimPage {
   }
 
   /**
-   * Boot the app and wait for the auto-claim handshake to land.
+   * Claim a callsign over the REST API and seed the token into
+   * `localStorage` before the first navigation. Skips when the
+   * page already carries a token (repeat boots in the same test).
+   */
+  async seedSession(): Promise<string> {
+    const existing = await this.page
+      .evaluate(() => window.localStorage.getItem("drift.token"))
+      .catch(() => null);
+    if (typeof existing === "string" && existing.length > 0) return existing;
+
+    const callsign = `Drift-${Math.random().toString(36).slice(2, 8)}`;
+    const res = await this.page.request.post(`${this.server.baseURL}/api/callsigns`, {
+      data: { callsign },
+    });
+    if (!res.ok()) {
+      throw new Error(`seedSession: claim failed with ${res.status()}`);
+    }
+    const body = (await res.json()) as { token: string };
+    await this.page.addInitScript(
+      ([key, value]: [string, string]) => {
+        window.localStorage.setItem(key, value);
+      },
+      ["drift.token", body.token],
+    );
+    return callsign;
+  }
+
+  /**
+   * Boot the app and wait for the session handshake to land.
    *
-   * The DriftClient runs a `claim → hello → auth → join_system`
-   * sequence on mount; the header pill flips to the player's
-   * callsign once `auth_ok` arrives. We wait for that callsign
-   * (`Drift-…` for an auto-claim) so the test sees a fully
-   * connected client.
+   * The shell restores the seeded token via `GET /api/session`,
+   * then runs `hello → auth → join_system`. The header pill flips
+   * to the player's callsign once `auth_ok` arrives, so we wait
+   * for that callsign (`Drift-…`) before handing control back.
    */
   async bootAndWaitForOnline(timeoutMs = 15_000): Promise<void> {
+    await this.seedSession();
     await this.page.goto(`${this.server.baseURL}/`);
     await this.canvas.waitFor({ state: "visible", timeout: timeoutMs });
     await this.header.waitFor({ state: "visible", timeout: timeoutMs });

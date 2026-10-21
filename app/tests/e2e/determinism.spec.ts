@@ -109,7 +109,7 @@ test.describe("two-client e2e determinism", () => {
     track("A", pageA);
     track("B", pageB);
 
-    await Promise.all([pageA.goto(`${server.baseURL}/`), pageB.goto(`${server.baseURL}/`)]);
+    await Promise.all([pageA.goto(`${server.baseURL}/?autoclaim=1`), pageB.goto(`${server.baseURL}/?autoclaim=1`)]);
 
     // Step 2: server reports the seed the fixture captured.
     const serverSeed = server.galaxySeed;
@@ -216,7 +216,7 @@ test.describe("stability — 3 consecutive runs produce identical output", () =>
       const pageA = await contextA.newPage();
       const pageB = await contextB.newPage();
 
-      await Promise.all([pageA.goto(`${server.baseURL}/`), pageB.goto(`${server.baseURL}/`)]);
+      await Promise.all([pageA.goto(`${server.baseURL}/?autoclaim=1`), pageB.goto(`${server.baseURL}/?autoclaim=1`)]);
 
       await pageA.waitForFunction(
         () => (window as unknown as { __DRIFT__?: unknown }).__DRIFT__ !== undefined,

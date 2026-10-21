@@ -26,7 +26,7 @@ test("DriftClient auto-reconnects after a forced socket close", async ({
   driftServer: server,
 }) => {
   // Step 1: the app boots cleanly + the fixture's server is alive.
-  await page.goto(`${server.baseURL}/`);
+  await page.goto(`${server.baseURL}/?autoclaim=1`);
   await expect(page.getByTestId("drift-canvas")).toBeVisible();
 
   // Step 2: wait for the DriftClient to reach `online`.

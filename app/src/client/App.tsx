@@ -84,6 +84,10 @@ import { announcer } from "./a11y/announcer.js";
 import { wireAnnouncements } from "./a11y/wireAnnouncements.js";
 import { settingsStore } from "./a11y/settings.js";
 import { fxRegistry } from "./fx/registry.js";
+import { useFirstLaunch } from "./boot/useFirstLaunch.js";
+import { ClaimsScreen } from "./ui/claims/ClaimsScreen.js";
+import { useGuidance } from "./ui/guidance/useGuidance.js";
+import { GuidanceHint } from "./ui/guidance/GuidanceHint.js";
 import type { GalaxyOverview } from "@shared/galaxy/overview.js";
 
 /**
@@ -405,11 +409,10 @@ export function App(): React.JSX.Element {
       (globalThis as { __driftForceDockPanel?: () => void }).__driftForceDockPanel = () =>
         shell.open("dock");
     }
-    client.start().catch(() => {
-      // Errors already surface via the onError listener; the
-      // start() promise is intentionally fire-and-forget so the
-      // HUD stays responsive during the handshake.
-    });
+    // TASK-56: the WS handshake is driven by `useFirstLaunch`
+    // (claims screen → claim → `startWithSession`), not here —
+    // starting the client on mount would auto-claim a callsign
+    // behind the claims screen.
     return () => {
       offStatus();
       offError();
@@ -424,6 +427,16 @@ export function App(): React.JSX.Element {
       void client.stop();
     };
   }, [client, notifications, shell]);
+
+  // TASK-56: the first-launch flow. The hook owns the boot session
+  // (stored token → `GET /api/session`, or the claims screen) and
+  // is the ONLY caller of `client.startWithSession()`. The big
+  // effect below deliberately does not start the WS client itself —
+  // a first launch has to go through the claims screen first.
+  const firstLaunch = useFirstLaunch(client);
+  // TASK-56: the bottom-centre hint line. Client-side only; the
+  // store detects dock / disembark / pickup / sale itself.
+  const guidance = useGuidance(client);
 
   // -----------------------------------------------------------------
   // TASK-55: restore the persisted settings once a session exists.
@@ -685,6 +698,30 @@ export function App(): React.JSX.Element {
   // inside `<InteractionLine>` so the affordance + the prompt
   // stay in the same subtree (the ship HUD can't mine).
 
+  // TASK-56: first launch. Until a session exists the claims
+  // screen owns the viewport — no game tree behind it, so the
+  // renderer never spins up a canvas the player can't use.
+  if (firstLaunch.showClaims) {
+    return (
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "#05060a",
+          color: "#e6edf3",
+          fontFamily: "system-ui, sans-serif",
+        }}
+      >
+        <ClaimsScreen
+          expiredCallsign={firstLaunch.expiredCallsign}
+          claiming={firstLaunch.claiming}
+          claimError={firstLaunch.claimError}
+          onClaim={({ callsign }) => firstLaunch.claim(callsign)}
+        />
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
@@ -696,6 +733,10 @@ export function App(): React.JSX.Element {
       }}
     >
       <CanvasStage label={`3D view: flying in system ${client.currentSystemId ?? "unknown"}`} />
+      {/* TASK-56: the first-launch hint line. Sits above the
+          interaction prompt and renders nothing once the guidance
+          store reports no visible step. */}
+      <GuidanceHint store={guidance} />
       {/* TASK-54: the screen-reader channel. The status region is
           refreshed at 1 Hz (never at the 10 Hz HUD cadence) so the
           reader gets one sentence per second instead of a stream of
@@ -1128,6 +1169,17 @@ export function App(): React.JSX.Element {
               data-testid="drift-retry-button"
               type="button"
               onClick={() => {
+                // TASK-56: resume the session we already hold when
+                // there is one — `start()` would try to claim a
+                // brand-new callsign on top of the old player.
+                if (firstLaunch.session !== null) {
+                  void client.startWithSession({
+                    token: client.tokenSnapshot() ?? "",
+                    callsign: firstLaunch.session.callsign,
+                    systemId: firstLaunch.session.lastSystemId ?? firstLaunch.session.homeSystemId,
+                  });
+                  return;
+                }
                 void client.start();
               }}
               style={{
