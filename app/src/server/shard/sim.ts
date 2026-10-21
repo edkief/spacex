@@ -77,6 +77,7 @@ import { advanceHazards } from "./hazards.js";
 import { tickAi } from "./ai.js";
 import { drainInput } from "./input-queue.js";
 import { TickHistogram } from "./histogram.js";
+import { getTickProfiler } from "./phase-profiler.js";
 import type {
   Shard,
   ShardSystemContext,
@@ -122,6 +123,18 @@ export interface SimLoopStats {
   readonly connectionCount: number;
   /** Total stale input drops across every connection in this shard. */
   readonly staleDrops: number;
+  /**
+   * TASK-60: longest run of consecutive `tick()` calls that had to
+   * integrate more than one step (a main-loop stall the
+   * accumulator had to catch up on). The acceptance criterion is
+   * "the catch-up logic must never engage for more than 5
+   * consecutive ticks" — this is the number that measures it.
+   */
+  readonly maxConsecutiveCatchup: number;
+  /** Total steps integrated across every `tick()` call. */
+  readonly stepsRun: number;
+  /** Total `tick()` calls (i.e. scheduler wake-ups, not steps). */
+  readonly tickCalls: number;
 }
 
 /**
@@ -196,6 +209,11 @@ export class SimLoop {
    * clients that reconnected mid-stream.
    */
   private lastAppliedSeq: Record<string, number> = {};
+  /** TASK-60: catch-up telemetry — consecutive multi-step bursts. */
+  private consecutiveCatchup = 0;
+  private maxConsecutiveCatchup = 0;
+  private stepsRunTotal = 0;
+  private tickCallsTotal = 0;
 
   constructor(
     private readonly shard: Shard,
@@ -264,6 +282,9 @@ export class SimLoop {
       entityCount: this.lastTickEntityCount,
       connectionCount: this.shard.connections.size,
       staleDrops,
+      maxConsecutiveCatchup: this.maxConsecutiveCatchup,
+      stepsRun: this.stepsRunTotal,
+      tickCalls: this.tickCallsTotal,
     };
   }
 
@@ -293,6 +314,7 @@ export class SimLoop {
     const elapsedSec = Math.max(0, (now - this.lastTickReal) / 1000);
     this.lastTickReal = now;
     this.accumulator += elapsedSec;
+    this.tickCallsTotal += 1;
 
     let stepsRun = 0;
     while (this.accumulator >= TICK_S && stepsRun < MAX_CATCHUP_STEPS) {
@@ -316,6 +338,7 @@ export class SimLoop {
       // also benefit — they don't wire a repo and don't expect
       // a Promise to settle.
       if (mining && mining.size > 0) {
+        const miningStart = getTickProfiler()?.begin("mining");
         if (!repo) {
           throw new Error("SimLoop: mining is active but no repository is wired");
         }
@@ -354,6 +377,7 @@ export class SimLoop {
         // Awarded units emit their own `inventory_update` inside
         // `advanceMining`. Per-award `mining_update` echoes are
         // handled there too — see pushMiningUpdate in mining.ts.
+        getTickProfiler()?.end("mining", miningStart);
         void result;
       }
     }
@@ -365,15 +389,41 @@ export class SimLoop {
       this.accumulator = 0;
     }
 
+    // TASK-60: catch-up telemetry. `stepsRun > 1` means the main
+    // loop stalled long enough for the accumulator to owe us more
+    // than one step; the acceptance criterion caps the *run* of
+    // such bursts at 5 consecutive scheduler wake-ups.
+    this.stepsRunTotal += stepsRun;
+    if (stepsRun > 1) {
+      this.consecutiveCatchup += 1;
+      if (this.consecutiveCatchup > this.maxConsecutiveCatchup) {
+        this.maxConsecutiveCatchup = this.consecutiveCatchup;
+      }
+    } else {
+      this.consecutiveCatchup = 0;
+    }
+
     let didSnapshot = false;
     if (stepsRun > 0 && this.tickCount % SNAPSHOT_EVERY_N_TICKS === 0) {
+      // TASK-60: snapshot build and broadcast serialize are the two
+      // phases that only run on snapshot ticks, so they are timed
+      // around the shared serialize below.
+      const profiler = getTickProfiler();
+      const snapshotStart = profiler?.begin("snapshot");
       const entities = this.hooks.buildSnapshot();
-      const bytes = this.encodeBroadcast(entities);
+      profiler?.end("snapshot", snapshotStart);
+      // TASK-60: ONE `JSON.stringify` per tick. The encoding doubles
+      // as the byte estimate (it already was) and is handed to the
+      // broadcaster so the WS layer doesn't stringify a second copy
+      // of the same payload for 16 connections.
+      const broadcastStart = profiler?.begin("broadcast");
+      const encoded = this.encodeBroadcast(entities);
+      profiler?.end("broadcast", broadcastStart);
       // Pass the per-tick ack map so routers can include it in the
       // outgoing `entity_update` (TASK-14 reconciliation hook).
-      this.shard.broadcast(this.tickCount, entities, this.lastAppliedSeq);
+      this.shard.broadcast(this.tickCount, entities, this.lastAppliedSeq, encoded.json);
       didSnapshot = true;
-      this.hooks.onSnapshot?.(this.tickCount, bytes);
+      this.hooks.onSnapshot?.(this.tickCount, encoded.bytes);
     }
 
     return { stepsRun, didSnapshot };
@@ -389,13 +439,22 @@ export class SimLoop {
    */
   private runOneStep(): void {
     const tickStart = (this.hooks.clock ?? defaultClock)();
+    // TASK-60: while the phase profiler is attached, measure the tick
+    // on the monotonic high-resolution clock too. `Date.now()` has
+    // 1 ms granularity, which is coarser than a healthy 20 Hz tick;
+    // the bench needs to see the real distribution, production keeps
+    // the coarse (allocation-free) clock.
+    const tickStartPerf = getTickProfiler() !== null ? performance.now() : 0;
     this.tickCount += 1;
 
     const shard = this.shard;
     let inputsApplied = 0;
     const staleInputs = 0;
+    // TASK-60: one profiler read per tick; null in production.
+    const profiler = getTickProfiler();
 
     // 1. Drain each connection's input slot and integrate.
+    const inputStart = profiler?.begin("input");
     for (const conn of shard.connections.values()) {
       const input = drainInput(conn);
       // Drain can return `null` (no pending input) OR `undefined`
@@ -416,6 +475,7 @@ export class SimLoop {
       // the flight-model integrator; characters go through the
       // character integrator (TASK-32). AI ships and wrecks stay
       // inert (TASK-46 will wire the AI state machine).
+      const integrateStart = profiler?.begin("integrate");
       if (entity.kind === "player") {
         // TASK-23: a destroyed player entity stays in the registry (so
         // reconnect can find the row), but the integration loop refuses
@@ -431,6 +491,7 @@ export class SimLoop {
         // so the destroyed-entity guard from ships doesn't apply.
         integrateCharacterEntity(entity, input, shard.context, shard);
       }
+      profiler?.end("integrate", integrateStart);
       // AI ships + wrecks are inert on the tick (TASK-46 will plug
       // them in). They're still in the broadcast loop so clients see
       // them on the snapshot.
@@ -441,15 +502,18 @@ export class SimLoop {
       // is the right ack value.
       this.lastAppliedSeq[conn.playerId] = conn.lastSeq;
     }
+    profiler?.end("input", inputStart);
 
     // 2. Tick AI / wreck entities — TASK-46: drive the AI
     //    state machine (PATROL / AGGRO / ENGAGE / DISENGAGE)
     //    through `tickAi`. Wrecks stay inert (broadcast-only).
+    const aiStart = profiler?.begin("ai");
     tickAi({
       shard,
       dt: TICK_S,
       nowMs: (this.hooks.clock ?? defaultClock)(),
     });
+    profiler?.end("ai", aiStart);
 
     // 3. Run observer hooks so the shard can log timing or mark
     //    entities dirty for persistence.
@@ -458,6 +522,7 @@ export class SimLoop {
     // 4. Wreck cleanup (TASK-23). Remove entities whose
     //    `wreckExpiresAt` has passed. Cheap O(n) walk — wrecks are
     //    a tiny fraction of the registry at any moment.
+    const cleanupStart = profiler?.begin("cleanup");
     cleanupExpiredWrecks(shard, Date.now());
     // 4a. Rogue-AI respawns (TASK-45). Walk the per-shard timer
     //     map and re-mint any entry whose `respawnAtMs` has
@@ -469,13 +534,16 @@ export class SimLoop {
     //     added in TASK-34; despawn happens after GROUND_ITEM_TTL_MS
     //     (300 s).
     cleanupExpiredGroundItems(shard, Date.now());
+    profiler?.end("cleanup", cleanupStart);
     // 4c. Missile advancement (TASK-43). Advance every active
     //     missile homing step, despawn on TTL, apply contact +
     //     splash on impact. The homing turn is 1.5 rad/s, the
     //     projectile speed 120 u/s. Uses the same clock the
     //     tick reads so test fixtures can drive homing with a
     //     fake timer.
+    const projectileStart = profiler?.begin("projectiles");
     advanceMissiles(shard, this.hooks.clock ? this.hooks.clock() : Date.now());
+    profiler?.end("projectiles", projectileStart);
     // 4d. Target-lock auto-release (TASK-44). Releases locks
     //     whose target died, exited the 1500 m auto-release
     //     radius, or whose 30 s ceiling elapsed. Sends the
@@ -496,11 +564,16 @@ export class SimLoop {
     //     attack, schedules drone respawn timers on death. The
     //     pass runs at 20 Hz so the HUD's radiation meter
     //     smooths between frames.
+    const hazardStart = profiler?.begin("hazards");
     advanceHazards(shard, {
       dt: TICK_S,
       nowMs: this.hooks.clock ? this.hooks.clock() : Date.now(),
     });
-    const tickDuration = (this.hooks.clock ?? defaultClock)() - tickStart;
+    profiler?.end("hazards", hazardStart);
+    const tickDuration =
+      tickStartPerf > 0
+        ? performance.now() - tickStartPerf
+        : (this.hooks.clock ?? defaultClock)() - tickStart;
     this.histogram.push(tickDuration);
 
     const stats: SimTickStats = {
@@ -535,13 +608,14 @@ export class SimLoop {
   }
 
   /**
-   * Estimate broadcast payload size (bytes). The shard's `broadcast`
-   * hook is transport-agnostic, so the byte length is measured by
-   * JSON.stringify + UTF-8 byte length on the same data the wire
-   * would carry.
+   * Serialize the snapshot exactly once per tick (TASK-60). The
+   * resulting JSON is both the byte estimate and the payload the
+   * broadcaster reuses, so an N-connection shard pays one
+   * `JSON.stringify` instead of N + 1.
    */
-  private encodeBroadcast(entities: ProtocolEntityState[]): number {
-    return Buffer.byteLength(JSON.stringify(entities), "utf8");
+  private encodeBroadcast(entities: ProtocolEntityState[]): { json: string; bytes: number } {
+    const json = JSON.stringify(entities);
+    return { json, bytes: Buffer.byteLength(json, "utf8") };
   }
 }
 

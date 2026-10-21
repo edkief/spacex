@@ -104,6 +104,17 @@ export type AiMode = "PATROL" | "AGGRO" | "ENGAGE" | "DISENGAGE" | "DEAD";
  */
 export const AI_AGGRO_RANGE_M = 600;
 
+/**
+ * TASK-60: beyond this range from every player an AI in `PATROL`
+ * is *dormant* — nobody can see it, nobody can shoot it, so the
+ * full state machine costs nothing but CPU. Dormant AI re-decide at
+ * {@link AI_DORMANT_TICK_MS} (1 Hz) instead of 20 Hz.
+ */
+export const AI_DORMANT_RANGE_M = 2000;
+
+/** Dormant AI re-decide cadence, ms (1 Hz). */
+export const AI_DORMANT_TICK_MS = 1_000;
+
 /** Half-angle of the AGGRO cone (degrees). Spec calls for 60°. */
 export const AI_AGGRO_CONE_HALF_DEG = 60;
 
@@ -258,6 +269,12 @@ export interface AiStateRecord {
   lastFireAttemptMs: number;
   recentlyDamagedBy: Map<string, number>;
   lastAcquiringBroadcastMs: number;
+  /**
+   * TASK-60: wall clock of the last FULL state-machine pass. Dormant
+   * AI (past {@link AI_DORMANT_RANGE_M} from every player) consult
+   * this to run their patrol at 1 Hz instead of 20 Hz.
+   */
+  lastFullTickMs: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -1139,6 +1156,15 @@ export function tickAi(args: {
     if (e.kind === "ai") aiIds.push(id);
   }
 
+  // TASK-60: one pass over the registry collects the player/character
+  // positions the dormant-AI distance test reads, instead of one
+  // entity walk per AI.
+  const playerPositions: number[] = [];
+  for (const [, e] of shard.entities) {
+    if (e.kind !== "player" && e.kind !== "character") continue;
+    playerPositions.push(e.pos.x, e.pos.y, e.pos.z);
+  }
+
   for (const aiId of aiIds) {
     const ai = shard.entities.get(aiId);
     if (!ai || ai.kind !== "ai") continue;
@@ -1165,7 +1191,19 @@ export function tickAi(args: {
     // a stale ghost entity from crashing the loop.
     if (aiState.mode === "DEAD" || ai.hull <= 0) continue;
 
+    // TASK-60: dormant AI — past `AI_DORMANT_RANGE_M` from every
+    // player, a patrolling AI re-decides at 1 Hz instead of 20 Hz.
+    // Engaged AI (`AGGRO` / `ENGAGE` / `DISENGAGE`) always run the
+    // full state machine: they have a target, so they are near-field
+    // by definition and their cost is the gameplay.
+    if (aiState.mode === "PATROL" && now - aiState.lastFullTickMs < AI_DORMANT_TICK_MS) {
+      if (nearestPlayerDistSq(ai, playerPositions) > AI_DORMANT_RANGE_M * AI_DORMANT_RANGE_M) {
+        continue;
+      }
+    }
+
     const prevMode = aiState.mode;
+    aiState.lastFullTickMs = now;
     const decision = decideAi({
       ai,
       aiState,
@@ -1232,6 +1270,25 @@ export function tickAi(args: {
 // ---------------------------------------------------------------------------
 
 import { integrateShip } from "@shared/physics/flight.js";
+
+/**
+ * TASK-60: squared distance from `ai` to the nearest player /
+ * character, reading a flat `[x, y, z, x, y, z, ...]` position list
+ * built once per tick. Returns `Infinity` when nobody is in the
+ * shard — an all-AI shard keeps every AI dormant until a player
+ * arrives, which is exactly the win the criterion names.
+ */
+export function nearestPlayerDistSq(ai: SimEntity, positions: readonly number[]): number {
+  let best = Number.POSITIVE_INFINITY;
+  for (let i = 0; i + 2 < positions.length; i += 3) {
+    const dx = (positions[i] ?? 0) - ai.pos.x;
+    const dy = (positions[i + 1] ?? 0) - ai.pos.y;
+    const dz = (positions[i + 2] ?? 0) - ai.pos.z;
+    const distSq = dx * dx + dy * dy + dz * dz;
+    if (distSq < best) best = distSq;
+  }
+  return best;
+}
 
 function integrateAiEntity(ai: SimEntity, input: ShipInput, dt: number, _shard: Shard): void {
   const cls = shipClassFor(ai);
@@ -1320,6 +1377,7 @@ export function ensureAiState(shard: Shard, ai: SimEntity): AiStateRecord {
     lastFireAttemptMs: 0,
     recentlyDamagedBy: new Map(),
     lastAcquiringBroadcastMs: 0,
+    lastFullTickMs: 0,
   };
   map.set(ai.id, fresh);
   return fresh;

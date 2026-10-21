@@ -722,6 +722,15 @@ export type SnapshotBroadcaster = (
   tick: number,
   entities: ProtocolEntityState[],
   lastAppliedSeq: Readonly<Record<string, number>>,
+  /**
+   * TASK-60: the snapshot's `JSON.stringify` output, produced once
+   * by the sim so the byte estimate and the wire payload are the
+   * same string. The WS layer embeds it verbatim instead of
+   * serialising a second copy per connection. Optional so older
+   * three-argument broadcasters (tests, the router's no-op) keep
+   * working.
+   */
+  encodedJson?: string,
 ) => void;
 
 /**
