@@ -34,6 +34,7 @@ export default defineConfig({
       "src/**/*.test.tsx",
       "prereqs.test.ts",
       "tests/abuse/**/*.test.ts",
+      "tests/load/**/*.test.ts",
     ],
   },
   resolve: {

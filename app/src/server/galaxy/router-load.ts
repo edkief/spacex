@@ -25,7 +25,7 @@
 import type { EventEmitter } from "node:events";
 
 import type { Repository } from "../db/repo.js";
-import type { ConnSender, Shard } from "../shard/types.js";
+import type { ConnSender, Shard, SnapshotBroadcaster } from "../shard/types.js";
 import { createShard } from "../shard/index.js";
 import { loadShipsForShard } from "../shard/load.js";
 
@@ -105,6 +105,28 @@ export async function loadAndRegister(systemId: string, deps: LoadAndRegisterDep
   // mid-flight.
   const generation = (deps.maps.shardGeneration.get(systemId) ?? 0) + 1;
   deps.maps.shardGeneration.set(systemId, generation);
+  // TASK-18: the real 10 Hz snapshot broadcast. The sim calls this
+  // every 2nd tick; we fan the frame out to every connection through
+  // the same `connSender` the chat + combat paths use. It used to be a
+  // noop stub, which meant production delivered ZERO `entity_update`
+  // frames per client — the load test measured it.
+  const send = deps.connSender ?? (() => undefined);
+  let shardRef: Shard | null = null;
+  const broadcast: SnapshotBroadcaster = (tick, entities, lastAppliedSeq) => {
+    const live = shardRef;
+    if (!live) return;
+    for (const connId of live.connections.keys()) {
+      send(connId, {
+        type: "entity_update",
+        payload: {
+          systemId: live.systemId,
+          tick,
+          entities,
+          lastAppliedSeq: { ...lastAppliedSeq },
+        },
+      });
+    }
+  };
   const shard: Shard = createShard({
     systemId,
     context,
@@ -114,8 +136,8 @@ export async function loadAndRegister(systemId: string, deps: LoadAndRegisterDep
     // WS layer. The same hook is responsible for entity_update +
     // chat + combat_event frames — `ConnSender` accepts all three
     // types via the union shape.
-    send: deps.connSender ?? (() => undefined),
-    broadcast: () => undefined,
+    send,
+    broadcast,
     events: deps.events,
     logger: deps.logger,
     generation,
@@ -148,6 +170,7 @@ export async function loadAndRegister(systemId: string, deps: LoadAndRegisterDep
   // damage to anyone standing inside, drone cells additionally
   // mint one entity per drone.
   hydrateHazards(shard, { seed: deps.galaxySeed });
+  shardRef = shard;
   deps.maps.shards.set(systemId, shard);
   deps.maps.shardStartedAt.set(systemId, deps.now());
   return shard;

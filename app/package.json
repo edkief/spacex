@@ -21,7 +21,9 @@
     "lint:fix": "eslint --fix . && prettier --write .",
     "bench:transitions": "tsx scripts/bench-transitions.ts",
     "bench:render": "tsx scripts/bench-render.ts",
-    "bench:tick": "tsx --expose-gc scripts/bench-tick.ts"
+    "bench:tick": "tsx --expose-gc scripts/bench-tick.ts",
+    "load": "tsx scripts/load.ts",
+    "load:smoke": "tsx scripts/load.ts --smoke"
   },
   "dependencies": {
     "@fastify/static": "^10.1.6",
