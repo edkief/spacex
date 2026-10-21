@@ -1,0 +1,49 @@
+{
+  "id": "TASK-74",
+  "title": "Local ship: predicted state, ship mesh, flight input and chase camera",
+  "category": "feature",
+  "description": "Finishes defect B-2 (PRD §13.1): with the render host from TASK-73 in place, the player must actually SEE their ship and be able to fly it — currently nothing maps keys to DriftClient.sendInput (only app/tests/load/client.ts does) and DriftClient exposes no predictor, so both the ship mesh and the ship HUD are empty. Serves PRD requirements R-3, R-4 and R-5.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Own-ship predictor on DriftClient",
+      "details": "app/src/client/net/wsClient.ts: add `get predictor(): ClientShipPredictor` and construct it lazily from the existing app/src/client/net/prediction.ts ClientShipPredictor. The own entity id is `entity:<shipId>` (see makeEntityId in app/src/server/shard/entity.ts); the shipId comes from the presence frame / enter_system payload the client already parses. The `entity_update` handler already pushes EVERY entity — including the own ship — into `this.remoteBuffers`, so read `remoteBuffers.get(\"entity:\" + ownShipId)`; no server change is needed. Each authoritative sample calls predictor.reconcile({ now, serverState: simEntityFromWire(e), lastAppliedSeq: payload.lastAppliedSeq }); hydrate the predictor from the enter_system / warp_arrived entity list on join and on warp. Re-export the seam so app/src/client/components/useShipHudSource.ts, DockedIndicator.tsx and app/src/client/ui/guidance/useGuidance.ts (all of which already read window.__driftClient.predictor) light up with real data."
+    },
+    {
+      "step": 2,
+      "description": "Keyboard state + input pump",
+      "details": "New app/src/client/input/keyboardState.ts (keydown/keyup -> a Set of held KeyboardEvent.code values, blur/visibilitychange clears it, preventDefault only for game keys) and new app/src/client/input/inputPump.ts (per render frame produce a LocalInput and call client.sendInput). Resolve axes from the live scheme: `client.controlsManager.scheme().keyBindings` from app/src/client/input/controls.ts maps KeyW/S/A/D/Q/E/Space/ShiftLeft to actions — drive the pump off that table, never a second hard-coded map. LocalInput shape (seq, tMs, thrust, turn, pitch, yaw, dt) is documented in app/src/client/net/prediction.ts. Each frame: predictor.step({ input, dt }) for local prediction; send one `input` frame per 50 ms tick (20 Hz, the server tick) with a monotonic seq. Mouse look -> CameraRig.applyMouseLook(dYaw, dPitch)."
+    },
+    {
+      "step": 3,
+      "description": "Third-person chase camera",
+      "details": "app/src/client/camera/types.ts + cameraMath.ts + CameraRig.ts: add the \"external\" CameraMode (today the union is \"cockpit\" | \"onfoot\") and make it the default for flight — a cockpit camera still shows no ship, which is the reported symptom. Chase pose = ship position + a seeded offset behind/above, aimed slightly ahead of the ship, reusing the rig's existing exponential smoothing (SMOOTHING_K) and its single-PerspectiveCamera rule. Update CameraModeTestHook typing in app/src/client/camera/testHook.ts if it enumerates modes."
+    },
+    {
+      "step": 4,
+      "description": "Ship mesh",
+      "details": "New app/src/client/render/ship/: buildShipObject() using app/src/client/ships/ShipMeshBuilder.ts (ShipPaintRegistry, liveryToPaintZones) plus app/src/client/ships/threeAdapter.ts createThreeMaterialAdapter(). Build once per (classId, livery) and cache; write predictor.state().pos / quat / vel onto the object every frame; set renderer.info counts for the ship. Ship class + livery come off the own-ship wire entity — fall back to the default livery when absent."
+    },
+    {
+      "step": 5,
+      "description": "Compose in the render host + e2e",
+      "details": "app/src/client/render/host/GameCanvas.tsx owns the ship object, the keyboard listener and the input pump, and pushes the predictor state to CameraRig.setShip() every frame. New app/tests/e2e/ship-flight.spec.ts: boot; read the initial predictor state; page.keyboard.down('w') for 2 s; up('w'); assert predictor.state().vel is non-zero at the end of the thrust window, pos changed by > 1 m, the ship mesh is in the scene (assert via window.__driftRenderHost / a new ownShipMeshCount), and data-testid=\"drift-ship-speed-value\" shows a non-zero number (the ship HUD is now data-bound, not the __driftShipHud override). Then wait 3 s and assert the speed has decayed toward zero — proves the loop is continuous, not one-shot. Screenshots to .ralph/screenshots/TASK-74-*.png."
+    },
+    {
+      "step": 6,
+      "description": "Gates",
+      "details": "cd app && npm test && npm run typecheck && npm run lint && npx playwright test tests/e2e/ship-flight.spec.ts tests/e2e/ship-hud.spec.ts tests/e2e/render-host.spec.ts"
+    }
+  ],
+  "acceptanceCriteria": [
+    "window.__driftClient.predictor exists and its state() reports a non-zero pos/vel after holding KeyW for 2 s in tests/e2e/ship-flight.spec.ts, which passes",
+    "The own ship is drawn as a three.js mesh in the live scene (ownShipMeshCount >= 1 asserted from the page) and visible in a saved screenshot",
+    "At least one `input` frame per 50 ms tick reaches the server while a key is held (assert with the page-side send counter or the server's ack; state which in the log)",
+    "Release the key and the speed decays back toward zero within 3 s (the loop is continuous)",
+    "data-testid=\"drift-ship-speed-value\" renders a non-zero value from real predictor data (the __driftShipHud override is no longer the only source)",
+    "CameraRig supports \"external\" and it is the default flight mode; CameraRig.test.ts and cameraMath.test.ts updated and green",
+    "Unit tests cover the keycode->LocalInput mapping (including that W and S are opposite axes and Shift maps to boost) and the chase pose math; npm test, npm run typecheck, npm run lint green from app/",
+    "Screenshot saved under .ralph/screenshots/"
+  ],
+  "notes": "Read first: app/src/client/net/prediction.ts (LocalInput, ClientShipPredictor.step/reconcile, simEntityFromWire, INTERP_DELAY_MS), app/src/client/input/controls.ts (SPACE_SCHEME / ATMOSPHERE_SCHEME / CHARACTER_SCHEME), app/src/client/camera/CameraRig.ts + cameraMath.ts, app/src/client/ships/ShipMeshBuilder.ts + threeAdapter.ts, app/src/client/components/useShipHudSource.ts (the seam shape it expects). The own-ship presence data already reaches the client — do not add a protocol message. Do NOT use Math.random or Date.now in the mesh/placement paths. Out of scope: on-foot characters, remote entities (TASK-75), system bodies (TASK-76), terrain. Conventional Commit: `feat(client): TASK-74 predicted local ship with flight input and a chase camera`."
+}

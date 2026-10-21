@@ -495,5 +495,47 @@
     "category": "documentation",
     "specFilePath": ".ralph/tasks/TASK-69.json",
     "passes": true
+  },
+  {
+    "id": "TASK-72",
+    "title": "Fix: opening a menu surface tears down the WebSocket session",
+    "category": "bugfix",
+    "specFilePath": ".ralph/tasks/TASK-72.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-73",
+    "title": "Render host: real three.js renderer, scene, camera and frame loop",
+    "category": "feature",
+    "specFilePath": ".ralph/tasks/TASK-73.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-74",
+    "title": "Local ship: predicted state, ship mesh, flight input and chase camera",
+    "category": "feature",
+    "specFilePath": ".ralph/tasks/TASK-74.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-75",
+    "title": "Remote entity meshes for other players, AI and world props",
+    "category": "feature",
+    "specFilePath": ".ralph/tasks/TASK-75.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-76",
+    "title": "Seeded system bodies: render the star and its planets",
+    "category": "feature",
+    "specFilePath": ".ralph/tasks/TASK-76.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-77",
+    "title": "Production-path e2e gate plus README/ops documentation",
+    "category": "testing",
+    "specFilePath": ".ralph/tasks/TASK-77.json",
+    "passes": false
   }
 ]

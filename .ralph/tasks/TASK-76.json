@@ -1,0 +1,46 @@
+{
+  "id": "TASK-76",
+  "title": "Seeded system bodies: render the star and its planets",
+  "category": "feature",
+  "description": "The last half of the owner's chosen scope (PRD §13.2 R-7): the guidance hint tells the player to 'fly toward the star' but there is no star or planet in the world. Derive the current system's bodies on the client from the shared galaxy generators (no server traffic) and render them, so flying has a destination and the seed-determinism promise is visible in-world.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Get the galaxy seed in production",
+      "details": "New app/src/client/world/seedContext.ts: fetch the public `GET /api/health` once on session start — it already returns { ok, galaxySeed } (verified against the production server) — and expose `getGalaxySeed(): string | null` plus a subscribe hook. Do NOT use installDriftDebug() from app/src/client/net/driftDebug.ts: it is behind an `import.meta.env.DEV` guard and is absent from a production bundle. Do not add an endpoint."
+    },
+    {
+      "step": 2,
+      "description": "Deterministic body placement (pure module)",
+      "details": "New app/src/client/world/systemBodies.ts exposing `computeSystemBodies(seed: string, systemId: string): SystemBodies` — a PURE function, no three.js, no clock: `generateStars(seed, GALAXY_STAR_COUNT)` from app/src/shared/galaxy/stars.ts, pick the star whose `.id === systemId` (systemId === star.id, see the note in app/src/shared/galaxy/overview.ts), then `generateSystem(seed, starId)` from app/src/shared/galaxy/system.ts for the planet list (planet.radiusKm / class / hasAtmosphere / dockCount in app/src/shared/galaxy/types.ts). Planet separation is NOT seeded in the Planet record, so define and document one deterministic rule here — `orbitDistanceM(orbitIndex)` = originKm * growth^orbitIndex, originKm 4_000, growth 1.9, planet radius scaled from radiusKm by a documented metres-per-km factor — and assert the rule in a unit test. Return { star: {posKm, radiusKm, class}, planets: [{ id, name, class, orbitDistanceM, radiusM, hasAtmosphere }] }."
+    },
+    {
+      "step": 3,
+      "description": "Render the bodies",
+      "details": "New app/src/client/render/bodies/SystemBodyLayer.ts: star = emissive sphere (radius scaled to stay visible) + a THREE.PointLight; planets = MeshStandardMaterial spheres coloured per PlanetClass with an atmosphere shell (transparent, slightly larger) when hasAtmosphere. Place the layer on the sim's world scale and rebuild it whenever client.currentSystemId or the seed changes (a warp swaps the system). Keep the layer's own file free of React."
+    },
+    {
+      "step": 4,
+      "description": "Wire + unit tests",
+      "details": "app/src/client/render/host/GameCanvas.tsx mounts one SystemBodyLayer and calls layer.sync(systemId) in the frame callback (cheap no-op when the system is unchanged). Unit tests in app/src/client/world/systemBodies.test.ts: (a) the same (seed, systemId) yields byte-identical bodies across two calls; (b) two different seeds yield different star positions; (c) orbitDistanceM is strictly increasing in orbitIndex; (d) an unknown systemId returns an empty body list rather than throwing."
+    },
+    {
+      "step": 5,
+      "description": "e2e + screenshot",
+      "details": "New app/tests/e2e/system-bodies.spec.ts: after bootAndWaitForOnline, assert window.__driftRenderHost.bodyCount >= 1 (star) and that the star is in front of the ship after setting a known heading, or simply that the screenshot shows a lit body against the starfield — sample the canvas and assert a bright non-background region exists (reuse sampleCanvasPixels from tests/e2e/fixtures.ts). Assert the bodies count does not change across a warp to another system and matches the same count a fresh client sees for that system. Screenshots to .ralph/screenshots/TASK-76-*.png."
+    },
+    {
+      "step": 6,
+      "description": "Gates",
+      "details": "cd app && npm test && npm run typecheck && npm run lint && npx playwright test tests/e2e/system-bodies.spec.ts"
+    }
+  ],
+  "acceptanceCriteria": [
+    "GET /api/health supplies the galaxy seed in a production bundle (no import.meta.env.DEV guard on the path) — asserted by a unit test on the seed context",
+    "computeSystemBodies(seed, systemId) is pure and deterministic: two calls with the same arguments are identical, different seeds differ, and an unknown systemId returns [] instead of throwing",
+    "In the browser after boot, window.__driftRenderHost.bodyCount >= 1 and a screenshot shows a lit star (and at least one planet when the generated system has one)",
+    "Warping to another system rebuilds the body layer with the target system's bodies; a fresh client that joins the same system reports the same bodyCount",
+    "npm test, npm run typecheck and npm run lint are green from app/; screenshots saved under .ralph/screenshots/"
+  ],
+  "notes": "Read first: app/src/shared/galaxy/stars.ts, system.ts, planet.ts, types.ts and overview.ts (systemId === star.id); app/src/client/net/driftDebug.ts (the DEV-only seam you must NOT depend on); app/src/server/routes/* for the health response shape. World scale: the sim uses metres, planet radii are in km — pick one documented metres-per-km factor in systemBodies.ts and use it everywhere; do not invent per-callsite scales. Terrain/chunk streaming, atmospheres with drag and landing are NOT in scope (TASK-25/26/28/29 already own that and remain unimplemented in-world). Conventional Commit: `feat(render): TASK-76 seeded star and planet bodies derived from the galaxy seed`."
+}

@@ -1,0 +1,327 @@
+{
+  "id": "20261021-095916",
+  "mode": "replan",
+  "by": "daemon",
+  "status": "planned",
+  "prompt": null,
+  "seq": 1,
+  "activity": null,
+  "turn": 2,
+  "maxTurns": 30,
+  "model": null,
+  "startedAt": "2026-10-21T09:59:17.025Z",
+  "updatedAt": "2026-10-21T10:22:06.440Z",
+  "outcome": {
+    "outsideChanges": [],
+    "tasks": [
+      {
+        "id": "TASK-1",
+        "title": "Verify project prerequisites and access"
+      },
+      {
+        "id": "TASK-68",
+        "title": "Scaffold TS monorepo (client/server/shared) with tooling"
+      },
+      {
+        "id": "TASK-2",
+        "title": "Shared deterministic PRNG + hash library"
+      },
+      {
+        "id": "TASK-3",
+        "title": "Star generator (seeded galaxy layout)"
+      },
+      {
+        "id": "TASK-4",
+        "title": "System generator (planets, docks, deposits, AI roster)"
+      },
+      {
+        "id": "TASK-5",
+        "title": "Surface chunk generator (terrain, nodes, landing pads)"
+      },
+      {
+        "id": "TASK-6",
+        "title": "Galaxy determinism verification (snapshot fixtures)"
+      },
+      {
+        "id": "TASK-62",
+        "title": "Drizzle data layer: dual-driver schema (SQLite/Postgres)"
+      },
+      {
+        "id": "TASK-63",
+        "title": "Persistence service with save points and crash recovery"
+      },
+      {
+        "id": "TASK-9",
+        "title": "WS protocol: typed versioned message schema + handshake"
+      },
+      {
+        "id": "TASK-64",
+        "title": "Input validation on all inbound messages (zod)"
+      },
+      {
+        "id": "TASK-65",
+        "title": "Per-connection rate limiting and chat spam control"
+      },
+      {
+        "id": "TASK-10",
+        "title": "Callsign-only auth with signed session tokens"
+      },
+      {
+        "id": "TASK-66",
+        "title": "Session token integrity (signing, expiry, revocation)"
+      },
+      {
+        "id": "TASK-19",
+        "title": "Ship catalog: 3 data-driven ship classes"
+      },
+      {
+        "id": "TASK-41",
+        "title": "Credits balance with persistence and spend rules"
+      },
+      {
+        "id": "TASK-22",
+        "title": "Shared flight model: space, atmosphere, VTOL (deterministic)"
+      },
+      {
+        "id": "TASK-20",
+        "title": "Ship acquisition: starter ship + dock purchase"
+      },
+      {
+        "id": "TASK-21",
+        "title": "Persistent ship livery customization"
+      },
+      {
+        "id": "TASK-13",
+        "title": "Server sim: 20 Hz tick with 10 Hz snapshots"
+      },
+      {
+        "id": "TASK-14",
+        "title": "Client prediction + server reconciliation"
+      },
+      {
+        "id": "TASK-23",
+        "title": "Ship damage model: hull, shields, dock repair"
+      },
+      {
+        "id": "TASK-24",
+        "title": "Ship state persistence across restarts"
+      },
+      {
+        "id": "TASK-11",
+        "title": "Galaxy router: in-process system shards on demand"
+      },
+      {
+        "id": "TASK-12",
+        "title": "Shard lifecycle: spawn, join/leave, save, reap"
+      },
+      {
+        "id": "TASK-15",
+        "title": "Presence: in-system player list and toasts"
+      },
+      {
+        "id": "TASK-16",
+        "title": "System-wide text chat"
+      },
+      {
+        "id": "TASK-17",
+        "title": "Reconnect and resync without world reset"
+      },
+      {
+        "id": "TASK-70",
+        "title": "Playwright e2e harness for the game"
+      },
+      {
+        "id": "TASK-71",
+        "title": "Determinism test suite + two-client e2e comparison"
+      },
+      {
+        "id": "TASK-7",
+        "title": "Star chart UI (DOM): systems, travel times, occupancy"
+      },
+      {
+        "id": "TASK-8",
+        "title": "Inter-system warp flow with seamless transition"
+      },
+      {
+        "id": "TASK-57",
+        "title": "In-game frame monitor (debug + budget telemetry)"
+      },
+      {
+        "id": "TASK-25",
+        "title": "Regime manager: seamless space/atmosphere/surface transitions"
+      },
+      {
+        "id": "TASK-26",
+        "title": "World streaming: chunked surface and entity loading"
+      },
+      {
+        "id": "TASK-27",
+        "title": "Camera handoff between flight and on-foot modes"
+      },
+      {
+        "id": "TASK-28",
+        "title": "Atmospheric entry/exit: drag ramp and visual transition"
+      },
+      {
+        "id": "TASK-29",
+        "title": "Landing pads: detection, VTOL assist, docking state"
+      },
+      {
+        "id": "TASK-31",
+        "title": "Disembark: exiting the ship on a pad"
+      },
+      {
+        "id": "TASK-32",
+        "title": "On-foot character movement: walk, run, jump, terrain"
+      },
+      {
+        "id": "TASK-33",
+        "title": "On-foot interaction: prompt, pick up, examine"
+      },
+      {
+        "id": "TASK-34",
+        "title": "On-foot inventory: carry, weight, drop"
+      },
+      {
+        "id": "TASK-35",
+        "title": "Re-enter the ship from on-foot"
+      },
+      {
+        "id": "TASK-30",
+        "title": "Transition hitch budget: every regime change stays under 4 ms"
+      },
+      {
+        "id": "TASK-36",
+        "title": "On-foot multiplayer: remote characters and shared surface"
+      },
+      {
+        "id": "TASK-37",
+        "title": "Resource deposits: seeded placement and persistence"
+      },
+      {
+        "id": "TASK-38",
+        "title": "Mining: on-foot deposit extraction with a channel"
+      },
+      {
+        "id": "TASK-39",
+        "title": "Ship cargo hold: load, capacity, transfer"
+      },
+      {
+        "id": "TASK-40",
+        "title": "Dock sales: sell cargo for credits at stations"
+      },
+      {
+        "id": "TASK-42",
+        "title": "Combat core: hits, damage pipeline, kill events"
+      },
+      {
+        "id": "TASK-43",
+        "title": "Weapons: lasers and missiles with per-class loadouts"
+      },
+      {
+        "id": "TASK-67",
+        "title": "Cheat resistance: server authority audit and abuse tests"
+      },
+      {
+        "id": "TASK-44",
+        "title": "Targeting: lock-on, target box, threat ping"
+      },
+      {
+        "id": "TASK-45",
+        "title": "Rogue AI ship placement (seeded, per-system roster)"
+      },
+      {
+        "id": "TASK-46",
+        "title": "AI combat behavior: patrol, aggro, engage, disengage"
+      },
+      {
+        "id": "TASK-47",
+        "title": "PvP parity: players use the identical combat pipeline"
+      },
+      {
+        "id": "TASK-48",
+        "title": "Surface hazards: storms, rad zones, hostile drones"
+      },
+      {
+        "id": "TASK-49",
+        "title": "Ship destruction and respawn: wreck, loss, and recovery"
+      },
+      {
+        "id": "TASK-50",
+        "title": "Combat HUD: target box, weapon/energy, threat ping, kill feed"
+      },
+      {
+        "id": "TASK-51",
+        "title": "Ship HUD: speed, altitude, regime, nav readout"
+      },
+      {
+        "id": "TASK-52",
+        "title": "On-foot HUD: exposure, inventory, interaction line"
+      },
+      {
+        "id": "TASK-53",
+        "title": "Menu shell: ESC menu, pause, and the dock panel assembly"
+      },
+      {
+        "id": "TASK-54",
+        "title": "Accessibility: keyboard play, screen-reader labels, reduced motion"
+      },
+      {
+        "id": "TASK-55",
+        "title": "Settings: quality presets, sensitivity, reduced motion, persistence"
+      },
+      {
+        "id": "TASK-56",
+        "title": "First launch: claims screen to first flight"
+      },
+      {
+        "id": "TASK-58",
+        "title": "LOD and draw-call tuning for the 60 fps budget"
+      },
+      {
+        "id": "TASK-59",
+        "title": "Mobile rendering floor: 30 fps on a mid-range phone"
+      },
+      {
+        "id": "TASK-60",
+        "title": "Server tick budget: 16 players + 10 AI under 30 ms p95"
+      },
+      {
+        "id": "TASK-18",
+        "title": "16-player concurrent load test over real WebSockets"
+      },
+      {
+        "id": "TASK-61",
+        "title": "Reference hardware verification (desktop + phone)"
+      },
+      {
+        "id": "TASK-69",
+        "title": "Documentation: README, architecture, protocol, ops, contribution"
+      },
+      {
+        "id": "TASK-72",
+        "title": "Fix: opening a menu surface tears down the WebSocket session"
+      },
+      {
+        "id": "TASK-73",
+        "title": "Render host: real three.js renderer, scene, camera and frame loop"
+      },
+      {
+        "id": "TASK-74",
+        "title": "Local ship: predicted state, ship mesh, flight input and chase camera"
+      },
+      {
+        "id": "TASK-75",
+        "title": "Remote entity meshes for other players, AI and world props"
+      },
+      {
+        "id": "TASK-76",
+        "title": "Seeded system bodies: render the star and its planets"
+      },
+      {
+        "id": "TASK-77",
+        "title": "Production-path e2e gate plus README/ops documentation"
+      }
+    ]
+  }
+}

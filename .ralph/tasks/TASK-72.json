@@ -1,0 +1,43 @@
+{
+  "id": "TASK-72",
+  "title": "Fix: opening a menu surface tears down the WebSocket session",
+  "category": "bugfix",
+  "description": "Fixes defect B-1 from PRD §13.1: the client-wiring effect in app/src/client/App.tsx lists `shell` (the MenuShellValue object, re-created on every menu-stack change) in its dependency array, so opening the star chart, the ESC menu, the dock panel, the ship panel or settings re-runs the effect and its cleanup calls client.stop() — closing the socket, clearing presence/chat and setting status `disconnected`. useFirstLaunch's startedRef guard means nothing ever restarts it, which is why the player sees a dead world and 'Warp failed: DriftClient: sendWarp requires an open socket'. Serves PRD requirement R-1. Verified reproduction: on the production build, pressing M flipped __driftClient.currentStatus from `online` to `disconnected` immediately, and tests/e2e/warp.spec.ts is red today.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Extract the client-wiring effect into a dedicated hook",
+      "details": "Create app/src/client/hooks/useClientWiring.ts holding the ~215-line effect currently at app/src/client/App.tsx lines ~230-446 (the one whose cleanup calls client.stop() and whose deps are [client, notifications, shell]). Its dependencies must be [client, notifications] plus the STABLE menu-shell callbacks only — `open`/`back`/`close` are useCallback-stable in app/src/client/ui/menu/MenuShell.tsx; the `shell` VALUE object is not, because its useMemo lists `stack`. Either destructure `const { open: openShell } = shell` and depend on `openShell`, or hold the shell in a ref. Do NOT read shell.stack inside the effect. The render body of App.tsx may keep using shell.stack for chartOpen / dockPanelOpen — only the effect must be stable. Keep client.stop() for unmount only. App.tsx is already ~1250 lines, over the AGENTS.md 200-300 line bar, so this extraction is part of the task."
+    },
+    {
+      "step": 2,
+      "description": "Unit-test the dependency invariant",
+      "details": "app/src/client/hooks/useClientWiring.test.tsx: mount the hook with a fake DriftClient (record calls to stop / onStatusChange / tokenSnapshot) and a shell whose value identity changes between renders (a fresh object carrying the same open callback). Re-render three times, assert stop() was never called and the status listener is still registered exactly once; unmount and assert stop() was called exactly once. Existing React-hook test style lives in app/src/client/boot/useFirstLaunch.test.tsx (happy-dom + testing-library) — follow it."
+    },
+    {
+      "step": 3,
+      "description": "e2e regression spec for session lifetime",
+      "details": "app/tests/e2e/connection-lifetime.spec.ts using the existing app/tests/e2e/fixtures.ts worker fixture and app/tests/e2e/pages/claim.ts (bootAndWaitForOnline). After boot: press `m`, wait for drift-star-chart, press Escape, open the ESC menu and close it, and assert after each step that window.__driftClient.currentStatus === 'online' and currentSystemId is unchanged, and that no 'left' toast for the own callsign appeared."
+    },
+    {
+      "step": 4,
+      "description": "Verify the pre-existing warp spec is green",
+      "details": "cd app && npx playwright test tests/e2e/warp.spec.ts — it is red before this change and must pass after. Then npx playwright test tests/e2e/connection-lifetime.spec.ts tests/e2e/menu.spec.ts tests/e2e/star-chart.spec.ts. Save a screenshot to .ralph/screenshots/TASK-72-connection-lifetime.png."
+    },
+    {
+      "step": 5,
+      "description": "Gates",
+      "details": "cd app && npm test && npm run typecheck && npm run lint"
+    }
+  ],
+  "acceptanceCriteria": [
+    "app/src/client/hooks/useClientWiring.ts exists and the effect's dependency array contains no menu-shell VALUE object — only stable callbacks (open/back/close) or a ref",
+    "Unit test proves a changing shell value does not call client.stop() and that unmounting does (at least 3 assertions, red before the fix)",
+    "tests/e2e/connection-lifetime.spec.ts passes: chart open/close and ESC menu open/leave keep currentStatus === 'online' with an unchanged systemId",
+    "npx playwright test tests/e2e/warp.spec.ts passes (currently fails: the client never changes system)",
+    "tests/e2e/menu.spec.ts and tests/e2e/star-chart.spec.ts still pass",
+    "npm test, npm run typecheck and npm run lint are green from app/",
+    "Screenshot saved under .ralph/screenshots/"
+  ],
+  "notes": "Read first: app/src/client/App.tsx (the effect and its cleanup), app/src/client/ui/menu/MenuShell.tsx (the useMemo over [stack] that creates the unstable value), app/src/client/boot/useFirstLaunch.ts (the startedRef guard that makes the teardown permanent), app/src/client/net/wsClient.ts stop(). Do NOT change the MenuShell public API or add a `stable` variant — fix the consumer. Regression was introduced by commit 95504a2 (TASK-53). Do not touch server code or the Dockerfile; the WS path is verified working. Conventional Commit: `fix(client): TASK-72 keep the WS session alive across menu surfaces`."
+}

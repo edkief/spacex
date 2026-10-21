@@ -1,0 +1,48 @@
+{
+  "id": "TASK-73",
+  "title": "Render host: real three.js renderer, scene, camera and frame loop",
+  "category": "feature",
+  "description": "Fixes the rendering half of defect B-2 (PRD §13.1): nothing in app/src/client ever constructs a THREE.WebGLRenderer or Scene, so the page draws only the TASK-70 raw-WebGL starfield stub and has no frame loop. Serves PRD requirement R-2. This task builds the render host that TASK-74/75/76 hang the world on: one canvas, one WebGLRenderer, one Scene, one CameraRig, one requestAnimationFrame loop instrumented by the existing FrameMonitor, with the deterministic starfield ported to three.js so the background survives.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "RenderHost class (plain TS, no React)",
+      "details": "New app/src/client/render/host/RenderHost.ts: owns a THREE.WebGLRenderer, a THREE.Scene and the single CameraRig from app/src/client/camera/CameraRig.ts. Constructor options: canvas, aspect, quality params from app/src/client/world/settingsBridge.ts. IMPORTANT: construct the renderer with { antialias: true, preserveDrawingBuffer: true } — app/tests/e2e/fixtures.ts sampleCanvasPixels() draws #drift-canvas into a 2D canvas and asserts pixel variance > 0, which reads black without preserveDrawingBuffer. Set the scene background to the existing CLEAR_COLOR [0.02,0.025,0.04,1] from app/src/client/components/CanvasStage.tsx. Expose get scene(), get camera(), rendererInfo() -> { drawCalls, triangles }, framesRendered, and dispose() (renderer.dispose + geometry/material disposal)."
+    },
+    {
+      "step": 2,
+      "description": "Frame loop with a fixed-step accumulator",
+      "details": "New app/src/client/render/host/loop.ts: `startFrameLoop({ host, fixedStepSeconds, maxSubSteps, onFixedStep, onFrame })` driving requestAnimationFrame. Accumulator caps catch-up work at maxSubSteps so a backgrounded tab cannot stall the sim; onFrame receives (dtSeconds, nowMs) and calls renderer.render(). Feed every frame into the existing app/src/client/perf/frameMonitor.ts (FrameMonitor.recordFrame) so window.__driftFrameMonitor stays live. The loop must start once and survive React StrictMode double-mount (guard on an instance flag) and must dispose on unmount."
+    },
+    {
+      "step": 3,
+      "description": "Port the starfield to three.js",
+      "details": "New app/src/client/render/host/background.ts: reuse the deterministic star generator from app/src/client/components/CanvasStage.tsx (makeStarRng LCG, STAR_COUNT 800, the 90/10 bright/dim split) but emit a THREE.Points with a BufferGeometry + PointsMaterial (additive blending, vertexColors for brightness) instead of raw WebGL. Keep the generator a pure function with the same seed constant so the field is identical across runs. Delete the raw-WebGL drawing code from CanvasStage.tsx."
+    },
+    {
+      "step": 4,
+      "description": "React component swap",
+      "details": "New app/src/client/render/host/GameCanvas.tsx rendering <canvas id=\"drift-canvas\" data-testid=\"drift-canvas\" role=\"img\" aria-label={...}> and owning the RenderHost + loop lifecycle in a useEffect. Replace the <CanvasStage .../> usage in app/src/client/App.tsx with <GameCanvas label={...}/> but KEEP the same canvas id, data-testid, role and aria-label (the a11y spec TASK-54 and app/tests/e2e/render-smoke.spec.ts depend on them). CanvasStage.tsx either becomes a thin re-export of GameCanvas or is deleted along with its imports — nothing else may use it."
+    },
+    {
+      "step": 5,
+      "description": "Debug seam + e2e + unit tests",
+      "details": "Install window.__driftRenderHost unconditionally (same precedent as window.__driftClient in App.tsx — the prod e2e gate in TASK-77 needs it in a production bundle), exposing { framesRendered, rendererInfo(), sceneChildCount }. New app/tests/e2e/render-host.spec.ts: after bootAndWaitForOnline, assert framesRendered increases over 1 s, rendererInfo().drawCalls > 0, sceneChildCount >= 1 (the starfield), and that sampleCanvasPixels variance stays > 0. Screenshot to .ralph/screenshots/TASK-73-render-host.png. Unit tests for loop.ts accumulator math (fixed step, maxSubSteps clamp) and for the resize handler."
+    },
+    {
+      "step": 6,
+      "description": "Gates",
+      "details": "cd app && npm test && npm run typecheck && npm run lint && npx playwright test tests/e2e/render-smoke.spec.ts tests/e2e/render-host.spec.ts"
+    }
+  ],
+  "acceptanceCriteria": [
+    "A THREE.WebGLRenderer and a THREE.Scene exist in the client for the first time; no file under app/src/client/ is left with hand-rolled WebGL calls for the background",
+    "The canvas keeps id=\"drift-canvas\", data-testid=\"drift-canvas\", role=\"img\" and its aria-label; tests/e2e/render-smoke.spec.ts passes unchanged",
+    "The renderer is created with preserveDrawingBuffer: true — asserted by tests/e2e/render-host.spec.ts via sampleCanvasPixels variance > 0",
+    "window.__driftRenderHost.framesRendered increases over a 1 s wait and rendererInfo().drawCalls > 0 (new spec tests/e2e/render-host.spec.ts passes)",
+    "The frame loop feeds app/src/client/perf/frameMonitor.ts and window.__driftFrameMonitor records frames in a live browser",
+    "Unit tests cover the fixed-step accumulator (including the maxSubSteps clamp) and the resize path; npm test, npm run typecheck and npm run lint are green from app/",
+    "Screenshot saved under .ralph/screenshots/"
+  ],
+  "notes": "Read first: app/src/client/components/CanvasStage.tsx (star data + CLEAR_COLOR + canvas attributes), app/src/client/camera/CameraRig.ts (constructor opts, setAspect, update(dt), perspectiveCamera getter), app/src/client/perf/frameMonitor.ts (recordFrame signature), app/src/client/world/settingsBridge.ts (quality params), app/tests/e2e/fixtures.ts sampleCanvasPixels. Three.js 0.186 is already a dependency — add no packages. AGENTS.md: every new file stays under 300 lines, one concern per module (renderer / loop / background / component are four files on purpose). Out of scope here: ships, remote entities, system bodies (TASK-74/75/76) and terrain. Conventional Commit: `feat(render): TASK-73 three.js render host with an instrumented frame loop`."
+}

@@ -1,7 +1,7 @@
 # PRD: Drift — Open-Galaxy Browser Space Sim
 
-Status: Draft v1 — approved executive summary, pending final sign-off
-Date: 2026-08-22
+Status: v1 spec + §13 production-playability gate (TASK-72 … TASK-77, added 2026-10-21)
+Date: 2026-08-22 (rev. 2026-10-21)
 
 ## 1. App Overview, Objectives & Success Criteria
 
@@ -241,3 +241,86 @@ Geometry (stars, planets, terrain, node *positions*) is **derived from seed, nev
 - Determinism requirement applies to galaxy *generation*, not to sim outcomes (sim is server-authoritative, not lockstep).
 - Dependencies: Node 22, npm, three.js, Fastify, ws, Drizzle, better-sqlite3, zod, Vite, React, Vitest, Playwright. No external paid services.
 - AGENTS.md quality bar applies: one task per invocation, unit tests, Playwright smoke for UI tasks, screenshots, tsc + eslint + prettier green.
+
+## 13. Production Playability Gate (TASK-72 … TASK-77)
+
+### 13.1 Why this section exists
+
+Sections 1-12 were signed off with TASK-1 … TASK-71 all marked passing, but the
+shipped client was **not playable**: it rendered a raw-WebGL starfield stub and
+never opened a WebSocket-driven game loop. Verified 2026-10-21 against the
+production build (`STATIC_DIR=dist/client node dist-server/index.js`, the exact
+command the Dockerfile runs) driven by headless Chromium:
+
+- **B-1 (session teardown).** Opening any menu surface — star chart (`M`), ESC
+  menu, dock panel, ship panel, settings — destroyed the session. The
+  client-wiring effect in `app/src/client/App.tsx` listed `shell` (the
+  `MenuShellValue` object, re-created on every menu-stack change) in its
+  dependency array, so each open/close re-ran the effect and its cleanup called
+  `client.stop()`: socket closed, presence/chat cleared, status `disconnected`.
+  Nothing restarted it (`useFirstLaunch`'s `startedRef` guard). Reproduced
+  directly: status went `online → disconnected` the instant `M` was pressed.
+  Consequence: *"Warp failed: DriftClient: sendWarp requires an open socket"*,
+  and `tests/e2e/warp.spec.ts` is red. Introduced by TASK-53 (`95504a2`).
+- **B-2 (no renderer).** Nothing in `app/src/client/` constructed a
+  `THREE.WebGLRenderer` or `Scene`. `CanvasStage.tsx` is still the TASK-70
+  starfield placeholder. `ShipMeshBuilder`, `CameraRig`, `ChunkPipeline`,
+  `ClientShipPredictor` exist as unit-tested modules that are never
+  instantiated; no key handler feeds `DriftClient.sendInput` (only
+  `tests/load/client.ts` does); `DriftClient` exposes no `predictor`, so the
+  ship HUD is empty as well. Consequence: *starry background, no ship, `W` does
+  nothing*.
+- **Not a bug:** the Dockerfile, the WebSocket upgrade path and the production
+  server were all verified working (handshake, `auth_ok`, `join_system`,
+  `enter_system`, 10 Hz `entity_update`, warp). No change to `app/Dockerfile`,
+  `app/src/server/static.ts` or the WS wiring is required.
+
+### 13.2 Requirements
+
+- **R-1 (B-1).** The session must survive every menu surface open/close. Only
+  unmount may call `client.stop()`.
+- **R-2.** One render host owns one `<canvas data-testid="drift-canvas">`, one
+  `WebGLRenderer`, one `Scene`, one `CameraRig` and one `requestAnimationFrame`
+  loop, and it instruments that loop with the existing `FrameMonitor`.
+- **R-3.** The player's own ship is visible as a mesh built from
+  `ShipMeshBuilder` + `createThreeMaterialAdapter`, positioned from the
+  **client-predicted** state (`ClientShipPredictor`, reconciled from the
+  authoritative `entity_update` for `entity:<ownShipId>`), never from raw
+  snapshots.
+- **R-4.** Flight keys reach the server: `W/S` thrust/reverse, `A/D` yaw, `Q/E`
+  roll, `Space` thrust up, `Shift` boost, mouse look — resolved through the
+  existing `Controls` scheme table, sent as `input` frames at the 20 Hz server
+  tick with a monotonic `seq`.
+- **R-5.** Flight runs in a new third-person `"external"` chase camera mode (the
+  rig currently only has `"cockpit"` / `"onfoot"`; cockpit-first would still show
+  no ship), default for flight, reusing the rig's existing smoothing.
+- **R-6.** Other players' ships, AI ships, wrecks, drones, missiles, terminals
+  and ground items render as pooled meshes interpolated from
+  `RemoteEntityBuffer.sample()`; the own entity is excluded.
+- **R-7.** The star and the seeded planets of the current system render from the
+  shared galaxy generators (`generateStars` / `generateSystem`, `systemId ===
+  star.id`) using the seed fetched from the public `GET /api/health`. Body
+  placement is a pure function of `(seed, systemId)`.
+- **R-8.** A production-path e2e gate boots the built artefacts the way the
+  image does (`npm run build`, `npm run build:server`, then
+  `STATIC_DIR=dist/client node dist-server/index.js` with no `.env.local`
+  present) and asserts: claim → `online` → ship drawn → hold `W` moves the ship
+  → chart open/close keeps the session → warp lands. `npm test` stays free of it.
+
+### 13.3 Non-goals for this gate
+
+On-foot character meshes, terrain/chunk streaming in-world, combat FX,
+mobile/perf work, and any `app/Dockerfile` change. `docker` is unavailable in
+the sandbox, so the gate reproduces the image's command line locally instead of
+building the image.
+
+### 13.4 Acceptance criteria for §13
+
+1. `npx playwright test tests/e2e/warp.spec.ts` passes (it is red today).
+2. `npm run test:e2e:prod` passes from a clean `dist/`, asserting R-8.
+3. A player who claims a callsign in the production build sees their ship mesh,
+   flies it with `W`, sees other players' ships and the system's star + planets,
+   opens the star chart without losing the session, and warps.
+4. `npm test`, `npm run typecheck`, `npm run lint` green after every task.
+5. `README.md` + `docs/ops.md` state exactly what the production build does and
+   does not support today.

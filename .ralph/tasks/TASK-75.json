@@ -1,0 +1,47 @@
+{
+  "id": "TASK-75",
+  "title": "Remote entity meshes for other players, AI and world props",
+  "category": "feature",
+  "description": "The second half of the owner's chosen scope (PRD §13.2 R-6): the player currently sees a ship and stars but nobody else. Build the remote-entity layer that turns the 10 Hz snapshots the client already buffers into pooled, interpolated meshes for other players' ships, AI ships, wrecks, drones, missiles, terminals and ground items.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Entity mesh factory",
+      "details": "New app/src/client/render/entities/entityMeshFactory.ts: a pure map from ProtocolEntityKind (see EntityKindSchema in app/src/shared/protocol/schemas.ts: ship, character, ai-ship, wreck, deposit, terminal, groundItem, missile, drone) to a three.js object. Ships and ai-ships reuse app/src/client/ships/ShipMeshBuilder.ts + threeAdapter.ts (ai-ships get the hostile palette, never a player livery); drones rotate; missiles are stretched billboards; wreck/deposit/terminal/groundItem are simple low-poly primitives coloured per kind. Every kind must have an entry — assert exhaustiveness with a Record<ProtocolEntityKind, ...> so a new kind fails the build rather than rendering nothing."
+    },
+    {
+      "step": 2,
+      "description": "Pool + per-frame sync",
+      "details": "New app/src/client/render/entities/RemoteEntityLayer.ts + entityPool.ts. Every frame, iterate client.remoteEntityBuffers (Map<entityId, RemoteEntityBuffer>, getter already on DriftClient), skip the own entity id, call buf.sample(Date.now()) and write pos/quat onto the mesh. Use RemoteEntityBuffer.sample()'s { state, stale } result from app/src/client/net/prediction.ts: hide (or freeze + dim) an entity whose sample is stale beyond REMOTE_STALE_MS (1000 ms). Remove meshes for ids that disappear from the map or from the snapshot. Pool meshes per kind so a 16-player system reuses a bounded number of objects; expose remoteMeshCount for the e2e."
+    },
+    {
+      "step": 3,
+      "description": "Wire into the render host",
+      "details": "app/src/client/render/host/GameCanvas.tsx constructs one RemoteEntityLayer and calls layer.sync(remoteBuffers, nowMs) in the frame callback, inside the same try/catch discipline as the ship. Keep the layer independent of React so a unit test can drive it with a fake buffer map."
+    },
+    {
+      "step": 4,
+      "description": "Unit tests",
+      "details": "app/src/client/render/entities/*.test.ts: (a) every ProtocolEntityKind produces an object; (b) a buffer pushed twice then sampled returns the interpolated pose and the mesh transform matches; (c) a sample older than REMOTE_STALE_MS hides the mesh; (d) removing an id from the map releases the mesh back to the pool and drops remoteMeshCount; (e) the own entity id is never rendered."
+    },
+    {
+      "step": 5,
+      "description": "Two-context e2e",
+      "details": "New app/tests/e2e/remote-entities.spec.ts, following the two-browser-context pattern in tests/e2e/presence.spec.ts (browser.newContext() twice against the same worker-scoped driftServer). Claim in both, assert each page's window.__driftRenderHost.remoteMeshCount >= 1 within 3 s and that the other's callsign appears; then have context B leave (context.close()) and assert context A's count drops back within 2 s. Save a screenshot from each context to .ralph/screenshots/TASK-75-*.png."
+    },
+    {
+      "step": 6,
+      "description": "Gates",
+      "details": "cd app && npm test && npm run typecheck && npm run lint && npx playwright test tests/e2e/remote-entities.spec.ts tests/e2e/presence.spec.ts"
+    }
+  ],
+  "acceptanceCriteria": [
+    "Every ProtocolEntityKind has a mesh factory entry (exhaustive Record) with a unit test asserting it",
+    "tests/e2e/remote-entities.spec.ts passes: two clients in one system each see at least one remote mesh, and closing one context removes its mesh within 2 s",
+    "Remote meshes are positioned from RemoteEntityBuffer.sample() with the documented INTERP_DELAY_MS interpolation, and a stale sample (> REMOTE_STALE_MS) hides the mesh instead of freezing it silently",
+    "The own entity id is never rendered as a remote mesh (unit test)",
+    "Meshes are pooled: a unit test asserts reuse across add/remove cycles and that remoteMeshCount returns to 0 after all entities leave",
+    "npm test, npm run typecheck and npm run lint are green from app/; screenshots saved under .ralph/screenshots/"
+  ],
+  "notes": "Read first: app/src/client/net/prediction.ts (RemoteEntityBuffer, sample(), INTERP_DELAY_MS, REMOTE_STALE_MS, SimEntityLite), app/src/client/net/wsClient.ts (remoteEntityBuffers getter, applyWarpArrived — it resets the buffers, so the layer must survive a warp without leaking meshes), app/src/shared/protocol/schemas.ts (EntityKindSchema), app/src/client/ships/ShipMeshBuilder.ts. On-foot characters are out of scope: render the `character` kind as a simple capsule placeholder so the kind is covered. Terrain/chunk streaming is out of scope. Conventional Commit: `feat(render): TASK-75 pooled remote-entity meshes with snapshot interpolation`."
+}

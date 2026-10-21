@@ -1,0 +1,42 @@
+{
+  "id": "TASK-77",
+  "title": "Production-path e2e gate plus README/ops documentation",
+  "category": "testing",
+  "description": "Closes the loop on both reported symptoms and prevents a repeat (PRD §13.2 R-8). Every existing e2e spec boots `npm run dev` (Vite + a separate API port), so nothing in CI ever exercised the artefact the Dockerfile ships. Add a gate that builds the client and the bundled server and drives them exactly as the image does — `STATIC_DIR=dist/client node dist-server/index.js`, with no .env.local present — then document what the production build supports today. `docker` is unavailable in this sandbox, so the gate reproduces the image's command line locally; app/Dockerfile itself needs no change.",
+  "steps": [
+    {
+      "step": 1,
+      "description": "Prod fixture",
+      "details": "New app/tests/e2e/prod/fixtures.ts, modelled on app/tests/e2e/fixtures.ts but spawning the production command instead of `npm run dev`. Worker-scoped: (1) run `npm run build` and `npm run build:server` once, guarded by a stamp file in the worker tmp dir so a second spec file in the same run skips the rebuild; (2) allocate a free port and a mkdtemp dir; (3) spawn `node dist-server/index.js` with PORT=API_PORT=<port>, STATIC_DIR=<app>/dist/client, DB_DRIVER=sqlite, DB_PATH=<tmp>/drift.db, GALAXY_SEED=PROD-E2E-<workerIndex>, SESSION_SECRET=<64 hex chars generated per worker>, PROJECT_ROOT=<tmp> (an empty dir — this proves the image's env-only configuration works, since app/.dockerignore excludes .env.local), LOG_LEVEL=warn; (4) waitForHealth on http://localhost:<port>/api/health; (5) expose baseURL = the same origin (there is no Vite proxy in prod, so apiURL === baseURL); (6) SIGTERM then SIGKILL teardown. Add app/tests/e2e/prod/playwright.prod.config.ts with testDir ./tests/e2e/prod, the same chromium executablePath logic as playwright.config.ts, and globalTimeout 5 min."
+    },
+    {
+      "step": 2,
+      "description": "The gate spec",
+      "details": "New app/tests/e2e/prod/prod-play.spec.ts, one test, asserting the whole reported flow end to end against the built bundle: (a) claim a callsign and reach currentStatus === 'online'; (b) window.__driftRenderHost.ownShipMeshCount >= 1 and framesRendered increases; (c) keyboard.down('w') for 2 s makes __driftClient.predictor.state().vel non-zero; (d) press 'm' — the chart opens AND currentStatus is still 'online' (the TASK-72 regression); (e) select a non-current node, click the Warp button, and assert currentSystemId becomes the target within 8 s (the TASK-72 warp regression). Save .ralph/screenshots/TASK-77-prod-{start,chart,warped}.png. Assert zero console errors on the page throughout."
+    },
+    {
+      "step": 3,
+      "description": "npm script",
+      "details": "app/package.json: add \"test:e2e:prod\": \"playwright test --config=tests/e2e/prod/playwright.prod.config.ts\". It must NOT be part of `npm test` (vitest) or `npm run test:e2e`, and it must be runnable on its own from a clean tree (no dist/ present). Note in the log whether dist/ was rebuilt."
+    },
+    {
+      "step": 4,
+      "description": "Documentation",
+      "details": "README.md: in the 'To play on the production build instead' block, state what works today (fly your ship with WASD/QE/Space/Shift, see other players and AI ships, see the star and its planets, warp) and add a short Known gaps list (on-foot characters render as placeholders, terrain/chunk streaming is not drawn yet, no key rebinding). docs/ops.md: document the production env contract — SESSION_SECRET, GALAXY_SEED, DB_DRIVER, DB_PATH, STATIC_DIR, PORT/API_PORT, PROJECT_ROOT — and note that .env.local is excluded from the image by design so every value must be passed with `-e`/`-`. Add the new command to the README command table. Correct anything in these docs that the work in TASK-72..76 made false."
+    },
+    {
+      "step": 5,
+      "description": "Gates",
+      "details": "cd app && rm -rf dist dist-server && npm run test:e2e:prod && npm test && npm run typecheck && npm run lint"
+    }
+  ],
+  "acceptanceCriteria": [
+    "`npm run test:e2e:prod` passes from a tree with no dist/ or dist-server/ — it builds both, boots `node dist-server/index.js` with STATIC_DIR=dist/client and no .env.local, and runs the single gate spec",
+    "The gate spec asserts all five of: status reaches online, the own ship mesh is in the scene, holding W produces non-zero predicted velocity, opening the star chart leaves the status online, and a warp from the chart changes currentSystemId within 8 s",
+    "The prod fixture fails loudly if the production server never becomes healthy, including the last 30 log lines",
+    "npm test (vitest) and npm run test:e2e are unchanged and do not run the prod gate",
+    "README.md and docs/ops.md describe the production build's supported features, its known gaps and its environment contract; the README command table lists test:e2e:prod",
+    "Screenshots for the prod run are saved under .ralph/screenshots/"
+  ],
+  "notes": "Read first: app/tests/e2e/fixtures.ts (findFreePort, waitForHealth, killChild — reuse them rather than rewriting), app/playwright.config.ts (chromium executablePath: /opt/ms-playwright/chromium-1248/... with the PLAYWRIGHT_CHROMIUM_PATH override), app/Dockerfile (the exact ENV/CMD the fixture must reproduce), README.md and docs/ops.md. Do NOT change app/Dockerfile: it was verified correct — the defects were client-side. If the build step is slow (> 3 min), say so in the log rather than skipping it. Conventional Commit: `test(e2e): TASK-77 production-build gate covering ship, input, chart and warp`."
+}

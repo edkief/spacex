@@ -22,3 +22,5 @@ playwright-report/
 
 # Local env file (placeholders, but keep it out of git)
 .env.local
+.playwright-mcp/
+.playwright-cli/
