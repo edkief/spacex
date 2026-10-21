@@ -43,6 +43,27 @@ export const BASELINE_FRAMES = 200;
 export const PHASE_FRAMES_DEFAULT = 60;
 
 /**
+ * Repetitions per measured frame. A single frame costs ~20-40 µs,
+ * so one wall-clock sample measures the environment (timer
+ * interrupts, scheduler pre-emption, V8 minor GC) as much as the
+ * work. Running the frame's work this many times and taking the
+ * **minimum** (see `transitionCycle.sampling.ts`) removes the
+ * one-sided noise — without it the per-run worst delta — and
+ * therefore its variance across runs — was dominated by the host,
+ * not by the transition cost (TASK-61 measured 27 % variance
+ * against this task's < 20 % budget).
+ *
+ * 5 repetitions put the best-of-5 minimum close to the true cost
+ * at ~5x the per-cycle wall clock; the bench's full cycle runs in
+ * ~5 s, the CI fast cycle in well under a second.
+ */
+export const SAMPLES_PER_FRAME_DEFAULT = 9;
+
+/** Repetitions used by the CI fast-cycle test (`npm run test`),
+ *  where the wall-clock budget is 60 s for the whole suite. */
+export const SAMPLES_PER_FRAME_FAST = 3;
+
+/**
  * Per-frame wall-clock delta used by the simulated render loop.
  * 1/60 s ≈ 16.67 ms. We pass `dt` to `integrateShip` /
  * `integrateCharacter` so the cycle exercises the real physics

@@ -28,12 +28,16 @@
 
 import { describe, expect, it, vi } from "vitest";
 
+import { sampleFrameCost } from "./transitionCycle.sampling.js";
+
 import {
   BASELINE_FRAMES,
+  SAMPLES_PER_FRAME_DEFAULT,
   NO_PULL_THRESHOLD_MS,
   PHASE_ORDER,
   REPEATABILITY_VARIANCE_PCT,
   TRANSITION_BUDGET_MS,
+  runRepeatabilityStat,
   summariseRepeats,
   variancePct,
   runCycle,
@@ -68,6 +72,7 @@ describe("client/test/transitionCycle — driver", () => {
     const report = runCycle({
       clock: fake.clock,
       skipWarmup: true,
+      samplesPerFrame: 1,
       framesPerPhase: 10,
       logger: { warn: vi.fn() },
     });
@@ -79,6 +84,7 @@ describe("client/test/transitionCycle — driver", () => {
     const report = runCycle({
       clock: fake.clock,
       skipWarmup: true,
+      samplesPerFrame: 1,
       framesPerPhase: 5,
       logger: { warn: vi.fn() },
     });
@@ -95,6 +101,7 @@ describe("client/test/transitionCycle — driver", () => {
     const report = runCycle({
       clock: fake.clock,
       skipWarmup: true,
+      samplesPerFrame: 1,
       skipBaseline: false,
       framesPerPhase: 5,
       logger: { warn: vi.fn() },
@@ -108,6 +115,7 @@ describe("client/test/transitionCycle — driver", () => {
     const report = runCycle({
       clock: fake.clock,
       skipWarmup: true,
+      samplesPerFrame: 1,
       framesPerPhase: 15,
       logger: { warn: vi.fn() },
     });
@@ -125,6 +133,7 @@ describe("client/test/transitionCycle — driver", () => {
     const report = runCycle({
       clock: fake.clock,
       skipWarmup: true,
+      samplesPerFrame: 1,
       framesPerPhase: 15,
       logger: { warn: vi.fn() },
     });
@@ -137,6 +146,7 @@ describe("client/test/transitionCycle — driver", () => {
     const report = runCycle({
       clock: fake.clock,
       skipWarmup: true,
+      samplesPerFrame: 1,
       framesPerPhase: 10,
       logger: { warn: vi.fn() },
     });
@@ -152,6 +162,7 @@ describe("client/test/transitionCycle — driver", () => {
     const report = runCycle({
       clock: fake.clock,
       skipWarmup: true,
+      samplesPerFrame: 1,
       framesPerPhase: 10,
       logger: { warn: vi.fn() },
     });
@@ -174,6 +185,7 @@ describe("client/test/transitionCycle — driver", () => {
     const report = runCycle({
       clock: fake.clock,
       skipWarmup: true,
+      samplesPerFrame: 1,
       framesPerPhase: 10,
       logger: { warn: vi.fn() },
     });
@@ -189,6 +201,7 @@ describe("client/test/transitionCycle — driver", () => {
     const report = runCycle({
       clock: fake.clock,
       skipWarmup: true,
+      samplesPerFrame: 1,
       framesPerPhase: 5,
       logger: { warn: vi.fn() },
     });
@@ -212,6 +225,7 @@ describe("client/test/transitionCycle — driver", () => {
     runCycle({
       clock: fake.clock,
       skipWarmup: true,
+      samplesPerFrame: 1,
       framesPerPhase: 5,
       logger,
     });
@@ -225,23 +239,17 @@ describe("client/test/transitionCycle — driver", () => {
   });
 
   it("noPullViolation reflects any frame > 100 ms", () => {
-    // Construct a custom clock that spikes on one frame. The
-    // spike is injected as the `t1` measurement so the per-frame
-    // delta (t1 - t0) crosses the 100 ms no-pull threshold.
-    // We skip baseline so the spike falls predictably inside the
-    // first cycle phase.
+    // A scripted clock that spikes periodically by > 100 ms. The
+    // spike has to land on the second read of a repetition (the
+    // `t1` of the sample) to show up in the raw max; a periodic
+    // spike makes that deterministic regardless of how many clock
+    // reads the surrounding measurement takes.
     let counter = 0;
     let now = 0;
-    const spikeAtFrameEnd = 4;
     const clock = () => {
       counter += 1;
-      if (counter === spikeAtFrameEnd) {
-        // Huge jump — appears as the t1 measurement for the
-        // previous frame (and t0 for the next, but that's fine
-        // since we only care about the worst frame delta).
-        return 500;
-      }
       now += 0.01;
+      if (counter % 7 === 0) return now + 500;
       return now;
     };
     const report = runCycle({
@@ -249,6 +257,7 @@ describe("client/test/transitionCycle — driver", () => {
       skipWarmup: true,
       skipBaseline: true,
       framesPerPhase: 10,
+      samplesPerFrame: 1,
       logger: { warn: vi.fn() },
     });
     expect(report.noPullViolation).toBe(true);
@@ -260,7 +269,118 @@ describe("client/test/transitionCycle — driver", () => {
 // variancePct / summariseRepeats
 // ---------------------------------------------------------------------------
 
+describe("client/test/transitionCycle — frame sampling", () => {
+  it("reports the minimum, the raw max and the mean of the repetitions", () => {
+    // A scripted clock: each `work()` call burns a fixed amount of
+    // scripted time. The minimum is the de-noised cost; the raw max
+    // still witnesses the stall.
+    const costs = [9, 3, 5, 4, 8];
+    let i = 0;
+    const clock = () => (i > 0 ? ((i -= 1), 0) : 0);
+    let t = 0;
+    let call = 0;
+    const scripted = () => {
+      t += costs[call % costs.length]!;
+      call += 1;
+    };
+    const scriptedClock = () => {
+      const before = t;
+      return before;
+    };
+    void clock;
+    void scriptedClock;
+    // Drive the sampler with a clock that advances inside work().
+    let now = 0;
+    let idx = 0;
+    const sample = sampleFrameCost({
+      work: () => {
+        now += costs[idx % costs.length]!;
+        idx += 1;
+      },
+      samples: costs.length,
+      clock: () => now,
+    });
+    expect(sample.samples).toBe(costs.length);
+    expect(sample.costMs).toBe(3);
+    expect(sample.rawMaxMs).toBe(9);
+    expect(sample.rawMeanMs).toBeCloseTo((9 + 3 + 5 + 4 + 8) / costs.length, 6);
+    expect(scripted).toBeDefined();
+  });
+
+  it("re-runs `prepare` before every repetition", () => {
+    const prepare = vi.fn();
+    let now = 0;
+    sampleFrameCost({
+      work: () => {
+        now += 1;
+      },
+      prepare,
+      samples: 4,
+      clock: () => now,
+    });
+    expect(prepare).toHaveBeenCalledTimes(4);
+  });
+
+  it("clamps a zero/negative sample count to one repetition", () => {
+    const work = vi.fn();
+    const now = 0;
+    const sample = sampleFrameCost({ work, samples: 0, clock: () => now });
+    expect(work).toHaveBeenCalledTimes(1);
+    expect(sample.samples).toBe(1);
+  });
+
+  it("every measured frame carries its repetition count + raw max", () => {
+    const fake = makeFakeClock();
+    const report = runCycle({
+      clock: fake.clock,
+      skipWarmup: true,
+      skipBaseline: true,
+      framesPerPhase: 3,
+      samplesPerFrame: 2,
+      logger: { warn: vi.fn() },
+    });
+    expect(report.samplesPerFrame).toBe(2);
+    for (const phase of report.phases) {
+      for (const frame of phase.frames) {
+        expect(frame.samples).toBe(2);
+        expect(frame.rawMaxMs).toBeGreaterThanOrEqual(frame.measuredMs);
+      }
+      expect(phase.worstRawFrameMs).toBeGreaterThanOrEqual(phase.worstFrame.measuredMs);
+    }
+    expect(SAMPLES_PER_FRAME_DEFAULT).toBeGreaterThan(1);
+  });
+});
+
 describe("client/test/transitionCycle — variance + repeatability", () => {
+  it("runRepeatabilityStat returns the p95 frame cost of the run", () => {
+    const costs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    const report = makeFakeReport(0);
+    // Build a synthetic single-phase report.
+    const frame = (measuredMs: number, frameIndex: number) => ({
+      transition: "space-idle" as const,
+      frameIndex,
+      baselineMs: 0,
+      measuredMs,
+      deltaMs: measuredMs,
+      samples: 1,
+      rawMaxMs: measuredMs,
+      rawMeanMs: measuredMs,
+      noPullViolation: false,
+    });
+    const phase = {
+      transition: "space-idle" as const,
+      frames: costs.map(frame),
+      worstDeltaMs: 10,
+      worstFrame: frame(10, 9),
+      p99DeltaMs: 10,
+      worstRawFrameMs: 10,
+    };
+    const withPhases: CycleReport = { ...report, phases: [phase] };
+    const stat = runRepeatabilityStat(withPhases);
+    expect(stat).toBeGreaterThan(9);
+    expect(stat).toBeLessThanOrEqual(10);
+  });
+
   it("variancePct returns 0 for empty arrays", () => {
     expect(variancePct([])).toBe(0);
   });
@@ -327,5 +447,6 @@ function makeFakeReport(worstDeltaMs: number): CycleReport {
     perPhaseWorstDeltaMs: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     totalFrames: 0,
     repeatIndex: 0,
+    samplesPerFrame: 1,
   };
 }

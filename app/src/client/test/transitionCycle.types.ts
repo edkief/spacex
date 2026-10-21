@@ -75,11 +75,21 @@ export interface PhaseFrame {
   readonly frameIndex: number;
   /** Mean baseline frame time (ms). */
   readonly baselineMs: number;
-  /** Measured frame time (ms). */
+  /** De-noised measured frame time (ms) — the **minimum** of the
+   *  `samplesPerFrame` repetitions (see `transitionCycle.sampling.ts`).
+   *  This is the value every budget delta is computed from. */
   readonly measuredMs: number;
   /** `measuredMs - baselineMs` (ms). */
   readonly deltaMs: number;
-  /** `true` if `measuredMs > NO_PULL_THRESHOLD_MS`. */
+  /** How many repetitions the frame cost was sampled over. */
+  readonly samples: number;
+  /** Worst **raw** repetition for this frame (ms). A stall can
+   *  only ever add time, so the raw max is the honest no-pull
+   *  witness even when a sibling repetition ran clean. */
+  readonly rawMaxMs: number;
+  /** Mean of the raw repetitions (ms) — context for the noise. */
+  readonly rawMeanMs: number;
+  /** `true` if `rawMaxMs > NO_PULL_THRESHOLD_MS`. */
   readonly noPullViolation: boolean;
 }
 
@@ -102,6 +112,8 @@ export interface PhaseReport {
   readonly worstFrame: PhaseFrame;
   /** 99th-percentile delta across the phase. */
   readonly p99DeltaMs: number;
+  /** Worst raw repetition across every frame in the phase (ms). */
+  readonly worstRawFrameMs: number;
 }
 
 /**
@@ -120,8 +132,11 @@ export interface CycleReport {
   readonly worstDeltaMs: number;
   /** Phase that owns `worstDeltaMs`. */
   readonly worstPhase: PhaseName;
-  /** Worst single-frame wall-clock cost across every phase (ms). */
+  /** Worst **raw** single-repetition wall-clock cost across every
+   *  phase (ms) — the spec's no-pull witness. */
   readonly worstFrameMs: number;
+  /** Repetitions each frame was sampled over. */
+  readonly samplesPerFrame: number;
   /** `true` when `worstFrameMs > NO_PULL_THRESHOLD_MS`. */
   readonly noPullViolation: boolean;
   /** Per-phase worst-deltas, in `PHASE_ORDER` (ms). Used by the
@@ -145,6 +160,10 @@ export interface RunCycleOptions {
   readonly logger?: { warn(message: string, ...rest: unknown[]): void };
   /** Frames per phase. Defaults to `PHASE_FRAMES_DEFAULT`. */
   readonly framesPerPhase?: number;
+  /** Repetitions per measured frame (best-of-N de-noising).
+   *  Defaults to `SAMPLES_PER_FRAME_DEFAULT`; the CI test passes
+   *  `SAMPLES_PER_FRAME_FAST`. `1` disables resampling. */
+  readonly samplesPerFrame?: number;
   /** Repeat index (for logging only). */
   readonly repeatIndex?: number;
   /** Skip the warmup pass (tests use `true` to keep the suite fast). */

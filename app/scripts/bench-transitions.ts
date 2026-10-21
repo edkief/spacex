@@ -28,6 +28,7 @@ import process from "node:process";
 import {
   NO_PULL_THRESHOLD_MS,
   REPEATABILITY_VARIANCE_PCT,
+  SAMPLES_PER_FRAME_DEFAULT,
   TRANSITION_BUDGET_MS,
   summariseRepeats,
   runCycle,
@@ -44,10 +45,9 @@ const REPEAT_COUNT = 5;
  * same shape).
  *
  * The bench prints both `worst` (the spec's "max frame delta"
- * metric) and `p99` (the more-robust-to-GC-spikes metric). The
- * budget check below uses `p99` so the dev-machine noise doesn't
- * flake the bench; the `worst` line is preserved so the operator
- * can spot absolute GC spikes (the spec's no-pull check).
+ * metric, de-noised) and `rawWorst` (the worst single wall-clock
+ * repetition, the no-pull witness). `p99Delta` is the same
+ * de-noised delta at the 99th percentile.
  */
 function printReport(reports: readonly CycleReport[]): void {
   // eslint-disable-next-line no-console
@@ -57,13 +57,14 @@ function printReport(reports: readonly CycleReport[]): void {
     console.log(
       `[run ${report.repeatIndex}] baseline mean=${report.baselineMeanMs.toFixed(3)}ms p95=${report.baselineP95Ms.toFixed(3)}ms ` +
         `worst=${report.worstDeltaMs.toFixed(3)}ms (${report.worstPhase}) ` +
-        `worstFrame=${report.worstFrameMs.toFixed(3)}ms`,
+        `rawWorstFrame=${report.worstFrameMs.toFixed(3)}ms (samples/frame=${report.samplesPerFrame})`,
     );
     for (const phase of report.phases) {
       // eslint-disable-next-line no-console
       console.log(
         `  · ${phase.transition.padEnd(24)} worstDelta=${phase.worstDeltaMs.toFixed(3)}ms ` +
           `p99Delta=${phase.p99DeltaMs.toFixed(3)}ms ` +
+          `rawWorst=${phase.worstRawFrameMs.toFixed(3)}ms ` +
           `(worst at frame ${phase.worstFrame.frameIndex}, measuredMs=${phase.worstFrame.measuredMs.toFixed(3)})`,
       );
     }
@@ -80,6 +81,14 @@ function printSummary(reports: readonly CycleReport[]): void {
   );
   // eslint-disable-next-line no-console
   console.log(`p95 of worst deltas: ${summary.p95OfWorstDeltas.toFixed(3)} ms`);
+  // eslint-disable-next-line no-console
+  console.log(
+    `p95 frame cost per run: ${summary.p95CostPerRun.map((v) => v.toFixed(3)).join(", ")} ms`,
+  );
+  // eslint-disable-next-line no-console
+  console.log(
+    `p95 delta per run: ${summary.p95DeltaPerRun.map((v) => v.toFixed(3)).join(", ")} ms`,
+  );
   // eslint-disable-next-line no-console
   console.log(
     `variance: ${summary.variancePct.toFixed(2)} % (budget ${REPEATABILITY_VARIANCE_PCT}%)`,
@@ -142,15 +151,15 @@ async function main(): Promise<void> {
   // Three cycles is enough on a healthy machine; more would
   // mask legitimate variance the bench needs to detect.
   // eslint-disable-next-line no-console
-  console.log("warmup: running 3 unmeasured cycles to JIT the hot path...");
-  for (let i = 0; i < 3; i++) {
-    runCycle({ repeatIndex: -1 });
+  console.log("warmup: running 5 unmeasured cycles to JIT the hot path...");
+  for (let i = 0; i < 5; i++) {
+    runCycle({ repeatIndex: -1, samplesPerFrame: SAMPLES_PER_FRAME_DEFAULT });
   }
 
   const t0 = performance.now();
   const reports: CycleReport[] = [];
   for (let i = 0; i < REPEAT_COUNT; i++) {
-    const report = runCycle({ repeatIndex: i });
+    const report = runCycle({ repeatIndex: i, samplesPerFrame: SAMPLES_PER_FRAME_DEFAULT });
     reports.push(report);
   }
   const t1 = performance.now();
@@ -161,21 +170,24 @@ async function main(): Promise<void> {
 
   const budgetsOk = assertBudgets(reports);
   const summary = summariseRepeats(reports);
-  // Budget check is the hard gate — the bench fails when a
-  // phase systematically exceeds 4 ms (a real regression).
-  // Variance check is a soft warning on dev machines (GC
-  // noise on slow ARM VMs can spike a single run) but the
-  // hard gate is on TASK-61's reference-hardware run; the
-  // dev numbers are recorded here for traceability.
+  // Both gates are hard. The repeatability gate used to be a
+  // dev-machine warning, which is how TASK-61 shipped a 27 %
+  // variance against the spec's < 20 % budget; with the frames
+  // now sampled best-of-N the statistic measures the transition
+  // cost rather than the host, so it belongs in the exit code.
   if (!summary.stable) {
-    console.warn(
-      `\n[warn] variance ${summary.variancePct.toFixed(2)}% exceeds ${REPEATABILITY_VARIANCE_PCT}% ` +
-        `(likely dev-machine GC noise; reference hardware will see cleaner numbers)`,
+    console.error(
+      `\n[FAIL] repeatability variance ${summary.variancePct.toFixed(2)}% exceeds ${REPEATABILITY_VARIANCE_PCT}% ` +
+        `(worst delta per run: ${summary.worstDeltaPerRun.map((v) => v.toFixed(3)).join(", ")} ms)`,
     );
   }
-  if (!budgetsOk) {
+  if (!budgetsOk || !summary.stable) {
     process.exit(1);
   }
+  // eslint-disable-next-line no-console
+  console.log(
+    "\n[OK] every transition phase is inside the 4 ms delta budget and the 5 runs are stable.",
+  );
 }
 
 main().catch((err) => {

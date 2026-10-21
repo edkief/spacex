@@ -305,7 +305,7 @@
     "title": "Transition hitch budget verification + tuning",
     "category": "performance",
     "specFilePath": ".ralph/tasks/TASK-30.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-36",

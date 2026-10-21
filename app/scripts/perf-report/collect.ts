@@ -102,7 +102,7 @@ export function collectTransitionRows(runs = 5): PerfRow[] {
     ),
     row(
       "transitions",
-      "repeatability (worst-delta variance)",
+      "repeatability (per-run p95 frame-cost variance)",
       `< ${REPEATABILITY_VARIANCE_PCT} %`,
       `${summary.variancePct.toFixed(2)} %`,
       summary.stable,
