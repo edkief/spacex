@@ -35,6 +35,7 @@ export default defineConfig({
       "prereqs.test.ts",
       "tests/abuse/**/*.test.ts",
       "tests/load/**/*.test.ts",
+      "scripts/**/*.test.ts",
     ],
   },
   resolve: {

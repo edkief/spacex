@@ -35,6 +35,8 @@
     "tests/abuse/**/*.ts",
     "tests/load/**/*.ts",
     "scripts/load.ts",
+    "scripts/perf-report.ts",
+    "scripts/perf-report/**/*.ts",
     "vite.config.ts",
     "vitest.config.ts",
     "playwright.config.ts"

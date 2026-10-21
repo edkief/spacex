@@ -305,7 +305,7 @@
     "title": "Transition hitch budget verification + tuning",
     "category": "performance",
     "specFilePath": ".ralph/tasks/TASK-30.json",
-    "passes": true
+    "passes": false
   },
   {
     "id": "TASK-36",
@@ -487,7 +487,7 @@
     "title": "Reference-hardware verification of SC-1/SC-4/SC-5",
     "category": "performance",
     "specFilePath": ".ralph/tasks/TASK-61.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-69",

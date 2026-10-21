@@ -57,6 +57,8 @@ PROJECT_ROOT
 ├── CLAUDE.md                    # Stub pointer to AGENTS.md
 ├── app/                         # Drift TS monorepo (TASK-68)
 │   ├── data/                    # Runtime SQLite DB lives here (gitignored)
+│   │   ├── perf-report-desktop.json # TASK-61 reference-desktop numbers (npm run perf:report desktop)
+│   │   ├── perf-report-phone.json   # TASK-61 phone numbers, or the BLOCKED note
 │   ├── dist/                    # Vite build output (gitignored)
 │   ├── eslint.config.js         # Flat ESLint config + prettier integration
 │   ├── node_modules/            # Installed deps (gitignored)
@@ -437,10 +439,21 @@ PROJECT_ROOT
 │   │   ├── gen-flight-trajectories.ts   # Regenerate flight golden fixtures (TASK-22)
 │   │   ├── crash-writer.ts              # Child-process SIGKILL crash test for PersistService (TASK-63)
 │   │   ├── shard-crash-runner.ts        # Child-process runner for shard flush + position continuity crash test (TASK-24)
+│   │   ├── load.ts                      # 16-player load test CLI (TASK-18) — npm run load / load:smoke
+│   │   ├── bench-render.ts              # Render benchmark CLI (TASK-58) — npm run bench:render
+│   │   ├── bench-tick.ts                # Server tick benchmark CLI (TASK-60) — npm run bench:tick
+│   │   ├── bench-transitions.ts         # Transition-cycle benchmark CLI (TASK-30) — npm run bench:transitions
+│   │   ├── perf-report.ts               # Reference-hardware report CLI (TASK-61) — npm run perf:report <desktop|phone>
+│   │   └── perf-report/
+│   │       ├── collect.ts               # Runs the four benchmark modules and flattens each report into rows (budgets imported from the owners)
+│   │       ├── table.ts                 # Pure row/verdict model + markdown formatting + the SC-3/SC-4 verdict rules
+│   │       └── table.test.ts            # 12 tests on the verdict arithmetic and formatting
 │   ├── tsconfig.json            # Strict TS, path aliases @shared/@client/@server
 │   ├── vite.config.ts           # Vite root, proxy /api + /ws → server :API_PORT
 │   └── vitest.config.ts         # Vitest mirrors vite aliases
 ├── node_modules/                # Top-level runtime deps (gitignored)
+├── docs/
+│   └── performance.md           # TASK-61 — the v1 perf sign-off: per-benchmark x per-device tables, SC-3/SC-4 verdicts, blocked-device notes
 ├── opencode.json                # opencode provider/model registry (repo-local)
 └── ralph/                       # Vendored ralph runtime
 ```

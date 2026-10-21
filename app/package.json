@@ -23,7 +23,8 @@
     "bench:render": "tsx scripts/bench-render.ts",
     "bench:tick": "tsx --expose-gc scripts/bench-tick.ts",
     "load": "tsx scripts/load.ts",
-    "load:smoke": "tsx scripts/load.ts --smoke"
+    "load:smoke": "tsx scripts/load.ts --smoke",
+    "perf:report": "tsx --expose-gc scripts/perf-report.ts"
   },
   "dependencies": {
     "@fastify/static": "^10.1.6",
