@@ -501,7 +501,7 @@
     "title": "Fix: opening a menu surface tears down the WebSocket session",
     "category": "bugfix",
     "specFilePath": ".ralph/tasks/TASK-72.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-73",
