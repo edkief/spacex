@@ -45,10 +45,9 @@ shard's `connections` map**, so the probed system's occupancy reads 17 instead o
 
 ## Working tree
 
-Clean — everything is committed (`a6935ea`, `989462d`). `.ralph/tasks.json` has
-TASK-18 `passes: false`. Delete the scratch file `app/warprace-tmp.mts` if it is still
-present (it was committed by accident in the last commit; it is only a driver for a
-75-second warp-race scenario).
+Clean — everything is committed (`a6935ea`, `989462d`, `d8dc36a`). `.ralph/tasks.json`
+has TASK-18 `passes: false`. The temporary warp-race driver was deleted, so the
+reproduction is now a documented harness call (see How to verify).
 
 ## Next steps
 
@@ -57,9 +56,12 @@ present (it was committed by accident in the last commit; it is only a driver fo
    runs *before* `router.joinSystem(toSystemId, ctx)` (lines ~184 / ~202). Confirm that
    the WS `warp` handler passes the **same** `connId` to both calls — if it mints a new
    one, the old entry is never removed and `shard.connections.size` grows monotonically.
-   Cheapest reproduction:
-   `cd app && npx tsx warprace-tmp.mts` (75 s, warp at 60 s, probe at 66 s) and watch
-   `cap probe: ... router=NN`.
+   Cheapest reproduction (75 s, warp at 60 s, probe at 66 s):
+   `cd app && LOAD_MS=75000 npx tsx scripts/load.ts` prints
+   `cap probe: system-full router=NN` — `NN` should be 16 and reads 17.
+   A one-off driver was used during the session:
+   `runLoadScenario({ durationMs: 75000, reconnectAtMs: 20000, capProbeAtMs: 66000, relativeSchedule: false })`
+   from `app/tests/load/harness.ts`.
    Second candidate: the close hook in `galaxy/ws-router-bridge.ts` — a socket that
    closes while its connection is mid-warp may never reach `leaveSystem`.
 2. Re-run `npm run load` (5 min) and confirm the probed shard sits at exactly 16.
