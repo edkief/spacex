@@ -33,6 +33,8 @@ export interface LoadClientOptions {
   altSystemId?: string;
   /** Input cadence, ms. Defaults to 100 (10 Hz, one frame per snapshot). */
   driveIntervalMs?: number;
+  /** Warper role cadence, ms. Defaults to 60_000 (1 warp / minute). */
+  warpIntervalMs?: number;
 }
 
 interface Frame {
@@ -61,6 +63,7 @@ export class LoadClient {
   private readonly url: string;
   private readonly token: string;
   private readonly driveIntervalMs: number;
+  private readonly warpIntervalMs: number;
 
   // --- measurement state -------------------------------------------------
   private snapshots = 0;
@@ -97,6 +100,7 @@ export class LoadClient {
     this.homeSystemId = opts.systemId;
     this.altSystemId = opts.altSystemId;
     this.driveIntervalMs = opts.driveIntervalMs ?? 100;
+    this.warpIntervalMs = opts.warpIntervalMs ?? 60_000;
   }
 
   /** Open the socket and run the `hello` -> `auth` handshake. */
@@ -169,6 +173,16 @@ export class LoadClient {
     this.driveTimer = null;
     this.ws?.close();
     this.ws = null;
+  }
+
+  /**
+   * Send a `warp` frame immediately (the diagnostic script uses
+   * this to drive a warp on its own schedule instead of waiting
+   * 60 s for the role's normal timer).
+   */
+  sendWarp(targetSystemId: string): void {
+    this.warpAttempts += 1;
+    this.send("warp", { targetSystemId });
   }
 
   /** Snapshot of everything measured so far. */
@@ -346,7 +360,7 @@ export class LoadClient {
         break;
       }
       case "warper": {
-        if (t - this.lastWarpAt >= 60_000 && this.altSystemId !== undefined) {
+        if (t - this.lastWarpAt >= this.warpIntervalMs && this.altSystemId !== undefined) {
           this.lastWarpAt = t;
           this.warpAttempts += 1;
           this.send("warp", {

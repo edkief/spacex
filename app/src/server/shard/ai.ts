@@ -214,6 +214,10 @@ const AI_RNG_DOMAIN_TAG = 0xa16babefn;
  * no-op for AI connections (the targets Map doesn't carry them).
  */
 const AI_GHOST_CONN_PREFIX = "ai:";
+/** TASK-18: re-exported so the router can identify AI ghost
+ *  connections for the 16-player cap. See
+ *  `galaxy/router-connection.ts#isAiGhostConnection`. */
+export { AI_GHOST_CONN_PREFIX };
 
 /**
  * Stable acquire-notification wire event. Server pushes this

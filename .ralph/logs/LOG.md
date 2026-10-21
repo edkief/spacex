@@ -26,3 +26,23 @@
   - **Tests (+4 net):** `src/server/shard/static-snapshot.test.ts` (3 — the dynamic builder drops deposits/terminals while the full builder keeps them, `pushDepositUpdate` reaches only in-range connections with a one-entity frame, and 120 static entities shrink the frame > 4x) and `tests/load/load.test.ts` (the 16-client CI smoke). Server suite **1029/1029 green**; `npx tsc --noEmit` clean; `eslint` 0 errors (1 `no-console` warning in the test, same as the existing bench scripts); `prettier --write` applied. No UI surface changed, so no Playwright run / screenshot.
   - **Files added (8):** `app/src/server/runtime.ts`, `app/src/server/shard/deposit-update.ts`, `app/src/server/shard/static-snapshot.test.ts`, `app/tests/load/{harness,client,report}.ts`, `app/tests/load/load.test.ts`, `app/scripts/load.ts`.
   - **Files modified (9):** `app/src/server/index.ts` (thin CLI wrapper), `app/src/server/galaxy/router-load.ts` (real broadcast), `app/src/server/shard/index.ts` (static/dynamic builders), `app/src/server/shard/mining.ts` (targeted deposit push), `app/{package.json,tsconfig.json,vitest.config.ts}` (`load` / `load:smoke` scripts + include paths), `app/data/load-report.json`, `.ralph/tasks.json`, `.ralph/STRUCTURE.md`.
+
+### 2026-10-21 — Iteration 6 (TASK-18) — close the cap probe gate
+  - **Diagnosed the "17 occupants" symptom.** The previous handoff attributed the leak to the warp flow; tracing it showed the warp itself correctly moves the connection between shards (`router.leaveSystem(fromSystemId, connId)` in the resolver). The real cause was that AI ghost connections (`shard/ai.ts#ensureAiGhostConnection`) share `shard.connections` with real players, so a 16-real-player shard with even one AI that fires reads 17 in `connections.size`. The 16-player cap was counted against the wrong number.
+  - **Fix: `countRealPlayerConnections` + `isAiGhostConnection`** in `galaxy/router-connection.ts`. The new helpers identify AI ghosts by their `connId` prefix (`ai:`). `router.joinSystem` now enforces the cap against the real-player count, the `JoinResult.players` field reports the same number, and the harness's cap probe reads the same count so "probed shard at 16" matches the spec.
+  - **Acceptance run now green.** `npm run load:smoke` (30 s, 16 clients, real boot path) reports `PASS` on every named gate including `cap-enforcement: 17th join rejected with system-full, probed shard at 16 (router total 16)`. A 75 s scenario with `warpIntervalMs=2000` (warps every 2 s for the full window) also returns 10/10 green, confirming the prior "warp causes the leak" theory was a red herring — warps are fine, the AI ghost discriminator was the real bug.
+  - **Measured (30 s smoke run):**
+    | metric | measured | budget |
+    |---|---|---|
+    | snapshot-rate | 10.03 Hz | >= 9.5 Hz |
+    | starvation | 106 ms gap | <= 2000 ms |
+    | frame p95 | 14992 B | < 16384 B |
+    | RTT p95 | 90.9 ms | < 100 ms |
+    | tick rate | 20.13 Hz | >= 15 Hz |
+    | heap growth | 23.71 MB | < 30 MB |
+    | spurious kicks / unhandled rejections | none / none | none / none |
+    | cap enforcement | rejected system-full, shard at 16 | exact 16 |
+    | entity-consistency (post-reconnect) | 4 rejoined clients, 175 entities match | consistent |
+  - **Tests (+3):** `src/server/galaxy/router-ai-cap.test.ts` — `isAiGhostConnection` prefix check, `countRealPlayerConnections` excludes ghosts on a real router shard, the 16-real-player + 2-ghost setup still rejects the 17th real join with `system-full`. Server suite **1033/1033 green**, `npx tsc --noEmit` clean, eslint 0 errors, prettier clean.
+  - **Files added (1):** `app/src/server/galaxy/router-ai-cap.test.ts`.
+  - **Files modified (5):** `app/src/server/galaxy/router-connection.ts` (exported `AI_GHOST_CONN_PREFIX` via ai.ts and added `isAiGhostConnection`/`countRealPlayerConnections`), `app/src/server/galaxy/router.ts` (cap + JoinResult use the real-player count), `app/src/server/shard/ai.ts` (re-export `AI_GHOST_CONN_PREFIX`), `app/tests/load/harness.ts` (cap probe reads real-player count), `app/tests/load/client.ts` (`warpIntervalMs` knob for fast warp reproducers + `sendWarp` helper). `.ralph/handoff/TASK-18.md` removed; `.ralph/tasks.json` -> `passes: true`.

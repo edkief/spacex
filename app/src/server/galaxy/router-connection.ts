@@ -10,7 +10,37 @@
  */
 import type { Shard, ShardConnection } from "../shard/types.js";
 import { spawnShip } from "../shard/index.js";
+import { AI_GHOST_CONN_PREFIX } from "../shard/ai.js";
 import type { RouterConnectionContext } from "./router-types.js";
+
+/**
+ * True for a `ShardConnection` that represents an AI ghost
+ * (TASK-45 / `src/server/shard/ai.ts#ensureAiGhostConnection`).
+ * Ghosts share `shard.connections` with real players so the AI
+ * state machine can route `handleFire` through the same
+ * `connId` dispatch path, but the 16-player cap and the
+ * presence roster only count real players — otherwise a
+ * 16-real-player shard with one AI firing would read 17 and
+ * the cap probe would always fail.
+ */
+export function isAiGhostConnection(conn: ShardConnection): boolean {
+  return conn.connId.startsWith(AI_GHOST_CONN_PREFIX);
+}
+
+/**
+ * Count the real (non-AI-ghost) connections on a shard. The
+ * 16-player cap is enforced against this count, not against
+ * `shard.connections.size`, which would otherwise include
+ * every AI that has fired at least once.
+ */
+export function countRealPlayerConnections(shard: Shard): number {
+  let n = 0;
+  for (const conn of shard.connections.values()) {
+    if (isAiGhostConnection(conn)) continue;
+    n += 1;
+  }
+  return n;
+}
 
 /**
  * Mint a `ShardConnection` from the router-side context. The

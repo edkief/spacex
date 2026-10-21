@@ -82,7 +82,11 @@ import { ShardFlushService } from "../shard/persist.js";
 
 import { GalaxySystemNotFoundError } from "./system-data.js";
 import { firePresenceBroadcast, type PresenceBroadcaster } from "./presence.js";
-import { bindConnectionToEntity, makeShardConnection } from "./router-connection.js";
+import {
+  bindConnectionToEntity,
+  countRealPlayerConnections,
+  makeShardConnection,
+} from "./router-connection.js";
 import { routerShutdown, routerStart } from "./router-lifecycle.js";
 import { loadAndRegister, type RouterShardMaps } from "./router-load.js";
 import { reapEmpty } from "./router-reap.js";
@@ -372,7 +376,7 @@ export class GalaxyRouter {
       }
       throw err;
     }
-    if (shard.connections.size >= MAX_PLAYERS_PER_SYSTEM) {
+    if (countRealPlayerConnections(shard) >= MAX_PLAYERS_PER_SYSTEM) {
       return {
         code: "system-full",
         message: `System ${systemId} is full (max ${MAX_PLAYERS_PER_SYSTEM} players)`,
@@ -400,7 +404,10 @@ export class GalaxyRouter {
       shard,
       connId: ctx.connId,
       systemId,
-      players: shard.connections.size,
+      // The WS layer reads `players` to size the `enter_system`
+      // payload's roster claim; count real players so the value
+      // matches what the 16-cap actually enforces.
+      players: countRealPlayerConnections(shard),
       snapshotTick: shard.sim.currentTick,
     };
   }

@@ -26,6 +26,7 @@ import v8 from "node:v8";
 import { loadConfig } from "../../src/server/config.js";
 import { startRuntime, type Runtime } from "../../src/server/runtime.js";
 import { generateStars } from "@shared/galaxy/stars.js";
+import { isAiGhostConnection } from "../../src/server/galaxy/router-connection.js";
 import { LoadClient, type Role } from "./client.js";
 import {
   allGreen,
@@ -53,6 +54,13 @@ export interface LoadScenarioOptions {
   reportPath?: string;
   /** Fraction of the duration used when a relative offset overflows. */
   relativeSchedule?: boolean;
+  /**
+   * Warp interval for `warper` clients (ms). Defaults to the
+   * production cadence (60_000). Override to make warp bug
+   * reproductions fast — the only difference between a 75 s
+   * scenario and a 5-minute scenario is timing.
+   */
+  warpIntervalMs?: number;
 }
 
 const SESSION_SECRET = "TASK-18-LOAD-TEST-SECRET-DO-NOT-USE-IN-PRODUCTION-9876543210";
@@ -190,7 +198,13 @@ async function probeCap(
   // moved between shards (and while a reconnect storm is in flight),
   // which is a different (recorded, non-blocking) observation.
   const probedShard = runtime.router.get(systemId);
-  const routerPlayers = probedShard ? probedShard.connections.size : 0;
+  // AI ghost connections share `shard.connections` with real
+  // players (the AI state machine routes `handleFire` through
+  // the same dispatch). The cap rule is "16 real players", so
+  // the probe reports the real-player count.
+  const routerPlayers = probedShard
+    ? [...probedShard.connections.values()].filter((c) => !isAiGhostConnection(c)).length
+    : 0;
   const aggregatePlayers = runtime.router.stats().totalPlayers;
   const inAnyShard = [...runtime.router.stats().shards].some((s) => {
     const shard = runtime.router.get(s.systemId);
@@ -218,6 +232,7 @@ export async function runLoadScenario(options: LoadScenarioOptions = {}): Promis
   const capProbeAtMs = options.capProbeAtMs ?? (relative ? durationMs * 0.1 : 60_000);
   const reconnectCount = options.reconnectClients ?? 4;
   const seed = options.seed ?? "TASK18-LOAD-SEED";
+  const warpIntervalMs = options.warpIntervalMs ?? 60_000;
 
   const unhandledRejections: string[] = [];
   const onRejection = (reason: unknown): void => {
@@ -261,6 +276,7 @@ export async function runLoadScenario(options: LoadScenarioOptions = {}): Promis
           systemId,
           role,
           altSystemId,
+          ...(role === "warper" && warpIntervalMs !== 60_000 ? { warpIntervalMs } : {}),
         });
         await client.connect();
         await client.joinSystem(systemId);
