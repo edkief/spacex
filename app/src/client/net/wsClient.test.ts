@@ -509,6 +509,71 @@ describe("DriftClient — reconnect + resync (TASK-17)", () => {
     void client.stop();
   });
 
+  it("TASK-75: drops remote buffers when their owner leaves the presence roster", async () => {
+    const { client, sockets } = setupClient({ callsign: "LIVENESS-1" });
+    const startPromise = client.start();
+    await waitUntil(() => sockets.sockets.length > 0, 500);
+    runHappyHandshake(sockets.sockets[0]!);
+    await waitUntil(() => client.currentStatus === "online", 2000);
+    await startPromise.catch(() => undefined);
+
+    const entityFrame = (id: string, kind: string, callsign: string | null): string =>
+      JSON.stringify({
+        v: 1,
+        type: "entity_update",
+        payload: {
+          systemId: "system-001",
+          tick: 2,
+          entities: [
+            {
+              id,
+              kind,
+              pos: [0, 0, 0],
+              vel: [0, 0, 0],
+              regime: "space",
+              hull: 100,
+              shields: 100,
+              targetId: null,
+              classId: "scout",
+              callsign,
+              livery: null,
+            },
+          ],
+          lastAppliedSeq: {},
+        },
+      });
+    const rosterFrame = (callsigns: string[]): string =>
+      JSON.stringify({
+        v: 1,
+        type: "presence",
+        payload: {
+          systemId: "system-001",
+          players: callsigns.map((callsign) => ({
+            playerId: `p-${callsign}`,
+            callsign,
+            shipId: `ship-${callsign}`,
+            state: "flying",
+          })),
+        },
+      });
+
+    sockets.sockets[0]!.deliver(entityFrame("entity:peer", "ship", "PEER-1"));
+    sockets.sockets[0]!.deliver(entityFrame("entity:ai", "ai-ship", "AI-Raider-3"));
+    sockets.sockets[0]!.deliver(rosterFrame(["LIVENESS-1", "PEER-1"]));
+    await waitUntil(() => client.remoteEntityBuffers.size === 2, 500);
+
+    // PEER-1 disconnects. The shard keeps their entity alive for
+    // reconnect, so only the presence roster tells us they left.
+    sockets.sockets[0]!.deliver(rosterFrame(["LIVENESS-1"]));
+    await waitUntil(() => client.remoteEntityBuffers.size === 1, 500);
+    expect(client.remoteEntityBuffers.has("entity:peer")).toBe(false);
+    // AI ships carry callsigns too but are never on the roster —
+    // they must survive.
+    expect(client.remoteEntityBuffers.has("entity:ai")).toBe(true);
+
+    void client.stop();
+  });
+
   it("exports the retry + resync defaults", () => {
     expect(DEFAULT_RETRY_INITIAL_MS).toBe(1_000);
     expect(DEFAULT_RETRY_MAX_MS).toBe(5_000);

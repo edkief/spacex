@@ -40,6 +40,7 @@ import type { QualityPreset } from "@shared/settings.js";
 import { QUALITY_PRESETS } from "@shared/settings.js";
 
 import { createStarfield, disposeStarfield } from "./background.js";
+import { createSceneLighting } from "./lighting.js";
 
 /**
  * Deep-navy clear colour from
@@ -71,6 +72,12 @@ export interface RenderHostOptions {
   /** Optional explicit DPR — test seam. Defaults to
    *  `Math.min(2, window.devicePixelRatio || 1)`. */
   devicePixelRatio?: number;
+  /** TASK-75: live count of pooled remote-entity meshes. The
+   *  render host does not own them (the `RemoteEntityLayer`
+   *  does) but the e2e seam
+   *  `window.__driftRenderHost.remoteMeshCount()` reads the
+   *  number from here. */
+  remoteMeshCount?: () => number;
 }
 
 /**
@@ -104,9 +111,13 @@ export class RenderHost {
   /** Disposed flag — prevents double-disposal during StrictMode
    *  teardown races. */
   #disposed = false;
+  /** TASK-75: remote-mesh counter provider (see
+   *  `RenderHostOptions.remoteMeshCount`). */
+  readonly #remoteMeshCount: () => number;
 
   constructor(opts: RenderHostOptions) {
     this.canvas = opts.canvas;
+    this.#remoteMeshCount = opts.remoteMeshCount ?? ((): number => 0);
     this.#quality = opts.quality;
     this.dpr = clampDpr(opts.devicePixelRatio ?? readDefaultDpr());
     // Construct the renderer with `preserveDrawingBuffer: true`.
@@ -155,6 +166,11 @@ export class RenderHost {
     const stars = createStarfield(this.dpr);
     this.#scene.add(stars);
 
+    // TASK-75: solid meshes (own ship, pooled remote entities) use
+    // `MeshStandardMaterial` and render pure black without a light.
+    // The rig is cheap (no shadows) and mounted once.
+    this.#scene.add(createSceneLighting());
+
     // The camera has to be added to the scene too, otherwise
     // three.js can drop child-of-perspectiveCamera helpers in a
     // future task. The rig's `perspectiveCamera` is the mount
@@ -180,6 +196,15 @@ export class RenderHost {
    *  step so smoothing + handoffs run. */
   get cameraRig(): CameraRig {
     return this.#cameraRig;
+  }
+
+  /**
+   * TASK-75: visible pooled remote-entity meshes. Production
+   * wires the `RemoteEntityLayer` in through the constructor
+   * option; with no layer the count is always 0.
+   */
+  remoteMeshCount(): number {
+    return this.#remoteMeshCount();
   }
 
   /** The single renderer instance. Most production code goes

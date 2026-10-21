@@ -31,5 +31,13 @@ export {
   starSeed,
 } from "./background.js";
 
+export {
+  AMBIENT_INTENSITY,
+  FILL_INTENSITY,
+  KEY_INTENSITY,
+  createSceneLighting,
+  lightingLightCount,
+} from "./lighting.js";
+
 export { GameCanvas } from "./GameCanvas.js";
 export type { GameCanvasProps } from "./GameCanvas.js";

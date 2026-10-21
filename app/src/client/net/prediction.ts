@@ -45,7 +45,11 @@
  * @see ../../server/shard for the authoritative simulation.
  */
 
-import type { ProtocolEntityState, ProtocolShipClassId } from "@shared/protocol/index.js";
+import type {
+  ProtocolEntityKind,
+  ProtocolEntityState,
+  ProtocolShipClassId,
+} from "@shared/protocol/index.js";
 import {
   integrateShip,
   type FlightRegime,
@@ -610,6 +614,14 @@ export interface SimEntityLite {
   shields: number;
   /** Pad id when landed; `null` otherwise. */
   onPad: string | null;
+  /**
+   * TASK-75: the wire `kind` discriminator, carried through the
+   * interpolation ring so the remote-entity renderer can pick a
+   * mesh without a second lookup table. Optional because the
+   * own-ship predictor constructs `SimEntityLite` values that
+   * have no wire kind; readers fall back to `"ship"`.
+   */
+  kind?: ProtocolEntityKind;
 }
 
 function cloneSimEntityLite(s: SimEntityLite): SimEntityLite {
@@ -622,6 +634,7 @@ function cloneSimEntityLite(s: SimEntityLite): SimEntityLite {
     hull: s.hull,
     shields: s.shields,
     onPad: s.onPad,
+    ...(s.kind !== undefined ? { kind: s.kind } : {}),
   };
 }
 
@@ -668,6 +681,7 @@ export function simEntityFromWire(e: ProtocolEntityState): SimEntityLite {
     hull: e.hull,
     shields: e.shields,
     onPad: e.onPad,
+    kind: e.kind,
   };
 }
 
@@ -1258,6 +1272,9 @@ function interpolateEntity(a: SimEntityLite, b: SimEntityLite, t: number): SimEn
     hull: b.hull,
     shields: b.shields,
     onPad: b.onPad,
+    // Non-motion fields come from the newer snapshot — the kind
+    // is the remote mesh selector, so it must not be smeared.
+    ...(b.kind !== undefined ? { kind: b.kind } : {}),
   };
 }
 

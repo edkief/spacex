@@ -275,6 +275,24 @@ export class DriftClient {
   private readonly chat: ChatStore;
   private readonly remoteBuffer: RemoteEntityBuffer;
   private readonly remoteBuffers = new Map<string, RemoteEntityBuffer>();
+  /**
+   * TASK-75: entity id → wire callsign for every entity that
+   * carries one. Used to decide which remote meshes belong to a
+   * *player* (as opposed to an AI ship, whose callsign is never
+   * on the presence roster).
+   */
+  private readonly remoteCallsigns = new Map<string, string>();
+  /**
+   * TASK-75: the subset of {@link remoteCallsigns} whose callsign
+   * was seen on a presence roster — i.e. human-owned. When one of
+   * them leaves the roster, its buffers (and therefore its meshes)
+   * are dropped; the server deliberately keeps the entity alive
+   * for reconnect (see `removeConnection` in `@server/shard`), so
+   * staleness alone would never free them.
+   */
+  private readonly playerOwnedEntities = new Set<string>();
+  /** TASK-75: callsigns on the most recent presence roster. */
+  private presentCallsigns: ReadonlySet<string> = new Set<string>();
   /** TASK-25: per-client controls manager — swaps input schemes
    *  when the regime state machine reports a transition. */
   private readonly controls: Controls = new Controls("space");
@@ -1551,7 +1569,38 @@ export class DriftClient {
   private resetRemoteBuffers(): void {
     for (const buf of this.remoteBuffers.values()) buf.clear();
     this.remoteBuffers.clear();
+    this.remoteCallsigns.clear();
+    this.playerOwnedEntities.clear();
     this.opts.remoteBufferRegistry?.reset();
+  }
+
+  /**
+   * TASK-75: mark player-owned entities + drop the ones whose owner
+   * left the presence roster. Runs on every `presence` frame (the
+   * server only sends one when the roster actually changes, so this
+   * is a handful of calls per session).
+   *
+   * Only ids already known to belong to a *roster* callsign are
+   * eligible — AI ships carry callsigns too (`AI-…`) and would
+   * otherwise be pruned on the first roster frame.
+   */
+  private reconcilePresenceLiveness(payload: PayloadFor<"presence">): void {
+    const roster = new Set<string>();
+    for (const entry of payload.players) roster.add(entry.callsign);
+    this.presentCallsigns = roster;
+    for (const [id, callsign] of [...this.remoteCallsigns]) {
+      if (roster.has(callsign)) {
+        this.playerOwnedEntities.add(id);
+        continue;
+      }
+      if (!this.playerOwnedEntities.has(id)) continue;
+      // The owner disconnected: drop the buffer so the renderer
+      // releases the mesh on the next frame instead of drawing a
+      // ghost forever.
+      this.remoteCallsigns.delete(id);
+      this.playerOwnedEntities.delete(id);
+      this.remoteBuffers.delete(id);
+    }
   }
 
   /**
@@ -1758,6 +1807,9 @@ export class DriftClient {
         const payload = env.payload as PayloadFor<"presence">;
         this.opts.presenceSink?.(payload);
         this.presence.applyPresenceFrame(payload);
+        // TASK-75: free the buffers of players who just left so
+        // their meshes disappear instead of lingering.
+        this.reconcilePresenceLiveness(payload);
         return;
       }
       case "chat": {
@@ -1965,6 +2017,14 @@ export class DriftClient {
           if (!buf) {
             buf = new RemoteEntityBuffer();
             this.remoteBuffers.set(ent.id, buf);
+          }
+          // TASK-75: remember the callsign so the presence-driven
+          // liveness pass can tell a player's ship from an AI's.
+          if (ent.callsign) {
+            this.remoteCallsigns.set(ent.id, ent.callsign);
+            if (this.presentCallsigns.has(ent.callsign)) {
+              this.playerOwnedEntities.add(ent.id);
+            }
           }
           // TASK-74: push the **simulator-shaped** entity, not
           // the raw wire frame. The buffer's interpolator

@@ -182,11 +182,17 @@ export function createStarfield(dpr: number): Points<BufferGeometry, PointsMater
  * by {@link createStarfield}. The RenderHost's `dispose()` calls
  * this so the loop's rAF cleanly tears down between scene
  * swaps.
+ *
+ * It is also the host's generic "release this scene child" call, so
+ * it has to tolerate children that own no GPU buffers (TASK-75
+ * added the light rig group). Anything without a `geometry` is a
+ * no-op.
  */
 export function disposeStarfield(points: Object3D): void {
   // Three.js' `Points` exposes the geometry via `geometry` (cast
   // back from `Object3D`); the material is just `material`.
   const mesh = points as Points<BufferGeometry, PointsMaterial>;
+  if (mesh.geometry === undefined || mesh.material === undefined) return;
   mesh.geometry.dispose();
   mesh.material.dispose();
 }

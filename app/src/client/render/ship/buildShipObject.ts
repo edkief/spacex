@@ -61,14 +61,26 @@ function paintFor(
   zone: "hull" | "accent" | "trim",
 ): MeshStandardMaterial {
   const mesh = registry.getShipMesh(meshId);
-  // The paint registry was constructed with
-  // `createThreeMaterialAdapter(MeshStandardMaterial)` so the
-  // material shape is always the three.js concrete type.
-  const mat = mesh?.materials[zone];
-  if (mat === undefined) {
+  // The registry is constructed with
+  // `createThreeMaterialAdapter(MeshStandardMaterial)`, which
+  // wraps every concrete material in a `PaintMaterial` FACADE
+  // (`{zone, color, dispose, __inner}`) so the paint-zone builder
+  // stays three.js-free. three.js needs the concrete instance
+  // behind `__inner` — handing it the facade makes
+  // `material.visible === undefined`, which `projectObject`
+  // treats as "not renderable", so the ship silently never draws
+  // (TASK-75).
+  const facade = mesh?.materials[zone];
+  if (facade === undefined) {
     throw new Error(`buildShipObject: paint registry missing material for ${meshId}/${zone}`);
   }
-  return mat as unknown as MeshStandardMaterial;
+  const mat = (facade as unknown as { __inner?: MeshStandardMaterial }).__inner;
+  if (mat === undefined) {
+    throw new Error(
+      `buildShipObject: material ${meshId}/${zone} is not a three.js material — the registry must be built with createThreeMaterialAdapter()`,
+    );
+  }
+  return mat;
 }
 
 /**

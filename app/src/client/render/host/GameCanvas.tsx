@@ -54,10 +54,11 @@ import { RenderHost } from "./RenderHost.js";
 import { LOOP_GUARD_KEY, startFrameLoop, type FrameLoopHandle } from "./loop.js";
 
 import { buildShipObject, writeShipStateToObject } from "../ship/buildShipObject.js";
+import { RemoteEntityLayer } from "../entities/RemoteEntityLayer.js";
 
 import type { ShipClassId } from "@shared/ships.js";
 import type { ShipLivery } from "@server/db/types.js";
-import type { LocalInput } from "@client/net/prediction.js";
+import type { LocalInput, RemoteEntityBuffer } from "@client/net/prediction.js";
 
 /** Property shape for {@link GameCanvas}. */
 export interface GameCanvasProps {
@@ -106,6 +107,10 @@ export interface GameCanvasClient {
     };
   };
   sendInput(args: { seq: number; thrust: number; turn: number; pitch: number; yaw: number }): void;
+  /** TASK-75: per-entity snapshot buffers for everyone but us. */
+  remoteEntityBuffers: ReadonlyMap<string, RemoteEntityBuffer>;
+  /** TASK-75: own ship id (used to build the never-render id). */
+  currentShipId: string | null;
 }
 
 /**
@@ -141,6 +146,7 @@ export function GameCanvas(props: GameCanvasProps): React.JSX.Element {
   const hostRef = useRef<RenderHost | null>(null);
   const loopRef = useRef<FrameLoopHandle | null>(null);
   const shipObjectRef = useRef<ThreeGroup | null>(null);
+  const remoteLayerRef = useRef<RemoteEntityLayer | null>(null);
 
   // ----- Effect 1: render host + ship mesh + frame loop.
   // This effect mounts ONCE and survives even when
@@ -156,16 +162,31 @@ export function GameCanvas(props: GameCanvasProps): React.JSX.Element {
 
     const initialWidth = canvas.clientWidth || window.innerWidth || 1;
     const initialHeight = canvas.clientHeight || window.innerHeight || 1;
+
+    // The paint registry is shared by the own-ship mesh and every
+    // remote ship mesh, so it is built BEFORE the host + layer.
+    const registry = new ShipPaintRegistry(createThreeMaterialAdapter(MeshStandardMaterial));
+    (globalThis as { __driftPaintRegistry?: ShipPaintRegistry }).__driftPaintRegistry = registry;
+
+    // TASK-75: pooled remote-entity meshes (other players, AI
+    // ships, wrecks, drones, missiles, world props). The layer is
+    // React-free — it is driven straight from the frame loop with
+    // the client's snapshot buffers.
+    const remoteLayer = new RemoteEntityLayer({ context: { paintRegistry: registry } });
+    remoteLayerRef.current = remoteLayer;
+    (globalThis as { __driftRemoteEntityLayer?: RemoteEntityLayer }).__driftRemoteEntityLayer =
+      remoteLayer;
+
     const host = new RenderHost({
       canvas,
       aspect: initialWidth / initialHeight,
       quality: settingsBridge.quality(),
+      remoteMeshCount: () => remoteLayer.remoteMeshCount,
     });
     hostRef.current = host;
     (globalThis as { __driftRenderHost?: RenderHost }).__driftRenderHost = host;
+    host.scene.add(remoteLayer.root);
 
-    const registry = new ShipPaintRegistry(createThreeMaterialAdapter(MeshStandardMaterial));
-    (globalThis as { __driftPaintRegistry?: ShipPaintRegistry }).__driftPaintRegistry = registry;
     const ship = buildShipObject({
       classId: DEFAULT_CLASS,
       livery: DEFAULT_LIVERY,
@@ -224,9 +245,22 @@ export function GameCanvas(props: GameCanvasProps): React.JSX.Element {
         void dt;
       },
       onFrame: (dt) => {
+        // TASK-75: sync every other entity's pooled mesh from its
+        // interpolation buffer BEFORE the draw call. Wrapped in
+        // try/catch for the same reason the rest of the frame
+        // work is — one bad snapshot must not kill the rAF loop.
         const w = globalThis as {
           __driftPump?: InputPump | null;
+          __driftPumpClient?: GameCanvasClient | null;
         };
+        const liveClient = w.__driftPumpClient ?? null;
+        if (liveClient !== null && liveClient !== undefined) {
+          try {
+            remoteLayer.sync(liveClient.remoteEntityBuffers, Date.now());
+          } catch {
+            // Swallow — the layer counts its own errors.
+          }
+        }
         const pump = w.__driftPump ?? null;
         const stamped = pump?.tick(dt);
         if (stamped !== undefined) {
@@ -245,6 +279,15 @@ export function GameCanvas(props: GameCanvasProps): React.JSX.Element {
       loopRef.current = null;
       ro?.disconnect();
       window.removeEventListener("resize", fit);
+      remoteLayer.dispose();
+      remoteLayerRef.current = null;
+      if (
+        (globalThis as { __driftRemoteEntityLayer?: RemoteEntityLayer })
+          .__driftRemoteEntityLayer === remoteLayer
+      ) {
+        (globalThis as { __driftRemoteEntityLayer?: RemoteEntityLayer }).__driftRemoteEntityLayer =
+          undefined;
+      }
       hostRef.current?.dispose();
       hostRef.current = null;
       shipObjectRef.current = null;
@@ -277,6 +320,7 @@ export function GameCanvas(props: GameCanvasProps): React.JSX.Element {
     if (client === null) {
       (globalThis as { __driftPump?: InputPump | null }).__driftPump = null;
       (globalThis as { __driftPumpClient?: GameCanvasClient | null }).__driftPumpClient = null;
+      remoteLayerRef.current?.setOwnEntityIds([]);
       return;
     }
     const scheme = client.controlsManager.scheme();
@@ -303,8 +347,15 @@ export function GameCanvas(props: GameCanvasProps): React.JSX.Element {
     });
     (globalThis as { __driftPump?: InputPump | null }).__driftPump = pump;
     (globalThis as { __driftPumpClient?: GameCanvasClient | null }).__driftPumpClient = client;
+    // TASK-75: the own entity must never be drawn as a remote.
+    // `entity:<shipId>` is the canonical id the shard publishes for
+    // the owning player's ship; an empty/absent id simply disables
+    // the filter until the handshake completes.
+    const shipId = client.currentShipId;
+    remoteLayerRef.current?.setOwnEntityIds(shipId === null ? [] : [`entity:${shipId}`]);
     return (): void => {
       keyboard.dispose();
+      remoteLayerRef.current?.setOwnEntityIds([]);
       (globalThis as { __driftPump?: InputPump | null }).__driftPump = null;
       (globalThis as { __driftPumpClient?: GameCanvasClient | null }).__driftPumpClient = null;
     };

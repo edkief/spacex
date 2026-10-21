@@ -522,7 +522,7 @@
     "title": "Remote entity meshes for other players, AI and world props",
     "category": "feature",
     "specFilePath": ".ralph/tasks/TASK-75.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-76",
