@@ -219,3 +219,40 @@ load` is the acceptance run; its numbers are in the TASK-18 log entry.
 5. **Shared host.** The desktop is a shared VM; wall-clock gates (transitions,
    tick p95, load RTT) carry scheduler noise that a dedicated reference desktop
    would not.
+
+---
+
+## 8. Re-verification runs (appended by later tasks)
+
+New runs are appended here rather than rewriting §3–§6, so the original TASK-61
+sign-off stays intact and the history of the gates is readable.
+
+### 2026-10-21 — TASK-69 (documentation) — command re-verification on a clean clone
+
+Run to prove the command in this document still works, from a fresh
+`git clone` + `npm install` in a temp directory, at git sha `0639fc6`:
+
+```bash
+npm run perf:report desktop          # npx tsx --expose-gc scripts/perf-report.ts desktop
+```
+
+Outcome: the CLI ran end-to-end, wrote `data/perf-report-desktop.json` and
+exited non-zero, reporting **SC-3 FAIL / SC-4 UNVERIFIED** again — two red rows
+out of 27:
+
+| Row                                                           | Budget | Measured here | Owner   |
+| ------------------------------------------------------------- | ------ | ------------- | ------- |
+| Render — frames over 50 ms                                    | 0      | 1             | TASK-58 |
+| Transitions — repeatability (per-run p95 frame-cost variance) | < 20 % | 29.30 %       | TASK-30 |
+
+Everything else reproduced green, including the rows that were previously thin:
+load RTT p95 **47.7 ms** over 2 692 samples (was 97.4 ms), tick p95 **0.20 ms**,
+heap growth **-199.71 MB**, cap enforcement exact at 16, and the transition
+per-phase p99 delta **0.01 ms** against a 4 ms budget.
+
+Both red rows are wall-clock rows on an emulated shared host (§7.5), not
+behaviour changes: one >50 ms frame out of ~1 800 modelled frames, and a
+repeatability variance on a statistic whose per-run p95 frame cost moved
+0.020–0.021 ms — the same shape of host-stall noise TASK-30 re-opened this gate
+for. **No verdict in §5 was changed by this run.** A re-run on a dedicated
+reference desktop remains the gate for the final sign-off.

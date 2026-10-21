@@ -57,6 +57,13 @@ Snapshot taken 2026-10-20 after **TASK-49** (Ship destruction and respawn: wreck
 PROJECT_ROOT
 ├── AGENTS.md                    # Agent conventions (read first)
 ├── CLAUDE.md                    # Stub pointer to AGENTS.md
+├── README.md                    # TASK-69 — pitch, features, quick start, controls, tech stack, doc links
+├── docs/                        # The documentation set (TASK-69)
+│   ├── architecture.md          # System diagram, determinism, seamless transitions, combat pipeline, scaling seam
+│   ├── protocol.md              # Every WS message type + REST endpoint + error/close codes
+│   ├── ops.md                   # Env vars, SQLite→Postgres switch, backups, restart procedure, known gaps
+│   ├── contributing.md          # Ralph task workflow, test gates, perf contract, quality bar
+│   └── performance.md           # TASK-61 reference-hardware report (the v1 perf sign-off)
 ├── app/                         # Drift TS monorepo (TASK-68)
 │   ├── data/                    # Runtime SQLite DB lives here (gitignored)
 │   │   ├── perf-report-desktop.json # TASK-61 reference-desktop numbers (npm run perf:report desktop)

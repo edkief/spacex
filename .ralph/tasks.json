@@ -494,6 +494,6 @@
     "title": "Documentation: README, protocol, dev notes",
     "category": "documentation",
     "specFilePath": ".ralph/tasks/TASK-69.json",
-    "passes": false
+    "passes": true
   }
 ]
