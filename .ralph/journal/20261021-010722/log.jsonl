@@ -1,0 +1,2 @@
+{"time":"2026-10-21T01:09:20.436Z","level":"info","message":"web UI action","fields":{"action":"stop","mode":"now","run":"20261021-010722"}}
+{"time":"2026-10-21T01:09:20.824Z","level":"warn","message":"stop requested: stopping now, interrupting the current iteration"}
