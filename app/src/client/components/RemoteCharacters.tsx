@@ -8,8 +8,8 @@
  * that TASK-26+ will eventually own.
  *
  * Why DOM, not sprites?
- *   - The TASK-70 canvas is a raw WebGL starfield that
- *     `CanvasStage` owns. Adding a second WebGL context for
+ *   - The TASK-73 canvas is a real three.js scene that
+ *     `GameCanvas` owns. Adding a second WebGL context for
  *     character impostors is heavy (≥ 200 ms of GL setup on
  *     cold start, doubled context cost). DOM labels are cheap
  *     at the spec's "≤ 16 labels" cap and a11y-friendly

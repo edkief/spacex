@@ -8,23 +8,23 @@
  *
  * Why CSS, not WebGL?
  *   - The TASK-70 canvas is a raw WebGL starfield owned by
- *     `CanvasStage`. Mixing a second WebGL context on the
- *     same surface is awkward (the starfield already uses the
- *     full canvas with `preserveDrawingBuffer`). A separate
- *     DOM layer with `mix-blend-mode` is dramatically cheaper
- *     than spinning up a second GL context, and the visual
- *     effect is just a 0..1 alpha tint.
+ *     `GameCanvas` (the TASK-73 three.js mount). Mixing a second
+ *     WebGL context on the same surface is awkward (the
+ *     starfield already uses the full canvas with
+ *     `preserveDrawingBuffer`). A separate DOM layer with
+ *     `mix-blend-mode` is dramatically cheaper than spinning up
+ *     a second GL context, and the visual effect is just a 0..1
+ *     alpha tint.
  *   - The 3D atmosphere *dome* shader is the spec's "future
- *     task" — when the three.js renderer lands in TASK-26+,
- *     the dome will own the atmospheric look directly. This
- *     CSS overlay is the bridge: same math (`hazeFactor`)
- *     driving the alpha, so the 3D swap is a no-op for
- *     physics / gameplay.
+ *     task" — when the three.js renderer ships, the dome will
+ *     own the atmospheric look directly. This CSS overlay is the
+ *     bridge: same math (`hazeFactor`) driving the alpha, so the
+ *     3D swap is a no-op for physics / gameplay.
  *
  * Visual structure:
  *
  *   ┌────────────────────────┐
- *   │  starfield canvas      │  ← CanvasStage (full viewport)
+ *   │  starfield canvas      │  ← GameCanvas (full viewport)
  *   │  ┌──────────────────┐  │
  *   │  │  skyColor layer  │  │  ← opacity = hazeFactor * 0.6
  *   │  │  ┌────────────┐  │  │

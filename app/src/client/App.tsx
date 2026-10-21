@@ -34,7 +34,7 @@ import { PlayerList } from "./components/PlayerList.js";
 import { RemoteCharacters } from "./components/RemoteCharacters.js";
 import { ToastStack } from "./components/ToastStack.js";
 import { ChatLog } from "./components/ChatLog.js";
-import { CanvasStage } from "./components/CanvasStage.js";
+import { GameCanvas } from "./render/host/index.js";
 import { WarpOverlay } from "./components/WarpOverlay.js";
 import { AtmosphereOverlay } from "./components/AtmosphereOverlay.js";
 import { ReentryOverlay } from "./components/ReentryOverlay.js";
@@ -556,7 +556,7 @@ export function App(): React.JSX.Element {
         fontFamily: "system-ui, sans-serif",
       }}
     >
-      <CanvasStage label={`3D view: flying in system ${client.currentSystemId ?? "unknown"}`} />
+      <GameCanvas label={`3D view: flying in system ${client.currentSystemId ?? "unknown"}`} />
       {/* TASK-56: the first-launch hint line. Sits above the
           interaction prompt and renders nothing once the guidance
           store reports no visible step. */}

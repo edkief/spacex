@@ -508,7 +508,7 @@
     "title": "Render host: real three.js renderer, scene, camera and frame loop",
     "category": "feature",
     "specFilePath": ".ralph/tasks/TASK-73.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-74",
