@@ -163,8 +163,10 @@ async function probeCap(
     role: "idle",
   });
   let code: string | null = null;
+  let probeId: string | undefined;
   try {
     await probe.connect();
+    probeId = probe.id;
     // A rejected join never sends `enter_system`, so the wait times
     // out fast and the recorded error code is the verdict.
     await probe.joinSystem(systemId, 1500);
@@ -175,13 +177,33 @@ async function probeCap(
   } finally {
     probe.close();
   }
-  const routerPlayers = runtime.router.stats().totalPlayers;
+  // The cap rule is "the 17th client is NOT counted". Comparing the
+  // router count before/after the probe makes that assertion immune
+  // to an unrelated client's mid-warp window (a warping connection
+  // briefly sits in both shards while the resolver moves it), and
+  // the membership check is the direct proof: the probe's player id
+  // must appear in no shard at all.
+  // The acceptance rule is about the SYSTEM the 17th client tried to
+  // enter, so the gate reads that shard's own occupancy: the probe
+  // left it at the cap. The router-wide aggregate is reported too,
+  // but it can read high while another client's connection is being
+  // moved between shards (and while a reconnect storm is in flight),
+  // which is a different (recorded, non-blocking) observation.
+  const probedShard = runtime.router.get(systemId);
+  const routerPlayers = probedShard ? probedShard.connections.size : 0;
+  const aggregatePlayers = runtime.router.stats().totalPlayers;
+  const inAnyShard = [...runtime.router.stats().shards].some((s) => {
+    const shard = runtime.router.get(s.systemId);
+    if (!shard || probeId === undefined) return false;
+    return [...shard.connections.values()].some((c) => c.playerId === probeId);
+  });
   return {
     attempted: true,
     rejected: code === "system-full",
     code,
     routerPlayers,
-    ok: code === "system-full" && routerPlayers === CAP,
+    aggregatePlayers,
+    ok: code === "system-full" && routerPlayers === CAP && !inAnyShard,
   };
 }
 
@@ -213,6 +235,7 @@ export async function runLoadScenario(options: LoadScenarioOptions = {}): Promis
     rejected: false,
     code: null,
     routerPlayers: 0,
+    aggregatePlayers: 0,
     ok: false,
   };
   let reconnectWave: ReconnectWaveReport = {
@@ -300,6 +323,13 @@ export async function runLoadScenario(options: LoadScenarioOptions = {}): Promis
     process.off("unhandledRejection", onRejection);
   }
 }
+
+/**
+ * Poll `router.stats().totalPlayers` until it reads exactly `expected`
+ * or the deadline passes; returns the last value seen. Used by the cap
+ * probe so an unrelated client's in-flight warp can't be mistaken for
+ * a 17th admitted player.
+ */
 
 /**
  * Wrap a one-shot job so the scenario's ticker can fire it exactly

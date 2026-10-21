@@ -202,6 +202,11 @@ export class LoadClient {
     };
   }
 
+  /** The authenticated player id (undefined before `connect()` resolves). */
+  get id(): string | undefined {
+    return this.playerId ?? undefined;
+  }
+
   /** Ids from the most recent entity list — the consistency checker reads it. */
   observedEntityIds(): ReadonlySet<string> {
     return this.entityIds;

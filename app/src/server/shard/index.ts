@@ -168,7 +168,7 @@ export function createShard(args: {
     },
   };
   const sim = new SimLoop(shard, {
-    buildSnapshot: () => buildSnapshotEntities(shard),
+    buildSnapshot: () => buildDynamicSnapshotEntities(shard),
     onSnapshot: (tick, bytes) => {
       if (bytes > BROADCAST_WARN_BYTES) {
         args.logger?.warn?.(
@@ -772,6 +772,40 @@ export function pushPlayerInput(
 export function buildSnapshotEntities(shard: Shard): ProtocolEntityState[] {
   const out: ProtocolEntityState[] = [];
   for (const entity of shard.entities.values()) {
+    out.push(entityToWire(entity));
+  }
+  return out;
+}
+
+/**
+ * Entity kinds that never move and only change when a player acts on
+ * them (mining a deposit, using a terminal). The 16-player load test
+ * (TASK-18) measured them at 76 % of the broadcast frame: 120
+ * deposits re-serialized 10x/s cost ~33 KB of the ~43 KB payload
+ * while carrying no new information between changes.
+ *
+ * They are still delivered in full on `enter_system` / `warp_arrived`
+ * (which use `buildSnapshotEntities`) and pushed as a targeted
+ * single-entity `entity_update` the moment something changes
+ * (see `pushDepositUpdate` in `./mining.ts`).
+ */
+const STATIC_ENTITY_KINDS: ReadonlySet<string> = new Set(["deposit", "terminal"]);
+
+/** True when an entity kind is static (see {@link STATIC_ENTITY_KINDS}). */
+export function isStaticEntityKind(kind: string): boolean {
+  return STATIC_ENTITY_KINDS.has(kind);
+}
+
+/**
+ * The 10 Hz broadcast's entity list: everything EXCEPT the static
+ * kinds above. Same wire shape as {@link buildSnapshotEntities}, so
+ * a client that received the static set at join keeps it and simply
+ * applies deltas from the frames it receives.
+ */
+export function buildDynamicSnapshotEntities(shard: Shard): ProtocolEntityState[] {
+  const out: ProtocolEntityState[] = [];
+  for (const entity of shard.entities.values()) {
+    if (STATIC_ENTITY_KINDS.has(entity.kind)) continue;
     out.push(entityToWire(entity));
   }
   return out;

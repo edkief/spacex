@@ -87,8 +87,10 @@ export interface CapProbeReport {
   attempted: boolean;
   rejected: boolean;
   code: string | null;
-  /** `router.stats().totalPlayers` right after the rejection. */
+  /** Occupancy of the probed system shard right after the rejection. */
   routerPlayers: number;
+  /** Router-wide player total (informational; moves during warps). */
+  aggregatePlayers: number;
   ok: boolean;
 }
 
@@ -197,7 +199,7 @@ export function evaluateReport(report: LoadReport): LoadCheck[] {
     name: "cap-enforcement",
     ok: report.capProbe.ok,
     detail: report.capProbe.ok
-      ? `17th join rejected with ${report.capProbe.code}, router count ${report.capProbe.routerPlayers}`
+      ? `17th join rejected with ${report.capProbe.code}, probed shard at ${report.capProbe.routerPlayers} (router total ${report.capProbe.aggregatePlayers})`
       : `probe failed (code=${report.capProbe.code}, router=${report.capProbe.routerPlayers})`,
   });
   checks.push({

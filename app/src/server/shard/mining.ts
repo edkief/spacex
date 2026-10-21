@@ -71,6 +71,7 @@ import { INVENTORY_WEIGHT_CAP, type Inventory } from "@shared/world/inventory.js
 import { addToInventory } from "@shared/world/inventoryOps.js";
 
 import type { Shard, ShardConnection, SimEntity } from "./types.js";
+import { pushDepositUpdate } from "./deposit-update.js";
 
 // ---------------------------------------------------------------------------
 // Constants — exported so the WS handler + tests can reference them.
@@ -505,6 +506,12 @@ export async function advanceMining(
         taken: next.taken,
         remaining: next.remaining,
       });
+      // TASK-18: deposits are static, so they are NOT in the 10 Hz
+      // broadcast any more. Push the changed deposit to every
+      // connection so remote clients still see the amount drop
+      // (one tiny frame instead of 33 KB of re-serialized deposits
+      // per second).
+      pushDepositUpdate(shard, deposit);
       // Per-award mining_update so the radial can re-render
       // from progressMs = 0 (a fresh 1.5 s window starts).
       if (mining.has(connId)) {
