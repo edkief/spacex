@@ -5,6 +5,7 @@ import { WebSocketServer } from 'ws';
 import WebSocket from 'ws';
 import { setupWebSocketHandler } from './ws';
 import { encodeMessage, decodeEnvelope } from '../shared/protocol';
+import { migrate } from './db/client';
 import axios from 'axios';
 
 describe('Validation Fuzzing', () => {
@@ -14,6 +15,10 @@ describe('Validation Fuzzing', () => {
   let baseUrl: string;
 
   beforeEach(async () => {
+    process.env.DB_PATH = '/tmp/fuzz.sqlite';
+    const { initDb, migrate } = await import('./db/client');
+    initDb();
+    await migrate();
     fastify = createApp();
     await fastify.listen({ port: 0, host: '127.0.0.1' });
     port = (fastify.server as any).address().port;
@@ -32,6 +37,11 @@ describe('Validation Fuzzing', () => {
       const ws = new WebSocket(`ws://localhost:${port}`);
       ws.on('open', () => resolve(ws));
     });
+
+  const getAuthToken = async (callsign: string) => {
+    const resp = await axios.post(`${baseUrl}/api/callsigns`, { callsign });
+    return resp.data.token;
+  };
 
   const receive = (ws: WebSocket): Promise<any> =>
     new Promise((resolve, reject) => {
@@ -137,7 +147,9 @@ describe('Validation Fuzzing', () => {
     const helloResp = await receive(ws);
     expect(helloResp.type).toBe('version-ok');
 
-    ws.send(encodeMessage('auth', { callsign: 'FuzzTester' }));
+    const token = await getAuthToken(`Fuzz-${Math.random().toString(36).substring(7)}`);
+    ws.send(encodeMessage('auth', { token }));
+    await receive(ws);
 
     ws.send(encodeMessage('join_system', { systemId: 'sol' }));
     const joinResp = await receive(ws);

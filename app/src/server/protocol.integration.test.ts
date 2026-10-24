@@ -4,6 +4,7 @@ import { WebSocketServer } from 'ws';
 import WebSocket from 'ws';
 import { setupWebSocketHandler } from './ws';
 import { encodeMessage, decodeEnvelope } from '../shared/protocol';
+import { migrate } from './db/client';
 
 describe('WebSocket Handshake Integration', () => {
   let wss: WebSocketServer;
@@ -11,6 +12,8 @@ describe('WebSocket Handshake Integration', () => {
   let port: number;
 
   beforeEach(async () => {
+    process.env.DB_PATH = '/tmp/protocol.sqlite';
+    await migrate();
     fastify = createApp();
     await fastify.listen({ port: 0, host: '127.0.0.1' });
     port = (fastify.server as any).address().port;
@@ -29,6 +32,15 @@ describe('WebSocket Handshake Integration', () => {
       ws.on('open', () => resolve(ws));
     });
 
+  const getAuthToken = async (callsign: string) => {
+    const resp = await fastify.inject({
+      method: 'POST',
+      url: '/api/callsigns',
+      payload: { callsign },
+    });
+    return JSON.parse(resp.payload as string).token;
+  };
+
   const receive = (ws: WebSocket): Promise<any> =>
     new Promise((resolve, reject) => {
       ws.once('message', (data) => {
@@ -45,6 +57,7 @@ describe('WebSocket Handshake Integration', () => {
 
   it('should complete full handshake flow', async () => {
     const ws = await createClient();
+    const token = await getAuthToken(`Handshake-${Math.random().toString(36).substring(7)}`);
 
     // 1. Hello
     ws.send(encodeMessage('hello', { v: 1 }));
@@ -52,7 +65,9 @@ describe('WebSocket Handshake Integration', () => {
     expect(helloResp.type).toBe('version-ok');
 
     // 2. Auth
-    ws.send(encodeMessage('auth', { callsign: 'TestPilot' }));
+    ws.send(encodeMessage('auth', { token }));
+    const authResp = await receive(ws);
+    expect(authResp.type).toBe('auth_ok');
 
     // 3. Join System
     ws.send(encodeMessage('join_system', { systemId: 'sol' }));

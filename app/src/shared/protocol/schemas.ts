@@ -40,6 +40,12 @@ export const AuthSchema = z
   })
   .strict();
 
+export const AuthOkSchema = z
+  .object({
+    playerId: z.string(),
+  })
+  .strict();
+
 export const JoinSystemSchema = z
   .object({
     systemId: z.string(),
@@ -178,8 +184,15 @@ export const ErrorSchema = z
       'rate-limited',
       'invalid-message',
       'unknown-type',
+      'callsign-taken',
     ]),
     message: z.string(),
+  })
+  .strict();
+
+export const CallsignClaimSchema = z
+  .object({
+    callsign: z.string().min(3).max(16).regex(/^[a-zA-Z0-9-]+$/),
   })
   .strict();
 
@@ -229,6 +242,7 @@ export const MessageSchemas: Record<string, z.ZodSchema> = {
   hello: HelloSchema,
   'version-ok': VersionOkSchema,
   auth: AuthSchema,
+  'auth-ok': AuthOkSchema,
   join_system: JoinSystemSchema,
   enter_system: EnterSystemSchema,
   state_snapshot: EnterSystemSchema, // Same shape as enter_system payload for convenience

@@ -122,7 +122,7 @@ describe('Repository', () => {
 
   it('should handle session CRUD', async () => {
     const player = await repo.createPlayer('User', 'sol');
-    const session = await repo.createSession(player.id, 'sol');
+    const session = await repo.createSession(player.id, 'sol', 'test-token-hash');
     expect(session.token_hash).toBeDefined();
 
     const found = await repo.findSession(session.token_hash);

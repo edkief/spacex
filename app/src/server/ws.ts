@@ -9,6 +9,8 @@ import {
 } from '../shared/protocol';
 import { MessageSchemas, AuthSchema, JoinSystemSchema } from '../shared/protocol/schemas';
 import { TokenBucket, ChatLimiter } from './ratelimit';
+import { repo } from './db/repo';
+import { verifyToken, hashToken } from './auth/token';
 
 type ConnectionState = 'hello' | 'auth' | 'join_system' | 'active';
 
@@ -38,7 +40,7 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
     };
     connections.set(ws, ctx);
 
-    ws.on('message', (data) => {
+    ws.on('message', async (data) => {
       const dataLength = data instanceof Buffer ? data.length : (data as any).byteLength || 0;
       if (dataLength > MAX_MESSAGE_SIZE) {
         sendError(ws, 'invalid-message', 'Message too large');
@@ -49,7 +51,12 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
         sendError(ws, 'invalid-message', result.error || 'Invalid envelope format');
         return;
       }
-      handleMessage(ws, ctx, result.data);
+      try {
+        await handleMessage(ws, ctx, result.data);
+      } catch (err) {
+        console.error('Error handling message:', err);
+        sendError(ws, 'invalid-message', 'Internal server error');
+      }
     });
 
     ws.on('close', () => {
@@ -84,7 +91,7 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
     return false;
   }
 
-  function handleMessage(ws: WebSocket, ctx: ConnectionContext, envelope: Envelope) {
+  async function handleMessage(ws: WebSocket, ctx: ConnectionContext, envelope: Envelope) {
     // General rate limiting
     if (!ctx.bucket.take()) {
       if (handleViolation(ws, ctx)) return;
@@ -139,10 +146,30 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
 
       case 'auth':
         if (type === 'auth') {
-          // Mock auth: any callsign or token works for now
           const authData = data as z.infer<typeof AuthSchema>;
-          ctx.playerId = authData.callsign || 'unknown-pilot';
+          const token = authData.token;
+          
+          if (!token) {
+            sendError(ws, 'unauthenticated', 'Missing session token');
+            return;
+          }
+
+          const payload = verifyToken(token);
+          if (!payload) {
+            sendError(ws, 'unauthenticated', 'Invalid or expired session token');
+            return;
+          }
+
+          const tokenHash = hashToken(token);
+          const session = await repo.findSession(tokenHash);
+          if (!session) {
+            sendError(ws, 'unauthenticated', 'Session not found or revoked');
+            return;
+          }
+
+          ctx.playerId = session.player_id;
           ctx.state = 'join_system';
+          ws.send(encodeMessage('auth_ok', { playerId: session.player_id }));
         } else {
           sendError(ws, 'invalid-message', 'Expected auth message');
         }

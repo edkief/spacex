@@ -53,6 +53,15 @@ export class Repository {
     return result[0] || null;
   }
 
+  async findPlayerById(id: string): Promise<Player | null> {
+    const result = await db
+      .select()
+      .from(schema.players)
+      .where(eq(schema.players.id, id))
+      .limit(1);
+    return result[0] || null;
+  }
+
   async getOrCreateStarterShip(playerId: string, systemId: string): Promise<Ship> {
     const existing = await this.getDb()
       .select()
@@ -214,10 +223,9 @@ export class Repository {
     return { ships, nodes };
   }
 
-  async createSession(playerId: string, systemId: string | null): Promise<Session> {
-    const token_hash = crypto.randomBytes(32).toString('hex');
+  async createSession(playerId: string, systemId: string | null, token_hash: string): Promise<Session> {
     const created_at = new Date();
-    const expires_at = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const expires_at = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days as per spec
 
     await db.insert(schema.sessions).values({
       token_hash,
