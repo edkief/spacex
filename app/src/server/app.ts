@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { callsignRoutes } from './routes/callsigns';
 import { sessionRoutes } from './routes/session';
+import { playersRoutes } from './routes/players';
 
 // Load environment variables from PROJECT_ROOT/.env.local
 dotenv.config({ path: path.resolve(__dirname, '../../../.env.local') });
@@ -15,6 +16,7 @@ export function createApp(options: { logger?: any } = {}) {
   // Register routes
   callsignRoutes(fastify);
   sessionRoutes(fastify);
+  playersRoutes(fastify);
 
   // Health check endpoint
   fastify.get('/api/health', async () => {

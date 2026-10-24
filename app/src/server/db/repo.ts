@@ -9,7 +9,7 @@ import {
   InsufficientCreditsError,
   NotFoundError,
 } from './types';
-import { eq, sql } from 'drizzle-orm';
+import { eq, sql, and, gte } from 'drizzle-orm';
 import crypto from 'crypto';
 
 export class Repository {
@@ -160,21 +160,24 @@ export class Repository {
   }
 
   async withdrawCredits(playerId: string, amount: number): Promise<void> {
-    const player = await db
-      .select()
-      .from(schema.players)
-      .where(eq(schema.players.id, playerId))
-      .limit(1);
-    if (player.length === 0) throw new NotFoundError('Player', playerId);
-
-    if (player[0].credits < amount) {
-      throw new InsufficientCreditsError();
-    }
-
-    await db
+    const result = await db
       .update(schema.players)
       .set({ credits: sql`${schema.players.credits} - ${amount}` })
-      .where(eq(schema.players.id, playerId));
+      .where(and(eq(schema.players.id, playerId), gte(schema.players.credits, amount)));
+
+    if (
+      !result ||
+      (typeof result === 'number' && result === 0) ||
+      (typeof result === 'object' && result.changes === 0)
+    ) {
+      const player = await db
+        .select()
+        .from(schema.players)
+        .where(eq(schema.players.id, playerId))
+        .limit(1);
+      if (player.length === 0) throw new NotFoundError('Player', playerId);
+      throw new InsufficientCreditsError();
+    }
   }
 
   async upsertNodeState(
