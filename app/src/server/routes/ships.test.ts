@@ -260,4 +260,89 @@ describe('Ships Routes', () => {
     expect(response.statusCode).toBe(400);
     expect(JSON.parse(response.body).code).toBe('invalid-livery');
   });
+
+  it('POST /api/ships/repair restores hull and shields', async () => {
+    const ship = await repo.getShipByOwner(playerId);
+    if (ship) {
+      await repo.saveShipState(ship.id, {
+        hull: 50,
+        shields: 25,
+      });
+    }
+    await repo.addCredits(playerId, 100);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/ships/repair',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.hull).toBe(100);
+    expect(body.shields).toBe(50);
+    expect(body.cost).toBeGreaterThan(0);
+
+    const updatedShip = await repo.getShipByOwner(playerId);
+    expect(updatedShip!.hull).toBe(100);
+    expect(updatedShip!.shields).toBe(50);
+  });
+
+  it('POST /api/ships/repair rejects if not docked', async () => {
+    const ship = await repo.getShipByOwner(playerId);
+    if (ship) {
+      await repo.saveShipState(ship.id, { state: 'flying' });
+    }
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/ships/repair',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(JSON.parse(response.body).code).toBe('not-docked');
+  });
+
+  it('POST /api/ships/repair rejects if insufficient credits', async () => {
+    const ship = await repo.getShipByOwner(playerId);
+    if (ship) {
+      await repo.saveShipState(ship.id, {
+        hull: 10,
+        shields: 0,
+      });
+    }
+    const player = await repo.findPlayerById(playerId);
+    if (player) {
+      await repo.withdrawCredits(playerId, player.credits);
+    }
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/ships/repair',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(JSON.parse(response.body).code).toBe('insufficient-credits');
+  });
+
+  it('POST /api/ships/repair rejects if already at full health', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/ships/repair',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.body).code).toBe('already-repaired');
+  });
 });

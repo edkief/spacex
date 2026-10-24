@@ -3,8 +3,10 @@ import { SimLoop } from './sim';
 import { ServerShipState, ConnState } from './types';
 import { integrateShip } from '../../shared/physics/flight';
 import { FlightRegime, Planet } from '../../shared/physics/types';
-import { ShipClass } from '../../shared/ships';
+import { ShipClass, SHIP_CLASSES, shipStats, ShipClassId } from '../../shared/ships';
 import { performance } from 'perf_hooks';
+import { cleanupExpiredWrecks } from './combat';
+import { gameEvents, GameEventType } from '../events';
 
 export class Shard extends EventEmitter {
   public entities = new Map<string, ServerShipState>();
@@ -18,6 +20,38 @@ export class Shard extends EventEmitter {
   constructor(public readonly systemId: string) {
     super();
     this.sim = new SimLoop(20, (dt) => this.onTick(dt));
+
+    gameEvents.on(GameEventType.REPAIR_COMPLETED, ({ playerId, shipId }) => {
+      const entity = this.entities.get(shipId);
+      if (entity) {
+        const stats = this.getShipClass(entity);
+        entity.hull = stats.hull;
+        entity.shields = stats.shieldCapacity;
+      }
+    });
+
+    gameEvents.on(GameEventType.SHIP_SWAPPED, ({ playerId, newShip }) => {
+      const shipId = this.playerShips.get(playerId);
+      if (shipId) {
+        this.entities.set(shipId, {
+          ...newShip,
+          id: shipId,
+          kind: 'ship',
+          // Map DB fields to SimEntity fields
+          hull: newShip.hull,
+          shields: newShip.shields,
+          destroyed: false,
+          // ... other fields
+        } as any);
+      }
+    });
+  }
+
+  public broadcast(type: string, payload: any) {
+    const data = JSON.stringify(payload);
+    for (const [connId] of this.connections) {
+      this.emit('send', connId, type, data);
+    }
   }
 
   start() {
@@ -49,6 +83,11 @@ export class Shard extends EventEmitter {
     const start = performance.now();
     this.tickCount++;
 
+    // 0. Cleanup
+    if (this.tickCount % 100 === 0) {
+      cleanupExpiredWrecks(this);
+    }
+
     // 1. Drain inputs and integrate ships
     for (const [connId, conn] of this.connections) {
       if (conn.inputQueue.length === 0) continue;
@@ -61,7 +100,7 @@ export class Shard extends EventEmitter {
       if (!shipId) continue;
 
       const entity = this.entities.get(shipId);
-      if (!entity) continue;
+      if (!entity || entity.destroyed || entity.kind === 'wreck') continue;
 
       const { regime, planet } = this.resolveRegime(entity);
       const shipClass = this.getShipClass(entity);
@@ -128,7 +167,7 @@ export class Shard extends EventEmitter {
   private broadcastSnapshot() {
     const entities = Array.from(this.entities.values()).map(e => ({
       id: e.id,
-      kind: 'ship',
+      kind: e.kind,
       pos: e.pos,
       vel: e.vel,
       quat: e.quat,
@@ -136,7 +175,7 @@ export class Shard extends EventEmitter {
       hull: e.hull,
       shields: e.shields,
       targetId: e.targetId,
-      classId: 'default', // Stub
+      classId: e.classId,
       callsign: 'Unknown', // Stub
       lastAppliedSeq: e.lastAppliedSeq,
     }));
@@ -158,13 +197,6 @@ export class Shard extends EventEmitter {
   }
 
   private getShipClass(entity: ServerShipState): ShipClass {
-    return {
-      id: 'default',
-      name: 'Default Ship',
-      mass: 1000,
-      acceleration: 10,
-      maxVelocity: 100,
-      turnRate: 1,
-    };
+    return shipStats(entity.classId as ShipClassId);
   }
 }

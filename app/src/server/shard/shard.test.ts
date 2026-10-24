@@ -23,6 +23,8 @@ describe('Shard', () => {
     shard.playerShips.set(playerId, shipId);
     shard.entities.set(shipId, {
       id: shipId,
+      kind: 'ship',
+      classId: 'scout',
       pos: { x: 0, y: 0, z: 0 },
       vel: { x: 0, y: 0, z: 0 },
       quat: { x: 0, y: 0, z: 0, w: 1 },
@@ -67,6 +69,8 @@ describe('Shard', () => {
     shard.playerShips.set(playerId, shipId);
     shard.entities.set(shipId, {
       id: shipId,
+      kind: 'ship',
+      classId: 'scout',
       pos: { x: 0, y: 0, z: 0 },
       vel: { x: 0, y: 0, z: 0 },
       quat: { x: 0, y: 0, z: 0, w: 1 },
@@ -103,6 +107,8 @@ describe('Shard', () => {
     shard.playerShips.set(playerId, shipId);
     shard.entities.set(shipId, {
       id: shipId,
+      kind: 'ship',
+      classId: 'scout',
       pos: { x: 0, y: 0, z: 0 },
       vel: { x: 0, y: 0, z: 0 },
       quat: { x: 0, y: 0, z: 0, w: 1 },

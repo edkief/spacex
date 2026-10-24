@@ -16,25 +16,25 @@
       "step": 1,
       "description": "Shared damage math",
       "details": "Pure applyDamage operating on the entity copy the sim owns; emit result, no side effects. Source is {kind:'player'|'ai', id} for HUD attribution.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Sim integration + events",
       "details": "SimLoop calls applyDamage when a weapon hit lands (hook now, real weapons in TASK-43); destroyed entities skipped in integration; wreck entity inserted with kind 'wreck' and a ttl (removed after 600 s).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Repair endpoint",
       "details": "ships route: docked check, cost calc from class maxes, withdrawCredits in same transaction as hull/shield reset; broadcast entity_update if in-shard.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Tests",
       "details": "All listed unit tests + repair API tests. Run lint, typecheck, full suite.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-13", "TASK-19", "TASK-41"],

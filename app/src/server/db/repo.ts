@@ -116,6 +116,24 @@ export class Repository {
     }
   }
 
+  saveShipStateSync(shipId: string, state: Partial<Ship>, tx: any): void {
+    const updateValues: any = { ...state, updated_at: new Date() };
+
+    if (updateValues.livery) updateValues.livery = JSON.stringify(updateValues.livery);
+    if (updateValues.position) updateValues.position = JSON.stringify(updateValues.position);
+    if (updateValues.velocity) updateValues.velocity = JSON.stringify(updateValues.velocity);
+
+    const result = this.getDb(tx)
+      .update(schema.ships)
+      .set(updateValues)
+      .where(eq(schema.ships.id, shipId))
+      .run();
+
+    if (result === 0) {
+      throw new NotFoundError('Ship', shipId);
+    }
+  }
+
   async loadCargo(shipId: string, tx?: any): Promise<CargoItem[]> {
     return await this.getDb(tx)
       .select()

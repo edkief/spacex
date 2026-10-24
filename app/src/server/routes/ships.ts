@@ -182,4 +182,75 @@ export async function shipsRoutes(fastify: FastifyInstance) {
       }
     },
   );
+
+  // POST /api/ships/repair
+  fastify.post(
+    '/api/ships/repair',
+    { preHandler: [authMiddleware] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const session = (request as any).session;
+      const playerId = session.player_id;
+
+      const ship = await repo.getShipByOwner(playerId);
+      if (!ship) {
+        return reply.status(404).send({
+          code: 'no-ship',
+          message: 'Player does not own a ship',
+        });
+      }
+
+      if (ship.state !== 'docked') {
+        return reply.status(409).send({
+          code: 'not-docked',
+          message: 'Must be docked to repair ship',
+        });
+      }
+
+      const stats = shipStats(ship.class_id as ShipClassId);
+      
+      const hullLoss = 1 - (ship.hull / stats.hull);
+      const shieldLoss = 1 - (ship.shields / stats.shieldCapacity);
+      const cost = Math.ceil(hullLoss * 10) + Math.ceil(shieldLoss * 5);
+
+      if (cost <= 0) {
+        return reply.status(400).send({
+          code: 'already-repaired',
+          message: 'Ship is already at full health',
+        });
+      }
+
+      try {
+        db.transaction((tx) => {
+          repo.withdrawCreditsSync(playerId, cost, tx);
+          repo.saveShipStateSync(ship.id, {
+            hull: stats.hull,
+            shields: stats.shieldCapacity,
+          }, tx);
+        });
+
+        gameEvents.emit(GameEventType.REPAIR_COMPLETED, {
+          playerId,
+          shipId: ship.id,
+        });
+
+        return {
+          cost,
+          hull: stats.hull,
+          shields: stats.shieldCapacity,
+        };
+      } catch (e: any) {
+        if (e instanceof InsufficientCreditsError) {
+          return reply.status(422).send({
+            code: 'insufficient-credits',
+            message: `Insufficient credits for repair (cost: ${cost})`,
+          });
+        }
+        console.error('Repair transaction failed:', e);
+        return reply.status(500).send({
+          code: 'internal-error',
+          message: 'An unexpected error occurred during repair',
+        });
+      }
+    },
+  );
 }
