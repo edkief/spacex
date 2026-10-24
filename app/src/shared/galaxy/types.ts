@@ -10,20 +10,38 @@ export interface Star {
   systemCount: number;
 }
 
+export type ShipClassId = 'scout' | 'freighter' | 'interceptor';
+
+export interface Planet {
+  id: string;
+  name: string;
+  class: 'rocky' | 'terran' | 'ocean' | 'gas' | 'ice';
+  radiusKm: number;
+  hasAtmosphere: boolean;
+  landable: boolean;
+  dockCount: number;
+  resourceTypes: string[];
+  aiRoster: {
+    count: number;
+    classes: ShipClassId[];
+  };
+}
+
+export interface SystemGen {
+  systemId: string;
+  name: string;
+  star: {
+    class: SpectralClass;
+    name: string;
+  };
+  planets: Planet[];
+}
+
 export interface SystemSummary {
   starId: string;
   planetCount: number;
   hasStation: boolean;
   dangerLevel: number;
-}
-
-export interface Planet {
-  id: string;
-  name: string;
-  radius: number;
-  type: 'Terrestrial' | 'GasGiant' | 'IceGiant' | 'Dwarf';
-  orbitRadius: number;
-  orbitInclination: number;
 }
 
 export interface SurfaceChunk {
