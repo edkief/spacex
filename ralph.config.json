@@ -1,6 +1,8 @@
 {
   "maxIterations": 100,
   "pinTask": true,
+  "harness": "opencode",
+  "reasoning": "high",
   "timeouts": {
     "iterationMs": 2700000,
     "inactivityMs": 600000,
