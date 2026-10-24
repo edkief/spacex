@@ -17,25 +17,25 @@
       "step": 1,
       "description": "Starter ship on claim",
       "details": "Extend TASK-10 claim flow: repo.getOrCreateStarterShip(playerId, 'scout') with position at home-system dock coords (derived from seed), state 'docked'.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Buy endpoint",
       "details": "src/server/routes/ships.ts: auth → load player+ship → state checks (docked) → catalog lookup → price check → transaction: withdrawCredits, delete old ship + its cargo (scrubbed), insert new ship (docked, full hull/shields, default livery) → notify shard via an in-process event bus (shard.onShipSwapped(playerId, newShip)).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Shard notification",
       "details": "If the player's system shard is active, replace the ship entity in-place (same player id, new class stats, new position = dock) and broadcast entity_update to all connections in the shard.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Tests",
       "details": "All acceptance paths via fastify inject + a ws client for the swap broadcast; rollback test injects a repo failure. Run full suite + typecheck.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-19", "TASK-41", "TASK-10", "TASK-63"],

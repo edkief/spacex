@@ -71,7 +71,7 @@ export class Repository {
     const shipValues = {
       id,
       owner_id: playerId,
-      class_id: 'starter',
+      class_id: 'scout',
       livery: JSON.stringify({}),
       hull: 100,
       shields: 100,
@@ -152,30 +152,134 @@ export class Repository {
     }
   }
 
-  async addCredits(playerId: string, amount: number): Promise<void> {
-    await db
-      .update(schema.players)
-      .set({ credits: sql`${schema.players.credits} + ${amount}` })
-      .where(eq(schema.players.id, playerId));
+  async addCredits(playerId: string, amount: number, tx?: any): Promise<void> {
+    if (tx) {
+      this.getDb(tx)
+        .update(schema.players)
+        .set({ credits: sql`${schema.players.credits} + ${amount}` })
+        .where(eq(schema.players.id, playerId))
+        .run();
+    } else {
+      await this.getDb()
+        .update(schema.players)
+        .set({ credits: sql`${schema.players.credits} + ${amount}` })
+        .where(eq(schema.players.id, playerId));
+    }
   }
 
-  async withdrawCredits(playerId: string, amount: number): Promise<void> {
-    const result = await db
+  async deleteShip(shipId: string, tx?: any): Promise<void> {
+    if (tx) {
+      this.getDb(tx).delete(schema.cargo_items).where(eq(schema.cargo_items.ship_id, shipId)).run();
+      this.getDb(tx).delete(schema.ships).where(eq(schema.ships.id, shipId)).run();
+    } else {
+      await this.getDb().delete(schema.cargo_items).where(eq(schema.cargo_items.ship_id, shipId));
+      await this.getDb().delete(schema.ships).where(eq(schema.ships.id, shipId));
+    }
+  }
+
+  deleteShipSync(shipId: string, tx: any): void {
+    this.getDb(tx).delete(schema.cargo_items).where(eq(schema.cargo_items.ship_id, shipId)).run();
+    this.getDb(tx).delete(schema.ships).where(eq(schema.ships.id, shipId)).run();
+  }
+
+  async getShipByOwner(playerId: string, tx?: any): Promise<Ship | null> {
+    const result = await this.getDb(tx)
+      .select()
+      .from(schema.ships)
+      .where(eq(schema.ships.owner_id, playerId))
+      .limit(1);
+    return result[0] || null;
+  }
+
+  async createShip(ship: Partial<Ship>, tx?: any): Promise<Ship> {
+    const id = crypto.randomUUID();
+    const now = new Date();
+    const shipValues = {
+      ...ship,
+      id,
+      updated_at: now,
+      livery: typeof ship.livery === 'object' ? JSON.stringify(ship.livery) : ship.livery,
+      position: typeof ship.position === 'object' ? JSON.stringify(ship.position) : ship.position,
+      velocity: typeof ship.velocity === 'object' ? JSON.stringify(ship.velocity) : ship.velocity,
+    };
+
+    if (tx) {
+      this.getDb(tx).insert(schema.ships).values(shipValues).run();
+    } else {
+      await this.getDb().insert(schema.ships).values(shipValues);
+    }
+
+    return {
+      ...shipValues,
+      id,
+      updated_at: now,
+      livery: ship.livery,
+      position: ship.position,
+      velocity: ship.velocity,
+    } as Ship;
+  }
+
+  createShipSync(ship: Partial<Ship>, tx: any): Ship {
+    const id = crypto.randomUUID();
+    const now = new Date();
+    const shipValues = {
+      ...ship,
+      id,
+      updated_at: now,
+      livery: typeof ship.livery === 'object' ? JSON.stringify(ship.livery) : ship.livery,
+      position: typeof ship.position === 'object' ? JSON.stringify(ship.position) : ship.position,
+      velocity: typeof ship.velocity === 'object' ? JSON.stringify(ship.velocity) : ship.velocity,
+    };
+
+    this.getDb(tx).insert(schema.ships).values(shipValues).run();
+
+    return {
+      ...shipValues,
+      id,
+      updated_at: now,
+      livery: ship.livery,
+      position: ship.position,
+      velocity: ship.velocity,
+    } as Ship;
+  }
+
+  async withdrawCredits(playerId: string, amount: number, tx?: any): Promise<void> {
+    if (tx) {
+      const result = this.getDb(tx)
+        .update(schema.players)
+        .set({ credits: sql`${schema.players.credits} - ${amount}` })
+        .where(and(eq(schema.players.id, playerId), gte(schema.players.credits, amount)))
+        .run();
+
+      if (!result || (typeof result === 'number' && result === 0) || (typeof result === 'object' && result.changes === 0)) {
+        throw new InsufficientCreditsError();
+      }
+    } else {
+      const result = await this.getDb()
+        .update(schema.players)
+        .set({ credits: sql`${schema.players.credits} - ${amount}` })
+        .where(and(eq(schema.players.id, playerId), gte(schema.players.credits, amount)));
+
+      if (
+        !result ||
+        (typeof result === 'number' && result === 0) ||
+        (typeof result === 'object' && result.changes === 0)
+      ) {
+        const player = await this.getDb().select().from(schema.players).where(eq(schema.players.id, playerId)).limit(1);
+        if (player.length === 0) throw new NotFoundError('Player', playerId);
+        throw new InsufficientCreditsError();
+      }
+    }
+  }
+
+  withdrawCreditsSync(playerId: string, amount: number, tx: any): void {
+    const result = this.getDb(tx)
       .update(schema.players)
       .set({ credits: sql`${schema.players.credits} - ${amount}` })
-      .where(and(eq(schema.players.id, playerId), gte(schema.players.credits, amount)));
+      .where(and(eq(schema.players.id, playerId), gte(schema.players.credits, amount)))
+      .run();
 
-    if (
-      !result ||
-      (typeof result === 'number' && result === 0) ||
-      (typeof result === 'object' && result.changes === 0)
-    ) {
-      const player = await db
-        .select()
-        .from(schema.players)
-        .where(eq(schema.players.id, playerId))
-        .limit(1);
-      if (player.length === 0) throw new NotFoundError('Player', playerId);
+    if (!result || (typeof result === 'number' && result === 0) || (typeof result === 'object' && result.changes === 0)) {
       throw new InsufficientCreditsError();
     }
   }

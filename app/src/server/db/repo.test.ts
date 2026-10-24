@@ -47,7 +47,7 @@ describe('Repository', () => {
     const player = await repo.createPlayer('Pilot', 'sol');
     const ship = await repo.getOrCreateStarterShip(player.id, 'sol');
     expect(ship.owner_id).toBe(player.id);
-    expect(ship.class_id).toBe('starter');
+    expect(ship.class_id).toBe('scout');
 
     const shipAgain = await repo.getOrCreateStarterShip(player.id, 'sol');
     expect(shipAgain.id).toBe(ship.id);

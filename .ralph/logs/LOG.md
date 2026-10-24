@@ -1,3 +1,5 @@
+2026-10-24 20:00: Completed TASK-20: Ship acquisition. Implemented starter ship ('scout') on claim, ship purchase endpoint with atomic credit withdrawal and ship swapping, and current ship retrieval with merged class stats. Added comprehensive integration tests and wired in-process event bus for shard notification. Verified with vitest.
+
 2026-10-24: TASK-22 implemented: deterministic flight model (space, atmosphere, VTOL) with ground collision and golden trajectory fixtures. All unit tests passed.
 
 2026-10-24 19:15: Completed TASK-41: Implemented atomic credits balance with persistence. Updated `withdrawCredits` to use atomic UPDATE for race-condition prevention. Implemented `GET /api/players/me` endpoint with a new `authMiddleware`. Added comprehensive atomicity and concurrency tests (100 simultaneous withdrawals) verifying balance integrity. Verified with full test suite and typecheck.
