@@ -27,9 +27,9 @@ async function run() {
   const starChart = {
     first25: stars.slice(0, 25),
     totalCount: stars.length,
-    checksum: getChecksum(stars)
+    checksum: getChecksum(stars),
   };
-  
+
   fs.writeFileSync(path.join(FIXTURES_DIR, 'stars-dev-seed.json'), canonicalJson(starChart));
   console.log('Saved stars-dev-seed.json');
 
@@ -49,7 +49,7 @@ async function run() {
   let firstLandablePlanet: Planet | null = null;
   for (const star of stars) {
     const sys = generateSystem(SEED, star.id);
-    const landable = sys.planets.find(p => p.landable);
+    const landable = sys.planets.find((p) => p.landable);
     if (landable) {
       firstLandablePlanet = landable;
       break;

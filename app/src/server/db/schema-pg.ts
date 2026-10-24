@@ -8,7 +8,7 @@ import {
   timestamp as pgTimestamp,
   boolean as pgBoolean,
   pgEnum,
-  unique as pgUnique
+  unique as pgUnique,
 } from 'drizzle-orm/pg-core';
 
 export const shipStateEnum = pgEnum('ship_state', ['docked', 'flying', 'onfoot', 'destroyed']);
@@ -34,14 +34,18 @@ export const ships = pgTable('ships', {
   updated_at: pgTimestamp('updated_at').notNull(),
 });
 
-export const cargo_items = pgTable('cargo_items', {
-  id: pgInteger('id').primaryKey().generatedAlwaysAsIdentity(),
-  ship_id: pgUuid('ship_id').references(() => ships.id),
-  resource_type: pgText('resource_type').notNull(),
-  quantity: pgInteger('quantity').notNull(),
-}, (t) => ({
-  ship_resource_unique: pgUnique('ship_resource_unique').on(t.ship_id, t.resource_type),
-}));
+export const cargo_items = pgTable(
+  'cargo_items',
+  {
+    id: pgInteger('id').primaryKey().generatedAlwaysAsIdentity(),
+    ship_id: pgUuid('ship_id').references(() => ships.id),
+    resource_type: pgText('resource_type').notNull(),
+    quantity: pgInteger('quantity').notNull(),
+  },
+  (t) => ({
+    ship_resource_unique: pgUnique('ship_resource_unique').on(t.ship_id, t.resource_type),
+  }),
+);
 
 export const sessions = pgTable('sessions', {
   token_hash: pgText('token_hash').primaryKey(),

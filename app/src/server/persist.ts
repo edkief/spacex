@@ -2,7 +2,7 @@ import { repo } from './db/repo';
 import { Ship, CargoItem, ResourceNodeState } from './db/types';
 import { db } from './db/client';
 
-export type ShipStateProvider = (shipId: string) => Promise<{ship: Ship, cargo: CargoItem[]}>;
+export type ShipStateProvider = (shipId: string) => Promise<{ ship: Ship; cargo: CargoItem[] }>;
 
 export class PersistService {
   private dirtyShips = new Set<string>();
@@ -47,7 +47,13 @@ export class PersistService {
   public async saveNodeStates(systemId: string, states: ResourceNodeState[]): Promise<void> {
     await db.transaction(async (tx: any) => {
       for (const state of states) {
-        await repo.upsertNodeState(state.node_id, systemId, state.quantity_remaining, state.respawn_at, tx);
+        await repo.upsertNodeState(
+          state.node_id,
+          systemId,
+          state.quantity_remaining,
+          state.respawn_at,
+          tx,
+        );
       }
     });
   }
@@ -63,7 +69,7 @@ export class PersistService {
     this.dirtyShips.clear();
 
     for (const shipId of shipsToSave) {
-      const {ship, cargo} = await this.stateProvider(shipId);
+      const { ship, cargo } = await this.stateProvider(shipId);
       await repo.saveShipState(ship.id, ship);
       await repo.saveCargo(ship.id, cargo);
     }
@@ -71,7 +77,7 @@ export class PersistService {
 
   // Hooks
   public async onDock(ship: Ship, cargo: CargoItem[]): Promise<void> {
-    await db.transaction(async (tx) => {
+    await db.transaction(async (tx: any) => {
       await repo.saveShipState(ship.id, ship, tx);
       await repo.saveCargo(ship.id, cargo, tx);
     });
@@ -80,22 +86,32 @@ export class PersistService {
   public async onDamage(ship: Ship, cargo: CargoItem[], previousHull: number): Promise<void> {
     const hull = ship.hull;
     const thresholds = [75, 50, 25];
-    
-    const crossedThreshold = thresholds.some(t => previousHull > t && hull <= t);
-    
+
+    const crossedThreshold = thresholds.some((t) => previousHull > t && hull <= t);
+
     if (crossedThreshold) {
       await this.onDock(ship, cargo);
     }
   }
 
-  public async onShardShutdown(systemId: string, ships: Map<string, {ship: Ship, cargo: CargoItem[]}>, nodes: ResourceNodeState[]): Promise<void> {
-    await db.transaction(async (tx) => {
-      for (const {ship, cargo} of ships.values()) {
+  public async onShardShutdown(
+    systemId: string,
+    ships: Map<string, { ship: Ship; cargo: CargoItem[] }>,
+    nodes: ResourceNodeState[],
+  ): Promise<void> {
+    await db.transaction(async (tx: any) => {
+      for (const { ship, cargo } of ships.values()) {
         await repo.saveShipState(ship.id, ship, tx);
         await repo.saveCargo(ship.id, cargo, tx);
       }
       for (const state of nodes) {
-        await repo.upsertNodeState(state.node_id, systemId, state.quantity_remaining, state.respawn_at, tx);
+        await repo.upsertNodeState(
+          state.node_id,
+          systemId,
+          state.quantity_remaining,
+          state.respawn_at,
+          tx,
+        );
       }
     });
   }

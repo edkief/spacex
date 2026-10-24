@@ -17,20 +17,22 @@ function loadFixture<T>(name: string): T {
 
 describe('Galaxy Determinism Snapshots', () => {
   it('matches the committed star chart snapshot', () => {
-    const expected = loadFixture<{ first25: any[], totalCount: number, checksum: string }>('stars-dev-seed.json');
+    const expected = loadFixture<{ first25: any[]; totalCount: number; checksum: string }>(
+      'stars-dev-seed.json',
+    );
     const actualStars = generateStars(SEED);
     const actual = {
       first25: actualStars.slice(0, 25),
       totalCount: actualStars.length,
-      checksum: expected.checksum // We keep the checksum from fixture for this test
+      checksum: expected.checksum, // We keep the checksum from fixture for this test
     };
-    
+
     expect(canonicalize(actual)).toEqual(canonicalize(expected));
   });
 
   it('matches the committed system snapshots', () => {
     const stars = generateStars(SEED);
-    
+
     // Star #0
     const expected0 = loadFixture<any>('system-star-0.json');
     const actual0 = generateSystem(SEED, stars[0].id);
@@ -47,7 +49,7 @@ describe('Galaxy Determinism Snapshots', () => {
     let firstLandablePlanet: Planet | null = null;
     for (const star of stars) {
       const sys = generateSystem(SEED, star.id);
-      const landable = sys.planets.find(p => p.landable);
+      const landable = sys.planets.find((p) => p.landable);
       if (landable) {
         firstLandablePlanet = landable;
         break;

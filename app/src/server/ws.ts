@@ -1,0 +1,153 @@
+import { WebSocket, WebSocketServer } from 'ws';
+import {
+  decodeEnvelope,
+  encodeMessage,
+  parseMessage,
+  PROTOCOL_VERSION,
+  Envelope,
+} from '../shared/protocol';
+import { MessageSchemas } from '../shared/protocol/schemas';
+
+type ConnectionState = 'hello' | 'auth' | 'join_system' | 'active';
+
+interface ConnectionContext {
+  state: ConnectionState;
+  playerId?: string;
+  systemId?: string;
+  unknownTypeCount: number;
+  lastPong: number;
+}
+
+export function setupWebSocketHandler(wss: WebSocketServer) {
+  const connections = new Map<WebSocket, ConnectionContext>();
+
+  wss.on('connection', (ws) => {
+    const ctx: ConnectionContext = {
+      state: 'hello',
+      unknownTypeCount: 0,
+      lastPong: Date.now(),
+    };
+    connections.set(ws, ctx);
+
+    ws.on('message', (data) => {
+      try {
+        const envelope = decodeEnvelope(data.toString());
+        handleMessage(ws, ctx, envelope);
+      } catch (e) {
+        sendError(ws, 'invalid-message', 'Invalid envelope format');
+      }
+    });
+
+    ws.on('close', () => {
+      connections.delete(ws);
+    });
+  });
+
+  // Keepalive loop
+  setInterval(() => {
+    const now = Date.now();
+    connections.forEach((ctx, ws) => {
+      if (now - ctx.lastPong > 45000) {
+        ws.terminate();
+        connections.delete(ws);
+        return;
+      }
+      ws.send(encodeMessage('ping', { ts: now }));
+    });
+  }, 15000);
+
+  function handleMessage(ws: WebSocket, ctx: ConnectionContext, envelope: Envelope) {
+    const { type, payload, v } = envelope;
+
+    if (v !== PROTOCOL_VERSION) {
+      sendError(
+        ws,
+        'version-mismatch',
+        `Protocol version mismatch: expected ${PROTOCOL_VERSION}, got ${v}`,
+      );
+      return;
+    }
+
+    if (!(type in MessageSchemas)) {
+      ctx.unknownTypeCount++;
+      if (ctx.unknownTypeCount > 10) {
+        ws.terminate();
+        connections.delete(ws);
+        return;
+      }
+      sendError(ws, 'unknown-type', `Unknown message type: ${type}`);
+      return;
+    }
+
+    const result = parseMessage(type, payload);
+    if (!result.success) {
+      sendError(
+        ws,
+        'invalid-message',
+        result.error === 'unknown-type' ? 'Unknown type' : 'Invalid payload',
+      );
+      return;
+    }
+
+    const data = result.data;
+
+    // Handshake state machine
+    switch (ctx.state) {
+      case 'hello':
+        if (type === 'hello') {
+          ws.send(encodeMessage('version-ok', { v: PROTOCOL_VERSION }));
+          ctx.state = 'auth';
+        } else {
+          sendError(ws, 'invalid-message', 'Expected hello message');
+        }
+        break;
+
+      case 'auth':
+        if (type === 'auth') {
+          // Mock auth: any callsign or token works for now
+          ctx.playerId = (data as any).callsign || 'unknown-pilot';
+          ctx.state = 'join_system';
+        } else {
+          sendError(ws, 'invalid-message', 'Expected auth message');
+        }
+        break;
+
+      case 'join_system':
+        if (type === 'join_system') {
+          const { systemId } = data as any;
+          ctx.systemId = systemId;
+
+          // Mock snapshot
+          const snapshot = {
+            systemId,
+            entities: [],
+            nodes: [],
+            chat: [],
+            players: [{ id: ctx.playerId!, callsign: ctx.playerId!, systemId }],
+          };
+
+          ws.send(encodeMessage('enter_system', { snapshot }));
+          ctx.state = 'active';
+        } else {
+          sendError(ws, 'invalid-message', 'Expected join_system message');
+        }
+        break;
+
+      case 'active':
+        if (type === 'pong') {
+          ctx.lastPong = Date.now();
+        } else if (type === 'input') {
+          // Handle input... (to be implemented in later tasks)
+        } else if (type === 'chat') {
+          // Handle chat...
+        } else {
+          // Handle other active messages...
+        }
+        break;
+    }
+  }
+}
+
+function sendError(ws: WebSocket, code: any, message: string) {
+  ws.send(encodeMessage('error', { code, message }));
+}

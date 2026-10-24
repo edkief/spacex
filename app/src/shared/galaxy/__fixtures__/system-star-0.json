@@ -3,13 +3,7 @@
   "planets": [
     {
       "aiRoster": {
-        "classes": [
-          "scout",
-          "scout",
-          "interceptor",
-          "scout",
-          "interceptor"
-        ],
+        "classes": ["scout", "scout", "interceptor", "scout", "interceptor"],
         "count": 5
       },
       "class": "ice",
@@ -19,19 +13,11 @@
       "landable": true,
       "name": "Aurelia Major",
       "radiusKm": 3600,
-      "resourceTypes": [
-        "iron",
-        "copper"
-      ]
+      "resourceTypes": ["iron", "copper"]
     },
     {
       "aiRoster": {
-        "classes": [
-          "scout",
-          "interceptor",
-          "freighter",
-          "scout"
-        ],
+        "classes": ["scout", "interceptor", "freighter", "scout"],
         "count": 4
       },
       "class": "gas",
@@ -41,18 +27,11 @@
       "landable": false,
       "name": "Aurelia Alpha",
       "radiusKm": 24212,
-      "resourceTypes": [
-        "copper",
-        "iron",
-        "water"
-      ]
+      "resourceTypes": ["copper", "iron", "water"]
     },
     {
       "aiRoster": {
-        "classes": [
-          "interceptor",
-          "interceptor"
-        ],
+        "classes": ["interceptor", "interceptor"],
         "count": 2
       },
       "class": "gas",
@@ -62,20 +41,11 @@
       "landable": false,
       "name": "Nova Major",
       "radiusKm": 39130,
-      "resourceTypes": [
-        "gas-compounds",
-        "silicon",
-        "copper"
-      ]
+      "resourceTypes": ["gas-compounds", "silicon", "copper"]
     },
     {
       "aiRoster": {
-        "classes": [
-          "interceptor",
-          "scout",
-          "interceptor",
-          "scout"
-        ],
+        "classes": ["interceptor", "scout", "interceptor", "scout"],
         "count": 4
       },
       "class": "ocean",
@@ -85,20 +55,11 @@
       "landable": true,
       "name": "Pyros Gamma",
       "radiusKm": 5706,
-      "resourceTypes": [
-        "iron",
-        "rare-earths"
-      ]
+      "resourceTypes": ["iron", "rare-earths"]
     },
     {
       "aiRoster": {
-        "classes": [
-          "scout",
-          "scout",
-          "interceptor",
-          "interceptor",
-          "scout"
-        ],
+        "classes": ["scout", "scout", "interceptor", "interceptor", "scout"],
         "count": 5
       },
       "class": "rocky",
@@ -108,19 +69,11 @@
       "landable": true,
       "name": "Hestia Alpha",
       "radiusKm": 7451,
-      "resourceTypes": [
-        "iron"
-      ]
+      "resourceTypes": ["iron"]
     },
     {
       "aiRoster": {
-        "classes": [
-          "freighter",
-          "interceptor",
-          "freighter",
-          "scout",
-          "scout"
-        ],
+        "classes": ["freighter", "interceptor", "freighter", "scout", "scout"],
         "count": 5
       },
       "class": "rocky",
@@ -130,9 +83,7 @@
       "landable": true,
       "name": "Erebos Delta",
       "radiusKm": 7733,
-      "resourceTypes": [
-        "water"
-      ]
+      "resourceTypes": ["water"]
     }
   ],
   "star": {

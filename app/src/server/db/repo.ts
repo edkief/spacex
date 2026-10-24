@@ -1,13 +1,13 @@
 import { db, schema } from './client';
-import { 
-  Player, 
-  Ship, 
-  CargoItem, 
-  Session, 
-  ResourceNodeState, 
-  CallsignTakenError, 
-  InsufficientCreditsError, 
-  NotFoundError 
+import {
+  Player,
+  Ship,
+  CargoItem,
+  Session,
+  ResourceNodeState,
+  CallsignTakenError,
+  InsufficientCreditsError,
+  NotFoundError,
 } from './types';
 import { eq, sql } from 'drizzle-orm';
 import crypto from 'crypto';
@@ -21,7 +21,7 @@ export class Repository {
     try {
       const id = crypto.randomUUID();
       const created_at = new Date();
-      
+
       await db.insert(schema.players).values({
         id,
         callsign,
@@ -45,12 +45,20 @@ export class Repository {
   }
 
   async findPlayerByCallsign(callsign: string): Promise<Player | null> {
-    const result = await db.select().from(schema.players).where(eq(schema.players.callsign, callsign)).limit(1);
+    const result = await db
+      .select()
+      .from(schema.players)
+      .where(eq(schema.players.callsign, callsign))
+      .limit(1);
     return result[0] || null;
   }
 
   async getOrCreateStarterShip(playerId: string, systemId: string): Promise<Ship> {
-    const existing = await this.getDb().select().from(schema.ships).where(eq(schema.ships.owner_id, playerId)).limit(1);
+    const existing = await this.getDb()
+      .select()
+      .from(schema.ships)
+      .where(eq(schema.ships.owner_id, playerId))
+      .limit(1);
     if (existing.length > 0) return existing[0];
 
     const id = crypto.randomUUID();
@@ -70,7 +78,7 @@ export class Repository {
     };
 
     await this.getDb().insert(schema.ships).values(shipValues);
-    
+
     return {
       ...shipValues,
       livery: {},
@@ -81,17 +89,22 @@ export class Repository {
 
   async saveShipState(shipId: string, state: Partial<Ship>, tx?: any): Promise<void> {
     const updateValues: any = { ...state, updated_at: new Date() };
-    
+
     if (updateValues.livery) updateValues.livery = JSON.stringify(updateValues.livery);
     if (updateValues.position) updateValues.position = JSON.stringify(updateValues.position);
     if (updateValues.velocity) updateValues.velocity = JSON.stringify(updateValues.velocity);
 
-    const result = await this.getDb(tx).update(schema.ships)
+    const result = await this.getDb(tx)
+      .update(schema.ships)
       .set(updateValues)
       .where(eq(schema.ships.id, shipId));
-    
+
     if (result.length === 0) {
-      const existing = await this.getDb(tx).select().from(schema.ships).where(eq(schema.ships.id, shipId)).limit(1);
+      const existing = await this.getDb(tx)
+        .select()
+        .from(schema.ships)
+        .where(eq(schema.ships.id, shipId))
+        .limit(1);
       if (existing.length === 0) {
         throw new NotFoundError('Ship', shipId);
       }
@@ -99,12 +112,15 @@ export class Repository {
   }
 
   async loadCargo(shipId: string, tx?: any): Promise<CargoItem[]> {
-    return await this.getDb(tx).select().from(schema.cargo_items).where(eq(schema.cargo_items.ship_id, shipId));
+    return await this.getDb(tx)
+      .select()
+      .from(schema.cargo_items)
+      .where(eq(schema.cargo_items.ship_id, shipId));
   }
 
   async saveCargo(shipId: string, items: CargoItem[], tx?: any): Promise<void> {
     const db = this.getDb(tx);
-    
+
     if (tx) {
       await db.delete(schema.cargo_items).where(eq(schema.cargo_items.ship_id, shipId));
       for (const item of items) {
@@ -119,41 +135,60 @@ export class Repository {
       await db.transaction((tx: any) => {
         tx.delete(schema.cargo_items).where(eq(schema.cargo_items.ship_id, shipId)).run();
         for (const item of items) {
-          tx.insert(schema.cargo_items).values({
-            ship_id: shipId,
-            resource_type: item.resource_type,
-            quantity: item.quantity,
-          }).run();
+          tx.insert(schema.cargo_items)
+            .values({
+              ship_id: shipId,
+              resource_type: item.resource_type,
+              quantity: item.quantity,
+            })
+            .run();
         }
       });
     }
   }
 
   async addCredits(playerId: string, amount: number): Promise<void> {
-    await db.update(schema.players)
+    await db
+      .update(schema.players)
       .set({ credits: sql`${schema.players.credits} + ${amount}` })
       .where(eq(schema.players.id, playerId));
   }
 
   async withdrawCredits(playerId: string, amount: number): Promise<void> {
-    const player = await db.select().from(schema.players).where(eq(schema.players.id, playerId)).limit(1);
+    const player = await db
+      .select()
+      .from(schema.players)
+      .where(eq(schema.players.id, playerId))
+      .limit(1);
     if (player.length === 0) throw new NotFoundError('Player', playerId);
-    
+
     if (player[0].credits < amount) {
       throw new InsufficientCreditsError();
     }
 
-    await db.update(schema.players)
+    await db
+      .update(schema.players)
       .set({ credits: sql`${schema.players.credits} - ${amount}` })
       .where(eq(schema.players.id, playerId));
   }
 
-  async upsertNodeState(nodeId: string, systemId: string, quantity: number, respawnAt: Date | null, tx?: any): Promise<void> {
+  async upsertNodeState(
+    nodeId: string,
+    systemId: string,
+    quantity: number,
+    respawnAt: Date | null,
+    tx?: any,
+  ): Promise<void> {
     const db = this.getDb(tx);
-    const existing = await db.select().from(schema.resource_node_state).where(eq(schema.resource_node_state.node_id, nodeId)).limit(1);
-    
+    const existing = await db
+      .select()
+      .from(schema.resource_node_state)
+      .where(eq(schema.resource_node_state.node_id, nodeId))
+      .limit(1);
+
     if (existing.length > 0) {
-      await db.update(schema.resource_node_state)
+      await db
+        .update(schema.resource_node_state)
         .set({ quantity_remaining: quantity, respawn_at: respawnAt })
         .where(eq(schema.resource_node_state.node_id, nodeId));
     } else {
@@ -167,10 +202,13 @@ export class Repository {
   }
 
   async listNodeStates(systemId: string, tx?: any): Promise<ResourceNodeState[]> {
-    return await this.getDb(tx).select().from(schema.resource_node_state).where(eq(schema.resource_node_state.system_id, systemId));
+    return await this.getDb(tx)
+      .select()
+      .from(schema.resource_node_state)
+      .where(eq(schema.resource_node_state.system_id, systemId));
   }
 
-  async loadSystemState(systemId: string): Promise<{ ships: Ship[], nodes: ResourceNodeState[] }> {
+  async loadSystemState(systemId: string): Promise<{ ships: Ship[]; nodes: ResourceNodeState[] }> {
     const ships = await db.select().from(schema.ships).where(eq(schema.ships.system_id, systemId));
     const nodes = await this.listNodeStates(systemId);
     return { ships, nodes };
@@ -193,7 +231,11 @@ export class Repository {
   }
 
   async findSession(token_hash: string): Promise<Session | null> {
-    const result = await db.select().from(schema.sessions).where(eq(schema.sessions.token_hash, token_hash)).limit(1);
+    const result = await db
+      .select()
+      .from(schema.sessions)
+      .where(eq(schema.sessions.token_hash, token_hash))
+      .limit(1);
     return result[0] || null;
   }
 

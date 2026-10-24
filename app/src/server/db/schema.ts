@@ -3,7 +3,7 @@ import {
   text as sqliteText,
   integer as sqliteInteger,
   real as sqliteReal,
-  unique as sqliteUnique
+  unique as sqliteUnique,
 } from 'drizzle-orm/sqlite-core';
 import {
   pgTable,
@@ -15,7 +15,7 @@ import {
   timestamp as pgTimestamp,
   boolean as pgBoolean,
   pgEnum,
-  unique as pgUnique
+  unique as pgUnique,
 } from 'drizzle-orm/pg-core';
 
 export type Driver = 'sqlite' | 'postgres';
@@ -55,14 +55,18 @@ export function createSchema(driver: Driver): TableDefinitions {
       state: sqliteText('state').notNull(),
       updated_at: sqliteInteger('updated_at', { mode: 'timestamp' }).notNull(),
     });
-    const cargo_items = sqliteTable('cargo_items', {
-      id: sqliteInteger('id').primaryKey({ autoIncrement: true }),
-      ship_id: sqliteText('ship_id').references(() => ships.id),
-      resource_type: sqliteText('resource_type').notNull(),
-      quantity: sqliteInteger('quantity').notNull(),
-    }, (t) => ({
-      ship_resource_unique: sqliteUnique('ship_resource_unique').on(t.ship_id, t.resource_type),
-    }));
+    const cargo_items = sqliteTable(
+      'cargo_items',
+      {
+        id: sqliteInteger('id').primaryKey({ autoIncrement: true }),
+        ship_id: sqliteText('ship_id').references(() => ships.id),
+        resource_type: sqliteText('resource_type').notNull(),
+        quantity: sqliteInteger('quantity').notNull(),
+      },
+      (t) => ({
+        ship_resource_unique: sqliteUnique('ship_resource_unique').on(t.ship_id, t.resource_type),
+      }),
+    );
     const sessions = sqliteTable('sessions', {
       token_hash: sqliteText('token_hash').primaryKey(),
       player_id: sqliteText('player_id').references(() => players.id),
@@ -104,14 +108,18 @@ export function createSchema(driver: Driver): TableDefinitions {
       state: shipStateEnum('state').notNull(),
       updated_at: pgTimestamp('updated_at').notNull(),
     });
-    const cargo_items = pgTable('cargo_items', {
-      id: pgInteger('id').primaryKey().generatedAlwaysAsIdentity(),
-      ship_id: pgUuid('ship_id').references(() => ships.id),
-      resource_type: pgText('resource_type').notNull(),
-      quantity: pgInteger('quantity').notNull(),
-    }, (t) => ({
-      ship_resource_unique: pgUnique('ship_resource_unique').on(t.ship_id, t.resource_type),
-    }));
+    const cargo_items = pgTable(
+      'cargo_items',
+      {
+        id: pgInteger('id').primaryKey().generatedAlwaysAsIdentity(),
+        ship_id: pgUuid('ship_id').references(() => ships.id),
+        resource_type: pgText('resource_type').notNull(),
+        quantity: pgInteger('quantity').notNull(),
+      },
+      (t) => ({
+        ship_resource_unique: pgUnique('ship_resource_unique').on(t.ship_id, t.resource_type),
+      }),
+    );
     const sessions = pgTable('sessions', {
       token_hash: pgText('token_hash').primaryKey(),
       player_id: pgUuid('player_id').references(() => players.id),

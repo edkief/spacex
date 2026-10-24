@@ -1,15 +1,15 @@
 import { Rng, hash2 } from '../random';
 import { Planet, ShipClassId } from './types';
-import { 
-  PLANET_CLASSES, 
-  RADIUS_RANGES, 
-  ATMOSPHERE_PROBABILITIES, 
-  RESOURCE_POOL, 
-  RESOURCE_COUNT_RANGE, 
-  AI_ROSTER_COUNT_RANGE, 
+import {
+  PLANET_CLASSES,
+  RADIUS_RANGES,
+  ATMOSPHERE_PROBABILITIES,
+  RESOURCE_POOL,
+  RESOURCE_COUNT_RANGE,
+  AI_ROSTER_COUNT_RANGE,
   SHIP_CLASSES,
   PLANET_NAME_PREFIXES,
-  PLANET_NAME_SUFFIXES
+  PLANET_NAME_SUFFIXES,
 } from './config-system';
 
 /**
@@ -46,12 +46,15 @@ export function generatePlanet(systemSeed: bigint, index: number): Planet {
   const dockCount = landable ? rng.nextInt(3) + 1 : 0;
 
   // 6. Resource Types
-  const resCount = rng.nextInt(RESOURCE_COUNT_RANGE.max - RESOURCE_COUNT_RANGE.min + 1) + RESOURCE_COUNT_RANGE.min;
+  const resCount =
+    rng.nextInt(RESOURCE_COUNT_RANGE.max - RESOURCE_COUNT_RANGE.min + 1) + RESOURCE_COUNT_RANGE.min;
   const shuffledResources = [...RESOURCE_POOL].sort(() => rng.nextF64() - 0.5);
   const resourceTypes = shuffledResources.slice(0, resCount);
 
   // 7. AI Roster
-  const aiCount = rng.nextInt(AI_ROSTER_COUNT_RANGE.max - AI_ROSTER_COUNT_RANGE.min + 1) + AI_ROSTER_COUNT_RANGE.min;
+  const aiCount =
+    rng.nextInt(AI_ROSTER_COUNT_RANGE.max - AI_ROSTER_COUNT_RANGE.min + 1) +
+    AI_ROSTER_COUNT_RANGE.min;
   const aiClasses: ShipClassId[] = [];
   for (let i = 0; i < aiCount; i++) {
     aiClasses.push(rng.pick(SHIP_CLASSES));

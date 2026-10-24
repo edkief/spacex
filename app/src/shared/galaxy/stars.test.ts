@@ -21,20 +21,20 @@ describe('Star Generator', () => {
 
   it('generates unique names', () => {
     const stars = generateStars(GOLDEN_SEED, 1000);
-    const names = new Set(stars.map(s => s.name));
+    const names = new Set(stars.map((s) => s.name));
     expect(names.size).toBe(stars.length);
   });
 
   it('generates unique ids', () => {
     const stars = generateStars(GOLDEN_SEED, 1000);
-    const ids = new Set(stars.map(s => s.id));
+    const ids = new Set(stars.map((s) => s.id));
     expect(ids.size).toBe(stars.length);
   });
 
   it('matches spectral distribution (approx)', () => {
     const stars = generateStars(GOLDEN_SEED, 10000);
     const counts: Record<string, number> = {};
-    stars.forEach(s => {
+    stars.forEach((s) => {
       counts[s.class] = (counts[s.class] || 0) + 1;
     });
 
@@ -47,15 +47,15 @@ describe('Star Generator', () => {
   it('snapshot test', () => {
     const stars = generateStars(GOLDEN_SEED);
     const fixturePath = path.join(__dirname, '__fixtures__/stars-dev-seed.json');
-    
+
     if (!fs.existsSync(fixturePath)) {
       // Generate fixture if it doesn't exist
       const fixture = {
         first25: stars.slice(0, 25),
         totalCount: stars.length,
-        checksum: getChecksum(stars)
+        checksum: getChecksum(stars),
       };
-      
+
       fs.mkdirSync(path.dirname(fixturePath), { recursive: true });
       fs.writeFileSync(fixturePath, JSON.stringify(fixture, null, 2));
       console.log('Generated golden fixture at', fixturePath);

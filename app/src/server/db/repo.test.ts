@@ -14,11 +14,11 @@ describe('Repository', () => {
     // Setup environment for SQLite
     process.env.DB_DRIVER = 'sqlite';
     process.env.DB_PATH = TEST_DB_PATH;
-    
+
     if (fs.existsSync(TEST_DB_PATH)) {
       fs.unlinkSync(TEST_DB_PATH);
     }
-    
+
     initDb();
     await migrate();
   });
@@ -32,7 +32,7 @@ describe('Repository', () => {
   it('should create a player and find them by callsign', async () => {
     const player = await repo.createPlayer('Ace', 'sol');
     expect(player.callsign).toBe('Ace');
-    
+
     const found = await repo.findPlayerByCallsign('Ace');
     expect(found).not.toBeNull();
     expect(found?.id).toBe(player.id);
@@ -56,9 +56,9 @@ describe('Repository', () => {
   it('should save ship state', async () => {
     const player = await repo.createPlayer('Pilot', 'sol');
     const ship = await repo.getOrCreateStarterShip(player.id, 'sol');
-    
+
     await repo.saveShipState(ship.id, { hull: 50, state: 'flying' });
-    
+
     // To verify, we can use db directly or add a findShip method to repo.
     // Let's use db.
     const result = await db.select().from(schema.ships).where(eq(schema.ships.id, ship.id));
@@ -69,22 +69,25 @@ describe('Repository', () => {
   it('should save cargo items', async () => {
     const player = await repo.createPlayer('Trader', 'sol');
     const ship = await repo.getOrCreateStarterShip(player.id, 'sol');
-    
+
     const cargo = [
       { ship_id: ship.id, resource_type: 'Iron', quantity: 10 },
       { ship_id: ship.id, resource_type: 'Water', quantity: 5 },
     ];
-    
+
     await repo.saveCargo(ship.id, cargo);
-    
-    const result = await db.select().from(schema.cargo_items).where(eq(schema.cargo_items.ship_id, ship.id));
+
+    const result = await db
+      .select()
+      .from(schema.cargo_items)
+      .where(eq(schema.cargo_items.ship_id, ship.id));
     expect(result.length).toBe(2);
   });
 
   it('should add and withdraw credits', async () => {
     const player = await repo.createPlayer('Rich', 'sol');
     await repo.addCredits(player.id, 1000);
-    
+
     const p1 = await db.select().from(schema.players).where(eq(schema.players.id, player.id));
     expect(p1[0].credits).toBe(1500);
 
@@ -102,12 +105,18 @@ describe('Repository', () => {
     const nodeId = 'node-1';
     const systemId = 'sol';
     await repo.upsertNodeState(nodeId, systemId, 100, null);
-    
-    const n1 = await db.select().from(schema.resource_node_state).where(eq(schema.resource_node_state.node_id, nodeId));
+
+    const n1 = await db
+      .select()
+      .from(schema.resource_node_state)
+      .where(eq(schema.resource_node_state.node_id, nodeId));
     expect(n1[0].quantity_remaining).toBe(100);
 
     await repo.upsertNodeState(nodeId, systemId, 50, new Date());
-    const n2 = await db.select().from(schema.resource_node_state).where(eq(schema.resource_node_state.node_id, nodeId));
+    const n2 = await db
+      .select()
+      .from(schema.resource_node_state)
+      .where(eq(schema.resource_node_state.node_id, nodeId));
     expect(n2[0].quantity_remaining).toBe(50);
   });
 

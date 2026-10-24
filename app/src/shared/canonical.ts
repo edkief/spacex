@@ -1,7 +1,7 @@
 /**
  * Recursively sorts object keys to ensure deterministic JSON stringification.
  * Arrays are preserved in their original order.
- * 
+ *
  * @param value The value to canonicalize.
  * @returns A new value with sorted keys for all nested objects.
  */
@@ -22,7 +22,7 @@ export function canonicalize(value: any): any {
 
 /**
  * Produces a stable JSON string representation of the given value.
- * 
+ *
  * @param value The value to stringify.
  * @param indent Indentation level for pretty-printing. Defaults to 2.
  * @returns A deterministic JSON string.

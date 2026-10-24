@@ -1,3 +1,4 @@
+2026-10-24: Completed TASK-9. Implemented WebSocket protocol with typed versioned envelopes, Zod schemas, and a robust handshake flow (hello -> auth -> join_system). Added keepalive ping/pong and unknown-type handling. Verified with unit and integration tests.\n
 2026-10-24: Completed TASK-63 - Persistence service with save points and crash recovery.
 - Implemented unit tests for `PersistService` verifying save/load logic, dirty tracking, and save point triggers.
 - Implemented crash recovery test using a child process and SIGKILL, verifying state restoration from SQLite.

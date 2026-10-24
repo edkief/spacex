@@ -9,7 +9,7 @@ function weightedPick<T extends string>(weights: Record<T, number>, rng: Rng): T
   const entries = Object.entries(weights) as [T, number][];
   const totalWeight = entries.reduce((sum, [_, w]) => sum + w, 0);
   let r = rng.nextF64() * totalWeight;
-  
+
   for (const [val, weight] of entries) {
     if (r < weight) return val;
     r -= weight;
@@ -43,22 +43,22 @@ export function generateStars(seed: string, count: number = GALAXY_STAR_COUNT): 
     const spectralClass = weightedPick(SPECTRAL_WEIGHTS, rng);
 
     // Name: ensure unique within the galaxy
-    let name = '';
+    let name: string;
     let attempts = 0;
     while (true) {
       const prefix = rng.pick(NAME_LISTS.prefixes);
       const root = rng.pick(NAME_LISTS.roots);
       const suffix = rng.pick(NAME_LISTS.suffixes);
       name = `${prefix} ${root} ${suffix}`;
-      
+
       if (!usedNames.has(name)) {
         usedNames.add(name);
         break;
       }
-      
+
       // To avoid infinite loop if we run out of names, and to keep it deterministic,
       // we use the RNG to jump to a new combination.
-      rng.nextU32(); 
+      rng.nextU32();
       attempts++;
       if (attempts > 1000) {
         // Fallback: add the index to the name to guarantee uniqueness

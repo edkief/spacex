@@ -7,11 +7,15 @@ dotenv.config({ path: path.resolve(__dirname, '../../../.env.local') });
 
 const GALAXY_SEED = process.env.GALAXY_SEED || 'default-seed';
 
-const fastify = Fastify({ logger: false });
+export function createApp() {
+  const fastify = Fastify({ logger: false });
 
-// Health check endpoint
-fastify.get('/api/health', async () => {
-  return { ok: true, galaxySeed: GALAXY_SEED };
-});
+  // Health check endpoint
+  fastify.get('/api/health', async () => {
+    return { ok: true, galaxySeed: GALAXY_SEED };
+  });
 
-export { fastify, GALAXY_SEED };
+  return fastify;
+}
+
+export { GALAXY_SEED };

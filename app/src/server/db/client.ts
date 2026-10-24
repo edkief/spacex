@@ -39,7 +39,7 @@ export const db = new Proxy({} as any, {
   get: (_, prop) => {
     if (!_dbInstance) initDb();
     return (_dbInstance as any)[prop];
-  }
+  },
 });
 
 export const schema = createSchema(DB_DRIVER);
@@ -57,7 +57,7 @@ export async function migrate() {
   }
 
   const sqliteDb = new Database(DB_PATH);
-  
+
   sqliteDb.exec(`
     CREATE TABLE IF NOT EXISTS _migrations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,18 +66,21 @@ export async function migrate() {
     );
   `);
 
-  const appliedMigrations = sqliteDb.prepare('SELECT name FROM _migrations').all() as { name: string }[];
-  const appliedNames = new Set(appliedMigrations.map(m => m.name));
+  const appliedMigrations = sqliteDb.prepare('SELECT name FROM _migrations').all() as {
+    name: string;
+  }[];
+  const appliedNames = new Set(appliedMigrations.map((m) => m.name));
 
-  const migrationFiles = fs.readdirSync(migrationsDir)
-    .filter(f => f.endsWith('.sql'))
+  const migrationFiles = fs
+    .readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
     .sort();
 
   for (const file of migrationFiles) {
     if (!appliedNames.has(file)) {
       console.log(`Applying migration: ${file}`);
       const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
-      
+
       sqliteDb.transaction(() => {
         sqliteDb.exec(sql);
         sqliteDb.prepare('INSERT INTO _migrations (name) VALUES (?)').run(file);

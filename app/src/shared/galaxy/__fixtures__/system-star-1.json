@@ -3,12 +3,7 @@
   "planets": [
     {
       "aiRoster": {
-        "classes": [
-          "interceptor",
-          "freighter",
-          "scout",
-          "interceptor"
-        ],
+        "classes": ["interceptor", "freighter", "scout", "interceptor"],
         "count": 4
       },
       "class": "ice",
@@ -18,18 +13,11 @@
       "landable": true,
       "name": "Hestia IV",
       "radiusKm": 6615,
-      "resourceTypes": [
-        "rare-earths"
-      ]
+      "resourceTypes": ["rare-earths"]
     },
     {
       "aiRoster": {
-        "classes": [
-          "interceptor",
-          "scout",
-          "interceptor",
-          "freighter"
-        ],
+        "classes": ["interceptor", "scout", "interceptor", "freighter"],
         "count": 4
       },
       "class": "rocky",
@@ -39,10 +27,7 @@
       "landable": true,
       "name": "Zephyr IV",
       "radiusKm": 6965,
-      "resourceTypes": [
-        "copper",
-        "silicon"
-      ]
+      "resourceTypes": ["copper", "silicon"]
     }
   ],
   "star": {

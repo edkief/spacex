@@ -25,11 +25,40 @@ export const ATMOSPHERE_PROBABILITIES = {
   gas: 1.0,
 };
 
-export const RESOURCE_POOL = ['iron', 'copper', 'silicon', 'rare-earths', 'water', 'gas-compounds'] as const;
+export const RESOURCE_POOL = [
+  'iron',
+  'copper',
+  'silicon',
+  'rare-earths',
+  'water',
+  'gas-compounds',
+] as const;
 export const RESOURCE_COUNT_RANGE = { min: 1, max: 3 };
 
 export const AI_ROSTER_COUNT_RANGE = { min: 2, max: 5 };
 export const SHIP_CLASSES = ['scout', 'freighter', 'interceptor'] as const;
 
-export const PLANET_NAME_PREFIXES = ['Nova', 'Aurelia', 'Krios', 'Xylos', 'Zephyr', 'Thalassa', 'Pyros', 'Gaea', 'Hestia', 'Erebos'];
-export const PLANET_NAME_SUFFIXES = ['Prime', 'Minor', 'Major', 'Alpha', 'Beta', 'Gamma', 'Delta', 'Omega', 'IV', 'IX'];
+export const PLANET_NAME_PREFIXES = [
+  'Nova',
+  'Aurelia',
+  'Krios',
+  'Xylos',
+  'Zephyr',
+  'Thalassa',
+  'Pyros',
+  'Gaea',
+  'Hestia',
+  'Erebos',
+];
+export const PLANET_NAME_SUFFIXES = [
+  'Prime',
+  'Minor',
+  'Major',
+  'Alpha',
+  'Beta',
+  'Gamma',
+  'Delta',
+  'Omega',
+  'IV',
+  'IX',
+];
