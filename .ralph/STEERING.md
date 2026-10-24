@@ -1,5 +1,20 @@
 # **Critical Steering Work**
 
+## Known-red state as of 2026-10-21 (read this first)
+
+- TASK-72 closed the warp.spec.ts regression — the menu-shell wiring
+  no longer tears down the WS session. **The first task in
+  `.ralph/tasks.json` is whatever TASK-73 is**; do not re-open TASK-72.
+- Dependencies are already installed (`app/node_modules` is populated) and the
+  Playwright chromium binary is present. The setup block below was completed in
+  an earlier steering pass; only re-run it if `npm test` fails on a missing
+  module or SIGILL.
+- Two client-side gaps are being closed by TASK-73 … TASK-76: there was no
+  three.js renderer at all (only a starfield stub) and no key→`sendInput` path.
+  Expect those tasks to create `app/src/client/render/**` and
+  `app/src/client/input/{keyboardState,inputPump}.ts`; build on what they leave,
+  do not re-invent it.
+
 ## Ensure the sandbox is running correctly
 
 This sandbox runs emulated aarch64 Linux. Apply as needed:
@@ -36,6 +51,11 @@ Install dependencies (using the sequence above), then install Playwright system 
 Then install the Playwright browser: `npx playwright install chromium`
 
 Start the dev server and take a screenshot. Save it to the `.ralph/screenshots` directory.
+
+## Persistent Storage
+
+You're running on a container, your storage is ephemeral, except for the /workspace directory which is bound to a PVC. If you need data to persist beyond a pod restart, always write it
+within the /workspace folder hierarchy
 
 ---
 

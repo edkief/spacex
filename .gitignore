@@ -1,10 +1,20 @@
 node_modules/
 dist/
+dist-server/
 *.tsbuildinfo
+.pi/
 
 # Local environment and secrets
 .env
 .env.*.local
+
+# Runtime SQLite DB and any local app data
+app/data/
+data/
+
+# Playwright artefacts
+test-results/
+playwright-report/
 
 # Ralph run artefacts
 .ralph/history/
@@ -12,3 +22,5 @@ dist/
 
 # Local env file (placeholders, but keep it out of git)
 .env.local
+.playwright-mcp/
+.playwright-cli/
