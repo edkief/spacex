@@ -45,6 +45,18 @@ export function encodeMessage<T extends keyof typeof MessageSchemas>(
   });
 }
 
-export function decodeEnvelope(data: string): Envelope {
-  return EnvelopeSchema.parse(JSON.parse(data));
+export function decodeEnvelope(data: string): 
+  | { success: true; data: Envelope } 
+  | { success: false; error: string } 
+{
+  try {
+    const json = JSON.parse(data);
+    const result = EnvelopeSchema.safeParse(json);
+    if (!result.success) {
+      return { success: false, error: 'Invalid envelope format' };
+    }
+    return { success: true, data: result.data };
+  } catch (e) {
+    return { success: false, error: 'Malformed JSON' };
+  }
 }

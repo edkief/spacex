@@ -37,12 +37,12 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
         sendError(ws, 'invalid-message', 'Message too large');
         return;
       }
-      try {
-        const envelope = decodeEnvelope(data.toString());
-        handleMessage(ws, ctx, envelope);
-      } catch (e) {
-        sendError(ws, 'invalid-message', 'Invalid envelope format');
+      const result = decodeEnvelope(data.toString());
+      if (!result.success) {
+        sendError(ws, 'invalid-message', result.error || 'Invalid envelope format');
+        return;
       }
+      handleMessage(ws, ctx, result.data);
     });
 
     ws.on('close', () => {

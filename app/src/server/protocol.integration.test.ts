@@ -31,7 +31,14 @@ describe('WebSocket Handshake Integration', () => {
 
   const receive = (ws: WebSocket): Promise<any> =>
     new Promise((resolve, reject) => {
-      ws.once('message', (data) => resolve(decodeEnvelope(data.toString())));
+      ws.once('message', (data) => {
+        const result = decodeEnvelope(data.toString());
+        if (result.success) {
+          resolve(result.data);
+        } else {
+          reject(new Error(`Decode error: ${result.error}`));
+        }
+      });
       ws.once('close', () => reject(new Error('Connection closed')));
       ws.once('error', (err) => reject(err));
     });
