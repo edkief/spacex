@@ -8,6 +8,7 @@
     "dev": "concurrently \"vite --port 3000\" \"PORT=8080 tsx src/server/index.ts\"",
     "build": "vite build && tsc --emitDeclarationOnly false",
     "test": "vitest run",
+    "snapshot:update": "tsx src/shared/galaxy/update-snapshots.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",

@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { generateStars } from './stars';
-import { canonicalize } from './utils';
+import { canonicalize } from '../canonical';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const GOLDEN_SEED = 'drift-dev-seed-001';
+const GOLDEN_SEED = 'dev-seed';
 
 function getChecksum(data: any) {
   const canonical = JSON.stringify(canonicalize(data));

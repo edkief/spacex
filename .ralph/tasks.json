@@ -5,7 +5,7 @@
   { "id": "TASK-3", "title": "Star generator (seeded galaxy layout)", "category": "functional", "specFilePath": ".ralph/tasks/TASK-3.json", "passes": true },
   { "id": "TASK-4", "title": "System generator (planets, docks, deposits, AI roster)", "category": "functional", "specFilePath": ".ralph/tasks/TASK-4.json", "passes": true },
   { "id": "TASK-5", "title": "Surface chunk generator (terrain, nodes, landing pads)", "category": "functional", "specFilePath": ".ralph/tasks/TASK-5.json", "passes": true },
-  { "id": "TASK-6", "title": "Galaxy determinism verification (snapshot fixtures)", "category": "functional", "specFilePath": ".ralph/tasks/TASK-6.json", "passes": false },
+  { "id": "TASK-6", "title": "Galaxy determinism verification (snapshot fixtures)", "category": "functional", "specFilePath": ".ralph/tasks/TASK-6.json", "passes": true },
   { "id": "TASK-62", "title": "Drizzle data layer: dual-driver schema (SQLite/Postgres)", "category": "data-model", "specFilePath": ".ralph/tasks/TASK-62.json", "passes": false },
   { "id": "TASK-63", "title": "Persistence service with save points and crash recovery", "category": "data-model", "specFilePath": ".ralph/tasks/TASK-63.json", "passes": false },
   { "id": "TASK-9", "title": "WS protocol: typed versioned message schema + handshake", "category": "api-endpoint", "specFilePath": ".ralph/tasks/TASK-9.json", "passes": false },

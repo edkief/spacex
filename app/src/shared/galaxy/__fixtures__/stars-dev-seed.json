@@ -1,231 +1,231 @@
 {
+  "checksum": "99f1343ac6085f292134ce7909c9a3efa3149ff8afb961432db5d723cb0dd4c1",
   "first25": [
     {
-      "id": "c9bf989ddefc021f",
-      "name": "Alpha Sirius Epsilon",
+      "class": "M",
+      "id": "31f482751b2e5742",
+      "name": "Iota Regulus Gorge",
+      "systemCount": 7,
+      "x": 28.3645146611443,
+      "y": -7.566441919767826,
+      "z": -0.42650822514908326
+    },
+    {
+      "class": "M",
+      "id": "3ab2e2143a3b16b7",
+      "name": "Gamma Naos Spire",
+      "systemCount": 3,
+      "x": 32.05182098878545,
+      "y": -3.485736229278381,
+      "z": 0.1972406252170009
+    },
+    {
+      "class": "M",
+      "id": "5d2932eaaf062c23",
+      "name": "Alpha Arcturus Gorge",
+      "systemCount": 2,
+      "x": -5.216614942889628,
+      "y": -3.9941091405368963,
+      "z": -0.18912815644963032
+    },
+    {
+      "class": "M",
+      "id": "5ccf6329e8f15fd",
+      "name": "Far Mira III",
+      "systemCount": 2,
+      "x": 7.659398048811167,
+      "y": 18.623714169081268,
+      "z": -0.2851340293739118
+    },
+    {
+      "class": "M",
+      "id": "e2f3de8a6115c8ed",
+      "name": "Lambda Megrez Point",
+      "systemCount": 5,
+      "x": 20.601568061996364,
+      "y": -14.096530863102823,
+      "z": 0.11565382317263499
+    },
+    {
+      "class": "M",
+      "id": "e9352f99d32c20a8",
+      "name": "Chi Sirius Cluster",
+      "systemCount": 3,
+      "x": -19.958636579515357,
+      "y": -11.757353004568667,
+      "z": -0.11561910010796292
+    },
+    {
       "class": "G",
-      "x": -1.273031134537241,
-      "y": -15.565797545225852,
-      "z": 0.07323006578573703,
-      "systemCount": 8
+      "id": "703ecf10332f805c",
+      "name": "Core Alkaid Gamma",
+      "systemCount": 5,
+      "x": 8.882886827141393,
+      "y": 9.799718346329552,
+      "z": 0.13294262975266594
     },
     {
-      "id": "92e13b74683ef36a",
-      "name": "Ultra Deneb Cluster",
       "class": "M",
-      "x": -24.39493517659042,
-      "y": -11.353876690339055,
-      "z": -0.11936422248087868,
-      "systemCount": 7
+      "id": "4998608a82f19322",
+      "name": "Alpha Bellatrix Tertiary",
+      "systemCount": 4,
+      "x": 14.848394766687687,
+      "y": 42.62923794569385,
+      "z": 0.24034019901370335
     },
     {
-      "id": "faa61812ed3d57e6",
-      "name": "Epsilon Castor Region",
       "class": "G",
-      "x": 9.770422394618654,
-      "y": 6.8511998103039415,
-      "z": 0.1986655215696545,
-      "systemCount": 3
+      "id": "7ee58e0d97ff762d",
+      "name": "Vertex Sargas Bastion",
+      "systemCount": 4,
+      "x": -3.6010940018046256,
+      "y": -9.17646903809592,
+      "z": -0.3195160116413157
     },
     {
-      "id": "6a9be299efdc64fc",
-      "name": "Cosmo Altair Beta",
       "class": "M",
-      "x": -55.745554622573565,
-      "y": 4.6464499319067,
-      "z": -0.1260857432816747,
-      "systemCount": 3
+      "id": "e0467d7e77ae2c17",
+      "name": "Super Alkaid Union",
+      "systemCount": 6,
+      "x": -10.76383108331984,
+      "y": -1.0511562392858396,
+      "z": -0.28801838478529557
     },
     {
-      "id": "a9e2cb2e78e0249e",
-      "name": "Hyper Hatysa Prime",
       "class": "M",
-      "x": 37.59286754073227,
-      "y": -30.712455874628333,
-      "z": 0.31787175021078606,
-      "systemCount": 8
+      "id": "be46f78d5b829952",
+      "name": "Eta Alioth VI",
+      "systemCount": 5,
+      "x": 4.7805443687314915,
+      "y": -11.5966217672329,
+      "z": -0.21357755028070333
     },
     {
-      "id": "80fc4efc227b9288",
-      "name": "Proto Alcor Federation",
       "class": "M",
-      "x": 20.720208188534297,
-      "y": 16.006042069515377,
-      "z": 0.0908059421520553,
-      "systemCount": 7
+      "id": "d1b211b2b8c9d707",
+      "name": "Kappa Vega Cloud",
+      "systemCount": 2,
+      "x": 6.703957436039561,
+      "y": 54.76133907637642,
+      "z": -0.05923858168699328
     },
     {
-      "id": "380fa3e8a13ad5af",
-      "name": "Zeta Alioth Reach",
       "class": "M",
-      "x": -18.00266209127841,
-      "y": 34.831725905814935,
-      "z": -0.12931655376123244,
-      "systemCount": 6
+      "id": "f14fb968c098c743",
+      "name": "Deep Dubhe Storm",
+      "systemCount": 4,
+      "x": 8.056199522520824,
+      "y": -5.338503012588366,
+      "z": -0.12000959002479686
     },
     {
-      "id": "993fa43793b6ce58",
-      "name": "Delta Antares Gamma",
       "class": "M",
-      "x": 13.740410209483711,
-      "y": 15.04213732953047,
-      "z": -0.25033880444526607,
-      "systemCount": 8
+      "id": "8b10cc2f337374f9",
+      "name": "Upsilon Regulus Cluster",
+      "systemCount": 3,
+      "x": -28.097659913888716,
+      "y": 17.62100465854195,
+      "z": 0.06448392458390233
     },
     {
-      "id": "12282c0182d47bc3",
-      "name": "Chi Altair Gate",
       "class": "M",
-      "x": 30.574356811743392,
-      "y": -3.68669503144293,
-      "z": 0.23176890453283042,
-      "systemCount": 7
+      "id": "321467cd26963d42",
+      "name": "Epsilon Canopus Cradle",
+      "systemCount": 4,
+      "x": 10.107497800822495,
+      "y": -24.135566600715702,
+      "z": 0.03616625855172957
     },
     {
-      "id": "896fdbcf89df1662",
-      "name": "Rho Spica Flame",
       "class": "M",
-      "x": 3.883276100004589,
-      "y": 39.348996575549855,
-      "z": -0.3980009152028606,
-      "systemCount": 5
+      "id": "d3e8f76c1f63f4bc",
+      "name": "Eta Canopus Frost",
+      "systemCount": 8,
+      "x": -33.51369315456386,
+      "y": 10.320699632645677,
+      "z": -0.22885455620062037
     },
     {
-      "id": "e7ef88222529babe",
-      "name": "Cosmo Mimosa League",
       "class": "M",
-      "x": 6.823306501468423,
-      "y": -17.95305430765242,
-      "z": -0.055785150670041445,
-      "systemCount": 7
+      "id": "3f97c139813e8115",
+      "name": "Stella Alnitak Accord",
+      "systemCount": 6,
+      "x": 7.713912911550866,
+      "y": 11.852085386750083,
+      "z": 0.28162044090092786
     },
     {
-      "id": "29a783ca0a58d646",
-      "name": "Cosmo Hatysa Nexus",
+      "class": "K",
+      "id": "b0e296f75c0060",
+      "name": "Dark Spica Gamma",
+      "systemCount": 7,
+      "x": 2.659780100242037,
+      "y": -6.8683112404645374,
+      "z": -0.1422045568905719
+    },
+    {
       "class": "M",
-      "x": 0.9512614599515247,
-      "y": 23.970030482410408,
-      "z": 0.09385903878219215,
-      "systemCount": 7
+      "id": "812c2300cb9a6fea",
+      "name": "Rho Bellatrix X",
+      "systemCount": 3,
+      "x": 35.260039437157495,
+      "y": -2.4059979750926845,
+      "z": 0.04696062562634014
     },
     {
-      "id": "92928ccd6adfe685",
-      "name": "Vertex Betelgeuse II",
       "class": "M",
-      "x": 1.2314283781757207,
-      "y": -11.4617714578638,
-      "z": -0.14558343997595194,
-      "systemCount": 5
+      "id": "a42aeb8a6989d61c",
+      "name": "Inner Alkaid Frost",
+      "systemCount": 8,
+      "x": 1.0359589162907894,
+      "y": 16.179392222316856,
+      "z": 0.13910062584185157
     },
     {
-      "id": "299a5583185ab67f",
-      "name": "Hyper Merak Major",
       "class": "M",
-      "x": 2.632211359607994,
-      "y": 42.4248329489095,
-      "z": 0.04975312912660431,
-      "systemCount": 5
+      "id": "372d5f71bab786eb",
+      "name": "Sigma Shaula II",
+      "systemCount": 6,
+      "x": 12.809321529471651,
+      "y": -4.900170107871997,
+      "z": -0.013960676485791452
     },
     {
-      "id": "8afb65313b780aff",
-      "name": "Nadir Alioth Sector",
       "class": "M",
-      "x": -3.5016185014747148,
-      "y": 14.268249012355744,
-      "z": -0.1682473839416565,
-      "systemCount": 3
+      "id": "86a1ecc4b0008c6d",
+      "name": "Kappa Bellatrix Cradle",
+      "systemCount": 2,
+      "x": 1.3669040729626287,
+      "y": 22.830002094637646,
+      "z": 0.19353781732750666
     },
     {
-      "id": "f629a68a1dbc8617",
-      "name": "Proto Electra V",
       "class": "M",
-      "x": -4.262212869557589,
-      "y": -18.54593741528036,
-      "z": 0.2840178737300851,
-      "systemCount": 2
+      "id": "25a81d84ba651686",
+      "name": "Eta Alnilam Minor",
+      "systemCount": 2,
+      "x": 9.146998216231802,
+      "y": 12.010573944692231,
+      "z": -0.1665510497584284
     },
     {
-      "id": "b78beb66ead628ce",
-      "name": "Cyber Aldebaran Epsilon",
       "class": "M",
-      "x": -7.628377709425393,
-      "y": 12.619207331527045,
-      "z": -0.12085697034566865,
-      "systemCount": 7
+      "id": "cee18e590fc552b2",
+      "name": "Hyper Electra Spire",
+      "systemCount": 3,
+      "x": 32.65693154957478,
+      "y": 29.64617177843488,
+      "z": -0.21261091734321938
     },
     {
-      "id": "6da5d39051fb46c4",
-      "name": "Cosmo Naos Mist",
       "class": "M",
-      "x": -22.607765877438062,
-      "y": 5.236416837228069,
-      "z": -0.08466109615451277,
-      "systemCount": 3
-    },
-    {
-      "id": "44696dff677ed1a1",
-      "name": "Hyper Acrux VIII",
-      "class": "F",
-      "x": 15.979935099733726,
-      "y": -16.513767546543804,
-      "z": -0.07560804492835774,
-      "systemCount": 8
-    },
-    {
-      "id": "b46c384c58c0f4a6",
-      "name": "Kappa Alpheratz League",
-      "class": "M",
-      "x": -1.955833885204548,
-      "y": -7.593641985842142,
-      "z": 0.4261342420144659,
-      "systemCount": 7
-    },
-    {
-      "id": "2d40fed2e5d7d6b6",
-      "name": "Dark Merak Epsilon",
-      "class": "M",
-      "x": 22.688904040142955,
-      "y": -7.952366438663626,
-      "z": 0.20875334332040094,
-      "systemCount": 5
-    },
-    {
-      "id": "c3e4752705ef8ab9",
-      "name": "Rho Mira VIII",
-      "class": "M",
-      "x": 15.750531270483679,
-      "y": 27.677314273171906,
-      "z": -0.0028290613295562325,
-      "systemCount": 2
-    },
-    {
-      "id": "b17790756d091d8c",
-      "name": "Chi Suhail I",
-      "class": "M",
-      "x": -29.695563698238534,
-      "y": 7.974930855378651,
-      "z": 0.30760697475642373,
-      "systemCount": 6
-    },
-    {
-      "id": "fe3ccf596ed6685a",
-      "name": "Stella Antares League",
-      "class": "M",
-      "x": -8.600449352228475,
-      "y": 20.97426741923368,
-      "z": -0.1373941876430109,
-      "systemCount": 2
-    },
-    {
-      "id": "6150d37716c8c6d5",
-      "name": "Dark Sargas Glow",
-      "class": "M",
-      "x": 1.7657796619410895,
-      "y": -17.9377672372206,
-      "z": -0.03668350357399125,
-      "systemCount": 2
+      "id": "ca92cb915dd99ee4",
+      "name": "Gamma Phecda Tertiary",
+      "systemCount": 6,
+      "x": -15.449016231480025,
+      "y": 17.51249115560635,
+      "z": -0.048054050459136556
     }
   ],
-  "totalCount": 200,
-  "checksum": "107d13799920b78627093988720179d308977c49001b66daea31ec453fe6c536"
+  "totalCount": 200
 }
