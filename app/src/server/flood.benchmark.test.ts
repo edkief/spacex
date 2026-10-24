@@ -47,14 +47,14 @@ describe('Flood Benchmark', () => {
     // Mock tick loop: 20Hz
     const tickInterval = setInterval(() => {
       const start = performance.now();
-      
+
       // Simulate some tick work (e.g. iterating over entities)
       // We'll just do a small loop to make it non-zero
       let sum = 0;
       for (let i = 0; i < 1000; i++) {
         sum += Math.sqrt(i);
       }
-      
+
       const end = performance.now();
       executionTimes.push(end - start);
     }, 50);
@@ -63,7 +63,7 @@ describe('Flood Benchmark', () => {
     const floodDuration = 10000;
     const msgPerSecond = 100;
     const interval = 1000 / msgPerSecond;
-    
+
     let messagesSent = 0;
     const floodPromise = new Promise<void>((resolve) => {
       const timer = setInterval(() => {
@@ -88,7 +88,7 @@ describe('Flood Benchmark', () => {
             resolve();
           }
         });
-      })
+      }),
     ]);
 
     clearInterval(tickInterval);
@@ -101,7 +101,7 @@ describe('Flood Benchmark', () => {
     console.log(`p95 tick execution time during flood: ${p95Tick.toFixed(4)}ms`);
 
     expect(p95Tick).toBeLessThan(30);
-    
+
     // The client should have been dropped by now if the flood was enough
     // In the previous integration test, it was dropped after 3 violations.
     // 100 msg/s will definitely trigger that.

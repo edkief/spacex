@@ -20,7 +20,7 @@ export function signToken(payload: SessionPayload): string {
   const hmac = crypto.createHmac('sha256', SESSION_SECRET);
   hmac.update(data);
   const signature = hmac.digest();
-  
+
   return `${data.toString('base64url')}.${signature.toString('base64url')}`;
 }
 
@@ -45,12 +45,12 @@ export function verifyToken(token: string): SessionPayload | null {
     }
 
     const payload: SessionPayload = JSON.parse(data.toString());
-    
+
     // 30s clock-skew tolerance
     if (payload.exp < Date.now() - 30000) {
       return null;
     }
-    
+
     return payload;
   } catch {
     return null;

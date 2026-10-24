@@ -26,13 +26,13 @@ export async function callsignRoutes(fastify: FastifyInstance) {
       const callsignSeed = seedFromString(normalizedCallsign);
       const starIndex = Number(callsignSeed % BigInt(GALAXY_STAR_COUNT));
       const systemId = hash2(masterSeed, BigInt(starIndex)).toString(16);
-      
+
       // 1. Create the player
       const player = await repo.createPlayer(normalizedCallsign, systemId);
-      
+
       // 2. Get or create starter ship
       await repo.getOrCreateStarterShip(player.id, systemId);
-      
+
       // 3. Issue session token
       const exp = Date.now() + 7 * 24 * 60 * 60 * 1000;
       const token = signToken({
@@ -40,17 +40,16 @@ export async function callsignRoutes(fastify: FastifyInstance) {
         systemId,
         exp,
       });
-      
+
       // 4. Store session hash in DB
       await repo.createSession(player.id, systemId, hashToken(token));
-      
+
       return reply.send({
         callsign: normalizedCallsign,
         token,
         playerId: player.id,
         homeSystemId: systemId,
       });
-      
     } catch (e: any) {
       if (e instanceof CallsignTakenError) {
         return reply.status(409).send({

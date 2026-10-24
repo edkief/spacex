@@ -17,6 +17,7 @@ type ConnectionState = 'hello' | 'auth' | 'join_system' | 'active';
 interface ConnectionContext {
   state: ConnectionState;
   playerId?: string;
+  tokenHash?: string;
   systemId?: string;
   unknownTypeCount: number;
   lastPong: number;
@@ -148,7 +149,7 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
         if (type === 'auth') {
           const authData = data as z.infer<typeof AuthSchema>;
           const token = authData.token;
-          
+
           if (!token) {
             sendError(ws, 'unauthenticated', 'Missing session token');
             return;
@@ -168,6 +169,7 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
           }
 
           ctx.playerId = session.player_id;
+          ctx.tokenHash = tokenHash;
           ctx.state = 'join_system';
           ws.send(encodeMessage('auth_ok', { playerId: session.player_id }));
         } else {
@@ -212,6 +214,11 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
           }
           ctx.chatLimiter.recordSend();
           // Handle chat broadcast...
+        } else if (type === 'logout') {
+          if (ctx.tokenHash) {
+            await repo.deleteSession(ctx.tokenHash);
+          }
+          ws.close(1000);
         } else {
           // Handle other active messages...
         }

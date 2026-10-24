@@ -49,14 +49,14 @@ describe('Auth Integration (TASK-10)', () => {
 
   it('should claim a callsign and use the token for WS auth', async () => {
     const callsign = `Pilot-${Math.random().toString(36).substring(7)}`;
-    
+
     // 1. Claim callsign via REST
     const claimResp = await server.inject({
       method: 'POST',
       url: '/api/callsigns',
       payload: { callsign },
     });
-    
+
     expect(claimResp.statusCode).toBe(200);
     const claimData = JSON.parse(claimResp.payload as string);
     expect(claimData).toHaveProperty('token');
@@ -67,7 +67,7 @@ describe('Auth Integration (TASK-10)', () => {
 
     // 2. Authenticate via WebSocket
     const ws = await createClient();
-    
+
     // Hello
     ws.send(encodeMessage('hello', { v: 1 }));
     await receive(ws);
@@ -80,16 +80,16 @@ describe('Auth Integration (TASK-10)', () => {
     // Join system
     ws.send(encodeMessage('join_system', { systemId: claimData.homeSystemId }));
     const joinResp = await receive(ws);
-    
+
     expect(joinResp.type).toBe('enter_system');
     expect(joinResp.payload).toHaveProperty('snapshot');
-    
+
     ws.close();
   });
 
   it('should reject duplicate callsign claims', async () => {
     const callsign = `Dup-${Math.random().toString(36).substring(7)}`;
-    
+
     // First claim
     await server.inject({
       method: 'POST',
@@ -103,7 +103,7 @@ describe('Auth Integration (TASK-10)', () => {
       url: '/api/callsigns',
       payload: { callsign },
     });
-    
+
     expect(claimResp.statusCode).toBe(409);
     const errorData = JSON.parse(claimResp.payload as string);
     expect(errorData.code).toBe('callsign-taken');
@@ -111,7 +111,7 @@ describe('Auth Integration (TASK-10)', () => {
 
   it('should validate callsign format', async () => {
     const invalidCallsigns = ['ab', 'too-long-callsign-123456789', 'invalid@char'];
-    
+
     for (const callsign of invalidCallsigns) {
       const resp = await server.inject({
         method: 'POST',
@@ -138,7 +138,7 @@ describe('Auth Integration (TASK-10)', () => {
         authorization: `Bearer ${token}`,
       },
     });
-    
+
     expect(sessionResp.statusCode).toBe(200);
     const sessionData = JSON.parse(sessionResp.payload as string);
     expect(sessionData.callsign).toBe(callsign.toLowerCase());
@@ -153,7 +153,7 @@ describe('Auth Integration (TASK-10)', () => {
         authorization: 'Bearer invalid-token',
       },
     });
-    
+
     expect(sessionResp.statusCode).toBe(401);
     const errorData = JSON.parse(sessionResp.payload as string);
     expect(errorData.code).toBe('unauthenticated');
@@ -161,16 +161,16 @@ describe('Auth Integration (TASK-10)', () => {
 
   it('should reject WS auth with invalid token', async () => {
     const ws = await createClient();
-    
+
     ws.send(encodeMessage('hello', { v: 1 }));
     await receive(ws);
 
     ws.send(encodeMessage('auth', { token: 'invalid-token' }));
     const resp = await receive(ws);
-    
+
     expect(resp.type).toBe('error');
     expect((resp.payload as any).code).toBe('unauthenticated');
-    
+
     ws.close();
   });
 });

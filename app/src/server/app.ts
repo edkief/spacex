@@ -9,8 +9,8 @@ dotenv.config({ path: path.resolve(__dirname, '../../../.env.local') });
 
 const GALAXY_SEED = process.env.GALAXY_SEED || 'default-seed';
 
-export function createApp() {
-  const fastify = Fastify({ logger: false });
+export function createApp(options: { logger?: any } = {}) {
+  const fastify = Fastify({ logger: options.logger ?? false });
 
   // Register routes
   callsignRoutes(fastify);

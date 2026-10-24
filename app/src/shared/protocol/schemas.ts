@@ -174,6 +174,8 @@ export const RepairSchema = z
   })
   .strict();
 
+export const LogoutSchema = z.object({}).strict();
+
 export const ErrorSchema = z
   .object({
     code: z.enum([
@@ -192,7 +194,11 @@ export const ErrorSchema = z
 
 export const CallsignClaimSchema = z
   .object({
-    callsign: z.string().min(3).max(16).regex(/^[a-zA-Z0-9-]+$/),
+    callsign: z
+      .string()
+      .min(3)
+      .max(16)
+      .regex(/^[a-zA-Z0-9-]+$/),
   })
   .strict();
 
@@ -258,6 +264,7 @@ export const MessageSchemas: Record<string, z.ZodSchema> = {
   exit_ship: ExitShipSchema,
   enter_ship: EnterShipSchema,
   repair: RepairSchema,
+  logout: LogoutSchema,
   error: ErrorSchema,
   ping: PingSchema,
   pong: PongSchema,

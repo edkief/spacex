@@ -1,3 +1,5 @@
+2026-10-24 18:50: Completed TASK-66: Session token integrity. Implemented POST /api/session/logout and WS 'logout' message for session revocation. Added exhaustive unit tests for token signing, expiry, and tampering. Added log-leak guard integration test to ensure session secrets and tokens are not logged. Verified with full test suite.
+
 2026-10-24 18:40: Completed TASK-10: Callsign-only auth with signed session tokens. Implemented HMAC-signed session tokens, callsign claim endpoint (/api/callsigns), and session verification (/api/session and WS handshake). Verified with integration tests.
 \n
 2026-10-24 17:59: Completed TASK-65: Per-connection rate limiting and chat spam control. Implemented TokenBucket and ChatLimiter, integrated into WS handler with escalation (drop on 3 violations). Verified with unit and integration tests, including a flood benchmark ensuring p95 tick < 30ms.

@@ -54,11 +54,7 @@ export class Repository {
   }
 
   async findPlayerById(id: string): Promise<Player | null> {
-    const result = await db
-      .select()
-      .from(schema.players)
-      .where(eq(schema.players.id, id))
-      .limit(1);
+    const result = await db.select().from(schema.players).where(eq(schema.players.id, id)).limit(1);
     return result[0] || null;
   }
 
@@ -223,7 +219,11 @@ export class Repository {
     return { ships, nodes };
   }
 
-  async createSession(playerId: string, systemId: string | null, token_hash: string): Promise<Session> {
+  async createSession(
+    playerId: string,
+    systemId: string | null,
+    token_hash: string,
+  ): Promise<Session> {
     const created_at = new Date();
     const expires_at = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days as per spec
 
