@@ -8,6 +8,7 @@ import {
   Envelope,
 } from '../shared/protocol';
 import { MessageSchemas, AuthSchema, JoinSystemSchema } from '../shared/protocol/schemas';
+import { TokenBucket, ChatLimiter } from './ratelimit';
 
 type ConnectionState = 'hello' | 'auth' | 'join_system' | 'active';
 
@@ -17,6 +18,9 @@ interface ConnectionContext {
   systemId?: string;
   unknownTypeCount: number;
   lastPong: number;
+  bucket: TokenBucket;
+  chatLimiter: ChatLimiter;
+  violationTimestamps: number[];
 }
 
 export function setupWebSocketHandler(wss: WebSocketServer) {
@@ -28,6 +32,9 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
       state: 'hello',
       unknownTypeCount: 0,
       lastPong: Date.now(),
+      bucket: new TokenBucket(20, 40),
+      chatLimiter: new ChatLimiter(),
+      violationTimestamps: [],
     };
     connections.set(ws, ctx);
 
@@ -63,7 +70,28 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
     });
   }, 15000);
 
+  function handleViolation(ws: WebSocket, ctx: ConnectionContext) {
+    const now = Date.now();
+    ctx.violationTimestamps.push(now);
+
+    // Keep only last 10 seconds of violations
+    ctx.violationTimestamps = ctx.violationTimestamps.filter((ts) => now - ts <= 10000);
+
+    if (ctx.violationTimestamps.length >= 3) {
+      ws.close(4009, 'flooded');
+      return true;
+    }
+    return false;
+  }
+
   function handleMessage(ws: WebSocket, ctx: ConnectionContext, envelope: Envelope) {
+    // General rate limiting
+    if (!ctx.bucket.take()) {
+      if (handleViolation(ws, ctx)) return;
+      sendError(ws, 'rate-limited', 'Too many messages');
+      return;
+    }
+
     const { type, payload, v } = envelope;
 
     if (v !== PROTOCOL_VERSION) {
@@ -148,7 +176,15 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
         } else if (type === 'input') {
           // Handle input... (to be implemented in later tasks)
         } else if (type === 'chat') {
-          // Handle chat...
+          const chatData = data as { text: string };
+          const chatCheck = ctx.chatLimiter.check(chatData.text);
+          if (!chatCheck.allowed) {
+            if (handleViolation(ws, ctx)) return;
+            sendError(ws, 'rate-limited', chatCheck.reason || 'Chat limit exceeded');
+            return;
+          }
+          ctx.chatLimiter.recordSend();
+          // Handle chat broadcast...
         } else {
           // Handle other active messages...
         }

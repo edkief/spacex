@@ -94,7 +94,7 @@ export const EntityUpdateSchema = z
 
 export const ChatSchema = z
   .object({
-    text: z.string().min(1).max(500),
+    text: z.string().min(1).max(1000),
     channel: z.enum(['system', 'local', 'fleet']),
   })
   .strict();

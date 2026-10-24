@@ -16,25 +16,25 @@
       "step": 1,
       "description": "Token bucket implementation",
       "details": "src/server/ratelimit.ts: TokenBucket(rate, burst) with now() injected for testability. One bucket per WS connection, created on connect, freed on close.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Wire into dispatch",
       "details": "Before validation/dispatch: bucket.take() → reject with rate-limited if false. Track violation timestamps; 3 within 10 s → ws.close(4009).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Chat limiter",
       "details": "ChatLimiter per connection: lastSendAt (2 s min gap), sliding window (10/30 s). Chat handler checks before broadcast; violations count toward escalation.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Flood benchmark + tests",
       "details": "Node ws client floods 100 msg/s at 16 other simulated entities ticking; assert p95 tick < 30 ms and client dropped by ~5 s. Unit tests with injected clock. Run full suite.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-64"],
