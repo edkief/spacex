@@ -9,11 +9,13 @@ export interface Envelope {
   payload: unknown;
 }
 
-export const EnvelopeSchema = z.object({
-  v: z.number().int(),
-  type: z.string(),
-  payload: z.any(),
-});
+export const EnvelopeSchema = z
+  .object({
+    v: z.number().int(),
+    type: z.string(),
+    payload: z.any(),
+  })
+  .strict();
 
 export type MessagePayload = {
   [K in keyof typeof MessageSchemas]: z.infer<(typeof MessageSchemas)[K]>;

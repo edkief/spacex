@@ -15,25 +15,25 @@
       "step": 1,
       "description": "Audit current validation surface",
       "details": "Grep server handlers for direct payload field access; list every message type and REST route; confirm each has a schema (add missing ones to shared/protocol/schemas.ts).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Harden dispatch",
       "details": "WS dispatcher: safeParse → on failure send invalid-message error, increment per-connection invalid counter (drop at 50). REST: fastify schema validation or manual safeParse in a preHandler; 400 responses with {code, message} only.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Fuzz test suite",
       "details": "tests/validation-fuzz.spec.ts (node, not playwright): boot server in-process, open ws, send the 20 payloads, assert invalid-message each time, then assert health endpoint still 200 and a valid hello→auth flow still succeeds.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Verify and log",
       "details": "Run npm run lint && npm run typecheck && npm run test; record results; commit.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-9"],

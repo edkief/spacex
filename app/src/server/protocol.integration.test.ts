@@ -89,8 +89,8 @@ describe('WebSocket Handshake Integration', () => {
     expect(resp.type).toBe('error');
     expect((resp.payload as any).code).toBe('unknown-type');
 
-    // Send 10 more unknown types (total 11)
-    for (let i = 0; i < 10; i++) {
+    // Send 50 more unknown types (total 51)
+    for (let i = 0; i < 50; i++) {
       ws.send(JSON.stringify({ v: 1, type: 'ghost', payload: {} }));
       try {
         await receive(ws);

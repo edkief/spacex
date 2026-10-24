@@ -1,4 +1,5 @@
 import { WebSocket, WebSocketServer } from 'ws';
+import { z } from 'zod';
 import {
   decodeEnvelope,
   encodeMessage,
@@ -6,7 +7,7 @@ import {
   PROTOCOL_VERSION,
   Envelope,
 } from '../shared/protocol';
-import { MessageSchemas } from '../shared/protocol/schemas';
+import { MessageSchemas, AuthSchema, JoinSystemSchema } from '../shared/protocol/schemas';
 
 type ConnectionState = 'hello' | 'auth' | 'join_system' | 'active';
 
@@ -20,6 +21,7 @@ interface ConnectionContext {
 
 export function setupWebSocketHandler(wss: WebSocketServer) {
   const connections = new Map<WebSocket, ConnectionContext>();
+  const MAX_MESSAGE_SIZE = 64 * 1024;
 
   wss.on('connection', (ws) => {
     const ctx: ConnectionContext = {
@@ -30,6 +32,11 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
     connections.set(ws, ctx);
 
     ws.on('message', (data) => {
+      const dataLength = data instanceof Buffer ? data.length : (data as any).byteLength || 0;
+      if (dataLength > MAX_MESSAGE_SIZE) {
+        sendError(ws, 'invalid-message', 'Message too large');
+        return;
+      }
       try {
         const envelope = decodeEnvelope(data.toString());
         handleMessage(ws, ctx, envelope);
@@ -70,7 +77,7 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
 
     if (!(type in MessageSchemas)) {
       ctx.unknownTypeCount++;
-      if (ctx.unknownTypeCount > 10) {
+      if (ctx.unknownTypeCount > 50) {
         ws.terminate();
         connections.delete(ws);
         return;
@@ -105,7 +112,8 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
       case 'auth':
         if (type === 'auth') {
           // Mock auth: any callsign or token works for now
-          ctx.playerId = (data as any).callsign || 'unknown-pilot';
+          const authData = data as z.infer<typeof AuthSchema>;
+          ctx.playerId = authData.callsign || 'unknown-pilot';
           ctx.state = 'join_system';
         } else {
           sendError(ws, 'invalid-message', 'Expected auth message');
@@ -114,7 +122,8 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
 
       case 'join_system':
         if (type === 'join_system') {
-          const { systemId } = data as any;
+          const joinData = data as z.infer<typeof JoinSystemSchema>;
+          const { systemId } = joinData;
           ctx.systemId = systemId;
 
           // Mock snapshot

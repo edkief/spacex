@@ -1,4 +1,5 @@
-2026-10-24: Completed TASK-9. Implemented WebSocket protocol with typed versioned envelopes, Zod schemas, and a robust handshake flow (hello -> auth -> join_system). Added keepalive ping/pong and unknown-type handling. Verified with unit and integration tests.\n
+2026-10-24 17:28: Completed TASK-64. Hardened input validation for all inbound messages using strict Zod schemas. Implemented a 64KB message size limit on the WebSocket layer and increased the unknown-message disconnect threshold to 50. Added a comprehensive fuzz test suite verifying rejection of malformed payloads (NaN, Infinity, deep nesting, over-sized strings, unknown fields) without server crashes. Verified with typecheck, lint, and integration tests.
+2026-10-24: Completed TASK-9. Implemented WebSocket protocol with typed versioned envelopes, Zod schemas, and a robust handshake flow (hello -> auth -> join_system). Added keepalive ping/pong and unknown-type handling. Verified with unit and integration tests.
 2026-10-24: Completed TASK-63 - Persistence service with save points and crash recovery.
 - Implemented unit tests for `PersistService` verifying save/load logic, dirty tracking, and save point triggers.
 - Implemented crash recovery test using a child process and SIGKILL, verifying state restoration from SQLite.
@@ -8,6 +9,7 @@
 2026-10-24 15:30 - Completed TASK-5: Implemented deterministic surface chunk generator with value-noise + fBm, boundary continuity, and seeded node/pad placement. Verified with determinism and golden snapshot tests.
 2026-10-24 15:08 - Completed TASK-3: Implemented deterministic star generator with seeded galaxy layout, spectral weighting, and unique name generation. Added golden snapshot fixture.
 2026-10-24 15:03 - Completed TASK-2: Implemented deterministic PRNG (xoshiro128**) and FNV-1a hashing. Verified with golden values, distribution tests, and Node/Browser parity.
+
 # Project Logs
 
 2026-10-24: Completed TASK-68. Scaffolded TS monorepo in `app/` with Vite client, Fastify server, and shared source tree. Configured path aliases, linting, formatting, and basic health tests.
