@@ -51,6 +51,7 @@ export function createSchema(driver: Driver): TableDefinitions {
       shields: sqliteReal('shields').notNull(),
       position: sqliteText('position').notNull(),
       velocity: sqliteText('velocity').notNull(),
+      system_id: sqliteText('system_id').notNull(),
       state: sqliteText('state').notNull(),
       updated_at: sqliteInteger('updated_at', { mode: 'timestamp' }).notNull(),
     });
@@ -71,6 +72,7 @@ export function createSchema(driver: Driver): TableDefinitions {
     });
     const resource_node_state = sqliteTable('resource_node_state', {
       node_id: sqliteText('node_id').primaryKey(),
+      system_id: sqliteText('system_id').notNull(),
       quantity_remaining: sqliteInteger('quantity_remaining').notNull(),
       respawn_at: sqliteInteger('respawn_at', { mode: 'timestamp' }),
     });
@@ -98,6 +100,7 @@ export function createSchema(driver: Driver): TableDefinitions {
       shields: pgReal('shields').notNull(),
       position: pgJsonb('position').notNull(),
       velocity: pgJsonb('velocity').notNull(),
+      system_id: pgUuid('system_id').notNull(),
       state: shipStateEnum('state').notNull(),
       updated_at: pgTimestamp('updated_at').notNull(),
     });
@@ -118,6 +121,7 @@ export function createSchema(driver: Driver): TableDefinitions {
     });
     const resource_node_state = pgTable('resource_node_state', {
       node_id: pgUuid('node_id').primaryKey(),
+      system_id: pgUuid('system_id').notNull(),
       quantity_remaining: pgInteger('quantity_remaining').notNull(),
       respawn_at: pgTimestamp('respawn_at'),
     });

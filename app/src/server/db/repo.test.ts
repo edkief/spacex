@@ -45,17 +45,17 @@ describe('Repository', () => {
 
   it('should get or create a starter ship', async () => {
     const player = await repo.createPlayer('Pilot', 'sol');
-    const ship = await repo.getOrCreateStarterShip(player.id);
+    const ship = await repo.getOrCreateStarterShip(player.id, 'sol');
     expect(ship.owner_id).toBe(player.id);
     expect(ship.class_id).toBe('starter');
 
-    const shipAgain = await repo.getOrCreateStarterShip(player.id);
+    const shipAgain = await repo.getOrCreateStarterShip(player.id, 'sol');
     expect(shipAgain.id).toBe(ship.id);
   });
 
   it('should save ship state', async () => {
     const player = await repo.createPlayer('Pilot', 'sol');
-    const ship = await repo.getOrCreateStarterShip(player.id);
+    const ship = await repo.getOrCreateStarterShip(player.id, 'sol');
     
     await repo.saveShipState(ship.id, { hull: 50, state: 'flying' });
     
@@ -68,7 +68,7 @@ describe('Repository', () => {
 
   it('should save cargo items', async () => {
     const player = await repo.createPlayer('Trader', 'sol');
-    const ship = await repo.getOrCreateStarterShip(player.id);
+    const ship = await repo.getOrCreateStarterShip(player.id, 'sol');
     
     const cargo = [
       { ship_id: ship.id, resource_type: 'Iron', quantity: 10 },
@@ -100,12 +100,13 @@ describe('Repository', () => {
 
   it('should upsert node state', async () => {
     const nodeId = 'node-1';
-    await repo.upsertNodeState(nodeId, 100, null);
+    const systemId = 'sol';
+    await repo.upsertNodeState(nodeId, systemId, 100, null);
     
     const n1 = await db.select().from(schema.resource_node_state).where(eq(schema.resource_node_state.node_id, nodeId));
     expect(n1[0].quantity_remaining).toBe(100);
 
-    await repo.upsertNodeState(nodeId, 50, new Date());
+    await repo.upsertNodeState(nodeId, systemId, 50, new Date());
     const n2 = await db.select().from(schema.resource_node_state).where(eq(schema.resource_node_state.node_id, nodeId));
     expect(n2[0].quantity_remaining).toBe(50);
   });

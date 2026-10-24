@@ -21,6 +21,7 @@ export function initDb() {
   if (DB_DRIVER === 'sqlite') {
     if (_sqliteDb) _sqliteDb.close();
     _sqliteDb = new Database(DB_PATH);
+    _sqliteDb.pragma('journal_mode = WAL');
     _dbInstance = drizzle(_sqliteDb, { schema: createSchema(DB_DRIVER) });
   } else {
     if (!DATABASE_URL) {

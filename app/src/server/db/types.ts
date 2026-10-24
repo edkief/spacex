@@ -15,6 +15,7 @@ export interface Ship {
   shields: number;
   position: any;
   velocity: any;
+  system_id: string;
   state: 'docked' | 'flying' | 'onfoot' | 'destroyed';
   updated_at: Date;
 }

@@ -9,3 +9,4 @@
 2026-10-24 15:20 - Implemented TASK-4: System generator. Created `app/src/shared/galaxy/system.ts`, `app/src/shared/galaxy/planet.ts`, and `app/src/shared/galaxy/config-system.ts`. Updated `app/src/shared/galaxy/types.ts`. Added statistical tests for landability and atmosphere (>80% systems) and a golden snapshot for star #0. All tests passing.
 2026-10-24 15:36 - Completed TASK-6: Implemented galaxy determinism verification. Added canonical JSON helper, snapshot generation script, and a comprehensive test suite covering the star chart, systems, and surface chunks. Verified via mutation test.
 2026-10-24 15:54:48 - Completed TASK-62: Implemented dual-driver Drizzle schema and repository layer with full unit tests for SQLite.
+2026-10-24: Implemented PersistService with dirty-ship tracking, interval saves, and recovery. Updated Repository and Schema to support system-based loading.
