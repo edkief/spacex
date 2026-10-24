@@ -1,3 +1,4 @@
+2026-10-24: Defined 3 data-driven ship classes (scout, freighter, interceptor) in app/src/shared/ships.ts with balance invariants and helper functions. Added unit tests.
 2026-10-24 18:50: Completed TASK-66: Session token integrity. Implemented POST /api/session/logout and WS 'logout' message for session revocation. Added exhaustive unit tests for token signing, expiry, and tampering. Added log-leak guard integration test to ensure session secrets and tokens are not logged. Verified with full test suite.
 
 2026-10-24 18:40: Completed TASK-10: Callsign-only auth with signed session tokens. Implemented HMAC-signed session tokens, callsign claim endpoint (/api/callsigns), and session verification (/api/session and WS handshake). Verified with integration tests.
