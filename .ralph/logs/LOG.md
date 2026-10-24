@@ -1,3 +1,4 @@
+2026-10-24 15:03 - Completed TASK-2: Implemented deterministic PRNG (xoshiro128**) and FNV-1a hashing. Verified with golden values, distribution tests, and Node/Browser parity.
 # Project Logs
 
 2026-10-24: Completed TASK-68. Scaffolded TS monorepo in `app/` with Vite client, Fastify server, and shared source tree. Configured path aliases, linting, formatting, and basic health tests.

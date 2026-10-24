@@ -16,31 +16,31 @@
       "step": 1,
       "description": "Implement FNV-1a string-to-64-bit seed",
       "details": "seedFromString: FNV-1a 64-bit over UTF-8 bytes, returned as BigInt. Deterministic across platforms (use BigInt arithmetic, no Math.imul truncation surprises).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Implement xoshiro128** Rng",
       "details": "State = 4 x U32 from the 128-bit seed via splitmix64. Implement xoshiro128** algorithm (rotl/mul in 32-bit with >>> and >>>-safe BigInt-or-Number math — use Number with 32-bit ops, documented). nextF64 = nextU32() / 2^32 (24-bit precision is fine for gen; document the tradeoff).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Add derived helpers",
       "details": "nextRange(min,max) float; nextInt(n); pick<T>(arr: T[]); nextGauss(mean, sd) via Box-Muller; hash2(a: bigint, b: bigint): bigint (combine two 64-bit keys with splitmix finalizer) for per-entity sub-seeds.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Golden-value unit tests",
       "details": "In src/shared/random.test.ts: for seed 'drift-dev-seed-001', assert the first 8 nextU32() values equal hardcoded constants. Test seedFromString on 3 known strings. Test hash2 stability.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 5,
       "description": "Parity + distribution tests",
       "details": "Run the golden suite under vitest node env and under environment: 'jsdom' (or happy-dom) to prove browser parity. Add the 100k-sample uniformity check. Ensure `npm run test` and `npm run typecheck` pass.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-1", "TASK-68"],
