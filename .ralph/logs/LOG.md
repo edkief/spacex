@@ -1,3 +1,5 @@
+2026-10-24: TASK-22 implemented: deterministic flight model (space, atmosphere, VTOL) with ground collision and golden trajectory fixtures. All unit tests passed.
+
 2026-10-24 19:15: Completed TASK-41: Implemented atomic credits balance with persistence. Updated `withdrawCredits` to use atomic UPDATE for race-condition prevention. Implemented `GET /api/players/me` endpoint with a new `authMiddleware`. Added comprehensive atomicity and concurrency tests (100 simultaneous withdrawals) verifying balance integrity. Verified with full test suite and typecheck.
 \n
 2026-10-24: Defined 3 data-driven ship classes (scout, freighter, interceptor) in app/src/shared/ships.ts with balance invariants and helper functions. Added unit tests.
