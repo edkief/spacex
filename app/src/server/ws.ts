@@ -12,6 +12,8 @@ import { TokenBucket, ChatLimiter } from './ratelimit';
 import { repo } from './db/repo';
 import { verifyToken, hashToken } from './auth/token';
 import { gameEvents, GameEventType } from './events';
+import { shardManager } from './shard/manager';
+import { Shard } from './shard/shard';
 
 type ConnectionState = 'hello' | 'auth' | 'join_system' | 'active';
 
@@ -20,6 +22,7 @@ interface ConnectionContext {
   playerId?: string;
   tokenHash?: string;
   systemId?: string;
+  shard?: Shard;
   unknownTypeCount: number;
   lastPong: number;
   bucket: TokenBucket;
@@ -95,6 +98,9 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
     });
 
     ws.on('close', () => {
+      if (ctx.shard && ctx.playerId) {
+        ctx.shard.connections.delete(ctx.playerId);
+      }
       connections.delete(ws);
     });
   });
@@ -217,7 +223,28 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
           const { systemId } = joinData;
           ctx.systemId = systemId;
 
-          // Mock snapshot
+          const shard = shardManager.getShard(systemId);
+          ctx.shard = shard;
+
+          // Add player to shard
+          shard.connections.set(ctx.playerId!, {
+            playerId: ctx.playerId!,
+            lastSeq: 0,
+            inputQueue: [],
+          });
+
+          // Set up shard output listener for this specific connection
+          const sendHandler = (connId: string, type: string, payload: string) => {
+            if (connId === ctx.playerId) {
+              ws.send(encodeMessage(type, JSON.parse(payload)));
+            }
+          };
+          shard.on('send', sendHandler);
+          
+          // Store handler so we can remove it on close
+          (ws as any)._shardHandler = sendHandler;
+
+          // Mock snapshot (overridden by actual shard snapshots soon)
           const snapshot = {
             systemId,
             entities: [],
@@ -237,7 +264,9 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
         if (type === 'pong') {
           ctx.lastPong = Date.now();
         } else if (type === 'input') {
-          // Handle input... (to be implemented in later tasks)
+          if (ctx.shard && ctx.playerId) {
+            ctx.shard.handleInput(ctx.playerId, data as any);
+          }
         } else if (type === 'chat') {
           const chatData = data as { text: string };
           const chatCheck = ctx.chatLimiter.check(chatData.text);

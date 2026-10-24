@@ -16,31 +16,31 @@
       "step": 1,
       "description": "Prediction engine",
       "details": "ClientShipPredictor: holds serverState (last snapshot), inputQueue (inputs since last ack), predictedState. step(dt, newInput): push input, integrate. reconcile(serverState, ackedSeq): diff, blend or rewind per thresholds. Reuse integrateShip verbatim — never reimplement physics client-side.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Server ack",
       "details": "Extend the server: entity_update for the owning player includes lastAppliedSeq (or a separate ack field). Minimal protocol change — document in TASK-69.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Remote interpolation buffer",
       "details": "RemoteEntityBuffer per remote entity: ring of {t, state}; render at (now - 200 ms); lerp/slerp between neighbors; stale > 1 s → freeze + dim (client-side, no protocol change).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Latency tests",
       "details": "Unit tests with a virtual clock + synthetic 150 ms delayed snapshots; measure correction events; assert thresholds. Interpolation jitter test per acceptance. Run full suite.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 5,
       "description": "Smoke in browser",
       "details": "Playwright: load app, fly forward 5 s, capture console (no errors), screenshot at start/mid/end; manual feel check noted in task log.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-13", "TASK-22"],

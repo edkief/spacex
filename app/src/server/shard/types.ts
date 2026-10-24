@@ -9,6 +9,7 @@ export interface ServerShipState extends BaseShipState {
   hull: number;
   shields: number;
   targetId: string | null;
+  lastAppliedSeq?: number;
 }
 
 export interface ConnState {

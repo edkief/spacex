@@ -95,6 +95,7 @@ export class Shard extends EventEmitter {
         hull: entity.hull,
         shields: entity.shields,
         targetId: entity.targetId,
+        lastAppliedSeq: input.seq,
       });
     }
 
@@ -130,12 +131,14 @@ export class Shard extends EventEmitter {
       kind: 'ship',
       pos: e.pos,
       vel: e.vel,
+      quat: e.quat,
       regime: e.regime,
       hull: e.hull,
       shields: e.shields,
       targetId: e.targetId,
       classId: 'default', // Stub
       callsign: 'Unknown', // Stub
+      lastAppliedSeq: e.lastAppliedSeq,
     }));
 
     const payload = JSON.stringify({ entities });

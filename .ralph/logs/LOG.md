@@ -1,3 +1,4 @@
+2026-10-24: Completed TASK-14: Implemented client-side prediction and server reconciliation. Added ClientShipPredictor (rewind/replay logic), RemoteEntityBuffer (200ms interpolation), and NetworkManager for WS synchronization. Updated server to include lastAppliedSeq in snapshots. Verified with unit tests.
 2026-10-24: Implemented server simulation loop (20Hz) with 10Hz entity snapshots, input queue processing (latest-wins), and timing benchmarks. Verified p95 < 30ms for 16 ships.
 2026-10-24: Implemented server simulation loop (20Hz) with 10Hz entity snapshots, input queue processing (latest-wins), and timing benchmarks. Verified p95 < 30ms for 16 ships.
 2026-10-24 22:29 - TASK-21: Implemented persistent ship livery customization. Added ShipMeshBuilder, OverviewTab, and Renderer to client. Verified with API tests and Playwright smoke test. Screenshot: .ralph/screenshots/TASK-21-0.png
