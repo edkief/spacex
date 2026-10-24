@@ -6,6 +6,13 @@ import { gameEvents, GameEventType } from '../events';
 import { InsufficientCreditsError, NotFoundError } from '../db/types';
 import { db } from '../db/client';
 import crypto from 'crypto';
+import { z } from 'zod';
+
+const LiverySchema = z.object({
+  hull: z.string().regex(/^#([A-Fa-f0-9]{6})$/),
+  accent: z.string().regex(/^#([A-Fa-f0-9]{6})$/),
+  trim: z.string().regex(/^#([A-Fa-f0-9]{6})$/),
+}).strict();
 
 export async function shipsRoutes(fastify: FastifyInstance) {
   // GET /api/ships
@@ -28,6 +35,44 @@ export async function shipsRoutes(fastify: FastifyInstance) {
       livery: typeof ship.livery === 'string' ? JSON.parse(ship.livery) : ship.livery,
       position: typeof ship.position === 'string' ? JSON.parse(ship.position) : ship.position,
       velocity: typeof ship.velocity === 'string' ? JSON.parse(ship.velocity) : ship.velocity,
+    };
+  });
+
+  // POST /api/ships/livery
+  fastify.post('/api/ships/livery', { preHandler: [authMiddleware] }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const session = (request as any).session;
+    const playerId = session.player_id;
+
+    const liveryResult = LiverySchema.safeParse(request.body);
+    if (!liveryResult.success) {
+      return reply.status(400).send({
+        code: 'invalid-livery',
+        message: 'Invalid livery format. Required: hull, accent, trim as #rrggbb hex strings.',
+      });
+    }
+
+    const livery = liveryResult.data;
+    const ship = await repo.getShipByOwner(playerId);
+    if (!ship) {
+      return reply.status(404).send({
+        code: 'no-ship',
+        message: 'Player does not own a ship',
+      });
+    }
+
+    await repo.saveShipState(ship.id, { livery });
+
+    // Notify shard via event bus
+    gameEvents.emit(GameEventType.LIVERY_CHANGED, {
+      playerId,
+      livery,
+    });
+
+    // Return updated ship
+    const updatedShip = await repo.getShipByOwner(playerId);
+    return {
+      ...updatedShip!,
+      livery: typeof updatedShip!.livery === 'string' ? JSON.parse(updatedShip!.livery) : updatedShip!.livery,
     };
   });
 

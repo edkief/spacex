@@ -11,6 +11,7 @@ import { MessageSchemas, AuthSchema, JoinSystemSchema } from '../shared/protocol
 import { TokenBucket, ChatLimiter } from './ratelimit';
 import { repo } from './db/repo';
 import { verifyToken, hashToken } from './auth/token';
+import { gameEvents, GameEventType } from './events';
 
 type ConnectionState = 'hello' | 'auth' | 'join_system' | 'active';
 
@@ -29,6 +30,39 @@ interface ConnectionContext {
 export function setupWebSocketHandler(wss: WebSocketServer) {
   const connections = new Map<WebSocket, ConnectionContext>();
   const MAX_MESSAGE_SIZE = 64 * 1024;
+
+  // Listen for livery changes and broadcast to all players in the same system
+  gameEvents.on(GameEventType.LIVERY_CHANGED, async ({ playerId, livery }) => {
+    const ship = await repo.getShipByOwner(playerId);
+    if (!ship) return;
+
+    const player = await repo.findPlayerById(playerId);
+    if (!player) return;
+
+    const entityState = {
+      id: ship.id,
+      kind: 'ship',
+      pos: typeof ship.position === 'string' ? JSON.parse(ship.position) : ship.position,
+      vel: typeof ship.velocity === 'string' ? JSON.parse(ship.velocity) : ship.velocity,
+      regime: ship.state === 'docked' ? 'docked' : 'cruise', // simplified mapping
+      hull: ship.hull,
+      shields: ship.shields,
+      targetId: null,
+      classId: ship.class_id,
+      callsign: player.callsign,
+      livery: JSON.stringify(livery),
+    };
+
+    const message = encodeMessage('entity_update', {
+      entities: [entityState],
+    });
+
+    connections.forEach((ctx, ws) => {
+      if (ctx.systemId === ship.system_id && ctx.state === 'active') {
+        ws.send(message);
+      }
+    });
+  });
 
   wss.on('connection', (ws) => {
     const ctx: ConnectionContext = {

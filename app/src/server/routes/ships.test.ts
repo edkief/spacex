@@ -157,4 +157,107 @@ describe('Ships Routes', () => {
     expect(response.statusCode).toBe(409);
     expect(JSON.parse(response.body).code).toBe('already-owned');
   });
+
+  it('POST /api/ships/livery updates livery colors', async () => {
+    const livery = {
+      hull: '#ff0000',
+      accent: '#00ff00',
+      trim: '#0000ff',
+    };
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/ships/livery',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      payload: livery,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.livery).toEqual(livery);
+
+    // Verify persistence
+    const ship = await repo.getShipByOwner(playerId);
+    expect(JSON.parse(ship!.livery)).toEqual(livery);
+  });
+
+  it('POST /api/ships/livery rejects invalid hex format', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/ships/livery',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      payload: {
+        hull: 'red', // Invalid hex
+        accent: '#00ff00',
+        trim: '#0000ff',
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.body).code).toBe('invalid-livery');
+  });
+
+  it('POST /api/ships/livery rejects partial payload', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/ships/livery',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      payload: {
+        hull: '#ff0000',
+        // missing accent and trim
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.body).code).toBe('invalid-livery');
+  });
+
+  it('POST /api/ships/livery rejects if player has no ship', async () => {
+    // Create a new player without a ship
+    const player2 = await repo.createPlayer('NoShipPilot', 'sol');
+    const token2 = signToken({ playerId: player2.id, systemId: 'sol', exp: Date.now() + 3600000 });
+    const tokenHash2 = hashToken(token2);
+    await repo.createSession(player2.id, 'sol', tokenHash2);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/ships/livery',
+      headers: {
+        authorization: `Bearer ${token2}`,
+      },
+      payload: {
+        hull: '#ff0000',
+        accent: '#00ff00',
+        trim: '#0000ff',
+      },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(JSON.parse(response.body).code).toBe('no-ship');
+  });
+
+  it('POST /api/ships/livery rejects if payload has extra keys', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/ships/livery',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      payload: {
+        hull: '#ff0000',
+        accent: '#00ff00',
+        trim: '#0000ff',
+        extra: 'not-allowed',
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.body).code).toBe('invalid-livery');
+  });
 });

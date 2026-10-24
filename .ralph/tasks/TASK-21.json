@@ -16,13 +16,13 @@
       "step": 1,
       "description": "Endpoint + validation",
       "details": "Extend ships route: zod schema with hex regex ^#[0-9a-fA-F]{6}$ for the three named slots (strict object, no extra keys). Persist via repo.saveShipState (livery field).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Broadcast",
       "details": "Shard event bus: onLiveryChanged(playerId, livery) → entity_update to all in-system connections (EntityState.livery already exists in TASK-9 protocol).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
@@ -34,7 +34,7 @@
       "step": 4,
       "description": "Tests",
       "details": "API + ws + persistence tests per acceptance list. Run full suite + typecheck.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-20"],
