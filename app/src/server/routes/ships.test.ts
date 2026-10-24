@@ -33,7 +33,7 @@ describe('Ships Routes', () => {
     // Setup a player and session
     const player = await repo.createPlayer('TestPilot', 'sol');
     playerId = player.id;
-    
+
     token = signToken({ playerId: player.id, systemId: 'sol', exp: Date.now() + 3600000 });
     const tokenHash = hashToken(token);
     await repo.createSession(player.id, 'sol', tokenHash);

@@ -16,6 +16,12 @@
 
 export type ShipClassId = 'scout' | 'freighter' | 'interceptor';
 
+export interface Livery {
+  hull: string;
+  accent: string;
+  trim: string;
+}
+
 export interface ShipClass {
   id: ShipClassId;
   name: string;
@@ -37,7 +43,7 @@ export interface ShipClass {
   liverySlots: number;
 }
 
-export const SHIP_CLASSES: Record<ShipClassId, ShipClass> = {
+export const SHIP_CLASSES: Record<ShipClassId, ShipClass & { defaultLivery: Livery }> = {
   scout: {
     id: 'scout',
     name: 'Scout',
@@ -54,6 +60,7 @@ export const SHIP_CLASSES: Record<ShipClassId, ShipClass> = {
     repairCostPerPoint: 10,
     price: 0,
     liverySlots: 3,
+    defaultLivery: { hull: '#cccccc', accent: '#ff0000', trim: '#333333' },
   },
   freighter: {
     id: 'freighter',
@@ -71,6 +78,7 @@ export const SHIP_CLASSES: Record<ShipClassId, ShipClass> = {
     repairCostPerPoint: 15,
     price: 4000,
     liverySlots: 3,
+    defaultLivery: { hull: '#888888', accent: '#0000ff', trim: '#111111' },
   },
   interceptor: {
     id: 'interceptor',
@@ -88,6 +96,7 @@ export const SHIP_CLASSES: Record<ShipClassId, ShipClass> = {
     repairCostPerPoint: 20,
     price: 2500,
     liverySlots: 3,
+    defaultLivery: { hull: '#aaaaaa', accent: '#00ff00', trim: '#222222' },
   },
 };
 

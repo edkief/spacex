@@ -12,10 +12,10 @@ export interface ShipState {
 
 export interface FlightInput {
   thrust: number; // -1 to 1
-  pitch: number;  // -1 to 1
-  yaw: number;    // -1 to 1
-  roll: number;   // -1 to 1
-  up: boolean;    // VTOL lift
+  pitch: number; // -1 to 1
+  yaw: number; // -1 to 1
+  roll: number; // -1 to 1
+  up: boolean; // VTOL lift
 }
 
 export interface Planet {

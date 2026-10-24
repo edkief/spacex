@@ -28,7 +28,7 @@
       "step": 3,
       "description": "Client materials",
       "details": "ShipMeshBuilder: 3 materials mapped to paint zones (hull body, accent panels, trim lines); applyLivery(shipId, livery) swaps material colors in place (no mesh rebuild). Default livery per class in SHIP_CLASSES.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,

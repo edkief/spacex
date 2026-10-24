@@ -1,3 +1,4 @@
+2026-10-24 22:29 - TASK-21: Implemented persistent ship livery customization. Added ShipMeshBuilder, OverviewTab, and Renderer to client. Verified with API tests and Playwright smoke test. Screenshot: .ralph/screenshots/TASK-21-0.png
 2026-10-24 20:00: Completed TASK-20: Ship acquisition. Implemented starter ship ('scout') on claim, ship purchase endpoint with atomic credit withdrawal and ship swapping, and current ship retrieval with merged class stats. Added comprehensive integration tests and wired in-process event bus for shard notification. Verified with vitest.
 
 2026-10-24: TASK-22 implemented: deterministic flight model (space, atmosphere, VTOL) with ground collision and golden trajectory fixtures. All unit tests passed.

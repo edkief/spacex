@@ -251,7 +251,11 @@ export class Repository {
         .where(and(eq(schema.players.id, playerId), gte(schema.players.credits, amount)))
         .run();
 
-      if (!result || (typeof result === 'number' && result === 0) || (typeof result === 'object' && result.changes === 0)) {
+      if (
+        !result ||
+        (typeof result === 'number' && result === 0) ||
+        (typeof result === 'object' && result.changes === 0)
+      ) {
         throw new InsufficientCreditsError();
       }
     } else {
@@ -265,7 +269,11 @@ export class Repository {
         (typeof result === 'number' && result === 0) ||
         (typeof result === 'object' && result.changes === 0)
       ) {
-        const player = await this.getDb().select().from(schema.players).where(eq(schema.players.id, playerId)).limit(1);
+        const player = await this.getDb()
+          .select()
+          .from(schema.players)
+          .where(eq(schema.players.id, playerId))
+          .limit(1);
         if (player.length === 0) throw new NotFoundError('Player', playerId);
         throw new InsufficientCreditsError();
       }
@@ -279,7 +287,11 @@ export class Repository {
       .where(and(eq(schema.players.id, playerId), gte(schema.players.credits, amount)))
       .run();
 
-    if (!result || (typeof result === 'number' && result === 0) || (typeof result === 'object' && result.changes === 0)) {
+    if (
+      !result ||
+      (typeof result === 'number' && result === 0) ||
+      (typeof result === 'object' && result.changes === 0)
+    ) {
       throw new InsufficientCreditsError();
     }
   }

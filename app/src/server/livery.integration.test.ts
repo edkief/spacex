@@ -22,10 +22,10 @@ describe('Livery Broadcast Integration', () => {
     if (fs.existsSync(TEST_DB_PATH)) {
       fs.unlinkSync(TEST_DB_PATH);
     }
-    
+
     initDb();
     await migrate();
-    
+
     fastify = createApp();
     await fastify.listen({ port: 0, host: '127.0.0.1' });
     port = (fastify.server as any).address().port;
@@ -107,9 +107,9 @@ describe('Livery Broadcast Integration', () => {
     // Client 2 should receive an entity_update
     const message = await receive(ws2);
     expect(message.type).toBe('entity_update');
-    
+
     const updatedEntity = (message.payload as any).entities.find(
-      (e: any) => e.callsign === 'Pilot1'
+      (e: any) => e.callsign === 'Pilot1',
     );
 
     expect(updatedEntity).toBeDefined();

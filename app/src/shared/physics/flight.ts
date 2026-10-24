@@ -5,7 +5,7 @@ import { ShipClass } from '../ships';
 /**
  * Deterministic ship physics integration.
  * used verbatim by server sim (authority) and client prediction.
- * 
+ *
  * Sim units: 1 u = 1 m; velocities in u/s.
  */
 export function integrateShip(
@@ -15,13 +15,12 @@ export function integrateShip(
   regime: FlightRegime,
   shipClass: ShipClass,
   planet?: Planet,
-  options: FlightOptions = {}
+  options: FlightOptions = {},
 ): ShipState {
   if (!planet && regime === 'atmosphere') {
     throw new Error('Planet required for atmosphere regime');
   }
 
-  let nextState = { ...state, regime };
   let currentVel = { ...state.vel };
   let currentPos = { ...state.pos };
   let currentQuat = { ...state.quat };
@@ -33,7 +32,7 @@ export function integrateShip(
     const dRot = quat.fromEuler(
       input.pitch * shipClass.turnRate * dt,
       input.yaw * shipClass.turnRate * dt,
-      input.roll * shipClass.turnRate * dt
+      input.roll * shipClass.turnRate * dt,
     );
     currentQuat = quat.multiply(currentQuat, dRot);
   }
@@ -52,10 +51,10 @@ export function integrateShip(
     if (!planet) throw new Error('Planet missing in atmosphere');
 
     // Boundary continuity: ramp drag across 1km boundary
-    const altitude = vec3.len(currentPos) - (planet.radiusKm * 1000);
+    const altitude = vec3.len(currentPos) - planet.radiusKm * 1000;
     const boundaryAlt = planet.atmosphereHeight * 1000;
     const rampHalfWidth = 500; // 1km total ramp
-    
+
     let multiplier = 1.0;
     if (altitude > boundaryAlt - rampHalfWidth) {
       const t = (altitude - (boundaryAlt - rampHalfWidth)) / (2 * rampHalfWidth);
@@ -67,7 +66,7 @@ export function integrateShip(
     const k = planet.atmosphereDensity * area * multiplier;
     const speed = vec3.len(currentVel);
     if (speed > 0) {
-      const dragAccel = vec3.scale(currentVel, - (k * speed) / shipClass.mass);
+      const dragAccel = vec3.scale(currentVel, -(k * speed) / shipClass.mass);
       accel = vec3.add(accel, dragAccel);
     }
 
@@ -82,7 +81,7 @@ export function integrateShip(
     // Surface flight (like a hovercraft) - simplified
     const speed = vec3.len(currentVel);
     if (speed > 0) {
-      const dragAccel = vec3.scale(currentVel, - (0.1 * speed)); // Simple surface drag
+      const dragAccel = vec3.scale(currentVel, -(0.1 * speed)); // Simple surface drag
       accel = vec3.add(accel, dragAccel);
     }
   } else {
@@ -100,7 +99,7 @@ export function integrateShip(
     // Scale excess by 0.95 per step
     const cappedVel = vec3.add(
       vec3.scale(unitVel, shipClass.maxVelocity),
-      vec3.scale(unitVel, excess * 0.95)
+      vec3.scale(unitVel, excess * 0.95),
     );
     currentVel = cappedVel;
   }
@@ -111,7 +110,7 @@ export function integrateShip(
   if (regime === 'atmosphere' || regime === 'surface') {
     if (options.heightAt) {
       const terrainY = options.heightAt(currentPos.x, currentPos.z);
-      
+
       // No tunneling: substep if |vel|*dt > 2m
       const moveDist = vec3.len(currentVel) * dt;
       if (currentPos.y < terrainY) {

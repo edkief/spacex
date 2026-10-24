@@ -57,14 +57,14 @@ describe('integrateShip', () => {
     const input: FlightInput = { thrust: 1, pitch: 0, yaw: 0, roll: 0, up: false };
     const dt = 1.0;
 
-    // Accel = 40, mass = 20. a = 40/20 = 2? 
+    // Accel = 40, mass = 20. a = 40/20 = 2?
     // No, the code does: accelVec = forward * input.thrust * shipClass.acceleration
     // And then: currentVel = vec3.add(currentVel, vec3.scale(accel, dt))
     // Wait, the code I wrote is: accel = vec3.add(accel, thrustForce); currentVel = vec3.add(currentVel, vec3.scale(accel, dt));
     // So a = acceleration = 40 u/s^2.
     // After 1s, vel should be 40. pos should be 40 * 1 = 40?
     // Actually, it's Euler integration: vel = 0 + 40*1 = 40; pos = 0 + 40*1 = 40.
-    
+
     state = integrateShip(state, input, dt, 'space', MOCK_SHIP);
     expect(state.vel.z).toBeCloseTo(40);
     expect(state.pos.z).toBeCloseTo(40);
@@ -81,7 +81,7 @@ describe('integrateShip', () => {
     const dt = 0.05;
 
     state = integrateShip(state, input, dt, 'space', MOCK_SHIP);
-    
+
     // MaxVel = 120. CurrentVel = 130.
     // excess = 10. newVel = 120 + 10 * 0.95 = 129.5.
     expect(state.vel.z).toBeCloseTo(129.5);
@@ -93,7 +93,7 @@ describe('integrateShip', () => {
     // thrust = mass * acceleration = 20 * 40 = 800
     // drag = k * v^2 = (1.225 * 20 * 0.05) * v^2 = 1.225 * v^2
     // v^2 = 800 / 1.225 approx 653 -> v approx 25.5
-    
+
     let state: ShipState = {
       pos: { x: 0, y: 0, z: 0 },
       vel: { x: 0, y: 0, z: 0 },
@@ -123,7 +123,7 @@ describe('integrateShip', () => {
     const options: FlightOptions = { heightAt: () => 0 };
 
     const res = integrateShip(state, input, dt, 'atmosphere', MOCK_SHIP, MOCK_PLANET, options);
-    
+
     expect(res.pos.y).toBe(0);
     expect(res.vel.y).toBe(0);
   });
@@ -156,7 +156,7 @@ describe('integrateShip', () => {
       regime: 'space',
     };
     const input: FlightInput = { thrust: 0, pitch: 0, yaw: 0, roll: 0, up: false };
-    
+
     // @ts-expect-error: testing runtime error for invalid regime
     expect(() => integrateShip(state, input, 0.1, 'invalid', MOCK_SHIP, undefined)).toThrow();
   });
@@ -174,7 +174,7 @@ describe('integrateShip', () => {
     for (let i = 0; i < trajectoryFixture.length; i++) {
       state = integrateShip(state, input, dt, 'space', MOCK_SHIP);
       const expected = trajectoryFixture[i];
-      
+
       expect(state.pos.x).toBeCloseTo(expected.pos.x, 5);
       expect(state.pos.y).toBeCloseTo(expected.pos.y, 5);
       expect(state.pos.z).toBeCloseTo(expected.pos.z, 5);

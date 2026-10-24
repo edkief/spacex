@@ -1,0 +1,1 @@
+{"time":"2026-10-24T22:17:04.410Z","runId":"20261024-143735","taskId":"TASK-21","kind":"blocked","question":"Client source code missing from app/src/client; cannot implement ShipMeshBuilder or UI pickers.","answer":"Why are you blocked? Creating the client source is your responsibility","by":"person"}
