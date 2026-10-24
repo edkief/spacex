@@ -118,7 +118,7 @@ export class Rng {
   /**
    * Picks a random element from an array.
    */
-  pick<T>(arr: T[]): T {
+  pick<T>(arr: readonly T[]): T {
     return arr[this.nextInt(arr.length)];
   }
 

@@ -45,8 +45,20 @@ export interface SystemSummary {
 }
 
 export interface SurfaceChunk {
-  id: string;
-  planetId: string;
-  coords: [number, number];
-  seed: string;
+  chunkX: number;
+  chunkZ: number;
+  heightmap: number[];
+  biome: 'plains' | 'rock' | 'canyon' | 'frozen' | 'wetland';
+  resourceNodes: {
+    nodeId: string;
+    type: string;
+    x: number;
+    z: number;
+    baseQuantity: number;
+  }[];
+  landingPads: {
+    id: string;
+    x: number;
+    z: number;
+  }[];
 }

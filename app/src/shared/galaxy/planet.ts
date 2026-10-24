@@ -1,5 +1,5 @@
 import { Rng, hash2 } from '../random';
-import { Planet } from './types';
+import { Planet, ShipClassId } from './types';
 import { 
   PLANET_CLASSES, 
   RADIUS_RANGES, 
@@ -52,7 +52,7 @@ export function generatePlanet(systemSeed: bigint, index: number): Planet {
 
   // 7. AI Roster
   const aiCount = rng.nextInt(AI_ROSTER_COUNT_RANGE.max - AI_ROSTER_COUNT_RANGE.min + 1) + AI_ROSTER_COUNT_RANGE.min;
-  const aiClasses: any[] = [];
+  const aiClasses: ShipClassId[] = [];
   for (let i = 0; i < aiCount; i++) {
     aiClasses.push(rng.pick(SHIP_CLASSES));
   }
