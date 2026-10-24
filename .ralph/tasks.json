@@ -18,7 +18,7 @@
   { "id": "TASK-22", "title": "Shared flight model: space, atmosphere, VTOL (deterministic)", "category": "functional", "specFilePath": ".ralph/tasks/TASK-22.json", "passes": true },
   { "id": "TASK-20", "title": "Ship acquisition: starter ship + dock purchase", "category": "functional", "specFilePath": ".ralph/tasks/TASK-20.json", "passes": true },
   { "id": "TASK-21", "title": "Persistent ship livery customization", "category": "functional", "specFilePath": ".ralph/tasks/TASK-21.json", "passes": true },
-  { "id": "TASK-13", "title": "Server sim: 20 Hz tick with 10 Hz snapshots", "category": "functional", "specFilePath": ".ralph/tasks/TASK-13.json", "passes": false },
+  { "id": "TASK-13", "title": "Server sim: 20 Hz tick with 10 Hz snapshots", "category": "functional", "specFilePath": ".ralph/tasks/TASK-13.json", "passes": true },
   { "id": "TASK-14", "title": "Client prediction + server reconciliation", "category": "functional", "specFilePath": ".ralph/tasks/TASK-14.json", "passes": false },
   { "id": "TASK-23", "title": "Ship damage model: hull, shields, dock repair", "category": "functional", "specFilePath": ".ralph/tasks/TASK-23.json", "passes": false },
   { "id": "TASK-24", "title": "Ship state persistence across restarts", "category": "data-model", "specFilePath": ".ralph/tasks/TASK-24.json", "passes": false },

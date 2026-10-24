@@ -11,7 +11,7 @@ export const EntityStateSchema = z
     kind: z.enum(['ship', 'character', 'ai-ship', 'wreck']),
     pos: z.object({ x: finiteNum, y: finiteNum, z: finiteNum }).strict(),
     vel: z.object({ x: finiteNum, y: finiteNum, z: finiteNum }).strict(),
-    regime: z.enum(['orbit', 'cruise', 'warp', 'docked']),
+    regime: z.enum(['space', 'atmosphere', 'surface']),
     hull: finiteNum,
     shields: finiteNum,
     targetId: z.string().nullable(),

@@ -1,15 +1,19 @@
+2026-10-24: Implemented server simulation loop (20Hz) with 10Hz entity snapshots, input queue processing (latest-wins), and timing benchmarks. Verified p95 < 30ms for 16 ships.
+2026-10-24: Implemented server simulation loop (20Hz) with 10Hz entity snapshots, input queue processing (latest-wins), and timing benchmarks. Verified p95 < 30ms for 16 ships.
 2026-10-24 22:29 - TASK-21: Implemented persistent ship livery customization. Added ShipMeshBuilder, OverviewTab, and Renderer to client. Verified with API tests and Playwright smoke test. Screenshot: .ralph/screenshots/TASK-21-0.png
 2026-10-24 20:00: Completed TASK-20: Ship acquisition. Implemented starter ship ('scout') on claim, ship purchase endpoint with atomic credit withdrawal and ship swapping, and current ship retrieval with merged class stats. Added comprehensive integration tests and wired in-process event bus for shard notification. Verified with vitest.
 
 2026-10-24: TASK-22 implemented: deterministic flight model (space, atmosphere, VTOL) with ground collision and golden trajectory fixtures. All unit tests passed.
 
 2026-10-24 19:15: Completed TASK-41: Implemented atomic credits balance with persistence. Updated `withdrawCredits` to use atomic UPDATE for race-condition prevention. Implemented `GET /api/players/me` endpoint with a new `authMiddleware`. Added comprehensive atomicity and concurrency tests (100 simultaneous withdrawals) verifying balance integrity. Verified with full test suite and typecheck.
-\n
+
+
 2026-10-24: Defined 3 data-driven ship classes (scout, freighter, interceptor) in app/src/shared/ships.ts with balance invariants and helper functions. Added unit tests.
 2026-10-24 18:50: Completed TASK-66: Session token integrity. Implemented POST /api/session/logout and WS 'logout' message for session revocation. Added exhaustive unit tests for token signing, expiry, and tampering. Added log-leak guard integration test to ensure session secrets and tokens are not logged. Verified with full test suite.
 
 2026-10-24 18:40: Completed TASK-10: Callsign-only auth with signed session tokens. Implemented HMAC-signed session tokens, callsign claim endpoint (/api/callsigns), and session verification (/api/session and WS handshake). Verified with integration tests.
-\n
+
+
 2026-10-24 17:59: Completed TASK-65: Per-connection rate limiting and chat spam control. Implemented TokenBucket and ChatLimiter, integrated into WS handler with escalation (drop on 3 violations). Verified with unit and integration tests, including a flood benchmark ensuring p95 tick < 30ms.
 2026-10-24 17:55: Completed TASK-65. Implemented per-connection rate limiting using a Token Bucket (20 msg/s, 40 burst) and a Chat Limiter (1 msg/2s, 10/30s window, 280 chars). Added escalation logic that drops connections with code 4009 after 3 violations within 10s. Verified with unit and integration tests.
 2026-10-24 17:40: Completed TASK-64. Updated `decodeEnvelope` and `parseMessage` to use `zod.safeParse` for zero-throw control flow. Hardened WebSocket dispatcher to handle validation results without crashing. Updated integration and fuzz tests to support new result-based decoding. Verified with full test suite and typecheck.
