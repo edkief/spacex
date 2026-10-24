@@ -1,0 +1,231 @@
+{
+  "first25": [
+    {
+      "id": "c9bf989ddefc021f",
+      "name": "Alpha Sirius Epsilon",
+      "class": "G",
+      "x": -1.273031134537241,
+      "y": -15.565797545225852,
+      "z": 0.07323006578573703,
+      "systemCount": 8
+    },
+    {
+      "id": "92e13b74683ef36a",
+      "name": "Ultra Deneb Cluster",
+      "class": "M",
+      "x": -24.39493517659042,
+      "y": -11.353876690339055,
+      "z": -0.11936422248087868,
+      "systemCount": 7
+    },
+    {
+      "id": "faa61812ed3d57e6",
+      "name": "Epsilon Castor Region",
+      "class": "G",
+      "x": 9.770422394618654,
+      "y": 6.8511998103039415,
+      "z": 0.1986655215696545,
+      "systemCount": 3
+    },
+    {
+      "id": "6a9be299efdc64fc",
+      "name": "Cosmo Altair Beta",
+      "class": "M",
+      "x": -55.745554622573565,
+      "y": 4.6464499319067,
+      "z": -0.1260857432816747,
+      "systemCount": 3
+    },
+    {
+      "id": "a9e2cb2e78e0249e",
+      "name": "Hyper Hatysa Prime",
+      "class": "M",
+      "x": 37.59286754073227,
+      "y": -30.712455874628333,
+      "z": 0.31787175021078606,
+      "systemCount": 8
+    },
+    {
+      "id": "80fc4efc227b9288",
+      "name": "Proto Alcor Federation",
+      "class": "M",
+      "x": 20.720208188534297,
+      "y": 16.006042069515377,
+      "z": 0.0908059421520553,
+      "systemCount": 7
+    },
+    {
+      "id": "380fa3e8a13ad5af",
+      "name": "Zeta Alioth Reach",
+      "class": "M",
+      "x": -18.00266209127841,
+      "y": 34.831725905814935,
+      "z": -0.12931655376123244,
+      "systemCount": 6
+    },
+    {
+      "id": "993fa43793b6ce58",
+      "name": "Delta Antares Gamma",
+      "class": "M",
+      "x": 13.740410209483711,
+      "y": 15.04213732953047,
+      "z": -0.25033880444526607,
+      "systemCount": 8
+    },
+    {
+      "id": "12282c0182d47bc3",
+      "name": "Chi Altair Gate",
+      "class": "M",
+      "x": 30.574356811743392,
+      "y": -3.68669503144293,
+      "z": 0.23176890453283042,
+      "systemCount": 7
+    },
+    {
+      "id": "896fdbcf89df1662",
+      "name": "Rho Spica Flame",
+      "class": "M",
+      "x": 3.883276100004589,
+      "y": 39.348996575549855,
+      "z": -0.3980009152028606,
+      "systemCount": 5
+    },
+    {
+      "id": "e7ef88222529babe",
+      "name": "Cosmo Mimosa League",
+      "class": "M",
+      "x": 6.823306501468423,
+      "y": -17.95305430765242,
+      "z": -0.055785150670041445,
+      "systemCount": 7
+    },
+    {
+      "id": "29a783ca0a58d646",
+      "name": "Cosmo Hatysa Nexus",
+      "class": "M",
+      "x": 0.9512614599515247,
+      "y": 23.970030482410408,
+      "z": 0.09385903878219215,
+      "systemCount": 7
+    },
+    {
+      "id": "92928ccd6adfe685",
+      "name": "Vertex Betelgeuse II",
+      "class": "M",
+      "x": 1.2314283781757207,
+      "y": -11.4617714578638,
+      "z": -0.14558343997595194,
+      "systemCount": 5
+    },
+    {
+      "id": "299a5583185ab67f",
+      "name": "Hyper Merak Major",
+      "class": "M",
+      "x": 2.632211359607994,
+      "y": 42.4248329489095,
+      "z": 0.04975312912660431,
+      "systemCount": 5
+    },
+    {
+      "id": "8afb65313b780aff",
+      "name": "Nadir Alioth Sector",
+      "class": "M",
+      "x": -3.5016185014747148,
+      "y": 14.268249012355744,
+      "z": -0.1682473839416565,
+      "systemCount": 3
+    },
+    {
+      "id": "f629a68a1dbc8617",
+      "name": "Proto Electra V",
+      "class": "M",
+      "x": -4.262212869557589,
+      "y": -18.54593741528036,
+      "z": 0.2840178737300851,
+      "systemCount": 2
+    },
+    {
+      "id": "b78beb66ead628ce",
+      "name": "Cyber Aldebaran Epsilon",
+      "class": "M",
+      "x": -7.628377709425393,
+      "y": 12.619207331527045,
+      "z": -0.12085697034566865,
+      "systemCount": 7
+    },
+    {
+      "id": "6da5d39051fb46c4",
+      "name": "Cosmo Naos Mist",
+      "class": "M",
+      "x": -22.607765877438062,
+      "y": 5.236416837228069,
+      "z": -0.08466109615451277,
+      "systemCount": 3
+    },
+    {
+      "id": "44696dff677ed1a1",
+      "name": "Hyper Acrux VIII",
+      "class": "F",
+      "x": 15.979935099733726,
+      "y": -16.513767546543804,
+      "z": -0.07560804492835774,
+      "systemCount": 8
+    },
+    {
+      "id": "b46c384c58c0f4a6",
+      "name": "Kappa Alpheratz League",
+      "class": "M",
+      "x": -1.955833885204548,
+      "y": -7.593641985842142,
+      "z": 0.4261342420144659,
+      "systemCount": 7
+    },
+    {
+      "id": "2d40fed2e5d7d6b6",
+      "name": "Dark Merak Epsilon",
+      "class": "M",
+      "x": 22.688904040142955,
+      "y": -7.952366438663626,
+      "z": 0.20875334332040094,
+      "systemCount": 5
+    },
+    {
+      "id": "c3e4752705ef8ab9",
+      "name": "Rho Mira VIII",
+      "class": "M",
+      "x": 15.750531270483679,
+      "y": 27.677314273171906,
+      "z": -0.0028290613295562325,
+      "systemCount": 2
+    },
+    {
+      "id": "b17790756d091d8c",
+      "name": "Chi Suhail I",
+      "class": "M",
+      "x": -29.695563698238534,
+      "y": 7.974930855378651,
+      "z": 0.30760697475642373,
+      "systemCount": 6
+    },
+    {
+      "id": "fe3ccf596ed6685a",
+      "name": "Stella Antares League",
+      "class": "M",
+      "x": -8.600449352228475,
+      "y": 20.97426741923368,
+      "z": -0.1373941876430109,
+      "systemCount": 2
+    },
+    {
+      "id": "6150d37716c8c6d5",
+      "name": "Dark Sargas Glow",
+      "class": "M",
+      "x": 1.7657796619410895,
+      "y": -17.9377672372206,
+      "z": -0.03668350357399125,
+      "systemCount": 2
+    }
+  ],
+  "totalCount": 200,
+  "checksum": "107d13799920b78627093988720179d308977c49001b66daea31ec453fe6c536"
+}

@@ -1,0 +1,37 @@
+import { SpectralClass } from './types';
+
+export const GALAXY_STAR_COUNT = 200;
+
+export const SPECTRAL_WEIGHTS: Record<SpectralClass, number> = {
+  O: 0.00003,
+  B: 0.0013,
+  A: 0.006,
+  F: 0.03,
+  G: 0.076,
+  K: 0.12,
+  M: 0.76,
+};
+
+export const NAME_LISTS = {
+  prefixes: [
+    'Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta', 'Theta', 'Iota', 'Kappa',
+    'Lambda', 'Mu', 'Nu', 'Xi', 'Omicron', 'Pi', 'Rho', 'Sigma', 'Tau', 'Upsilon',
+    'Phi', 'Chi', 'Psi', 'Omega', 'Nova', 'Super', 'Hyper', 'Ultra', 'Neo', 'Proto',
+    'Xeno', 'Cyber', 'Astro', 'Cosmo', 'Stella', 'Lumina', 'Void', 'Dark', 'Light', 'Prime',
+    'Zenith', 'Nadir', 'Apex', 'Vertex', 'Core', 'Rim', 'Outer', 'Inner', 'Deep', 'Far'
+  ],
+  roots: [
+    'Centauri', 'Sirius', 'Vega', 'Arcturus', 'Capella', 'Rigel', 'Betelgeuse', 'Altair', 'Antares', 'Pollux',
+    'Castor', 'Spica', 'Regulus', 'Deneb', 'Aldebaran', 'Fomalhaut', 'Canopus', 'Achernar', 'Mira', 'Procyon',
+    'Hadar', 'Acrux', 'Shaula', 'Gacrux', 'Sargas', 'Kaus', 'Avior', 'Mimosa', 'Alnath', 'Alpheratz',
+    'Alcor', 'Mizar', 'Dubhe', 'Merak', 'Phecda', 'Megrez', 'Alioth', 'Alkaid', 'Kochab', 'Pherkad',
+    'Bellatrix', 'Alnilam', 'Alnitak', 'Saiph', 'Hatysa', 'Menkar', 'Naos', 'Suhail', 'Aludra', 'Electra'
+  ],
+  suffixes: [
+    'Prime', 'Minor', 'Major', 'Tertiary', 'Quaternary', 'Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon',
+    'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X',
+    'Void', 'Reach', 'Nexus', 'Spires', 'Cradle', 'Haven', 'Bastion', 'Gorge', 'Spire', 'Gate',
+    'Edge', 'Point', 'Cluster', 'Void', 'Cloud', 'Mist', 'Storm', 'Flame', 'Frost', 'Glow',
+    'Sector', 'Quadrant', 'Zone', 'Region', 'Domain', 'Empire', 'League', 'Union', 'Federation', 'Accord'
+  ],
+};
