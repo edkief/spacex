@@ -12,30 +12,30 @@
     "`npm run test` green"
   ],
   "steps": [
-    {
-      "step": 1,
-      "description": "Implement save/load service",
-      "details": "PersistService with dirty-set tracking; saveShip updates ships row (position, velocity, hull, shields, state, updated_at); saveCargo upserts cargo_items; transactions wrap multi-row saves.",
-      "pass": true
-    },
-    {
-      "step": 2,
-      "description": "Wire save points",
-      "details": "Expose hooks: onDock(ship), onDamage(ship) (milestone check inside), interval timer (5 s, process-level, iterates dirty ships), onShardShutdown(systemId). Each calls the repository through a single transaction.",
-      "pass": true
-    },
-    {
-      "step": 3,
-      "description": "Crash recovery test",
-      "details": "Test spawns a child node process that opens the db, saves a ship at a known position, and exits via process.exit(9). Parent restarts load path and asserts restored values within tolerance.",
-      "pass": true
-    },
-    {
-      "step": 4,
-      "description": "Performance guard",
-      "details": "Benchmark: 16 dirty ships, one interval save, assert wall time < 20 ms and no single write > 5 ms on the dev machine; record numbers in task log.",
-      "pass": true
-    }
+{
+    "step": 1,
+    "description": "Implement save/load service",
+    "details": "PersistService with dirty-set tracking; saveShip updates ships row (position, velocity, hull, shields, state, updated_at); saveCargo upserts cargo_items; transactions wrap multi-row saves.",
+    "pass": true
+  },
+  {
+    "step": 2,
+    "description": "Wire save points",
+    "details": "Expose hooks: onDock(ship), onDamage(ship) (milestone check inside), interval timer (5 s, process-level, iterates dirty ships), onShardShutdown(systemId). Each calls the repository through a single transaction.",
+    "pass": true
+  },
+  {
+    "step": 3,
+    "description": "Crash recovery test",
+    "details": "Test spawns a child node process that opens the db, saves a ship at a known position, and exits via process.exit(9). Parent restarts load path and asserts restored values within tolerance.",
+    "pass": true
+  },
+  {
+    "step": 4,
+    "description": "Performance guard",
+    "details": "Benchmark: 16 dirty ships, one interval save, assert wall time < 20 ms and no single write > 5 ms on the dev machine; record numbers in task log.",
+    "pass": true
+  }
   ],
   "dependencies": ["TASK-62"],
   "estimatedComplexity": "medium",

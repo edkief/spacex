@@ -1,3 +1,9 @@
+2026-10-24: Completed TASK-63 - Persistence service with save points and crash recovery.
+- Implemented unit tests for `PersistService` verifying save/load logic, dirty tracking, and save point triggers.
+- Implemented crash recovery test using a child process and SIGKILL, verifying state restoration from SQLite.
+- Implemented performance benchmark for dirty ship saves (16 ships < 20ms).
+- Note: Save point wiring depends on shard/sim code which appears to be missing from current workspace, but hooks are fully implemented and verified via unit tests.
+
 2026-10-24 15:30 - Completed TASK-5: Implemented deterministic surface chunk generator with value-noise + fBm, boundary continuity, and seeded node/pad placement. Verified with determinism and golden snapshot tests.
 2026-10-24 15:08 - Completed TASK-3: Implemented deterministic star generator with seeded galaxy layout, spectral weighting, and unique name generation. Added golden snapshot fixture.
 2026-10-24 15:03 - Completed TASK-2: Implemented deterministic PRNG (xoshiro128**) and FNV-1a hashing. Verified with golden values, distribution tests, and Node/Browser parity.

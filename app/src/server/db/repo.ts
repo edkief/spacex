@@ -98,6 +98,10 @@ export class Repository {
     }
   }
 
+  async loadCargo(shipId: string, tx?: any): Promise<CargoItem[]> {
+    return await this.getDb(tx).select().from(schema.cargo_items).where(eq(schema.cargo_items.ship_id, shipId));
+  }
+
   async saveCargo(shipId: string, items: CargoItem[], tx?: any): Promise<void> {
     const db = this.getDb(tx);
     
