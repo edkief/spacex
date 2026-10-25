@@ -1,8 +1,9 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
-test('local ship responds to input without lag', async ({ page }) => {
-  await page.goto('http://localhost:3000');
-
+test('local ship responds to input without lag', async ({ page, gameServer, claimPage }) => {
+  await page.goto(gameServer.baseUrl);
+  await claimPage.claimCallsign(`PRED-${Date.now()}`);
+  
   // Wait for renderer to load
   await page.waitForSelector('#main-canvas');
 

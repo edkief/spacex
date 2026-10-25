@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { chatStore, ChatMessage } from '../net/chat';
-import { networkManager } from '../net/network';
+import { networkManager } from '../net/NetworkManager';
 
 export const ChatLog = () => {
   const [messages, setMessages] = useState<ChatMessage[]>(chatStore.getMessages());

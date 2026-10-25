@@ -19,7 +19,11 @@ export class NetworkManager {
 
   constructor(private url: string) {}
 
-  async connect() {
+  setUrl(url: string) {
+    this.url = url;
+  }
+
+  async connect(token: string = 'dummy-token') {
     this.isExplicitlyClosed = false;
     return new Promise<void>((resolve, reject) => {
       connectionStore.setStatus('connecting');
@@ -32,7 +36,7 @@ export class NetworkManager {
         resolve();
       };
 
-      this.ws!.onmessage = (event) => this.onMessage(event.data);
+      this.ws!.onmessage = (event) => this.onMessage(event.data, token);
 
       this.ws!.onerror = (err) => {
         console.error('WebSocket error:', err);
@@ -76,14 +80,14 @@ export class NetworkManager {
     connectionStore.setStatus('disconnected');
   }
 
-  private onMessage(data: string) {
+  private onMessage(data: string, token: string) {
     const result = decodeEnvelope(data);
     if (!result.success) return;
 
     const { type, payload } = result.data;
 
     if (type === 'version-ok') {
-      this.send('auth', { token: 'dummy-token' });
+      this.send('auth', { token });
     } else if (type === 'auth_ok') {
       const authData = payload as any;
       this.localShipId = authData.playerId;

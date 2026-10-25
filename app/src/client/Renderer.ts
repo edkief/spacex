@@ -46,7 +46,6 @@ export class Renderer {
     window.addEventListener('keydown', (e) => this.onKeyDown(e));
     window.addEventListener('keyup', (e) => this.onKeyUp(e));
 
-    this.network.connect().catch(console.error);
     this.animate();
   }
 

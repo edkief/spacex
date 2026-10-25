@@ -1,7 +1,8 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
-test('livery picker should be visible and interactive', async ({ page }) => {
-  await page.goto('http://localhost:3000');
+test('livery picker should be visible and interactive', async ({ page, gameServer, claimPage }) => {
+  await page.goto(gameServer.baseUrl);
+  await claimPage.claimCallsign(`LIV-${Date.now()}`);
 
   // Take screenshot for verification
   await page.screenshot({ path: '.ralph/screenshots/TASK-21-0.png' });
