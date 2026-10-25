@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { ShipMeshBuilder } from './ShipMeshBuilder';
 import { Livery, ShipClassId } from '../shared/ships';
-import { NetworkManager } from './net/NetworkManager';
+import { networkManager } from './net/NetworkManager';
 import { EntityState } from '../shared/protocol/schemas';
 
 export class Renderer {
@@ -18,7 +18,7 @@ export class Renderer {
   });
   private shipBuilder = new ShipMeshBuilder();
   private ships = new Map<string, THREE.Group>();
-  private network = new NetworkManager('ws://localhost:8080/ws');
+  private network = networkManager;
 
   private keys = {
     thrust: false,

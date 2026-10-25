@@ -71,6 +71,28 @@ export class Shard extends EventEmitter {
     }
   }
 
+  public handleChat(connId: string, text: string) {
+    const conn = this.connections.get(connId);
+    if (!conn) return { success: false, code: 'not-found' };
+
+    const trimmed = text.trim();
+    if (!trimmed || trimmed.length > 200) {
+      return { success: false, code: 'invalid-message' };
+    }
+
+    // Sanitization: strip control characters and non-text
+    const sanitized = trimmed.replace(/[\\x00-\\x1F\\x7F]/g, '');
+
+    const chatMsg = {
+      from: conn.callsign,
+      text: sanitized,
+      ts: Date.now(),
+    };
+
+    this.broadcast('chat', chatMsg);
+    return { success: true };
+  }
+
   public getSnapshot() {
     return Array.from(this.entities.values()).map((e) => ({
       id: e.id,
@@ -100,7 +122,10 @@ export class Shard extends EventEmitter {
    */
   public handleInput(connId: string, input: any) {
     const conn = this.connections.get(connId);
-    if (!conn) return;
+    if (!conn) {
+      console.debug(`[Shard ${this.systemId}] Dropping input from stale connId: ${connId}`);
+      return;
+    }
 
     // Out-of-order protection: ignore stale seq
     if (input.seq <= conn.lastSeq) {

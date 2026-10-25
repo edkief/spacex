@@ -3,6 +3,8 @@ import { RemoteEntityBuffer } from './interpolation';
 import { encodeMessage, decodeEnvelope } from '../../shared/protocol';
 import { EntityState } from '../../shared/protocol/schemas';
 import { presenceStore } from './presence';
+import { chatStore, ChatMessage } from './chat';
+import { connectionStore, ConnectionStatus } from './connection-store';
 
 export class NetworkManager {
   private ws: WebSocket | null = null;
@@ -11,18 +13,67 @@ export class NetworkManager {
   private localShipId: string | null = null;
   private seq = 0;
 
+  private retryCount = 0;
+  private retryTimer: any = null;
+  private isExplicitlyClosed = false;
+
   constructor(private url: string) {}
 
   async connect() {
+    this.isExplicitlyClosed = false;
     return new Promise<void>((resolve, reject) => {
+      connectionStore.setStatus('connecting');
       this.ws = new WebSocket(this.url);
+
       this.ws!.onopen = () => {
+        this.retryCount = 0;
+        connectionStore.setStatus('connected');
         this.send('hello', { v: 1 });
         resolve();
       };
+
       this.ws!.onmessage = (event) => this.onMessage(event.data);
-      this.ws!.onerror = (err) => reject(err);
+
+      this.ws!.onerror = (err) => {
+        console.error('WebSocket error:', err);
+        reject(err);
+      };
+
+      this.ws!.onclose = () => {
+        this.handleClose();
+      };
     });
+  }
+
+  private handleClose() {
+    if (this.isExplicitlyClosed) return;
+
+    connectionStore.setStatus('reconnecting');
+    
+    const delay = Math.min(1000 * Math.pow(2, this.retryCount), 5000);
+    this.retryCount++;
+
+    console.log(`WebSocket closed. Retrying in ${delay}ms... (attempt ${this.retryCount})`);
+
+    this.retryTimer = setTimeout(async () => {
+      try {
+        await this.connect();
+      } catch (e) {
+        // connect() already calls handleClose on error/close
+      }
+    }, delay);
+
+    // If we've been retrying for too long (e.g., 30s), move to disconnected
+    if (this.retryCount > 10) { // approx 30-50s depending on backoff
+       connectionStore.setStatus('disconnected', 'Connection lost. Please check your network.');
+    }
+  }
+
+  public disconnect() {
+    this.isExplicitlyClosed = true;
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    if (this.ws) this.ws.close();
+    connectionStore.setStatus('disconnected');
   }
 
   private onMessage(data: string) {
@@ -32,18 +83,21 @@ export class NetworkManager {
     const { type, payload } = result.data;
 
     if (type === 'version-ok') {
-      // Send auth (dummy token)
       this.send('auth', { token: 'dummy-token' });
     } else if (type === 'auth_ok') {
       const authData = payload as any;
       this.localShipId = authData.playerId;
       presenceStore.setLocalPlayerId(authData.playerId);
-      // Join default system
       this.send('join_system', { systemId: 'sol' });
     } else if (type === 'enter_system') {
       const snapshot = payload as any;
-      
-      // Presence: clear and populate from snapshot
+
+      // If this is a resync, reset prediction and remotes
+      if (this.localShipId) {
+        this.predictor.reset();
+        this.remotes.clear();
+      }
+
       presenceStore.leaveAll();
       if (snapshot.snapshot.players) {
         for (const p of snapshot.snapshot.players) {
@@ -61,6 +115,9 @@ export class NetworkManager {
     } else if (type === 'presence_leave') {
       const p = payload as any;
       presenceStore.leave(p.playerId);
+    } else if (type === 'chat') {
+      const msg = payload as ChatMessage;
+      chatStore.addMessage(msg);
     }
   }
 
@@ -82,18 +139,16 @@ export class NetworkManager {
 
   sendInput(input: any) {
     this.seq++;
-    this.predictor.step(1 / 60, input, this.seq); // Assume 60fps for prediction
+    this.predictor.step(1 / 60, input, this.seq);
     this.send('input', { ...input, seq: this.seq });
   }
 
   getState(now: number) {
     const states: EntityState[] = [];
 
-    // Local ship
     const local = this.predictor.getState();
     if (local) states.push(local);
 
-    // Remotes
     for (const buffer of this.remotes.values()) {
       const state = buffer.getState(now);
       if (state) states.push(state);
@@ -102,9 +157,15 @@ export class NetworkManager {
     return states;
   }
 
+  sendChat(text: string) {
+    this.send('chat', { text });
+  }
+
   private send(type: string, payload: any) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(encodeMessage(type, payload));
     }
   }
 }
+
+export const networkManager = new NetworkManager('ws://localhost:8080/ws');

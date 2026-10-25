@@ -6,7 +6,7 @@ export const PlayerList: React.FC = () => {
 
   useEffect(() => {
     const update = () => setPlayers(presenceStore.getPlayers());
-    
+
     presenceStore.on('update', update);
     presenceStore.on('leave', update);
     presenceStore.on('clear', update);
@@ -22,20 +22,22 @@ export const PlayerList: React.FC = () => {
   }, []);
 
   return (
-    <div style={{
-      position: 'absolute',
-      bottom: '20px',
-      left: '20px',
-      backgroundColor: 'rgba(0, 0, 0, 0.5)',
-      color: '#ccc',
-      padding: '10px',
-      borderRadius: '4px',
-      fontFamily: 'monospace',
-      fontSize: '12px',
-      zIndex: 1000,
-      pointerEvents: 'none',
-      minWidth: '120px'
-    }}>
+    <div
+      style={{
+        position: 'absolute',
+        bottom: '20px',
+        left: '20px',
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        color: '#ccc',
+        padding: '10px',
+        borderRadius: '4px',
+        fontFamily: 'monospace',
+        fontSize: '12px',
+        zIndex: 1000,
+        pointerEvents: 'none',
+        minWidth: '120px',
+      }}
+    >
       <div style={{ fontWeight: 'bold', marginBottom: '5px', borderBottom: '1px solid #555' }}>
         SYSTEM PRESENCE
       </div>
@@ -46,13 +48,15 @@ export const PlayerList: React.FC = () => {
         </div>
         {Array.from(players.values()).map((player, i) => (
           <div key={i} style={{ display: 'flex', alignItems: 'center' }}>
-            <span style={{ 
-              marginRight: '8px', 
-              width: '8px', 
-              height: '8px', 
-              borderRadius: '50%', 
-              backgroundColor: player.onFoot ? '#ffeb3b' : '#4caf50' 
-            }} />
+            <span
+              style={{
+                marginRight: '8px',
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                backgroundColor: player.onFoot ? '#ffeb3b' : '#4caf50',
+              }}
+            />
             {player.callsign}
           </div>
         ))}

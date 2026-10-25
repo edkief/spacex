@@ -108,7 +108,14 @@ export class ClientShipPredictor {
     }
   }
 
+  reset() {
+    this.serverState = null;
+    this.predictedState = null;
+    this.inputQueue = [];
+  }
+
   getState() {
+
     return this.predictedState;
   }
 

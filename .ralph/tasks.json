@@ -30,9 +30,9 @@
     "title": "System text chat with history and sanitization",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-16.json",
-    "passes": false
+    "passes": true
   },
-  { "id": "TASK-17", "title": "Reconnect and full state resync", "category": "functional", "specFilePath": ".ralph/tasks/TASK-17.json", "passes": false },
+  { "id": "TASK-17", "title": "Reconnect and full state resync", "category": "functional", "specFilePath": ".ralph/tasks/TASK-17.json", "passes": true },
   { "id": "TASK-70", "title": "Playwright e2e harness: two-client multiplayer presence", "category": "functional", "specFilePath": ".ralph/tasks/TASK-70.json", "passes": false },
   { "id": "TASK-71", "title": "Determinism test suite + two-client e2e comparison", "category": "functional", "specFilePath": ".ralph/tasks/TASK-71.json", "passes": false },
   { "id": "TASK-7", "title": "Star chart UI: search, select target system", "category": "ui-ux", "specFilePath": ".ralph/tasks/TASK-7.json", "passes": false },

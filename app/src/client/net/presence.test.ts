@@ -37,10 +37,12 @@ describe('PresenceStore', () => {
     const spy = vi.fn();
     presenceStore.on('update', spy);
     presenceStore.join('p1', { callsign: 'Alpha' });
-    expect(spy).toHaveBeenCalledWith(expect.objectContaining({
-      playerId: 'p1',
-      player: expect.objectContaining({ callsign: 'Alpha' })
-    }));
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        playerId: 'p1',
+        player: expect.objectContaining({ callsign: 'Alpha' }),
+      }),
+    );
   });
 
   it('emits leave event on leave', () => {
@@ -124,7 +126,7 @@ describe('NetworkManager Presence Integration', () => {
   it('handles presence_leave', async () => {
     await nm.connect();
     const wsInstance = (nm as any).ws;
-    
+
     presenceStore.join('p1', { callsign: 'Alpha' });
 
     vi.spyOn(protocol, 'decodeEnvelope').mockReturnValue({

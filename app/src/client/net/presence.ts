@@ -16,14 +16,17 @@ class SimpleEventEmitter {
   off(event: string, listener: (...args: any[]) => void) {
     const list = this.listeners.get(event);
     if (list) {
-      this.listeners.set(event, list.filter(l => l !== listener));
+      this.listeners.set(
+        event,
+        list.filter((l) => l !== listener),
+      );
     }
   }
 
   emit(event: string, ...args: any[]) {
     const list = this.listeners.get(event);
     if (list) {
-      list.forEach(l => l(...args));
+      list.forEach((l) => l(...args));
     }
   }
 }
@@ -44,7 +47,7 @@ export class PresenceStore extends SimpleEventEmitter {
    */
   join(playerId: string, data: Partial<PresencePlayer>) {
     if (playerId === this.localPlayerId) return;
-    
+
     const current = this.players.get(playerId) || { callsign: 'Unknown' };
     const updated = { ...current, ...data } as PresencePlayer;
     this.players.set(playerId, updated);

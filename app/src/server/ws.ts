@@ -7,7 +7,12 @@ import {
   PROTOCOL_VERSION,
   Envelope,
 } from '../shared/protocol';
-import { MessageSchemas, AuthSchema, JoinSystemSchema } from '../shared/protocol/schemas';
+import {
+  MessageSchemas,
+  AuthSchema,
+  JoinSystemSchema,
+  ChatSchema,
+} from '../shared/protocol/schemas';
 import { TokenBucket, ChatLimiter } from './ratelimit';
 import { repo } from './db/repo';
 import { verifyToken, hashToken } from './auth/token';
@@ -73,7 +78,7 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
       unknownTypeCount: 0,
       lastPong: Date.now(),
       bucket: new TokenBucket(20, 40),
-      chatLimiter: new ChatLimiter(),
+      chatLimiter: new ChatLimiter(0, 10000, 5, 200),
       violationTimestamps: [],
     };
     connections.set(ws, ctx);
@@ -139,6 +144,7 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
   }
 
   async function handleMessage(ws: WebSocket, ctx: ConnectionContext, envelope: Envelope) {
+    console.log(`[WS] Message received: ${envelope.type} from ${ctx.playerId || 'unauth'}`);
     // General rate limiting
     if (!ctx.bucket.take()) {
       if (handleViolation(ws, ctx)) return;
@@ -214,6 +220,7 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
             return;
           }
 
+          console.log(`[WS] Auth success: ${session.player_id}`);
           ctx.playerId = session.player_id;
           ctx.tokenHash = tokenHash;
           ctx.state = 'join_system';
@@ -225,6 +232,7 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
 
       case 'join_system':
         if (type === 'join_system') {
+          console.log(`[WS] Processing join_system for ${ctx.playerId}`);
           const joinData = data as z.infer<typeof JoinSystemSchema>;
           const { systemId } = joinData;
           ctx.systemId = systemId;
@@ -277,7 +285,7 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
             ctx.shard.handleInput(ctx.playerId, data as any);
           }
         } else if (type === 'chat') {
-          const chatData = data as { text: string };
+          const chatData = data as z.infer<typeof ChatSchema>;
           const chatCheck = ctx.chatLimiter.check(chatData.text);
           if (!chatCheck.allowed) {
             if (handleViolation(ws, ctx)) return;
@@ -285,7 +293,13 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
             return;
           }
           ctx.chatLimiter.recordSend();
-          // Handle chat broadcast...
+
+          if (ctx.shard && ctx.playerId) {
+            const result = ctx.shard.handleChat(ctx.playerId, chatData.text);
+            if (!result.success) {
+              sendError(ws, result.code, 'Invalid chat message');
+            }
+          }
         } else if (type === 'logout') {
           if (ctx.tokenHash) {
             await repo.deleteSession(ctx.tokenHash);

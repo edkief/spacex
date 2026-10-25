@@ -5,8 +5,11 @@ import { OverviewTab } from './OverviewTab';
 import { Livery } from '../shared/ships';
 import { PlayerList } from './components/PlayerList';
 import { ToastStack } from './components/ToastStack';
+import { ChatLog } from './components/ChatLog';
+import { ConnectionOverlay } from './components/ConnectionOverlay';
 
 const App = () => {
+
   const [renderer, setRenderer] = useState<Renderer | null>(null);
   const [livery, setLivery] = useState<Livery>({
     hull: '#cccccc',
@@ -59,8 +62,10 @@ const App = () => {
         <OverviewTab initialLivery={livery} onUpdate={handleLiveryUpdate} />
       </div>
 
+      <ChatLog />
       <PlayerList />
       <ToastStack />
+      <ConnectionOverlay />
 
       <canvas id="main-canvas" style={{ width: '100%', height: '100%', display: 'block' }} />
     </div>
