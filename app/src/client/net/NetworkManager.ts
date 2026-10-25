@@ -5,6 +5,7 @@ import { EntityState } from '../../shared/protocol/schemas';
 import { presenceStore } from './presence';
 import { chatStore, ChatMessage } from './chat';
 import { connectionStore, ConnectionStatus } from './connection-store';
+import { systemStore } from '../state/systemStore';
 
 export class NetworkManager {
   private ws: WebSocket | null = null;
@@ -12,6 +13,8 @@ export class NetworkManager {
   private remotes = new Map<string, RemoteEntityBuffer>();
   private localShipId: string | null = null;
   private seq = 0;
+
+  public onWarpArrived: ((data: any) => void) | null = null;
 
   private retryCount = 0;
   private retryTimer: any = null;
@@ -97,6 +100,10 @@ export class NetworkManager {
     } else if (type === 'enter_system') {
       const snapshot = payload as any;
 
+      if (snapshot.systemId) {
+        systemStore.setSystemId(snapshot.systemId);
+      }
+
       // If this is a resync, reset prediction and remotes
       if (this.localShipId) {
         this.predictor.reset();
@@ -123,6 +130,10 @@ export class NetworkManager {
     } else if (type === 'chat') {
       const msg = payload as ChatMessage;
       chatStore.addMessage(msg);
+    } else if (type === 'warp-arrived') {
+      if (this.onWarpArrived) {
+        this.onWarpArrived(payload as any);
+      }
     }
   }
 
@@ -164,6 +175,10 @@ export class NetworkManager {
 
   sendChat(text: string) {
     this.send('chat', { text });
+  }
+
+  sendWarp(destinationSystemId: string) {
+    this.send('warp', { destinationSystemId });
   }
 
   private send(type: string, payload: any) {

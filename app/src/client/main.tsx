@@ -7,11 +7,16 @@ import { PlayerList } from './components/PlayerList';
 import { ToastStack } from './components/ToastStack';
 import { ChatLog } from './components/ChatLog';
 import { ConnectionOverlay } from './components/ConnectionOverlay';
+import { StarChart } from './ui/StarChart';
+import { WarpOverlay } from './ui/WarpOverlay';
 import { networkManager } from './net/NetworkManager';
+import { warpStore } from './state/warpStore';
 import { initDriftDebug } from './driftDebug';
 
 // Install dev-only debug hooks
 initDriftDebug();
+
+const GALAXY_SEED = 'drift-galaxy-2026';
 
 const App = () => {
   const [renderer, setRenderer] = useState<Renderer | null>(null);
@@ -24,6 +29,36 @@ const App = () => {
     accent: '#ff0000',
     trim: '#333333',
   });
+  const [isChartOpen, setIsChartOpen] = useState(false);
+  const [warpState, setWarpState] = useState(warpStore.state);
+
+  useEffect(() => {
+    const unsubscribe = warpStore.subscribe(() => {
+      setWarpState(warpStore.state);
+    });
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === 'm') {
+        setIsChartOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  useEffect(() => {
+    // Warp Coordination Logic
+    if (warpState === 'warping-in' && warpStore.targetSystemId) {
+      const timer = setTimeout(() => {
+        networkManager.sendWarp(warpStore.targetSystemId!);
+        warpStore.setState('awaiting');
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [warpState]);
 
   useEffect(() => {
     fetch('/api/ships')
@@ -47,6 +82,19 @@ const App = () => {
     const r = new Renderer(canvasRef.current);
     setRenderer(r);
     r.updateLivery(livery);
+
+    // Handle warp arrival
+    networkManager.onWarpArrived = async (data: any) => {
+      const { systemId } = data;
+      if (r) {
+        await r.loadWorld(systemId, GALAXY_SEED);
+      }
+      warpStore.setState('warping-out');
+      
+      setTimeout(() => {
+        warpStore.setState('idle');
+      }, 2000);
+    };
   }, [token]);
 
   const handleClaim = async (e: React.FormEvent) => {
@@ -160,13 +208,31 @@ const App = () => {
 
       <div style={{ position: 'absolute', top: 20, right: 20, zIndex: 10 }}>
         <OverviewTab initialLivery={livery} onUpdate={handleLiveryUpdate} />
+        <button
+          onClick={() => setIsChartOpen(true)}
+          style={{
+            marginTop: '10px',
+            width: '300px',
+            padding: '10px',
+            background: '#222',
+            color: '#fff',
+            border: '1px solid #444',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            fontWeight: 'bold',
+          }}
+        >
+          Open Star Chart (M)
+        </button>
       </div>
 
       <ChatLog />
       <PlayerList localCallsign={callsign} />
       <ToastStack />
       <ConnectionOverlay />
-
+      <StarChart isOpen={isChartOpen} onClose={() => setIsChartOpen(false)} />
+      <WarpOverlay />
+      
       <canvas
         ref={canvasRef}
         id="main-canvas"

@@ -12,7 +12,9 @@ import {
   AuthSchema,
   JoinSystemSchema,
   ChatSchema,
+  WarpSchema,
 } from '../shared/protocol/schemas';
+import { MAX_PLAYERS_PER_SYSTEM } from '../shared/galaxy/config';
 import { TokenBucket, ChatLimiter } from './ratelimit';
 import { repo } from './db/repo';
 import { verifyToken, hashToken } from './auth/token';
@@ -33,6 +35,7 @@ interface ConnectionContext {
   bucket: TokenBucket;
   chatLimiter: ChatLimiter;
   violationTimestamps: number[];
+  queue: Promise<void>;
 }
 
 export function setupWebSocketHandler(wss: WebSocketServer) {
@@ -80,6 +83,7 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
       bucket: new TokenBucket(20, 40),
       chatLimiter: new ChatLimiter(0, 10000, 5, 200),
       violationTimestamps: [],
+      queue: Promise.resolve(),
     };
     connections.set(ws, ctx);
 
@@ -95,10 +99,12 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
         return;
       }
       try {
-        await handleMessage(ws, ctx, result.data);
+        ctx.queue = ctx.queue.then(() => handleMessage(ws, ctx, result.data)).catch((err) => {
+          console.error('Error handling message:', err);
+          sendError(ws, 'invalid-message', 'Internal server error');
+        });
       } catch (err) {
-        console.error('Error handling message:', err);
-        sendError(ws, 'invalid-message', 'Internal server error');
+        console.error('Queue error:', err);
       }
     });
 
@@ -144,7 +150,7 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
   }
 
   async function handleMessage(ws: WebSocket, ctx: ConnectionContext, envelope: Envelope) {
-    console.log(`[WS] Message received: ${envelope.type} from ${ctx.playerId || 'unauth'}`);
+    console.log(`[WS] Message received: ${envelope.type} from ${ctx.playerId || 'unauth'} (state: ${ctx.state})`);
     // General rate limiting
     if (!ctx.bucket.take()) {
       if (handleViolation(ws, ctx)) return;
@@ -207,8 +213,8 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
             return;
           }
 
-          const payload = verifyToken(token);
-          if (!payload) {
+          const sessionPayload = verifyToken(token);
+          if (!sessionPayload) {
             sendError(ws, 'unauthenticated', 'Invalid or expired session token');
             return;
           }
@@ -299,6 +305,76 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
             if (!result.success) {
               sendError(ws, result.code, 'Invalid chat message');
             }
+          }
+        } else if (type === 'warp') {
+          if (!ctx.shard || !ctx.playerId || !ctx.systemId) {
+            sendError(ws, 'invalid-state', 'Not currently in a system');
+            return;
+          }
+
+          const warpData = data as z.infer<typeof WarpSchema>;
+          const { destinationSystemId } = warpData;
+
+          if (destinationSystemId === ctx.systemId) {
+            sendError(ws, 'invalid-warp', 'Already in target system');
+            return;
+          }
+
+          try {
+            const targetShard = await router.getShard(destinationSystemId);
+            console.log(`[WS] Warp: Target shard ${destinationSystemId} found. Connections: ${targetShard.connections.size}`);
+            if (targetShard.connections.size >= MAX_PLAYERS_PER_SYSTEM) {
+              console.log(`[WS] Warp: Target system ${destinationSystemId} is full`);
+              sendError(ws, 'system-full', 'Target system is full');
+              return;
+            }
+
+            const ship = await repo.getShipByOwner(ctx.playerId);
+            if (!ship) {
+              console.log(`[WS] Warp: No ship found for player ${ctx.playerId}`);
+              sendError(ws, 'no-ship', 'Player has no ship');
+              return;
+            }
+
+            router.leaveSystem(ctx.systemId, ctx.playerId);
+            await repo.saveShipState(ship.id, { system_id: destinationSystemId });
+
+            const player = await repo.findPlayerById(ctx.playerId);
+            const connState = {
+              playerId: ctx.playerId,
+              callsign: player?.callsign || 'Unknown',
+              lastSeq: 0,
+              inputQueue: [],
+            };
+
+            const joinResult = await router.joinSystem(destinationSystemId, ctx.playerId, connState);
+            if ('code' in joinResult) {
+              sendError(ws, joinResult.code, joinResult.message);
+              return;
+            }
+
+            const { shard } = joinResult;
+            const spawnPos = { x: 100, y: 0, z: 0 };
+            shard.spawnShip(ctx.playerId, ship.id, spawnPos, ship);
+
+            ctx.shard = shard;
+            ctx.systemId = destinationSystemId;
+
+            const sendHandler = (connId: string, type: string, payload: string) => {
+              if (connId === ctx.playerId) {
+                ws.send(encodeMessage(type, JSON.parse(payload)));
+              }
+            };
+            shard.on('send', sendHandler);
+            (ws as any)._shardHandler = sendHandler;
+
+            ws.send(encodeMessage('warp-arrived', {
+              systemId: destinationSystemId,
+              snapshot: shard.getSnapshot(),
+            }));
+          } catch (err) {
+            console.error('Warp error:', err);
+            sendError(ws, 'warp-failed', 'An error occurred during warp');
           }
         } else if (type === 'logout') {
           if (ctx.tokenHash) {

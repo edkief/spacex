@@ -1,3 +1,4 @@
+2026-10-25: Completed TASK-7: Implemented Star Chart UI. Added GET /api/galaxy/overview endpoint with deterministic 2D projection and 3-nearest-neighbor edges. Created StarChart component with SVG map, occupancy polling from /api/galaxy/health, and system selection logic. Integrated 'M' key shortcut and HUD button in App.tsx. Added current system and warp state tracking.
 2026-10-25: Completed TASK-71: Verified determinism property tests in `src/shared/galaxy/properties.test.ts` and two-client e2e comparison in `app/tests/e2e/determinism.spec.ts` via `window.__DRIFT__` debug hook. Verified stability across 3 runs. All tests passing.
 \n
 2026-10-25 02:20 - Completed TASK-16: Implemented system-wide text chat. Server-side handler with rate limiting and sanitization in `Shard` and `ws.ts`. Client-side `ChatLog` component with ring buffer of 100 messages, input toggle via Enter, and auto-scrolling. Integration tests added.

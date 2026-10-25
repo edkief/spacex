@@ -93,6 +93,24 @@ export class Shard extends EventEmitter {
     return { success: true };
   }
 
+  public spawnShip(playerId: string, shipId: string, pos: { x: number, y: number, z: number }, shipData: any) {
+    this.playerShips.set(playerId, shipId);
+    this.entities.set(shipId, {
+      ...shipData,
+      id: shipId,
+      kind: 'ship',
+      pos,
+      vel: { x: 0, y: 0, z: 0 },
+      destroyed: false,
+      lastAppliedSeq: 0,
+    } as ServerShipState);
+
+    this.broadcast('presence_join', {
+      playerId,
+      callsign: this.connections.get(playerId)?.callsign || 'Unknown',
+    });
+  }
+
   public getSnapshot() {
     return Array.from(this.entities.values()).map((e) => ({
       id: e.id,

@@ -231,6 +231,13 @@ export const PresenceSchema = z
   })
   .strict();
 
+export const WarpArrivedSchema = z
+  .object({
+    systemId: z.string(),
+    snapshot: z.any(), // Using any for snapshot to avoid duplication of EnterSystemSchema's inner object
+  })
+  .strict();
+
 export const TargetUpdateSchema = z
   .object({
     targetId: z.string().nullable(),
@@ -272,6 +279,7 @@ export const MessageSchemas: Record<string, z.ZodSchema> = {
   ping: PingSchema,
   pong: PongSchema,
   presence: PresenceSchema,
+  'warp-arrived': WarpArrivedSchema,
   target_update: TargetUpdateSchema,
   combat_event: CombatEventSchema,
 };

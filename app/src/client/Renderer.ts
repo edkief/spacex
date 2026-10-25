@@ -3,6 +3,7 @@ import { ShipMeshBuilder } from './ShipMeshBuilder';
 import { Livery, ShipClassId } from '../shared/ships';
 import { networkManager } from './net/NetworkManager';
 import { EntityState } from '../shared/protocol/schemas';
+import { WorldManager } from './world/WorldManager';
 
 export class Renderer {
   private scene = new THREE.Scene();
@@ -14,6 +15,7 @@ export class Renderer {
   );
   private renderer: THREE.WebGLRenderer;
   private shipBuilder = new ShipMeshBuilder();
+  private worldManager = new WorldManager(this.scene);
   private ships = new Map<string, THREE.Group>();
   private network = networkManager;
 
@@ -104,6 +106,10 @@ export class Renderer {
 
   updateLivery(livery: Livery) {
     this.shipBuilder.applyLivery(livery);
+  }
+
+  async loadWorld(systemId: string, seed: string) {
+    await this.worldManager.loadWorld(systemId, seed);
   }
 
   private animate = () => {
