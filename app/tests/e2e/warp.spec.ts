@@ -53,7 +53,7 @@ test.describe('Warp Flow', () => {
     await expect(page.locator('[data-testid="warp-overlay"]')).toBeVisible();
 
     // 6. Wait for arrival (total warp duration 3-6s)
-    await expect(warpButton).toBeHidden({ timeout: 10000 });
+    await expect(page.locator('[data-testid="warp-overlay"]')).toBeHidden({ timeout: 10000 });
     const end = Date.now();
     const duration = (end - start) / 1000;
     console.log(`Warp duration: ${duration}s`);

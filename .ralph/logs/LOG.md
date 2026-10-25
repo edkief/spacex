@@ -1,3 +1,4 @@
+2026-10-25 13:07 - Fixed Warp Happy Path and Visuals. Added data-testid to WarpOverlay, updated E2E tests to verify overlay visibility and correct duration measurement (waiting for overlay to be hidden). Verified happy path transition between systems.
 2026-10-25: Completed TASK-7: Implemented Star Chart UI. Added GET /api/galaxy/overview endpoint with deterministic 2D projection and 3-nearest-neighbor edges. Created StarChart component with SVG map, occupancy polling from /api/galaxy/health, and system selection logic. Integrated 'M' key shortcut and HUD button in App.tsx. Added current system and warp state tracking.
 2026-10-25: Completed TASK-71: Verified determinism property tests in `src/shared/galaxy/properties.test.ts` and two-client e2e comparison in `app/tests/e2e/determinism.spec.ts` via `window.__DRIFT__` debug hook. Verified stability across 3 runs. All tests passing.
 \n
