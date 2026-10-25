@@ -1,10 +1,14 @@
 import * as THREE from 'three';
 import { generateSystem } from '../../shared/galaxy/system';
+import { ChunkManager } from './chunks';
+import { ChunkScene } from './ChunkScene';
 
 export class WorldManager {
   private scene: THREE.Scene;
   private worldObjects: THREE.Group = new THREE.Group();
   private currentSystemId: string | null = null;
+  private chunkManager: ChunkManager | null = null;
+  private chunkScene: ChunkScene | null = null;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -24,6 +28,13 @@ export class WorldManager {
     try {
       const system = generateSystem(seed, systemId);
       
+      // Setup chunking for the first landable planet
+      const landablePlanet = system.planets.find(p => p.landable);
+      if (landablePlanet) {
+        this.chunkManager = new ChunkManager(seed, landablePlanet);
+        this.chunkScene = new ChunkScene(this.scene, this.chunkManager);
+      }
+
       // 1. Create Star
       const starGeo = new THREE.SphereGeometry(10, 32, 32);
       const starMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
@@ -80,5 +91,12 @@ export class WorldManager {
 
   public getCurrentSystemId(): string | null {
     return this.currentSystemId;
+  }
+
+  public update(playerPos: THREE.Vector3, velocity: THREE.Vector3) {
+    if (!this.chunkManager || !this.chunkScene) return;
+
+    this.chunkManager.updateScheduler();
+    this.chunkScene.update(playerPos);
   }
 }

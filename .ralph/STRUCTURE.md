@@ -108,6 +108,7 @@ PROJECT_ROOT
 │   │   │   ├── regime.test.ts   # 33 cases: boundary math + hysteresis + forbidden transitions + determinism (node)
 │   │   │   ├── regime.parity.test.ts # happy-dom parity snapshot (node vs browser)
 │   │   │   ├── regime-planets.ts # TASK-25 — deterministic planetWorldPosition(seed, starId, orbitIndex) + regimePlanetContexts() builder for the sim
+│   │   │   ├── regime.ts           # TASK-25 — regimeFor(pos, vel, contexts, current) state machine with hysteresis
 │   │   │   ├── regime-planets.test.ts # 16 cases: position determinism + context shape + orbit spacing
 │   │   │   │   ├── types.ts          # Star, Planet, SystemGen, Biome, ResourceNode, LandingPad, SurfaceChunk (TASK-3, 4, 5)
 │   │   │   │   ├── config.ts         # GALAXY_STAR_COUNT, spectral weights, name lists (TASK-3)

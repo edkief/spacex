@@ -11,7 +11,8 @@ export class ShardManager {
       // Load state from DB
       const { ships } = await repo.loadSystemState(systemId);
 
-      shard = new Shard(systemId);
+      const seed = process.env.GALAXY_SEED || 'DRIFT-SEED-DEFAULT';
+      shard = new Shard(systemId, seed);
 
       // Initialize entities from saved state
       console.log(`Loading ships for system ${systemId}...`);

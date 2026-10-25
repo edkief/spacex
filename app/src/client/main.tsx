@@ -9,8 +9,10 @@ import { ChatLog } from './components/ChatLog';
 import { ConnectionOverlay } from './components/ConnectionOverlay';
 import { StarChart } from './ui/StarChart';
 import { WarpOverlay } from './ui/WarpOverlay';
+import { DebugOverlay } from './ui/DebugOverlay';
 import { networkManager } from './net/NetworkManager';
 import { warpStore } from './state/warpStore';
+import { toastStore } from './state/toastStore';
 import { initDriftDebug } from './driftDebug';
 
 import { DEFAULT_GALAXY_SEED } from '../shared/galaxy/config';
@@ -105,6 +107,13 @@ const App = () => {
       setTimeout(() => {
         warpStore.setState('idle');
       }, 2000);
+    };
+
+    networkManager.onError = (code, message) => {
+      if (code === 'system-full') {
+        warpStore.setState('idle');
+        toastStore.addToast(message || 'Target system is full', 'error');
+      }
     };
   }, [token]);
 
@@ -243,6 +252,7 @@ const App = () => {
       <ConnectionOverlay />
       <StarChart isOpen={isChartOpen} onClose={() => setIsChartOpen(false)} />
       <WarpOverlay />
+      <DebugOverlay renderer={renderer} />
       
       <canvas
         ref={canvasRef}

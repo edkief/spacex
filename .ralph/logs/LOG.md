@@ -1,5 +1,18 @@
+2026-10-25: Completed TASK-26: World streaming pipeline.
+- Implemented ChunkManager with LRU cache (400 chunks) and dynamic active set (13 chunks for slow, 25 for fast flight).
+- Implemented FrameScheduler for incremental chunk generation (< 4ms per frame) with nearest-first priority.
+- Implemented ChunkScene with distance-based LOD (Near/Mid/Far) and biome-based materials.
+- Integrated surface terrain generation from TASK-5 into Three.js BufferGeometries.
+- Added budget enforcement for surface triangles (< 400k) via FrameMonitor.
+- Verified via unit tests for chunk key math, LRU eviction, LOD selection, and triangle budgets.
+
+2026-10-25: Completed TASK-8.2: Warp Edge Cases and Robustness.
+- Implemented Warp Button Lock: Disabled warp button during transition states (warping-in, awaiting, warping-out).
+- Implemented System Full Rejection: Server now rejects warp if target system has 16+ players; client shows 'System full' toast and resets warp state.
+- Implemented Mid-Warp Disconnect Safety: Updated server to track target system immediately upon warp initiation, ensuring disconnects clean up the correct shard and leave no ghost entities.
+- Verified via integration tests (system full, mid-warp disconnect) and e2e smoke tests.
+
 2026-10-25 13:07 - Fixed Warp Happy Path and Visuals. Added data-testid to WarpOverlay, updated E2E tests to verify overlay visibility and correct duration measurement (waiting for overlay to be hidden). Verified happy path transition between systems.
-2026-10-25: Completed TASK-7: Implemented Star Chart UI. Added GET /api/galaxy/overview endpoint with deterministic 2D projection and 3-nearest-neighbor edges. Created StarChart component with SVG map, occupancy polling from /api/galaxy/health, and system selection logic. Integrated 'M' key shortcut and HUD button in App.tsx. Added current system and warp state tracking.
 2026-10-25: Completed TASK-71: Verified determinism property tests in `src/shared/galaxy/properties.test.ts` and two-client e2e comparison in `app/tests/e2e/determinism.spec.ts` via `window.__DRIFT__` debug hook. Verified stability across 3 runs. All tests passing.
 \n
 2026-10-25 02:20 - Completed TASK-16: Implemented system-wide text chat. Server-side handler with rate limiting and sanitization in `Shard` and `ws.ts`. Client-side `ChatLog` component with ring buffer of 100 messages, input toggle via Enter, and auto-scrolling. Integration tests added.
@@ -49,3 +62,4 @@
 2026-10-24 15:36 - Completed TASK-6: Implemented galaxy determinism verification. Added canonical JSON helper, snapshot generation script, and a comprehensive test suite covering the star chart, systems, and surface chunks. Verified via mutation test.
 2026-10-24 15:54:48 - Completed TASK-62: Implemented dual-driver Drizzle schema and repository layer with full unit tests for SQLite.
 2026-10-24: Implemented PersistService with dirty-ship tracking, interval saves, and recovery. Updated Repository and Schema to support system-based loading.
+2026-10-25: Completed TASK-25: Implemented regime manager for space/atmosphere/surface transitions. Added shared resolution logic with hysteresis, integrated into server sim loop and client control schemes. Added unit and integration tests verifying boundary transitions and noise stability.

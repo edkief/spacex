@@ -1,45 +1,33 @@
 import React, { useEffect, useState } from 'react';
 import { presenceStore } from '../net/presence';
-
-interface Toast {
-  id: string;
-  message: string;
-  type: 'join' | 'leave';
-}
+import { toastStore, ToastType } from '../state/toastStore';
 
 export const ToastStack: React.FC = () => {
-  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [toasts, setToasts] = useState(toastStore.toasts);
 
   useEffect(() => {
+    const unsubscribe = toastStore.subscribe(() => {
+      setToasts([...toastStore.toasts]);
+    });
+
     const onJoin = ({ player }: { playerId: string; player: any }) => {
-      addToast(`${player.callsign} joined`, 'join');
+      toastStore.addToast(`${player.callsign} joined`, 'success');
     };
     const onLeave = ({ playerId }: { playerId: string }) => {
       const player = presenceStore.getPlayer(playerId);
       const callsign = player?.callsign || 'Someone';
-      addToast(`${callsign} left`, 'leave');
+      toastStore.addToast(`${callsign} left`, 'error');
     };
 
     presenceStore.on('update', onJoin);
     presenceStore.on('leave', onLeave);
 
     return () => {
+      unsubscribe();
       presenceStore.off('update', onJoin);
       presenceStore.off('leave', onLeave);
     };
   }, []);
-
-  const addToast = (message: string, type: 'join' | 'leave') => {
-    const id = Math.random().toString(36).substring(2, 11);
-    setToasts((prev) => {
-      const next = [...prev, { id, message, type }];
-      return next.slice(-3); // Keep last 3
-    });
-
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 3000);
-  };
 
   return (
     <div
@@ -64,7 +52,9 @@ export const ToastStack: React.FC = () => {
             borderRadius: '4px',
             fontFamily: 'monospace',
             fontSize: '14px',
-            borderLeft: `4px solid ${toast.type === 'join' ? '#4caf50' : '#f44336'}`,
+            borderLeft: `4px solid ${
+              toast.type === 'success' ? '#4caf50' : toast.type === 'error' ? '#f44336' : '#2196f3'
+            }`,
             animation: 'fadeIn 0.3s ease-out',
             whiteSpace: 'nowrap',
           }}

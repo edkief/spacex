@@ -14,25 +14,25 @@
       "step": 1,
       "description": "Implement Warp Button Lock",
       "details": "Ensure the warp button in the star chart is disabled while the warp state machine is in 'warping-in', 'awaiting', or 'warping-out' states.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Implement System Full Rejection",
       "details": "Update server warp handler to reject warp if target shard is full (16 players), sending {code: 'system-full'}. Update client to handle this response by rolling back the warp overlay and triggering a toast notification.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Implement Mid-Warp Disconnect Safety",
       "details": "Ensure that if a connection is lost during the warp transition, the entity is correctly removed from the source shard and not left as a 'ghost' in the target shard.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Full E2E and Integration Validation",
       "details": "Run WS integration tests for shard occupancy and disconnects, and run the full e2e suite (npm run test:e2e) to verify all warp-related criteria are met.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": [

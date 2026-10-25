@@ -4,7 +4,8 @@ import { RouterOptions } from './router-types';
 import { ServerShipState } from '../shard/types';
 
 export async function loadAndRegister(systemId: string, options: RouterOptions): Promise<Shard> {
-  const shard = new Shard(systemId);
+  const seed = process.env.GALAXY_SEED || 'DRIFT-SEED-DEFAULT';
+  const shard = new Shard(systemId, seed);
 
   // 1. Load ships from DB
   const { ships } = await repo.loadSystemState(systemId);

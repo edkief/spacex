@@ -349,6 +349,8 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
             }
 
             router.leaveSystem(ctx.systemId, ctx.playerId);
+            ctx.systemId = destinationSystemId;
+
             await repo.saveShipState(ship.id, { system_id: destinationSystemId });
 
             const player = await repo.findPlayerById(ctx.playerId);
@@ -370,7 +372,6 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
             shard.spawnShip(ctx.playerId, ship.id, spawnPos, ship);
 
             ctx.shard = shard;
-            ctx.systemId = destinationSystemId;
 
             const sendHandler = (connId: string, type: string, payload: string) => {
               if (connId === ctx.playerId) {

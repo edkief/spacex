@@ -17,25 +17,25 @@
       "step": 1,
       "description": "Shared regime resolution",
       "details": "regimeFor(pos, planets, current): per-planet atmosphereRadius from TASK-4 data; hysteresis: exit radius = enter radius * 1.05; returns {regime, planetId?}. Pure, deterministic.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Server tick integration",
       "details": "SimLoop: before integrating, resolve regime for each ship; regime change → event (client gets it via entity_update.regime); drag/VTOL context switches automatically because integrateShip receives the regime (TASK-22).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Client controls remap",
       "details": "src/client/input/controls.ts: ControlScheme per regime (key maps); on regime change (predicted or server-confirmed) swap the active scheme; log the swap (debug). Character-mode keys exist now as a stub (TASK-31 fills the behavior).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Tests",
       "details": "Boundary/hysteresis unit tests + the scripted full-transition sim integration test (driving inputs through the real SimLoop). Run full suite + typecheck.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-5", "TASK-13", "TASK-22"],

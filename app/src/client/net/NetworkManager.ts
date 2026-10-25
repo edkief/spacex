@@ -15,6 +15,7 @@ export class NetworkManager {
   private seq = 0;
 
   public onWarpArrived: ((data: any) => void) | null = null;
+  public onError: ((code: string, message: string) => void) | null = null;
 
   private retryCount = 0;
   private retryTimer: any = null;
@@ -130,6 +131,11 @@ export class NetworkManager {
     } else if (type === 'chat') {
       const msg = payload as ChatMessage;
       chatStore.addMessage(msg);
+    } else if (type === 'error') {
+      const err = payload as { code: string; message: string };
+      if (this.onError) {
+        this.onError(err.code, err.message);
+      }
     } else if (type === 'warp-arrived') {
       if (this.onWarpArrived) {
         this.onWarpArrived(payload as any);

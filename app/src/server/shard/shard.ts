@@ -2,12 +2,15 @@ import { EventEmitter } from 'events';
 import { SimLoop } from './sim';
 import { ServerShipState, ConnState } from './types';
 import { integrateShip } from '../../shared/physics/flight';
-import { FlightRegime, Planet } from '../../shared/physics/types';
+import { FlightRegime } from '../../shared/physics/types';
 import { ShipClass, SHIP_CLASSES, shipStats, ShipClassId } from '../../shared/ships';
 import { performance } from 'perf_hooks';
 import { cleanupExpiredWrecks } from './combat';
 import { gameEvents, GameEventType } from '../events';
 import { persistService } from '../persist';
+import { generateSystem } from '../../shared/galaxy/system';
+import { getRegimePlanetContexts } from '../../shared/galaxy/regime-planets';
+import { regimeFor } from '../../shared/regime';
 
 export class Shard extends EventEmitter {
   public entities = new Map<string, ServerShipState>();
@@ -18,10 +21,15 @@ export class Shard extends EventEmitter {
   private tickCount = 0;
   private tickDurations: number[] = [];
   private maxHistogramSize = 1000;
+  private planetContexts: any[] = [];
 
-  constructor(public readonly systemId: string) {
+  constructor(public readonly systemId: string, private readonly seed: string) {
     super();
     this.sim = new SimLoop(20, (dt) => this.onTick(dt));
+
+    // Pre-generate planet contexts for regime resolution
+    const system = generateSystem(this.seed, this.systemId);
+    this.planetContexts = getRegimePlanetContexts(this.seed, this.systemId, system.planets);
 
     gameEvents.on(GameEventType.REPAIR_COMPLETED, ({ playerId, shipId }) => {
       const entity = this.entities.get(shipId);
@@ -268,8 +276,15 @@ export class Shard extends EventEmitter {
     }
   }
 
-  private resolveRegime(entity: ServerShipState): { regime: FlightRegime; planet?: Planet } {
-    return { regime: entity.regime as FlightRegime };
+  private resolveRegime(entity: ServerShipState): { regime: FlightRegime; planet?: any } {
+    const result = regimeFor(entity.pos, entity.vel, this.planetContexts, entity.regime as FlightRegime);
+    
+    let planet = undefined;
+    if (result.planetId) {
+      planet = this.planetContexts.find(ctx => ctx.planet.id === result.planetId)?.planet;
+    }
+    
+    return { regime: result.regime, planet };
   }
 
   private getShipClass(entity: ServerShipState): ShipClass {

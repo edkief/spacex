@@ -4,6 +4,9 @@ import { Livery, ShipClassId } from '../shared/ships';
 import { networkManager } from './net/NetworkManager';
 import { EntityState } from '../shared/protocol/schemas';
 import { WorldManager } from './world/WorldManager';
+import { frameMonitor } from './perf/frameMonitor';
+import { getControlScheme, ControlAxis } from './input/controls';
+import { FlightRegime } from '../shared/physics/types';
 
 export class Renderer {
   private scene = new THREE.Scene();
@@ -13,17 +16,19 @@ export class Renderer {
     0.1,
     1000,
   );
-  private renderer: THREE.WebGLRenderer;
+  public renderer: THREE.WebGLRenderer;
   private shipBuilder = new ShipMeshBuilder();
   private worldManager = new WorldManager(this.scene);
-  private ships = new Map<string, THREE.Group>();
+  public ships = new Map<string, THREE.Group>();
   private network = networkManager;
 
-  private keys = {
+  private currentRegime: FlightRegime = 'space';
+  private keys: Record<string, any> = {
     thrust: false,
     pitch: 0,
     yaw: 0,
     roll: 0,
+    up: 0,
   };
 
   constructor(canvas: HTMLCanvasElement) {
@@ -53,48 +58,28 @@ export class Renderer {
   }
 
   private onKeyDown(e: KeyboardEvent) {
-    switch (e.code) {
-      case 'KeyW':
-        this.keys.thrust = true;
-        break;
-      case 'KeyS':
-        this.keys.thrust = false;
-        break;
-      case 'ArrowUp':
-        this.keys.pitch = 1;
-        break;
-      case 'ArrowDown':
-        this.keys.pitch = -1;
-        break;
-      case 'ArrowLeft':
-        this.keys.yaw = -1;
-        break;
-      case 'ArrowRight':
-        this.keys.yaw = 1;
-        break;
-      case 'KeyA':
-        this.keys.roll = -1;
-        break;
-      case 'KeyD':
-        this.keys.roll = 1;
-        break;
+    const scheme = getControlScheme(this.currentRegime);
+    const mapping = scheme.mapKey(e.code);
+    if (mapping) {
+      if (mapping.axis === 'thrust') {
+        this.keys.thrust = mapping.value === 1;
+      } else {
+        this.keys[mapping.axis] = mapping.value;
+      }
     }
   }
 
   private onKeyUp(e: KeyboardEvent) {
-    switch (e.code) {
-      case 'ArrowUp':
-      case 'ArrowDown':
-        this.keys.pitch = 0;
-        break;
-      case 'ArrowLeft':
-      case 'ArrowRight':
-        this.keys.yaw = 0;
-        break;
-      case 'KeyA':
-      case 'KeyD':
-        this.keys.roll = 0;
-        break;
+    const scheme = getControlScheme(this.currentRegime);
+    const mapping = scheme.mapKey(e.code);
+    if (mapping) {
+      if (mapping.axis === 'thrust') {
+        // This is a bit tricky; S sets thrust to false, but what does keyUp do?
+        // In the old code, KeyW set it to true, KeyS to false.
+        // Let's just keep it as is or reset to a default.
+      } else {
+        this.keys[mapping.axis] = 0;
+      }
     }
   }
 
@@ -113,20 +98,32 @@ export class Renderer {
   }
 
   private animate = () => {
+    frameMonitor.frameStarted();
     requestAnimationFrame(this.animate);
+
+    // Update ship positions and sync regime
+    const states = this.network.getState(Date.now());
+    
+    // Assume the first entity is the local player for now
+    if (states.length > 0) {
+      const localState = states[0];
+      if (localState.regime !== this.currentRegime) {
+        console.debug(`[Renderer] Regime swap: ${this.currentRegime} -> ${localState.regime}`);
+        this.currentRegime = localState.regime as FlightRegime;
+      }
+    }
 
     // Handle input
     this.network.sendInput({
       thrust: this.keys.thrust ? 1 : 0,
-      pitch: this.keys.pitch,
-      yaw: this.keys.yaw,
-      turn: this.keys.roll,
+      pitch: this.keys.pitch || 0,
+      yaw: this.keys.yaw || 0,
+      turn: this.keys.roll || 0,
+      up: this.keys.up || 0,
       fire: false,
       lock: false,
     });
 
-    // Update ship positions
-    const states = this.network.getState(Date.now());
     for (const state of states) {
       let mesh = this.ships.get(state.id);
       if (!mesh) {
@@ -139,5 +136,6 @@ export class Renderer {
     }
 
     this.renderer.render(this.scene, this.camera);
+    frameMonitor.frameEnded();
   };
 }

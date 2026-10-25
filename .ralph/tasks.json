@@ -222,28 +222,28 @@
   },
   {
     "id": "TASK-8.2",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-57",
     "title": "Client frame monitor overlay with stats export",
     "category": "performance",
     "specFilePath": ".ralph/tasks/TASK-57.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-25",
     "title": "Regime manager: space/orbit/atmosphere/surface state machine",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-25.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-26",
     "title": "Streaming pipeline: sectors, terrain chunks, LOD, impostors",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-26.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-27",

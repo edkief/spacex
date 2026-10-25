@@ -137,4 +137,26 @@ describe('Warp Integration (TASK-8)', () => {
     
     ws.close();
   });
+
+  it('should leave no ghost entities on mid-warp disconnect', async () => {
+    const systemA = 'sol';
+    const systemB = 'alpha-centauri';
+    
+    const { ws, playerId } = await setupAuthenticatedClient('GhostPilot', systemA);
+    const shardA = await router.getShard(systemA);
+    const shardB = await router.getShard(systemB);
+
+    // 1. Start warp
+    ws.send(encodeMessage('warp', { destinationSystemId: systemB }));
+    
+    // 2. Immediately close connection
+    ws.close();
+
+    // Give it a moment for the close handler to run
+    await new Promise(r => setTimeout(r, 100));
+
+    // 3. Verify player is in neither shard
+    expect(shardA.connections.has(playerId)).toBe(false);
+    expect(shardB.connections.has(playerId)).toBe(false);
+  });
 });
