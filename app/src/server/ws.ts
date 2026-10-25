@@ -12,7 +12,7 @@ import { TokenBucket, ChatLimiter } from './ratelimit';
 import { repo } from './db/repo';
 import { verifyToken, hashToken } from './auth/token';
 import { gameEvents, GameEventType } from './events';
-import { shardManager } from './shard/manager';
+import { router } from './galaxy';
 import { Shard } from './shard/shard';
 
 type ConnectionState = 'hello' | 'auth' | 'join_system' | 'active';
@@ -98,8 +98,15 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
     });
 
     ws.on('close', () => {
-      if (ctx.shard && ctx.playerId) {
+      if (ctx.shard && ctx.playerId && ctx.systemId) {
         ctx.shard.connections.delete(ctx.playerId);
+        router.leaveSystem(ctx.systemId, ctx.playerId);
+        
+        // Remove handler
+        const handler = (ws as any)._shardHandler;
+        if (handler) {
+          ctx.shard.off('send', handler);
+        }
       }
       connections.delete(ws);
     });
@@ -223,7 +230,13 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
           const { systemId } = joinData;
           ctx.systemId = systemId;
 
-          const shard = await shardManager.getShard(systemId);
+          const result = await router.joinSystem(systemId, ctx.playerId!);
+          if ('code' in result) {
+            sendError(ws, result.code, result.message);
+            return;
+          }
+
+          const { shard } = result;
           ctx.shard = shard;
 
           // Add player to shard

@@ -5,6 +5,7 @@ import { callsignRoutes } from './routes/callsigns';
 import { sessionRoutes } from './routes/session';
 import { playersRoutes } from './routes/players';
 import { shipsRoutes } from './routes/ships';
+import { galaxyRoutes } from './routes/galaxy';
 
 // Load environment variables from PROJECT_ROOT/.env.local
 
@@ -20,6 +21,7 @@ export function createApp(options: { logger?: any } = {}) {
   sessionRoutes(fastify);
   playersRoutes(fastify);
   shipsRoutes(fastify);
+  galaxyRoutes(fastify);
 
   // Health check endpoint
   fastify.get('/api/health', async () => {

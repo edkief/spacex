@@ -22,7 +22,7 @@
   { "id": "TASK-14", "title": "Client prediction + server reconciliation", "category": "functional", "specFilePath": ".ralph/tasks/TASK-14.json", "passes": true },
   { "id": "TASK-23", "title": "Ship damage model: hull, shields, dock repair", "category": "functional", "specFilePath": ".ralph/tasks/TASK-23.json", "passes": true },
   { "id": "TASK-24", "title": "Ship state persistence across restarts", "category": "data-model", "specFilePath": ".ralph/tasks/TASK-24.json", "passes": true },
-  { "id": "TASK-11", "title": "Galaxy router: in-process system shards, cap, dispatch", "category": "functional", "specFilePath": ".ralph/tasks/TASK-11.json", "passes": false },
+  { "id": "TASK-11", "title": "Galaxy router: in-process system shards, cap, dispatch", "category": "functional", "specFilePath": ".ralph/tasks/TASK-11.json", "passes": true },
   { "id": "TASK-12", "title": "System shard lifecycle: load, presence, save", "category": "functional", "specFilePath": ".ralph/tasks/TASK-12.json", "passes": false },
   { "id": "TASK-15", "title": "Player presence: list, join/leave, occupancy", "category": "functional", "specFilePath": ".ralph/tasks/TASK-15.json", "passes": false },
   {

@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { WebSocketServer } from 'ws';
 import { setupWebSocketHandler } from './ws';
-import { shardManager } from './shard/manager';
+import { router } from './galaxy';
 import { persistService } from './persist';
 
 dotenv.config({ path: path.resolve(__dirname, '../../../.env.local') });
@@ -25,14 +25,8 @@ const start = async () => {
     const shutdown = async (signal: string) => {
       console.log(`Received ${signal}, shutting down...`);
       
-      // Flush all shards
-      const shards = shardManager.getShards(); // Need to add this method to ShardManager
-      await Promise.all(
-        Array.from(shards.entries()).map(([systemId, shard]) => 
-          persistService.onShardShutdown(systemId, shard)
-        )
-      );
-
+      await router.shutdownAll();
+      
       await fastify.close();
       console.log('Server closed');
       process.exit(0);

@@ -2,6 +2,8 @@ import { SpectralClass } from './types';
 
 export const GALAXY_STAR_COUNT = 200;
 
+export const MAX_PLAYERS_PER_SYSTEM = 16;
+
 export const SPECTRAL_WEIGHTS: Record<SpectralClass, number> = {
   O: 0.00003,
   B: 0.0013,
