@@ -8,6 +8,10 @@ import { ToastStack } from './components/ToastStack';
 import { ChatLog } from './components/ChatLog';
 import { ConnectionOverlay } from './components/ConnectionOverlay';
 import { networkManager } from './net/NetworkManager';
+import { initDriftDebug } from './driftDebug';
+
+// Install dev-only debug hooks
+initDriftDebug();
 
 const App = () => {
   const [renderer, setRenderer] = useState<Renderer | null>(null);

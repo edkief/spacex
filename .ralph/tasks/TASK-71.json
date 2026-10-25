@@ -15,19 +15,19 @@
       "step": 1,
       "description": "Property-style determinism tests",
       "details": "In src/shared/galaxy/properties.test.ts: seeded loop (use a fixed meta-seed for the test's own randomness so failures are reproducible) comparing double-generated outputs; report first divergence with field path.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Two-client e2e",
       "details": "In tests/determinism.spec.ts: launch two contexts; both navigate to app; helper pulls star chart (via a dev-only window.__DRIFT__ debug hook or the WS protocol chart message) and planet list for a fixed system; expect deep equality; also assert client seed === server seed.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Stability check",
       "details": "Run the e2e 3 times; ensure no flakiness (timing-independent comparisons only — no wall-clock values in compared data).",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-6", "TASK-70"],

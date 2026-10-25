@@ -1,4 +1,5 @@
-2026-10-25: TASK-17: Implemented reconnect and resync. Added auto-retry with exponential backoff in NetworkManager, reset logic for PredictionEngine and RemoteBuffers on resync, and a 'Connection Lost' UI overlay. Added integration tests for mid-flight disconnect, entity-count invariant, and reap-rejoin (via mock).
+2026-10-25: Completed TASK-71: Implemented determinism property tests in `src/shared/galaxy/properties.test.ts` and two-client e2e comparison in `app/tests/e2e/determinism.spec.ts` via new `window.__DRIFT__` debug hook. Verified stability across 3 runs.
+\n
 2026-10-25 02:20 - Completed TASK-16: Implemented system-wide text chat. Server-side handler with rate limiting and sanitization in `Shard` and `ws.ts`. Client-side `ChatLog` component with ring buffer of 100 messages, input toggle via Enter, and auto-scrolling. Integration tests added.
 2026-10-25 02:20 - Completed TASK-16: Implemented system-wide text chat. Server-side handler with rate limiting and sanitization in `Shard` and `ws.ts`. Client-side `ChatLog` component with ring buffer of 100 messages, input toggle via Enter, and auto-scrolling. Integration tests added.
 2026-10-25 01:17 - Completed TASK-12: Implemented shard lifecycle (join/leave protocol, graceful shutdown with watchdog, and shard generation tracking). Added leak and storm tests.
