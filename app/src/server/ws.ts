@@ -98,14 +98,18 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
         sendError(ws, 'invalid-message', result.error || 'Invalid envelope format');
         return;
       }
-      try {
-        ctx.queue = ctx.queue.then(() => handleMessage(ws, ctx, result.data)).catch((err) => {
-          console.error('Error handling message:', err);
-          sendError(ws, 'invalid-message', 'Internal server error');
-        });
-      } catch (err) {
-        console.error('Queue error:', err);
-      }
+
+      // Sequence messages using a promise chain
+      const currentQueue = ctx.queue;
+      ctx.queue = (async () => {
+        await currentQueue;
+        try {
+          await handleMessage(ws, ctx, result.data);
+        } catch (err) {
+          console.error('Queue error:', err);
+          sendError(ws, 'internal-error', 'Internal server error');
+        }
+      })();
     });
 
     ws.on('close', () => {
