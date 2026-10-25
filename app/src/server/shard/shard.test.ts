@@ -379,6 +379,52 @@ describe('Shard', () => {
       shard.stop();
     });
 
+    it('should converge to docked state within 15s using VTOL assist', () => {
+      const shipId = 'ship-1';
+      const pad = shard.pads[0];
+      
+      // Start 10m away, moving towards the pad
+      shard.entities.set(shipId, {
+        id: shipId,
+        kind: 'ship',
+        classId: 'scout',
+        pos: { x: 10, y: pad.pos.y + 0.5, z: 0 },
+        vel: { x: -1, y: 0, z: 0 },
+        quat: { x: 0, y: 0, z: 0, w: 1 },
+        regime: 'surface',
+        hull: 100,
+        shields: 100,
+        targetId: null,
+      });
+
+      const connId = 'conn-1';
+      shard.connections.set(connId, {
+        playerId: 'player-1',
+        lastSeq: 0,
+        inputQueue: [],
+        callsign: 'Pilot',
+      });
+      shard.playerShips.set('player-1', shipId);
+
+      shard.start();
+
+      for (let i = 0; i < 300; i++) {
+        shard.handleInput(connId, {
+          seq: i + 1,
+          thrust: 0,
+          pitch: 0,
+          yaw: 0,
+          turn: 0,
+          up: true,
+        });
+        vi.advanceTimersByTime(50);
+      }
+
+      const entity = shard.entities.get(shipId)!;
+      expect(entity.dockedPadId).toBe(pad.id);
+      shard.stop();
+    });
+
     it('should leave docked state on takeoff (vertical speed > 2)', () => {
       const shipId = 'ship-1';
       const pad = shard.pads[0];

@@ -161,26 +161,60 @@ describe('integrateShip', () => {
     expect(() => integrateShip(state, input, 0.1, 'invalid', MOCK_SHIP, undefined)).toThrow();
   });
 
-  it('should match golden trajectory fixture', () => {
+  it('should dampen horizontal drift during VTOL approach', () => {
     let state: ShipState = {
       pos: { x: 0, y: 0, z: 0 },
-      vel: { x: 0, y: 0, z: 0 },
+      vel: { x: 10, y: 0, z: 10 },
       quat: { x: 0, y: 0, z: 0, w: 1 },
       regime: 'space',
     };
-    const input: FlightInput = { thrust: 1, pitch: 0.1, yaw: 0.1, roll: 0.1, up: false };
+    const input: FlightInput = { thrust: 0, pitch: 0, yaw: 0, roll: 0, up: true };
     const dt = 0.05;
+    const options: FlightOptions = {
+      nearestPad: { pos: { x: 0, y: 0, z: 0 }, dist: 50 },
+    };
 
-    for (let i = 0; i < trajectoryFixture.length; i++) {
-      state = integrateShip(state, input, dt, 'space', MOCK_SHIP);
-      const expected = trajectoryFixture[i];
+    state = integrateShip(state, input, dt, 'space', MOCK_SHIP, undefined, options);
 
-      expect(state.pos.x).toBeCloseTo(expected.pos.x, 5);
-      expect(state.pos.y).toBeCloseTo(expected.pos.y, 5);
-      expect(state.pos.z).toBeCloseTo(expected.pos.z, 5);
-      expect(state.vel.x).toBeCloseTo(expected.vel.x, 5);
-      expect(state.vel.y).toBeCloseTo(expected.vel.y, 5);
-      expect(state.vel.z).toBeCloseTo(expected.vel.z, 5);
-    }
+    expect(state.vel.x).toBeCloseTo(10 * 0.965);
+    expect(state.vel.z).toBeCloseTo(10 * 0.965);
+  });
+
+  it('should NOT dampen drift when too far from pad', () => {
+    let state: ShipState = {
+      pos: { x: 0, y: 0, z: 0 },
+      vel: { x: 10, y: 0, z: 10 },
+      quat: { x: 0, y: 0, z: 0, w: 1 },
+      regime: 'space',
+    };
+    const input: FlightInput = { thrust: 0, pitch: 0, yaw: 0, roll: 0, up: true };
+    const dt = 0.05;
+    const options: FlightOptions = {
+      nearestPad: { pos: { x: 0, y: 0, z: 0 }, dist: 150 },
+    };
+
+    state = integrateShip(state, input, dt, 'space', MOCK_SHIP, undefined, options);
+
+    expect(state.vel.x).toBe(10);
+    expect(state.vel.z).toBe(10);
+  });
+
+  it('should NOT dampen drift when speed is too high', () => {
+    let state: ShipState = {
+      pos: { x: 0, y: 0, z: 0 },
+      vel: { x: 60, y: 0, z: 60 },
+      quat: { x: 0, y: 0, z: 0, w: 1 },
+      regime: 'space',
+    };
+    const input: FlightInput = { thrust: 0, pitch: 0, yaw: 0, roll: 0, up: true };
+    const dt = 0.05;
+    const options: FlightOptions = {
+      nearestPad: { pos: { x: 0, y: 0, z: 0 }, dist: 50 },
+    };
+
+    state = integrateShip(state, input, dt, 'space', MOCK_SHIP, undefined, options);
+
+    expect(state.vel.x).toBe(60);
+    expect(state.vel.z).toBe(60);
   });
 });

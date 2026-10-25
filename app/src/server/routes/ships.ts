@@ -257,4 +257,50 @@ export async function shipsRoutes(fastify: FastifyInstance) {
       }
     },
   );
+  // POST /api/debug/teleport
+  fastify.post(
+    '/api/debug/teleport',
+    { preHandler: [authMiddleware] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const session = (request as any).session;
+      const playerId = session?.player_id || 'test-player';
+      
+      const ship = await repo.getShipByOwner(playerId);
+      if (!ship) return reply.status(404).send({ code: 'no-ship' });
+
+      await repo.saveShipState(ship.id, {
+        position: (request.body as any).position || { x: 0, y: 0, z: 0 },
+        velocity: { x: 0, y: 0, z: 0 },
+      });
+
+      return { success: true };
+    },
+  );
+
+  // POST /api/debug/teleport-to-pad
+  fastify.post(
+    '/api/debug/teleport-to-pad',
+    { preHandler: [authMiddleware] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const session = (request as any).session;
+      const playerId = session?.player_id || 'test-player';
+      const ship = await repo.getShipByOwner(playerId);
+      if (!ship) return reply.status(404).send({ code: 'no-ship' });
+
+      // We need the seed to find pads.
+      const seed = process.env.GALAXY_SEED || 'DRIFT-SEED-0001';
+      const { padsFor } = await import('../../shared/world/pads');
+      
+      const pads = padsFor(seed, ship.system_id);
+      if (pads.length === 0) return reply.status(404).send({ code: 'no-pads' });
+      
+      const pad = pads[0];
+      await repo.saveShipState(ship.id, {
+        position: pad.pos,
+        velocity: { x: 0, y: 0, z: 0 },
+      });
+
+      return { success: true, pos: pad.pos };
+    },
+  );
 }
