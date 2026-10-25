@@ -6,6 +6,7 @@ export enum GameEventType {
   SHIP_SWAPPED = 'ship_swapped',
   LIVERY_CHANGED = 'livery_changed',
   REPAIR_COMPLETED = 'repair_completed',
+  SHIP_TELEPORTED = 'ship_teleported',
 }
 
 export interface ShipSwappedEvent {
@@ -21,4 +22,10 @@ export interface LiveryChangedEvent {
 export interface RepairCompletedEvent {
   playerId: string;
   shipId: string;
+}
+
+export interface ShipTeleportedEvent {
+  shipId: string;
+  pos: { x: number; y: number; z: number };
+  vel: { x: number; y: number; z: number };
 }

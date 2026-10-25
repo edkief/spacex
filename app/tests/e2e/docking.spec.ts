@@ -19,7 +19,7 @@ test.describe('Landing Pad Docking', () => {
 
     // The server update takes a few ticks to broadcast.
     // We expect the "DOCKED" text to appear in the HUD.
-    await expect(page.locator('div').filter({ hasText: 'DOCKED' })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('DOCKED', { exact: true })).toBeVisible({ timeout: 10000 });
 
     await page.screenshot({ path: '.ralph/screenshots/TASK-29-docked.png' });
   });

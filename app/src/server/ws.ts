@@ -239,9 +239,14 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
           ctx.playerId = session.player_id;
           ctx.tokenHash = tokenHash;
           ctx.state = 'join_system';
-                     ws.send(encodeMessage('auth_ok', { 
+           const player = await repo.findPlayerById(session.player_id);
+           if (!player) {
+             sendError(ws, 'unauthenticated', 'Player not found');
+             return;
+           }
+           ws.send(encodeMessage('auth_ok', { 
              playerId: session.player_id, 
-             systemId: DEFAULT_SYSTEM_ID 
+             systemId: player.home_system_id 
            }));
         } else {
           sendError(ws, 'invalid-message', 'Expected auth message');

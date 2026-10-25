@@ -273,6 +273,12 @@ export async function shipsRoutes(fastify: FastifyInstance) {
         velocity: { x: 0, y: 0, z: 0 },
       });
 
+      gameEvents.emit(GameEventType.SHIP_TELEPORTED, {
+        shipId: ship.id,
+        pos: (request.body as any).position || { x: 0, y: 0, z: 0 },
+        vel: { x: 0, y: 0, z: 0 },
+      });
+
       return { success: true };
     },
   );
@@ -298,6 +304,12 @@ export async function shipsRoutes(fastify: FastifyInstance) {
       await repo.saveShipState(ship.id, {
         position: pad.pos,
         velocity: { x: 0, y: 0, z: 0 },
+      });
+
+      gameEvents.emit(GameEventType.SHIP_TELEPORTED, {
+        shipId: ship.id,
+        pos: pad.pos,
+        vel: { x: 0, y: 0, z: 0 },
       });
 
       return { success: true, pos: pad.pos };

@@ -1,3 +1,10 @@
+2026-10-25 19:13 - Completed TASK-29.1: Fixed authentication and verified teleportation debug endpoints.
+- Verified session token is correctly saved to `localStorage` as 'drift_token' and used in debug requests.
+- Verified `authMiddleware` correctly handles bearer tokens for `/api/debug/teleport` and `/api/debug/teleport-to-pad`.
+- Fixed bug in `padsFor`, `planetWorldPosition`, and `generateSystem` where non-hex star IDs caused crashes during teleportation.
+- Added integration tests for debug teleportation routes in `app/src/server/routes/ships.test.ts`.
+- Verified functionality via curl and vitest.
+
 2026-10-25 16:05 - Verified TASK-28: Added simulation integration tests for the drag ramp and unit tests for the AtmosphereDome haze scaling. Verified physics integration in `integrateShip`.
 \n
 2026-10-25 15:30 - Completed TASK-28: Implemented atmospheric entry/exit with drag ramp and visual transitions.

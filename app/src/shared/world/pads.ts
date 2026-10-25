@@ -53,8 +53,8 @@ export function padsFor(seed: string, starId: string): Pad[] {
   // 2. Station Pad
   // Generate one deterministic space station per system.
   const masterSeed = seedFromString(seed);
-  const starSeedBigInt = BigInt('0x' + starId);
-  const systemSeed = hash2(masterSeed, starSeedBigInt);
+  const starSeed = seedFromString(starId);
+  const systemSeed = hash2(masterSeed, starSeed);
   const rng = new Rng(systemSeed);
   
   // Position the station at a deterministic distance from the star

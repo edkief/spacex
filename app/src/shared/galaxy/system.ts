@@ -21,8 +21,9 @@ export function generateSystem(seed: string, starId: string): SystemGen {
   // 2. System seed
   // We use the starId as a basis for the system seed.
   // Since starId is already a hex string of a hash, we convert it back to bigint.
-  const starSeedBigInt = BigInt('0x' + starId);
-  const systemSeed = hash2(masterSeed, starSeedBigInt);
+  const starSeed = seedFromString(starId);
+  const systemSeed = hash2(masterSeed, starSeed);
+
   const rng = new Rng(systemSeed);
 
   // 3. Planet count: 2-6

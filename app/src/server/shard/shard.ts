@@ -59,6 +59,14 @@ export class Shard extends EventEmitter {
         } as any);
       }
     });
+
+    gameEvents.on(GameEventType.SHIP_TELEPORTED, ({ shipId, pos, vel }) => {
+      const entity = this.entities.get(shipId);
+      if (entity) {
+        entity.pos = pos;
+        entity.vel = vel;
+      }
+    });
   }
 
   public broadcast(type: string, payload: any) {
@@ -333,6 +341,7 @@ export class Shard extends EventEmitter {
     const isWithinDockingRange = minDist < 20;
     const isSlowEnough = Math.abs(entity.vel.y) < 2;
     const isLowEnough = Math.abs(entity.pos.y - nearestPad.pos.y) < 1;
+    console.log(`[Shard ${this.systemId}] Docking check: minDist=${minDist}, isWithin=${isWithinDockingRange}, isSlow=${isSlowEnough}, isLow=${isLowEnough}`);
 
     let nextPadId: string | undefined = undefined;
 
@@ -356,6 +365,7 @@ export class Shard extends EventEmitter {
     }
 
     if (nextPadId !== currentPadId) {
+      console.log(`[Shard ${this.systemId}] Docking state change: ${currentPadId} -> ${nextPadId}`);
       entity.dockedPadId = nextPadId;
       this.broadcast('entity_update.state', { 
         id: entity.id, 

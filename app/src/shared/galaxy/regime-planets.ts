@@ -13,8 +13,9 @@ export const STAR_SYSTEM_OFFSET_M = 8000;
  */
 export function planetWorldPosition(seed: string, starId: string, orbitIndex: number): Vec3 {
   const masterSeed = seedFromString(seed);
-  const starSeedBigInt = BigInt('0x' + starId);
-  const systemSeed = hash2(masterSeed, starSeedBigInt);
+  const starSeed = seedFromString(starId);
+  const systemSeed = hash2(masterSeed, starSeed);
+
   
   const distance = ORBIT_ORIGIN_M * Math.pow(ORBIT_GROWTH, orbitIndex);
   const angle = orbitIndex * ORBIT_PHI;

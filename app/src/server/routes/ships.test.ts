@@ -7,6 +7,7 @@ import { verifyToken, hashToken, signToken } from '../auth/token';
 import { eq } from 'drizzle-orm';
 import fs from 'fs';
 import path from 'path';
+import { generateStars } from '../../shared/galaxy/stars';
 
 const TEST_DB_PATH = path.join('/tmp/opencode', 'test-ships.sqlite');
 
@@ -31,15 +32,17 @@ describe('Ships Routes', () => {
     await app.ready();
 
     // Setup a player and session
-    const player = await repo.createPlayer('TestPilot', 'sol');
+    const stars = generateStars('DRIFT-SEED-0001');
+    const starId = stars[0].id;
+    const player = await repo.createPlayer('TestPilot', starId);
     playerId = player.id;
 
-    token = signToken({ playerId: player.id, systemId: 'sol', exp: Date.now() + 3600000 });
+    token = signToken({ playerId: player.id, systemId: starId, exp: Date.now() + 3600000 });
     const tokenHash = hashToken(token);
-    await repo.createSession(player.id, 'sol', tokenHash);
+    await repo.createSession(player.id, starId, tokenHash);
 
     // Ensure player has a ship
-    await repo.getOrCreateStarterShip(playerId, 'sol');
+    await repo.getOrCreateStarterShip(playerId, starId);
   });
 
   afterAll(() => {
@@ -333,6 +336,7 @@ describe('Ships Routes', () => {
     expect(JSON.parse(response.body).code).toBe('insufficient-credits');
   });
 
+
   it('POST /api/ships/repair rejects if already at full health', async () => {
     const response = await app.inject({
       method: 'POST',
@@ -344,5 +348,42 @@ describe('Ships Routes', () => {
 
     expect(response.statusCode).toBe(400);
     expect(JSON.parse(response.body).code).toBe('already-repaired');
+  });
+
+  it('POST /api/debug/teleport moves ship to specified position', async () => {
+    const position = { x: 100, y: 200, z: 300 };
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/debug/teleport',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      payload: { position },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body).success).toBe(true);
+
+    const ship = await repo.getShipByOwner(playerId);
+    expect(JSON.parse(ship!.position)).toEqual(position);
+  });
+
+  it('POST /api/debug/teleport-to-pad moves ship to a landing pad', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/debug/teleport-to-pad',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      payload: {},
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.success).toBe(true);
+    expect(body.pos).toBeDefined();
+
+    const ship = await repo.getShipByOwner(playerId);
+    expect(JSON.parse(ship!.position)).toEqual(body.pos);
   });
 });

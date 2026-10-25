@@ -40,7 +40,7 @@ const DockedIndicator = ({ docked }: { docked: boolean }) => {
 
 const App = () => {
   const [renderer, setRenderer] = useState<Renderer | null>(null);
-  const [token, setToken] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(localStorage.getItem('drift_token'));
   const [callsign, setCallsign] = useState('');
   const [claimError, setClaimError] = useState<string | null>(null);
   const [isDocked, setIsDocked] = useState(false);
@@ -95,7 +95,9 @@ const App = () => {
   }, [warpState]);
 
   useEffect(() => {
-    fetch('/api/ships')
+    fetch('/api/ships', {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
       .then((res) => {
         if (!res.ok) throw new Error('Not authenticated');
         return res.json();
@@ -108,6 +110,16 @@ const App = () => {
       .catch((err) => {
         console.log('No existing session found, waiting for claim.');
       });
+  }, []);
+
+  useEffect(() => {
+    networkManager.onStateUpdate = (data: any) => {
+      if (data.state === 'docked') {
+        setIsDocked(true);
+      } else if (data.state === 'undocked') {
+        setIsDocked(false);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -136,14 +148,6 @@ const App = () => {
         toastStore.addToast(message || 'Target system is full', 'error');
       }
     };
-
-    networkManager.onStateUpdate = (data: any) => {
-      if (data.state === 'docked') {
-        setIsDocked(true);
-      } else if (data.state === 'undocked') {
-        setIsDocked(false);
-      }
-    };
   }, [token]);
 
   const handleClaim = async (e: React.FormEvent) => {
@@ -159,8 +163,9 @@ const App = () => {
       if (!res.ok) {
         throw new Error(data.message || 'Failed to claim callsign');
       }
-      setToken(data.token);
-      await networkManager.connect(data.token);
+       localStorage.setItem('drift_token', data.token);
+       setToken(data.token);
+       await networkManager.connect(data.token);
     } catch (err: any) {
       setClaimError(err.message);
     }
