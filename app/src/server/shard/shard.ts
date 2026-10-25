@@ -99,6 +99,7 @@ export class Shard extends EventEmitter {
       ...shipData,
       id: shipId,
       kind: 'ship',
+      classId: shipData.classId || shipData.class_id,
       pos,
       vel: { x: 0, y: 0, z: 0 },
       destroyed: false,

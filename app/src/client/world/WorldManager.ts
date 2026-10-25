@@ -18,7 +18,8 @@ export class WorldManager {
   public async loadWorld(systemId: string, seed: string): Promise<void> {
     const startTime = performance.now();
 
-    this.clearWorld();
+    // Create a new group for the new world to avoid clearing the scene immediately
+    const newWorldObjects = new THREE.Group();
 
     try {
       const system = generateSystem(seed, systemId);
@@ -27,7 +28,7 @@ export class WorldManager {
       const starGeo = new THREE.SphereGeometry(10, 32, 32);
       const starMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
       const starMesh = new THREE.Mesh(starGeo, starMat);
-      this.worldObjects.add(starMesh);
+      newWorldObjects.add(starMesh);
 
       // 2. Create Planets (placeholder LODs)
       system.planets.forEach((planet, index) => {
@@ -43,8 +44,16 @@ export class WorldManager {
           0,
           Math.sin(angle) * orbitRadius
         );
-        this.worldObjects.add(planetMesh);
+        newWorldObjects.add(planetMesh);
       });
+
+      // Atomic swap: remove old, add new
+      const oldWorld = this.worldObjects;
+      this.scene.remove(oldWorld);
+      this.clearWorld(oldWorld);
+      
+      this.worldObjects = newWorldObjects;
+      this.scene.add(this.worldObjects);
 
       this.currentSystemId = systemId;
       
@@ -55,8 +64,8 @@ export class WorldManager {
     }
   }
 
-  private clearWorld() {
-    this.worldObjects.children.forEach((obj) => {
+  private clearWorld(group: THREE.Group = this.worldObjects) {
+    group.children.forEach((obj) => {
       if (obj instanceof THREE.Mesh) {
         obj.geometry.dispose();
         if (Array.isArray(obj.material)) {
@@ -66,7 +75,7 @@ export class WorldManager {
         }
       }
     });
-    this.worldObjects.clear();
+    group.clear();
   }
 
   public getCurrentSystemId(): string | null {
