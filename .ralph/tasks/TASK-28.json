@@ -16,25 +16,25 @@
       "step": 1,
       "description": "Shared boundary function",
       "details": "src/shared/physics/atmosphere.ts: boundaryFactor(alt, planet) → 0..1 (1 at surface, 0 above enter radius + 1 km ramp); drag k = k_max * boundaryFactor; the existing TASK-22 ramp is refactored to call this (single source of truth — update TASK-22's tests to cover the refactor).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 2,
       "description": "Atmosphere dome",
       "details": "Back-face sphere shader around the planet: mix(skyboxColor, atmosphereColor, haze) where haze = boundaryFactor * densityScale; rendered only when the player is within the boundary band (cheap: one draw call). Skybox (starfield) fades out with the same factor — both driven by the same number, so they can never desync.",
-      "pass": false
+      "pass": true
     },
     {
       "step": 3,
       "description": "Cosmic re-entry tint",
       "details": "If descent speed > 200 u/s and boundaryFactor > 0: add an orange rim tint to the cockpit frame (simple full-screen quad or CSS overlay — pick the cheapest that looks right in the screenshot check).",
-      "pass": false
+      "pass": true
     },
     {
       "step": 4,
       "description": "Tests",
       "details": "Continuity + analytic-curve sim test + per-planet density render assertion (headless pixel sample of the dome color at mid-boundary on two seeded planets). Run full suite.",
-      "pass": false
+      "pass": true
     }
   ],
   "dependencies": ["TASK-25", "TASK-22", "TASK-5"],

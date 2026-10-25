@@ -1,3 +1,13 @@
+2026-10-25 16:05 - Verified TASK-28: Added simulation integration tests for the drag ramp and unit tests for the AtmosphereDome haze scaling. Verified physics integration in `integrateShip`.
+\n
+2026-10-25 15:30 - Completed TASK-28: Implemented atmospheric entry/exit with drag ramp and visual transitions.
+- Added `boundaryFactor` in `src/shared/physics/atmosphere.ts` providing a continuous 1km ramp for drag and haze.
+- Refactored `src/shared/physics/flight.ts` to use the shared boundary function for drag calculation.
+- Implemented `AtmosphereDome` in `src/client/world/AtmosphereDome.ts` with a custom shader for haze that scales with planet density.
+- Integrated the dome into `Renderer.ts` and fixed planet positioning in `WorldManager.ts` to match physics.
+- Added a cosmetic re-entry orange rim tint using a CSS overlay in `main.tsx`, triggered by descent speed > 200 u/s in the atmosphere.
+- Verified with unit tests for ramp continuity and a sim integration test vs analytic drag curve.
+\n
 2026-10-25 15:05 - TASK-27: Implemented continuous camera handoff system with Cockpit and OnFoot modes. Added exponential smoothing for cockpit and mouse-look with pitch clamping for on-foot. Implemented 600ms ease-in-out handoff animation with terrain-aware position nudging. Verified with unit tests for math and animation timing.
 2026-10-25: Completed TASK-26: World streaming pipeline.
 - Implemented ChunkManager with LRU cache (400 chunks) and dynamic active set (13 chunks for slow, 25 for fast flight).

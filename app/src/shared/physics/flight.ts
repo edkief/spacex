@@ -1,6 +1,7 @@
 import { vec3, quat } from './vec';
 import { ShipState, FlightInput, FlightRegime, Planet, FlightOptions } from './types';
 import { ShipClass } from '../ships';
+import { boundaryFactor } from './atmosphere';
 
 /**
  * Deterministic ship physics integration.
@@ -52,14 +53,7 @@ export function integrateShip(
 
     // Boundary continuity: ramp drag across 1km boundary
     const altitude = vec3.len(currentPos) - planet.radiusKm * 1000;
-    const boundaryAlt = planet.atmosphereHeight * 1000;
-    const rampHalfWidth = 500; // 1km total ramp
-
-    let multiplier = 1.0;
-    if (altitude > boundaryAlt - rampHalfWidth) {
-      const t = (altitude - (boundaryAlt - rampHalfWidth)) / (2 * rampHalfWidth);
-      multiplier = Math.max(0, Math.min(1, 1 - t));
-    }
+    const multiplier = boundaryFactor(altitude, planet);
 
     // Quadratic Drag: F = -k * |v| * v
     const area = shipClass.mass * 0.05;

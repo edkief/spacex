@@ -9,6 +9,7 @@ export interface RegimePlanetContext {
     id: string;
     radiusKm: number;
     atmosphereHeight: number;
+    atmosphereDensity: number;
   };
   pos: Vec3;
 }

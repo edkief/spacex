@@ -257,7 +257,7 @@
     "title": "Atmosphere entry/exit with continuous physics",
     "category": "functional",
     "specFilePath": ".ralph/tasks/TASK-28.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-29",

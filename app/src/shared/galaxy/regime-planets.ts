@@ -36,6 +36,7 @@ export interface RegimePlanetContext {
     id: string;
     radiusKm: number;
     atmosphereHeight: number;
+    atmosphereDensity: number;
   };
   pos: Vec3;
 }
@@ -49,7 +50,8 @@ export function getRegimePlanetContexts(seed: string, starId: string, planets: a
     planet: {
       id: planet.id,
       radiusKm: planet.radiusKm,
-      atmosphereHeight: planet.hasAtmosphere ? planet.radiusKm * 0.1 : 0,
+      atmosphereHeight: planet.atmosphereHeight,
+      atmosphereDensity: planet.atmosphereDensity,
     },
     pos: planetWorldPosition(seed, starId, i),
   }));

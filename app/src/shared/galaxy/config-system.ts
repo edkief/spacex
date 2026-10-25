@@ -25,6 +25,17 @@ export const ATMOSPHERE_PROBABILITIES = {
   gas: 1.0,
 };
 
+export const ATMOSPHERE_RANGES = {
+  gas: {
+    height: { min: 5000, max: 20000 },
+    density: { min: 0.5, max: 2.0 },
+  },
+  standard: {
+    height: { min: 50, max: 500 },
+    density: { min: 0.1, max: 1.0 },
+  },
+};
+
 export const RESOURCE_POOL = [
   'iron',
   'copper',

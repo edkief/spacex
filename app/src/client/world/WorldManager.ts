@@ -2,13 +2,16 @@ import * as THREE from 'three';
 import { generateSystem } from '../../shared/galaxy/system';
 import { ChunkManager } from './chunks';
 import { ChunkScene } from './ChunkScene';
+import { planetWorldPosition } from '../../shared/galaxy/regime-planets';
 
 export class WorldManager {
   private scene: THREE.Scene;
   private worldObjects: THREE.Group = new THREE.Group();
   private currentSystemId: string | null = null;
+  private currentSystem: any = null; // Store the generated system
   private chunkManager: ChunkManager | null = null;
   private chunkScene: ChunkScene | null = null;
+  private systemSeed: string = 'dev-seed'; // Should be dynamic in real app
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -21,12 +24,14 @@ export class WorldManager {
    */
   public async loadWorld(systemId: string, seed: string): Promise<void> {
     const startTime = performance.now();
+    this.systemSeed = seed;
 
     // Create a new group for the new world to avoid clearing the scene immediately
     const newWorldObjects = new THREE.Group();
 
     try {
       const system = generateSystem(seed, systemId);
+      this.currentSystem = system;
       
       // Setup chunking for the first landable planet
       const landablePlanet = system.planets.find(p => p.landable);
@@ -39,6 +44,7 @@ export class WorldManager {
       const starGeo = new THREE.SphereGeometry(10, 32, 32);
       const starMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
       const starMesh = new THREE.Mesh(starGeo, starMat);
+      starMesh.position.set(0, 0, 8000); // STAR_SYSTEM_OFFSET_M
       newWorldObjects.add(starMesh);
 
       // 2. Create Planets (placeholder LODs)
@@ -48,13 +54,8 @@ export class WorldManager {
         const planetMesh = new THREE.Mesh(planetGeo, planetMat);
         
         // Deterministic placement based on orbit radius and index
-        const orbitRadius = 50 + index * 30;
-        const angle = (index / system.planets.length) * Math.PI * 2;
-        planetMesh.position.set(
-          Math.cos(angle) * orbitRadius,
-          0,
-          Math.sin(angle) * orbitRadius
-        );
+        const pos = planetWorldPosition(seed, systemId, index);
+        planetMesh.position.set(pos.x, pos.y, pos.z);
         newWorldObjects.add(planetMesh);
       });
 
@@ -92,6 +93,25 @@ export class WorldManager {
   public heightAt(x: number, z: number): number {
     if (!this.chunkManager) return 0;
     return this.chunkManager.getHeightAt(x, z);
+  }
+
+  public getNearestPlanet(pos: THREE.Vector3): { planet: Planet; pos: THREE.Vector3 } | null {
+    if (!this.currentSystem || !this.currentSystemId) return null;
+    
+    let nearest: { planet: Planet; pos: THREE.Vector3 } | null = null;
+    let minDist = Infinity;
+    
+    this.currentSystem.planets.forEach((planet: Planet, i: number) => {
+      const planetPos = planetWorldPosition(this.systemSeed, this.currentSystemId!, i);
+      const planetPosVec = new THREE.Vector3(planetPos.x, planetPos.y, planetPos.z);
+      const dist = pos.distanceTo(planetPosVec);
+      if (dist < minDist) {
+        minDist = dist;
+        nearest = { planet, pos: planetPosVec };
+      }
+    });
+    
+    return nearest;
   }
 
   public update(playerPos: THREE.Vector3, velocity: THREE.Vector3) {

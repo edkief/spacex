@@ -259,6 +259,22 @@ const App = () => {
         id="main-canvas"
         style={{ width: '100%', height: '100%', display: 'block' }}
       />
+      <div
+        id="reentry-tint"
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          pointerEvents: 'none',
+          boxShadow: 'inset 0 0 100px rgba(255, 140, 0, 0.5)',
+          background: 'radial-gradient(circle, transparent 60%, rgba(255, 69, 0, 0.2) 100%)',
+          opacity: 0,
+          transition: 'opacity 0.5s ease',
+          zIndex: 5,
+        }}
+      />
     </div>
   );
 };

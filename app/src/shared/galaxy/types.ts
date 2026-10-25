@@ -18,6 +18,8 @@ export interface Planet {
   class: 'rocky' | 'terran' | 'ocean' | 'gas' | 'ice';
   radiusKm: number;
   hasAtmosphere: boolean;
+  atmosphereHeight?: number; // Height in km above radiusKm
+  atmosphereDensity?: number; // Scaling factor for drag/haze
   landable: boolean;
   dockCount: number;
   resourceTypes: string[];

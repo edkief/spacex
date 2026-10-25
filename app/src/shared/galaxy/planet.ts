@@ -4,6 +4,7 @@ import {
   PLANET_CLASSES,
   RADIUS_RANGES,
   ATMOSPHERE_PROBABILITIES,
+  ATMOSPHERE_RANGES,
   RESOURCE_POOL,
   RESOURCE_COUNT_RANGE,
   AI_ROSTER_COUNT_RANGE,
@@ -37,6 +38,13 @@ export function generatePlanet(systemSeed: bigint, index: number): Planet {
 
   // 3. Atmosphere
   const hasAtmosphere = rng.nextF64() < ATMOSPHERE_PROBABILITIES[planetClass];
+  let atmosphereHeight = 0;
+  let atmosphereDensity = 0;
+  if (hasAtmosphere) {
+    const ranges = planetClass === 'gas' ? ATMOSPHERE_RANGES.gas : ATMOSPHERE_RANGES.standard;
+    atmosphereHeight = Math.floor(rng.nextRange(ranges.height.min, ranges.height.max));
+    atmosphereDensity = rng.nextF64() * (ranges.density.max - ranges.density.min) + ranges.density.min;
+  }
 
   // 4. Landability
   // Only non-gas planets can be landable. 90% chance for others.
@@ -71,6 +79,8 @@ export function generatePlanet(systemSeed: bigint, index: number): Planet {
     class: planetClass,
     radiusKm,
     hasAtmosphere,
+    atmosphereHeight,
+    atmosphereDensity,
     landable,
     dockCount,
     resourceTypes,

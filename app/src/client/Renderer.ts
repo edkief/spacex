@@ -4,6 +4,7 @@ import { Livery, ShipClassId } from '../shared/ships';
 import { networkManager } from './net/NetworkManager';
 import { EntityState } from '../shared/protocol/schemas';
 import { WorldManager } from './world/WorldManager';
+import { AtmosphereDome } from './world/AtmosphereDome';
 import { frameMonitor } from './perf/frameMonitor';
 import { getControlScheme, ControlAxis } from './input/controls';
 import { FlightRegime } from '../shared/physics/types';
@@ -15,6 +16,7 @@ export class Renderer {
   public renderer: THREE.WebGLRenderer;
   private shipBuilder = new ShipMeshBuilder();
   private worldManager = new WorldManager(this.scene);
+  private atmosphereDome = new AtmosphereDome();
   public ships = new Map<string, THREE.Group>();
   private network = networkManager;
 
@@ -45,6 +47,8 @@ export class Renderer {
     window.addEventListener('resize', () => this.onResize());
     window.addEventListener('keydown', (e) => this.onKeyDown(e));
     window.addEventListener('keyup', (e) => this.onKeyUp(e));
+
+    this.scene.add(this.atmosphereDome.getMesh());
 
     this.animate();
   }
@@ -118,6 +122,36 @@ export class Renderer {
 
     // Update camera rig
     this.cameraRig.update(dt, localPlayer, this.worldManager);
+
+    if (localPlayer) {
+      const playerPos = new THREE.Vector3(localPlayer.pos.x, localPlayer.pos.y, localPlayer.pos.z);
+      const nearest = this.worldManager.getNearestPlanet(playerPos);
+      if (nearest) {
+        const alt = playerPos.distanceTo(nearest.pos) - nearest.planet.radiusKm * 1000;
+        const haze = boundaryFactor(alt, nearest.planet);
+        
+        const descentSpeed = -localPlayer.vel.y; 
+        
+        const isReentering = descentSpeed > 200 && haze > 0;
+        const tintEl = document.getElementById('reentry-tint');
+        if (tintEl) {
+          tintEl.style.opacity = isReentering ? '1' : '0';
+        }
+        
+        this.atmosphereDome.update(
+          nearest.planet, 
+          nearest.pos, 
+          playerPos, 
+          new THREE.Color(0x000000) // Skybox color placeholder
+        );
+      } else {
+        this.atmosphereDome.getMesh().visible = false;
+        const tintEl = document.getElementById('reentry-tint');
+        if (tintEl) {
+          tintEl.style.opacity = '0';
+        }
+      }
+    }
 
     // Handle input
     this.network.sendInput({

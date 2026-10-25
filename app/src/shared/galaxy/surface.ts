@@ -41,7 +41,7 @@ function smoothstep(t: number): number {
  * Deterministic 2D Value Noise
  * Lattice size is 32 units.
  */
-function valueNoise2D(x: number, z: number, seed: bigint): number {
+export function valueNoise2D(x: number, z: number, seed: bigint): number {
   const latticeSize = 32;
   const xi = Math.floor(x / latticeSize);
   const zi = Math.floor(z / latticeSize);
@@ -76,7 +76,7 @@ function valueNoise2D(x: number, z: number, seed: bigint): number {
  * Fractional Brownian Motion (fBm)
  * Sums multiple octaves of noise to create a more natural terrain.
  */
-function fBm(x: number, z: number, seed: bigint, octaves: number = 4): number {
+export function fBm(x: number, z: number, seed: bigint, octaves: number = 4): number {
   let total = 0;
   let frequency = 1;
   let amplitude = 1;
