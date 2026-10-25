@@ -2,6 +2,7 @@ import { ClientShipPredictor } from './prediction';
 import { RemoteEntityBuffer } from './interpolation';
 import { encodeMessage, decodeEnvelope } from '../../shared/protocol';
 import { EntityState } from '../../shared/protocol/schemas';
+import { presenceStore } from './presence';
 
 export class NetworkManager {
   private ws: WebSocket | null = null;
@@ -36,14 +37,30 @@ export class NetworkManager {
     } else if (type === 'auth_ok') {
       const authData = payload as any;
       this.localShipId = authData.playerId;
+      presenceStore.setLocalPlayerId(authData.playerId);
       // Join default system
       this.send('join_system', { systemId: 'sol' });
     } else if (type === 'enter_system') {
       const snapshot = payload as any;
+      
+      // Presence: clear and populate from snapshot
+      presenceStore.leaveAll();
+      if (snapshot.snapshot.players) {
+        for (const p of snapshot.snapshot.players) {
+          presenceStore.join(p.id, { callsign: p.callsign });
+        }
+      }
+
       this.handleSnapshot(snapshot.snapshot);
     } else if (type === 'entity_update') {
       const update = payload as { entities: EntityState[] };
       this.handleSnapshot({ entities: update.entities } as any);
+    } else if (type === 'presence_join') {
+      const p = payload as any;
+      presenceStore.join(p.playerId, { callsign: p.callsign });
+    } else if (type === 'presence_leave') {
+      const p = payload as any;
+      presenceStore.leave(p.playerId);
     }
   }
 

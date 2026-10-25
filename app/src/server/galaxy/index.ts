@@ -10,5 +10,3 @@ export const router = new Router({
 
 // Start the reap cycle
 router.startReapCycle();
-
-export { router };

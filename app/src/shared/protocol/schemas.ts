@@ -23,6 +23,8 @@ export const EntityStateSchema = z
   })
   .strict();
 
+export type EntityState = z.infer<typeof EntityStateSchema>;
+
 export const HelloSchema = z
   .object({
     v: z.number().int(),

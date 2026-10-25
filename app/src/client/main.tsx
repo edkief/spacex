@@ -3,6 +3,8 @@ import ReactDOM from 'react-dom/client';
 import { Renderer } from './Renderer';
 import { OverviewTab } from './OverviewTab';
 import { Livery } from '../shared/ships';
+import { PlayerList } from './components/PlayerList';
+import { ToastStack } from './components/ToastStack';
 
 const App = () => {
   const [renderer, setRenderer] = useState<Renderer | null>(null);
@@ -56,6 +58,9 @@ const App = () => {
       <div style={{ position: 'absolute', top: 20, right: 20, zIndex: 10 }}>
         <OverviewTab initialLivery={livery} onUpdate={handleLiveryUpdate} />
       </div>
+
+      <PlayerList />
+      <ToastStack />
 
       <canvas id="main-canvas" style={{ width: '100%', height: '100%', display: 'block' }} />
     </div>
