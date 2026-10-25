@@ -19,7 +19,7 @@ export class Renderer {
   private shipBuilder = new ShipMeshBuilder();
   private ships = new Map<string, THREE.Group>();
   private network = new NetworkManager('ws://localhost:8080/ws');
-  
+
   private keys = {
     thrust: false,
     pitch: 0,
@@ -52,25 +52,47 @@ export class Renderer {
 
   private onKeyDown(e: KeyboardEvent) {
     switch (e.code) {
-      case 'KeyW': this.keys.thrust = true; break;
-      case 'KeyS': this.keys.thrust = false; break;
-      case 'ArrowUp': this.keys.pitch = 1; break;
-      case 'ArrowDown': this.keys.pitch = -1; break;
-      case 'ArrowLeft': this.keys.yaw = -1; break;
-      case 'ArrowRight': this.keys.yaw = 1; break;
-      case 'KeyA': this.keys.roll = -1; break;
-      case 'KeyD': this.keys.roll = 1; break;
+      case 'KeyW':
+        this.keys.thrust = true;
+        break;
+      case 'KeyS':
+        this.keys.thrust = false;
+        break;
+      case 'ArrowUp':
+        this.keys.pitch = 1;
+        break;
+      case 'ArrowDown':
+        this.keys.pitch = -1;
+        break;
+      case 'ArrowLeft':
+        this.keys.yaw = -1;
+        break;
+      case 'ArrowRight':
+        this.keys.yaw = 1;
+        break;
+      case 'KeyA':
+        this.keys.roll = -1;
+        break;
+      case 'KeyD':
+        this.keys.roll = 1;
+        break;
     }
   }
 
   private onKeyUp(e: KeyboardEvent) {
     switch (e.code) {
       case 'ArrowUp':
-      case 'ArrowDown': this.keys.pitch = 0; break;
+      case 'ArrowDown':
+        this.keys.pitch = 0;
+        break;
       case 'ArrowLeft':
-      case 'ArrowRight': this.keys.yaw = 0; break;
+      case 'ArrowRight':
+        this.keys.yaw = 0;
+        break;
       case 'KeyA':
-      case 'KeyD': this.keys.roll = 0; break;
+      case 'KeyD':
+        this.keys.roll = 0;
+        break;
     }
   }
 

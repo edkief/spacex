@@ -18,10 +18,10 @@ describe('SimLoop', () => {
     });
 
     loop.start();
-    
+
     // Advance time by 1 second
     vi.advanceTimersByTime(1000);
-    
+
     expect(ticks).toBe(20);
     loop.stop();
   });
@@ -33,16 +33,16 @@ describe('SimLoop', () => {
     });
 
     loop.start();
-    
+
     // Advance time by 1.5 ticks (75ms)
     vi.advanceTimersByTime(75);
     // Should have ticked once
     expect(ticks).toBe(1);
-    
+
     // Advance another 75ms (Total 150ms = 3 ticks)
     vi.advanceTimersByTime(75);
     expect(ticks).toBe(3);
-    
+
     loop.stop();
   });
 
@@ -57,21 +57,21 @@ describe('SimLoop', () => {
     vi.spyOn(Date, 'now').mockImplementation(() => currentTime);
 
     loop.start(); // lastTime = 0, timer set for 50ms
-    
+
     // Jump forward 1 second (20 ticks)
     currentTime = 1000;
-    
+
     // Trigger the timer
     vi.runOnlyPendingTimers();
-    
+
     // In one loop() call:
     // delta = 1000 - 0 = 1000
     // accumulator = 1000
     // while loop runs 5 times (maxCatchUp)
     // accumulator becomes 0 (because ticksProcessed >= maxCatchUp)
-    
+
     expect(ticks).toBe(5);
-    
+
     loop.stop();
   });
 
@@ -82,10 +82,10 @@ describe('SimLoop', () => {
     });
 
     loop.start();
-    
+
     // Advance time by 50 seconds (1000 ticks)
     vi.advanceTimersByTime(50000);
-    
+
     expect(ticks).toBe(1000);
     loop.stop();
   });

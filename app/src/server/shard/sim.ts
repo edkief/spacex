@@ -6,7 +6,7 @@ export class SimLoop {
 
   constructor(
     private readonly tickRate: number = 20,
-    private readonly onTick: (dt: number) => void
+    private readonly onTick: (dt: number) => void,
   ) {
     this.tickDuration = 1000 / this.tickRate;
   }

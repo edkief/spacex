@@ -10,9 +10,9 @@ export class ShardManager {
     if (!shard) {
       // Load state from DB
       const { ships } = await repo.loadSystemState(systemId);
-      
+
       shard = new Shard(systemId);
-      
+
       // Initialize entities from saved state
       console.log(`Loading ships for system ${systemId}...`);
       for (const ship of ships) {
@@ -33,7 +33,7 @@ export class ShardManager {
         } as ServerShipState);
       }
       console.log(`Loaded ${ships.length} ships`);
-      
+
       this.shards.set(systemId, shard);
       shard.start();
       console.log(`Started shard for system ${systemId} with ${ships.length} ships`);

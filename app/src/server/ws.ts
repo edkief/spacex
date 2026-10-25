@@ -99,9 +99,8 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
 
     ws.on('close', () => {
       if (ctx.shard && ctx.playerId && ctx.systemId) {
-        ctx.shard.connections.delete(ctx.playerId);
         router.leaveSystem(ctx.systemId, ctx.playerId);
-        
+
         // Remove handler
         const handler = (ws as any)._shardHandler;
         if (handler) {
@@ -230,21 +229,27 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
           const { systemId } = joinData;
           ctx.systemId = systemId;
 
-          const result = await router.joinSystem(systemId, ctx.playerId!);
+          const player = await repo.findPlayerById(ctx.playerId!);
+          if (!player) {
+            sendError(ws, 'unauthenticated', 'Player not found');
+            return;
+          }
+
+          const connState = {
+            playerId: ctx.playerId!,
+            callsign: player.callsign,
+            lastSeq: 0,
+            inputQueue: [],
+          };
+
+          const result = await router.joinSystem(systemId, ctx.playerId!, connState);
           if ('code' in result) {
             sendError(ws, result.code, result.message);
             return;
           }
 
-          const { shard } = result;
+          const { shard, snapshot } = result;
           ctx.shard = shard;
-
-          // Add player to shard
-          shard.connections.set(ctx.playerId!, {
-            playerId: ctx.playerId!,
-            lastSeq: 0,
-            inputQueue: [],
-          });
 
           // Set up shard output listener for this specific connection
           const sendHandler = (connId: string, type: string, payload: string) => {
@@ -253,18 +258,9 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
             }
           };
           shard.on('send', sendHandler);
-          
+
           // Store handler so we can remove it on close
           (ws as any)._shardHandler = sendHandler;
-
-          // Mock snapshot (overridden by actual shard snapshots soon)
-          const snapshot = {
-            systemId,
-            entities: [],
-            nodes: [],
-            chat: [],
-            players: [{ id: ctx.playerId!, callsign: ctx.playerId!, systemId }],
-          };
 
           ws.send(encodeMessage('enter_system', { snapshot }));
           ctx.state = 'active';

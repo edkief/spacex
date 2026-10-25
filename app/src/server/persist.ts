@@ -88,7 +88,7 @@ export class PersistService {
           regime: entity.regime,
           hull: entity.hull,
           shields: entity.shields,
-          state: entity.destroyed ? 'destroyed' : (entity.onPad ? 'docked' : 'flying'),
+          state: entity.destroyed ? 'destroyed' : entity.onPad ? 'docked' : 'flying',
           wreck_expires_at: entity.wreckExpiresAt ? new Date(entity.wreckExpiresAt) : null,
           updated_at: new Date(),
         };
@@ -117,10 +117,7 @@ export class PersistService {
     }
   }
 
-  public async onShardShutdown(
-    systemId: string,
-    shard: any,
-  ): Promise<void> {
+  public async onShardShutdown(systemId: string, shard: any): Promise<void> {
     await this.flushShips(systemId, shard.entities);
     // Note: nodes state should be handled here if shard has them.
   }

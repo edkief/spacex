@@ -207,9 +207,9 @@ export async function shipsRoutes(fastify: FastifyInstance) {
       }
 
       const stats = shipStats(ship.class_id as ShipClassId);
-      
-      const hullLoss = 1 - (ship.hull / stats.hull);
-      const shieldLoss = 1 - (ship.shields / stats.shieldCapacity);
+
+      const hullLoss = 1 - ship.hull / stats.hull;
+      const shieldLoss = 1 - ship.shields / stats.shieldCapacity;
       const cost = Math.ceil(hullLoss * 10) + Math.ceil(shieldLoss * 5);
 
       if (cost <= 0) {
@@ -222,10 +222,14 @@ export async function shipsRoutes(fastify: FastifyInstance) {
       try {
         db.transaction((tx) => {
           repo.withdrawCreditsSync(playerId, cost, tx);
-          repo.saveShipStateSync(ship.id, {
-            hull: stats.hull,
-            shields: stats.shieldCapacity,
-          }, tx);
+          repo.saveShipStateSync(
+            ship.id,
+            {
+              hull: stats.hull,
+              shields: stats.shieldCapacity,
+            },
+            tx,
+          );
         });
 
         gameEvents.emit(GameEventType.REPAIR_COMPLETED, {

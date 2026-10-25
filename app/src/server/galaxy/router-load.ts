@@ -3,15 +3,12 @@ import { repo } from '../db/repo';
 import { RouterOptions } from './router-types';
 import { ServerShipState } from '../shard/types';
 
-export async function loadAndRegister(
-  systemId: string,
-  options: RouterOptions
-): Promise<Shard> {
+export async function loadAndRegister(systemId: string, options: RouterOptions): Promise<Shard> {
   const shard = new Shard(systemId);
-  
+
   // 1. Load ships from DB
   const { ships } = await repo.loadSystemState(systemId);
-  
+
   for (const ship of ships) {
     shard.entities.set(ship.id, {
       id: ship.id,

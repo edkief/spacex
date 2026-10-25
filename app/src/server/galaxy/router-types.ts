@@ -18,6 +18,7 @@ export interface RouterStats {
 export interface JoinResult {
   shard: any;
   systemId: string;
+  snapshot: any[];
 }
 
 export interface JoinRejection {

@@ -18,6 +18,7 @@ export interface ServerShipState extends BaseShipState {
 
 export interface ConnState {
   playerId: string;
+  callsign: string;
   lastSeq: number;
   inputQueue: InputMsg[];
 }

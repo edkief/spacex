@@ -21,12 +21,12 @@ describe('Persistence Performance', () => {
   it('should flush 16 ships in under 8ms p95', async () => {
     const systemId = 'sol';
     const ships = new Map<string, any>();
-    
+
     // Setup 16 ships in DB and simulation
     for (let i = 0; i < 16; i++) {
       const player = await repo.createPlayer(`player-${i}`, systemId);
       const ship = await repo.getOrCreateStarterShip(player.id, systemId);
-      
+
       ships.set(ship.id, {
         id: ship.id,
         pos: { x: Math.random(), y: Math.random(), z: Math.random() },
@@ -56,8 +56,10 @@ describe('Persistence Performance', () => {
     const p95 = latencies[Math.floor(iterations * 0.95)];
     const p99 = latencies[Math.floor(iterations * 0.99)];
 
-    console.log(`Flush Latency (16 ships): p50=${p50.toFixed(3)}ms, p95=${p95.toFixed(3)}ms, p99=${p99.toFixed(3)}ms`);
-    
+    console.log(
+      `Flush Latency (16 ships): p50=${p50.toFixed(3)}ms, p95=${p95.toFixed(3)}ms, p99=${p99.toFixed(3)}ms`,
+    );
+
     expect(p95).toBeLessThan(8);
   });
 });

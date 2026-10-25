@@ -8,23 +8,28 @@ export const WRECK_TTL_S = 600;
  * Applies combat damage to a target entity in a shard.
  * Handles shield/hull reduction, destruction, and wreck spawning.
  */
-export function applyCombatDamage(shard: Shard, targetId: string, amount: number, source: DamageSource) {
+export function applyCombatDamage(
+  shard: Shard,
+  targetId: string,
+  amount: number,
+  source: DamageSource,
+) {
   const entity = shard.entities.get(targetId);
   if (!entity || entity.kind === 'wreck' || entity.destroyed) return;
 
   const result = applyDamage(entity, amount, source);
-  
+
   entity.shields -= result.shieldHit;
   entity.hull -= result.hullHit;
-  
+
   if (result.destroyed) {
     entity.destroyed = true;
-    
+
     // Broadcast destroyed event
     shard.broadcast('combat_event', {
       kind: 'destroyed',
       target: targetId,
-      source: source
+      source: source,
     });
 
     // Spawn wreck
@@ -34,7 +39,7 @@ export function applyCombatDamage(shard: Shard, targetId: string, amount: number
       id: wreckId,
       kind: 'wreck',
       destroyed: false,
-      wreckExpiresAt: Date.now() + WRECK_TTL_S * 1000
+      wreckExpiresAt: Date.now() + WRECK_TTL_S * 1000,
     });
   } else {
     // Broadcast damaged event
@@ -44,7 +49,7 @@ export function applyCombatDamage(shard: Shard, targetId: string, amount: number
       source: source,
       amount,
       shieldHit: result.shieldHit,
-      hullHit: result.hullHit
+      hullHit: result.hullHit,
     });
   }
 }

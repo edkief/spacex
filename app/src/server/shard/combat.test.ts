@@ -50,8 +50,8 @@ describe('Combat Damage Model', () => {
 
   it('destroyed ships spawn a wreck', () => {
     applyCombatDamage(shard, shipId, 200, { kind: 'player', id: 'attacker' });
-    
-    const wrecks = Array.from(shard.entities.values()).filter(e => e.kind === 'wreck');
+
+    const wrecks = Array.from(shard.entities.values()).filter((e) => e.kind === 'wreck');
     expect(wrecks).toHaveLength(1);
     expect(wrecks[0].wreckExpiresAt).toBeGreaterThan(Date.now());
   });
@@ -59,7 +59,7 @@ describe('Combat Damage Model', () => {
   it('destroyed ships ignore further damage', () => {
     applyCombatDamage(shard, shipId, 200, { kind: 'player', id: 'attacker' });
     const hullBefore = entity.hull;
-    
+
     applyCombatDamage(shard, shipId, 10, { kind: 'player', id: 'attacker' });
     expect(entity.hull).toBe(hullBefore);
   });

@@ -12,7 +12,7 @@ export class ClientShipPredictor {
   private serverState: EntityState | null = null;
   private predictedState: EntityState | null = null;
   private inputQueue: PredictedInput[] = [];
-  
+
   private readonly DRIFT_THRESHOLD_POS = 5;
   private readonly DRIFT_THRESHOLD_ROT = 0.2;
 
@@ -43,8 +43,15 @@ export class ClientShipPredictor {
       flightInput,
       dt,
       this.predictedState.regime,
-      { id: 'default', name: 'Default', mass: 1000, acceleration: 10, maxVelocity: 100, turnRate: 1 },
-      undefined
+      {
+        id: 'default',
+        name: 'Default',
+        mass: 1000,
+        acceleration: 10,
+        maxVelocity: 100,
+        turnRate: 1,
+      },
+      undefined,
     );
   }
 
@@ -57,7 +64,7 @@ export class ClientShipPredictor {
     this.serverState = serverState;
 
     // 1. Discard acked inputs
-    this.inputQueue = this.inputQueue.filter(item => item.seq > ackedSeq);
+    this.inputQueue = this.inputQueue.filter((item) => item.seq > ackedSeq);
 
     // 2. Check for drift
     if (this.predictedState) {
@@ -80,8 +87,15 @@ export class ClientShipPredictor {
             flightInput,
             item.dt,
             tempState.regime,
-            { id: 'default', name: 'Default', mass: 1000, acceleration: 10, maxVelocity: 100, turnRate: 1 },
-            undefined
+            {
+              id: 'default',
+              name: 'Default',
+              mass: 1000,
+              acceleration: 10,
+              maxVelocity: 100,
+              turnRate: 1,
+            },
+            undefined,
           );
         }
         this.predictedState = tempState;

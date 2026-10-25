@@ -1,10 +1,11 @@
 import { Shard } from '../shard/shard';
-import { 
-  RouterOptions, 
-  RouterStats, 
-  RouterShardStats, 
-  JoinResult, 
-  JoinRejection 
+import { ConnState } from '../shard/types';
+import {
+  RouterOptions,
+  RouterStats,
+  RouterShardStats,
+  JoinResult,
+  JoinRejection,
 } from './router-types';
 import { loadAndRegister } from './router-load';
 import { reapEmpty } from './router-reap';
@@ -15,7 +16,8 @@ export class Router {
   private pendingSpawns = new Map<string, Promise<Shard>>();
   private reapDeadlines = new Map<string, number>();
   private spawnTimes = new Map<string, number>();
-  
+  private generations = new Map<string, number>();
+
   constructor(private options: RouterOptions = {}) {}
 
   public async getShard(systemId: string): Promise<Shard> {
@@ -26,13 +28,17 @@ export class Router {
     if (pending) return pending;
 
     const spawnPromise = loadAndRegister(systemId, this.options)
-      .then(shard => {
+      .then((shard) => {
+        const gen = (this.generations.get(systemId) || 0) + 1;
+        shard.generation = gen;
+        this.generations.set(systemId, gen);
+
         this.shards.set(systemId, shard);
         this.spawnTimes.set(systemId, Date.now());
         this.pendingSpawns.delete(systemId);
         return shard;
       })
-      .catch(err => {
+      .catch((err) => {
         this.pendingSpawns.delete(systemId);
         throw err;
       });
@@ -41,19 +47,25 @@ export class Router {
     return spawnPromise;
   }
 
-  public async joinSystem(systemId: string, connId: string): Promise<JoinResult | JoinRejection> {
+  public async joinSystem(
+    systemId: string,
+    connId: string,
+    conn: ConnState,
+  ): Promise<JoinResult | JoinRejection> {
     const shard = await this.getShard(systemId);
-    
+
     if (shard.connections.size >= MAX_PLAYERS_PER_SYSTEM) {
       return { code: 'system-full', message: 'System is at maximum capacity' };
     }
-    
-    return { shard, systemId };
+
+    shard.addConnection(connId, conn);
+    return { shard, systemId, snapshot: shard.getSnapshot() };
   }
 
   public leaveSystem(systemId: string, connId: string) {
     const shard = this.shards.get(systemId);
     if (!shard) return;
+    shard.removeConnection(connId);
     this.startReapGrace(systemId);
   }
 
@@ -98,12 +110,14 @@ export class Router {
   }
 
   public getStats(): RouterStats {
-    const shards: RouterShardStats[] = Array.from(this.shards.entries()).map(([systemId, shard]) => ({
-      systemId,
-      name: `System ${systemId}`,
-      players: shard.connections.size,
-      uptimeMs: Date.now() - (this.spawnTimes.get(systemId) || Date.now()),
-    }));
+    const shards: RouterShardStats[] = Array.from(this.shards.entries()).map(
+      ([systemId, shard]) => ({
+        systemId,
+        name: `System ${systemId}`,
+        players: shard.connections.size,
+        uptimeMs: Date.now() - (this.spawnTimes.get(systemId) || Date.now()),
+      }),
+    );
 
     return { shards };
   }

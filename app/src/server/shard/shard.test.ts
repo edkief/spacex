@@ -46,13 +46,13 @@ describe('Shard', () => {
     });
 
     shard.start();
-    
+
     // Advance by one tick (50ms)
     vi.advanceTimersByTime(50);
-    
+
     const entity = shard.entities.get(shipId)!;
     expect(entity.pos.z).toBeGreaterThan(0);
-    
+
     shard.stop();
   });
 
@@ -119,18 +119,34 @@ describe('Shard', () => {
     });
 
     // Send multiple inputs
-    shard.handleInput(connId, { seq: 1, thrust: 0, turn: 0, pitch: 0, yaw: 0, fire: false, lock: false });
-    shard.handleInput(connId, { seq: 2, thrust: 1, turn: 0, pitch: 0, yaw: 0, fire: false, lock: false });
+    shard.handleInput(connId, {
+      seq: 1,
+      thrust: 0,
+      turn: 0,
+      pitch: 0,
+      yaw: 0,
+      fire: false,
+      lock: false,
+    });
+    shard.handleInput(connId, {
+      seq: 2,
+      thrust: 1,
+      turn: 0,
+      pitch: 0,
+      yaw: 0,
+      fire: false,
+      lock: false,
+    });
 
     shard.start();
     vi.advanceTimersByTime(50);
-    
+
     // After one tick, inputQueue should be empty
     expect(shard.connections.get(connId)!.inputQueue.length).toBe(0);
-    
+
     const entity = shard.entities.get(shipId)!;
     expect(entity.pos.z).toBeGreaterThan(0);
-    
+
     shard.stop();
   });
 
@@ -146,15 +162,15 @@ describe('Shard', () => {
     });
 
     shard.start();
-    
+
     // Tick 1: no snapshot
     vi.advanceTimersByTime(50);
     expect(sendSpy).not.toHaveBeenCalled();
-    
+
     // Tick 2: snapshot
     vi.advanceTimersByTime(50);
     expect(sendSpy).toHaveBeenCalled();
-    
+
     shard.stop();
   });
 
@@ -168,7 +184,7 @@ describe('Shard', () => {
       const pId = `p${i}`;
       const sId = `s${i}`;
       const cId = `c${i}`;
-      
+
       shard.connections.set(cId, { playerId: pId, lastSeq: 0, inputQueue: [] });
       shard.playerShips.set(pId, sId);
       shard.entities.set(sId, {
@@ -185,7 +201,7 @@ describe('Shard', () => {
 
     // Use real timers for benchmark
     vi.useRealTimers();
-    
+
     shard.start();
 
     // Simulate inputs for each ship every tick
@@ -204,14 +220,16 @@ describe('Shard', () => {
     }, 50);
 
     // Wait for 2 seconds
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
     clearInterval(inputInterval);
     shard.stop();
-    
+
     const stats = shard.getTimingStats();
     expect(stats).not.toBeNull();
-    console.log(`Benchmark results (16 ships): p50=${stats!.p50.toFixed(3)}ms, p95=${stats!.p95.toFixed(3)}ms, p99=${stats!.p99.toFixed(3)}ms`);
+    console.log(
+      `Benchmark results (16 ships): p50=${stats!.p50.toFixed(3)}ms, p95=${stats!.p95.toFixed(3)}ms, p99=${stats!.p99.toFixed(3)}ms`,
+    );
     expect(stats!.p95).toBeLessThan(30);
   });
 });

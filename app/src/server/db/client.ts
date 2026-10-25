@@ -12,6 +12,7 @@ let DATABASE_URL = process.env.DATABASE_URL;
 
 let _dbInstance: any;
 let _sqliteDb: any = null;
+let _pgPool: any = null;
 
 export function initDb() {
   DB_DRIVER = (process.env.DB_DRIVER || 'sqlite') as Driver;
@@ -30,9 +31,21 @@ export function initDb() {
     const pool = new Pool({
       connectionString: DATABASE_URL,
     });
+    _pgPool = pool;
     _dbInstance = drizzlePg(pool, { schema: createSchema(DB_DRIVER) });
   }
   return _dbInstance;
+}
+
+export async function closeDb() {
+  if (_sqliteDb) {
+    _sqliteDb.close();
+    _sqliteDb = null;
+  }
+  if (_pgPool) {
+    await _pgPool.end();
+    _pgPool = null;
+  }
 }
 
 export const db = new Proxy({} as any, {

@@ -65,13 +65,13 @@ export class NetworkManager {
 
   sendInput(input: any) {
     this.seq++;
-    this.predictor.step(1/60, input, this.seq); // Assume 60fps for prediction
+    this.predictor.step(1 / 60, input, this.seq); // Assume 60fps for prediction
     this.send('input', { ...input, seq: this.seq });
   }
 
   getState(now: number) {
     const states: EntityState[] = [];
-    
+
     // Local ship
     const local = this.predictor.getState();
     if (local) states.push(local);

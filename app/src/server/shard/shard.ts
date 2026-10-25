@@ -14,6 +14,7 @@ export class Shard extends EventEmitter {
   public connections = new Map<string, ConnState>();
   public playerShips = new Map<string, string>(); // playerId -> shipId
   public sim: SimLoop;
+  public generation = 0;
   private tickCount = 0;
   private tickDurations: number[] = [];
   private maxHistogramSize = 1000;
@@ -55,6 +56,37 @@ export class Shard extends EventEmitter {
     }
   }
 
+  public addConnection(connId: string, conn: ConnState) {
+    this.connections.set(connId, conn);
+    this.broadcast('presence_join', {
+      playerId: connId,
+      callsign: conn.callsign,
+    });
+  }
+
+  public removeConnection(connId: string) {
+    if (this.connections.has(connId)) {
+      this.connections.delete(connId);
+      this.broadcast('presence_leave', { playerId: connId });
+    }
+  }
+
+  public getSnapshot() {
+    return Array.from(this.entities.values()).map((e) => ({
+      id: e.id,
+      kind: e.kind,
+      pos: e.pos,
+      vel: e.vel,
+      quat: e.quat,
+      regime: e.regime,
+      hull: e.hull,
+      shields: e.shields,
+      targetId: e.targetId,
+      classId: e.classId,
+      lastAppliedSeq: e.lastAppliedSeq,
+    }));
+  }
+
   start() {
     this.sim.start();
   }
@@ -91,9 +123,9 @@ export class Shard extends EventEmitter {
 
     // Periodic flush every 30s (20Hz * 30)
     if (this.tickCount % 600 === 0) {
-      persistService.flushShips(this.systemId, this.entities).catch(err => 
-        console.error(`Flush error in shard ${this.systemId}:`, err)
-      );
+      persistService
+        .flushShips(this.systemId, this.entities)
+        .catch((err) => console.error(`Flush error in shard ${this.systemId}:`, err));
     }
 
     // 1. Drain inputs and integrate ships
@@ -122,17 +154,9 @@ export class Shard extends EventEmitter {
         up: false, // missing in InputSchema, stubbed
       };
 
-      const newState = integrateShip(
-        entity,
-        flightInput,
-        dt,
-        regime,
-        shipClass,
-        planet,
-        {
-          heightAt: (x: number, z: number) => 0, // stubbed heightAt
-        }
-      );
+      const newState = integrateShip(entity, flightInput, dt, regime, shipClass, planet, {
+        heightAt: (x: number, z: number) => 0, // stubbed heightAt
+      });
 
       // Update entity state (keeping combat-ready fields)
       this.entities.set(shipId, {
@@ -173,7 +197,7 @@ export class Shard extends EventEmitter {
   }
 
   private broadcastSnapshot() {
-    const entities = Array.from(this.entities.values()).map(e => ({
+    const entities = Array.from(this.entities.values()).map((e) => ({
       id: e.id,
       kind: e.kind,
       pos: e.pos,
@@ -190,7 +214,7 @@ export class Shard extends EventEmitter {
 
     const payload = JSON.stringify({ entities });
     const size = Buffer.byteLength(payload);
-    
+
     if (size > 32 * 1024) {
       console.warn(`Snapshot size too large: ${size} bytes`);
     }
@@ -200,7 +224,7 @@ export class Shard extends EventEmitter {
     }
   }
 
-  private resolveRegime(entity: ServerShipState): { regime: FlightRegime, planet?: Planet } {
+  private resolveRegime(entity: ServerShipState): { regime: FlightRegime; planet?: Planet } {
     return { regime: entity.regime as FlightRegime };
   }
 

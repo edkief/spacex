@@ -5,6 +5,7 @@ import { WebSocketServer } from 'ws';
 import { setupWebSocketHandler } from './ws';
 import { router } from './galaxy';
 import { persistService } from './persist';
+import { closeDb } from './db/client';
 
 dotenv.config({ path: path.resolve(__dirname, '../../../.env.local') });
 
@@ -24,17 +25,28 @@ const start = async () => {
     // Graceful shutdown
     const shutdown = async (signal: string) => {
       console.log(`Received ${signal}, shutting down...`);
-      
-      await router.shutdownAll();
-      
-      await fastify.close();
-      console.log('Server closed');
-      process.exit(0);
+
+      const watchdog = setTimeout(() => {
+        console.error('Shutdown timed out after 10s. Forcing exit 1.');
+        process.exit(1);
+      }, 10000);
+
+      try {
+        await router.shutdownAll();
+        await closeDb();
+        await fastify.close();
+        console.log('Server closed gracefully');
+        process.exit(0);
+      } catch (err) {
+        console.error('Error during shutdown:', err);
+        process.exit(1);
+      } finally {
+        clearTimeout(watchdog);
+      }
     };
 
     process.on('SIGTERM', () => shutdown('SIGTERM'));
     process.on('SIGINT', () => shutdown('SIGINT'));
-
   } catch (err) {
     console.error(err);
     process.exit(1);
