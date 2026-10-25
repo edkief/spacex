@@ -267,11 +267,11 @@ describe('Shard', () => {
 
     // 2. Drop connection
     shard.removeConnection(connId);
-    
+
     // Wait 2 seconds (simulated) - ship should stay idle
     vi.advanceTimersByTime(2000);
     const posAfterDrop = { ...shard.entities.get(shipId)!.pos };
-    
+
     // Ship should not have moved since no inputs were provided
     expect(posAfterDrop.z).toBeCloseTo(posBeforeDrop.z);
 
@@ -286,14 +286,14 @@ describe('Shard', () => {
     // 4. Resume movement
     shard.handleInput(connId, { seq: 2, thrust: 1, turn: 0, pitch: 0, yaw: 0 });
     vi.advanceTimersByTime(100);
-    
+
     const posAfterReconnect = shard.entities.get(shipId)!.pos;
     expect(posAfterReconnect.z).toBeGreaterThan(posAfterDrop.z);
 
     shard.stop();
   });
 
-// ... (previous tests) ...
+  // ... (previous tests) ...
 
   it('should not create duplicate entities on reconnect', () => {
     const playerId = 'player-1';
@@ -365,10 +365,10 @@ describe('Shard', () => {
 
     // 4. Create new shard (simulate player re-joining)
     const newShard = new Shard(systemId);
-    
+
     // The player joins. In the real app, the router would load ships from DB.
     const state = await persistService.loadSystemState(systemId);
-    state.ships.forEach(ship => {
+    state.ships.forEach((ship) => {
       newShard.entities.set(ship.id, ship as any);
     });
     // Link player to ship

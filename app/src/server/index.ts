@@ -7,7 +7,6 @@ import { router } from './galaxy';
 import { persistService } from './persist';
 import { closeDb, migrate } from './db/client';
 
-
 dotenv.config({ path: path.resolve(__dirname, '../../../.env.local') });
 
 const PORT = Number(process.env.PORT) || 8080;

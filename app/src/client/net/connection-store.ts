@@ -8,11 +8,11 @@ export const connectionStore = {
   setStatus(status: ConnectionStatus, error: string | null = null) {
     this.status = status;
     this.error = error;
-    this.listeners.forEach(l => l(status, error));
+    this.listeners.forEach((l) => l(status, error));
   },
 
   subscribe(l: (status: ConnectionStatus, error: string | null) => void) {
     this.listeners.add(l);
     return () => this.listeners.delete(l);
-  }
+  },
 };

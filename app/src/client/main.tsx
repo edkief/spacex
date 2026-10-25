@@ -90,7 +90,16 @@ const App = () => {
           fontFamily: 'sans-serif',
         }}
       >
-        <form onSubmit={handleClaim} style={{ textAlign: 'center', background: '#111', padding: '2rem', borderRadius: '8px', border: '1px solid #333' }}>
+        <form
+          onSubmit={handleClaim}
+          style={{
+            textAlign: 'center',
+            background: '#111',
+            padding: '2rem',
+            borderRadius: '8px',
+            border: '1px solid #333',
+          }}
+        >
           <h2 style={{ marginBottom: '1rem' }}>Claim Your Callsign</h2>
           <input
             value={callsign}
@@ -158,7 +167,11 @@ const App = () => {
       <ToastStack />
       <ConnectionOverlay />
 
-      <canvas ref={canvasRef} id="main-canvas" style={{ width: '100%', height: '100%', display: 'block' }} />
+      <canvas
+        ref={canvasRef}
+        id="main-canvas"
+        style={{ width: '100%', height: '100%', display: 'block' }}
+      />
     </div>
   );
 };

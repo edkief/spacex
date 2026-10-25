@@ -53,7 +53,7 @@ export class NetworkManager {
     if (this.isExplicitlyClosed) return;
 
     connectionStore.setStatus('reconnecting');
-    
+
     const delay = Math.min(1000 * Math.pow(2, this.retryCount), 5000);
     this.retryCount++;
 
@@ -68,8 +68,9 @@ export class NetworkManager {
     }, delay);
 
     // If we've been retrying for too long (e.g., 30s), move to disconnected
-    if (this.retryCount > 10) { // approx 30-50s depending on backoff
-       connectionStore.setStatus('disconnected', 'Connection lost. Please check your network.');
+    if (this.retryCount > 10) {
+      // approx 30-50s depending on backoff
+      connectionStore.setStatus('disconnected', 'Connection lost. Please check your network.');
     }
   }
 

@@ -115,7 +115,6 @@ export class ClientShipPredictor {
   }
 
   getState() {
-
     return this.predictedState;
   }
 

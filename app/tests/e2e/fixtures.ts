@@ -16,10 +16,10 @@ interface GameFixtures {
 }
 
 export const test = base.extend<GameFixtures>({
-  gameServer: async ({}, use) => {
+  gameServer: async (_, use) => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'game-e2e-'));
     const dbPath = path.join(tmpDir, 'test.sqlite');
-    
+
     // Find a free port
     const getFreePort = async (): Promise<number> => {
       const net = await import('net');
@@ -34,7 +34,7 @@ export const test = base.extend<GameFixtures>({
 
     const serverPort = await getFreePort();
     const vitePort = await getFreePort();
-    
+
     const baseUrl = `http://localhost:${vitePort}`;
     const wsUrl = `ws://localhost:${serverPort}/ws`;
 
@@ -42,11 +42,11 @@ export const test = base.extend<GameFixtures>({
     console.log(`Starting server on port ${serverPort}...`);
     const serverProcess = spawn('node', ['node_modules/.bin/tsx', 'src/server/index.ts'], {
       cwd: path.resolve(__dirname, '../../'),
-      env: { 
-        ...process.env, 
-        PORT: serverPort.toString(), 
+      env: {
+        ...process.env,
+        PORT: serverPort.toString(),
         DB_PATH: dbPath,
-        NODE_ENV: 'test'
+        NODE_ENV: 'test',
       },
       stdio: 'inherit',
     });
@@ -55,8 +55,8 @@ export const test = base.extend<GameFixtures>({
     console.log(`Starting Vite on port ${vitePort}...`);
     const viteProcess = spawn('node', ['node_modules/.bin/vite', `--port`, vitePort.toString()], {
       cwd: path.resolve(__dirname, '../../'),
-      env: { 
-        ...process.env, 
+      env: {
+        ...process.env,
         SERVER_PORT: serverPort.toString(),
       },
       stdio: 'inherit',
@@ -72,8 +72,10 @@ export const test = base.extend<GameFixtures>({
           healthy = true;
           break;
         }
-      } catch (e) {}
-      await new Promise(r => setTimeout(r, 1000));
+      } catch (e) {
+        // ignore
+      }
+      await new Promise((r) => setTimeout(r, 1000));
     }
 
     if (!healthy) {
@@ -92,8 +94,10 @@ export const test = base.extend<GameFixtures>({
           viteReady = true;
           break;
         }
-      } catch (e) {}
-      await new Promise(r => setTimeout(r, 1000));
+      } catch (e) {
+        // ignore
+      }
+      await new Promise((r) => setTimeout(r, 1000));
     }
 
     if (!viteReady) {

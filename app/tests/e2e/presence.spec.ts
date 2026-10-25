@@ -27,7 +27,7 @@ test('presence list should show other players', async ({ browser, gameServer }) 
   // Verify presence HUD is visible on both
   await expect(page1.getByText('SYSTEM PRESENCE')).toBeVisible();
   await expect(page2.getByText('SYSTEM PRESENCE')).toBeVisible();
-  
+
   // Verify they see each other
   await expect(page1.getByText(callsign2)).toBeVisible();
   await expect(page2.getByText(callsign1)).toBeVisible();

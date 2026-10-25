@@ -12,10 +12,7 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     headless: true,
     launchOptions: {
-      args: [
-        '--use-gl=angle',
-        '--use-angle=swiftshader',
-      ],
+      args: ['--use-gl=angle', '--use-angle=swiftshader'],
     },
   },
   projects: [

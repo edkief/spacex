@@ -13,10 +13,10 @@ function getFieldPath(obj1: any, obj2: any, path: string = ''): string | null {
   if (typeof obj1 !== 'object' || obj1 === null || typeof obj2 !== 'object' || obj2 === null) {
     return path || 'root';
   }
-  
+
   const keys1 = Object.keys(obj1);
   const keys2 = Object.keys(obj2);
-  
+
   if (keys1.length !== keys2.length) {
     return path || 'root';
   }
@@ -26,7 +26,7 @@ function getFieldPath(obj1: any, obj2: any, path: string = ''): string | null {
     const divergence = getFieldPath(obj1[key], obj2[key], currentPath);
     if (divergence) return divergence;
   }
-  
+
   return null;
 }
 
@@ -60,9 +60,12 @@ describe('Galaxy Determinism Properties', () => {
       for (const starId of starIds) {
         const system1 = generateSystem(seed, starId);
         const system2 = generateSystem(seed, starId);
-        
+
         const divergence = getFieldPath(system1, system2);
-        expect(divergence, `System diverged at ${divergence} for seed ${seed}, star ${starId}`).toBeNull();
+        expect(
+          divergence,
+          `System diverged at ${divergence} for seed ${seed}, star ${starId}`,
+        ).toBeNull();
       }
     }
   });
@@ -73,7 +76,7 @@ describe('Galaxy Determinism Properties', () => {
       seeds.push(randomString(metaRng, 16));
     }
 
-    const pairs: { seed: string, planet: any, cx: number, cz: number }[] = [];
+    const pairs: { seed: string; planet: any; cx: number; cz: number }[] = [];
     for (let i = 0; i < 200; i++) {
       const seed = seeds[metaRng.nextInt(seeds.length)];
       const stars = generateStars(seed);
@@ -90,7 +93,10 @@ describe('Galaxy Determinism Properties', () => {
       const chunk2 = generateSurfaceChunk(seed, planet, cx, cz);
 
       const divergence = getFieldPath(chunk1, chunk2);
-      expect(divergence, `Chunk diverged at ${divergence} for seed ${seed}, planet ${planet.id}, chunk ${cx},${cz}`).toBeNull();
+      expect(
+        divergence,
+        `Chunk diverged at ${divergence} for seed ${seed}, planet ${planet.id}, chunk ${cx},${cz}`,
+      ).toBeNull();
     }
   }, 30000);
 });

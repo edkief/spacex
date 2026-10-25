@@ -3,19 +3,19 @@ import { ClaimPage } from './pages/claim';
 
 test.describe('Core Game Flow', () => {
   test('claim callsign and render game', async ({ page, gameServer, claimPage }) => {
-    page.on('console', msg => console.log(`BROWSER CONSOLE: ${msg.text()}`));
-    page.on('pageerror', err => console.log(`BROWSER ERROR: ${err.message}`));
+    page.on('console', (msg) => console.log(`BROWSER CONSOLE: ${msg.text()}`));
+    page.on('pageerror', (err) => console.log(`BROWSER ERROR: ${err.message}`));
 
     await page.goto(gameServer.baseUrl);
     await page.screenshot({ path: '.ralph/screenshots/e2e-debug-1.png' });
-    
+
     const callsign = `PILOT-${Date.now().toString().slice(-6)}`;
     await claimPage.claimCallsign(callsign);
 
     // Wait for the game to load and the HUD to appear
     await expect(page.getByText('Drift Scaffold')).toBeVisible();
     await page.screenshot({ path: '.ralph/screenshots/e2e-debug-2.png' });
-    
+
     // Check if the player list shows the callsign
     await expect(page.getByText(callsign, { exact: true })).toBeVisible();
 
@@ -28,7 +28,7 @@ test.describe('Core Game Flow', () => {
       if (!canvas) return null;
       const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
       if (!gl) return null;
-      
+
       const width = 32;
       const height = 32;
       const pixels = new Uint8Array(width * height * 4);
@@ -37,10 +37,10 @@ test.describe('Core Game Flow', () => {
     });
 
     expect(pixels).not.toBeNull();
-    
+
     // Verify variance: not all pixels are the same (not a black or single-color screen)
     const firstPixel = pixels![0];
-    const hasVariance = pixels!.some(p => p !== firstPixel);
+    const hasVariance = pixels!.some((p) => p !== firstPixel);
     expect(hasVariance).toBe(true);
   });
 });
@@ -72,10 +72,10 @@ test.describe('Multiplayer Interaction', () => {
 
     // Chat test
     const message = `Hello from ${callsign1}! ${Date.now()}`;
-    
+
     // Press Enter to show the chat input
     await page1.keyboard.press('Enter');
-    
+
     // The input has no placeholder, but it's the only input that appears
     await page1.locator('input').fill(message);
     await page1.keyboard.press('Enter');
