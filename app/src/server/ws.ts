@@ -223,7 +223,7 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
           const { systemId } = joinData;
           ctx.systemId = systemId;
 
-          const shard = shardManager.getShard(systemId);
+          const shard = await shardManager.getShard(systemId);
           ctx.shard = shard;
 
           // Add player to shard

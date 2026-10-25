@@ -7,6 +7,7 @@ import { ShipClass, SHIP_CLASSES, shipStats, ShipClassId } from '../../shared/sh
 import { performance } from 'perf_hooks';
 import { cleanupExpiredWrecks } from './combat';
 import { gameEvents, GameEventType } from '../events';
+import { persistService } from '../persist';
 
 export class Shard extends EventEmitter {
   public entities = new Map<string, ServerShipState>();
@@ -86,6 +87,13 @@ export class Shard extends EventEmitter {
     // 0. Cleanup
     if (this.tickCount % 100 === 0) {
       cleanupExpiredWrecks(this);
+    }
+
+    // Periodic flush every 30s (20Hz * 30)
+    if (this.tickCount % 600 === 0) {
+      persistService.flushShips(this.systemId, this.entities).catch(err => 
+        console.error(`Flush error in shard ${this.systemId}:`, err)
+      );
     }
 
     // 1. Drain inputs and integrate ships

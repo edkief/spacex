@@ -1,0 +1,2 @@
+ALTER TABLE ships ADD COLUMN quat TEXT NOT NULL DEFAULT '{"x":0,"y":0,"z":0,"w":1}';
+ALTER TABLE ships ADD COLUMN regime TEXT NOT NULL DEFAULT 'space';

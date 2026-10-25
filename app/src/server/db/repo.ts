@@ -9,7 +9,7 @@ import {
   InsufficientCreditsError,
   NotFoundError,
 } from './types';
-import { eq, sql, and, gte } from 'drizzle-orm';
+import { eq, sql, and, gte, lt } from 'drizzle-orm';
 import crypto from 'crypto';
 
 export class Repository {
@@ -77,6 +77,8 @@ export class Repository {
       shields: 100,
       position: JSON.stringify({ x: 0, y: 0, z: 0 }),
       velocity: JSON.stringify({ x: 0, y: 0, z: 0 }),
+      quat: JSON.stringify({ x: 0, y: 0, z: 0, w: 1 }),
+      regime: 'space',
       system_id: systemId,
       state: 'docked',
       updated_at: now,
@@ -219,6 +221,8 @@ export class Repository {
       livery: typeof ship.livery === 'object' ? JSON.stringify(ship.livery) : ship.livery,
       position: typeof ship.position === 'object' ? JSON.stringify(ship.position) : ship.position,
       velocity: typeof ship.velocity === 'object' ? JSON.stringify(ship.velocity) : ship.velocity,
+      quat: typeof ship.quat === 'object' ? JSON.stringify(ship.quat) : ship.quat || JSON.stringify({ x: 0, y: 0, z: 0, w: 1 }),
+      regime: ship.regime || 'space',
     };
 
     if (tx) {
@@ -247,6 +251,8 @@ export class Repository {
       livery: typeof ship.livery === 'object' ? JSON.stringify(ship.livery) : ship.livery,
       position: typeof ship.position === 'object' ? JSON.stringify(ship.position) : ship.position,
       velocity: typeof ship.velocity === 'object' ? JSON.stringify(ship.velocity) : ship.velocity,
+      quat: typeof ship.quat === 'object' ? JSON.stringify(ship.quat) : ship.quat || JSON.stringify({ x: 0, y: 0, z: 0, w: 1 }),
+      regime: ship.regime || 'space',
     };
 
     this.getDb(tx).insert(schema.ships).values(shipValues).run();
@@ -350,10 +356,34 @@ export class Repository {
       .where(eq(schema.resource_node_state.system_id, systemId));
   }
 
+  listNodeStatesSync(systemId: string, tx: any): ResourceNodeState[] {
+    return this.getDb(tx)
+      .select()
+      .from(schema.resource_node_state)
+      .where(eq(schema.resource_node_state.system_id, systemId))
+      .all();
+  }
+
   async loadSystemState(systemId: string): Promise<{ ships: Ship[]; nodes: ResourceNodeState[] }> {
-    const ships = await db.select().from(schema.ships).where(eq(schema.ships.system_id, systemId));
-    const nodes = await this.listNodeStates(systemId);
-    return { ships, nodes };
+    return await db.transaction((tx: any) => {
+      const now = new Date();
+      
+      // 1. Cleanup expired wrecks
+      tx.delete(schema.ships)
+        .where(
+          and(
+            eq(schema.ships.system_id, systemId),
+            eq(schema.ships.state, 'destroyed'),
+            lt(schema.ships.wreck_expires_at, now)
+          )
+        )
+        .run();
+      
+      // 2. Load ships
+      const ships = tx.select().from(schema.ships).where(eq(schema.ships.system_id, systemId)).all();
+      const nodes = this.listNodeStatesSync(systemId, tx);
+      return { ships, nodes };
+    });
   }
 
   async createSession(

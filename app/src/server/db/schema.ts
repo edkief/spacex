@@ -51,8 +51,11 @@ export function createSchema(driver: Driver): TableDefinitions {
       shields: sqliteReal('shields').notNull(),
       position: sqliteText('position').notNull(),
       velocity: sqliteText('velocity').notNull(),
+      quat: sqliteText('quat').notNull(),
+      regime: sqliteText('regime').notNull(),
       system_id: sqliteText('system_id').notNull(),
       state: sqliteText('state').notNull(),
+      wreck_expires_at: sqliteInteger('wreck_expires_at', { mode: 'timestamp' }),
       updated_at: sqliteInteger('updated_at', { mode: 'timestamp' }).notNull(),
     });
     const cargo_items = sqliteTable(
@@ -104,8 +107,11 @@ export function createSchema(driver: Driver): TableDefinitions {
       shields: pgReal('shields').notNull(),
       position: pgJsonb('position').notNull(),
       velocity: pgJsonb('velocity').notNull(),
+      quat: pgJsonb('quat').notNull(),
+      regime: pgText('regime').notNull(),
       system_id: pgUuid('system_id').notNull(),
       state: shipStateEnum('state').notNull(),
+      wreck_expires_at: pgTimestamp('wreck_expires_at'),
       updated_at: pgTimestamp('updated_at').notNull(),
     });
     const cargo_items = pgTable(

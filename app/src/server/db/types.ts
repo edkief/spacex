@@ -17,6 +17,7 @@ export interface Ship {
   velocity: any;
   system_id: string;
   state: 'docked' | 'flying' | 'onfoot' | 'destroyed';
+  wreck_expires_at?: Date;
   updated_at: Date;
 }
 

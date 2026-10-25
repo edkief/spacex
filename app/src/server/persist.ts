@@ -21,7 +21,7 @@ export class PersistService {
   }
 
   private startInterval() {
-    this.intervalId = setInterval(() => this.saveDirtyShips(), 5000);
+    this.intervalId = setInterval(() => this.saveDirtyShips(), 30000);
   }
 
   public stop() {
@@ -75,6 +75,28 @@ export class PersistService {
     }
   }
 
+  public async flushShips(systemId: string, ships: Map<string, any>): Promise<void> {
+    await db.transaction(async (tx: any) => {
+      for (const [shipId, entity] of ships) {
+        // Map sim entity state to DB ship state
+        const shipState: any = {
+          id: shipId,
+          position: entity.pos,
+          velocity: entity.vel,
+          quat: entity.quat,
+          regime: entity.regime,
+          hull: entity.hull,
+          shields: entity.shields,
+          state: entity.destroyed ? 'destroyed' : (entity.onPad ? 'docked' : 'flying'),
+          wreck_expires_at: entity.wreckExpiresAt ? new Date(entity.wreckExpiresAt) : null,
+          updated_at: new Date(),
+        };
+
+        await repo.saveShipState(shipId, shipState, tx);
+      }
+    });
+  }
+
   // Hooks
   public async onDock(ship: Ship, cargo: CargoItem[]): Promise<void> {
     await db.transaction(async (tx: any) => {
@@ -96,24 +118,10 @@ export class PersistService {
 
   public async onShardShutdown(
     systemId: string,
-    ships: Map<string, { ship: Ship; cargo: CargoItem[] }>,
-    nodes: ResourceNodeState[],
+    shard: any,
   ): Promise<void> {
-    await db.transaction(async (tx: any) => {
-      for (const { ship, cargo } of ships.values()) {
-        await repo.saveShipState(ship.id, ship, tx);
-        await repo.saveCargo(ship.id, cargo, tx);
-      }
-      for (const state of nodes) {
-        await repo.upsertNodeState(
-          state.node_id,
-          systemId,
-          state.quantity_remaining,
-          state.respawn_at,
-          tx,
-        );
-      }
-    });
+    await this.flushShips(systemId, shard.entities);
+    // Note: nodes state should be handled here if shard has them.
   }
 }
 
