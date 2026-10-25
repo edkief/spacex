@@ -12,10 +12,7 @@ export class Renderer {
     0.1,
     1000,
   );
-  private renderer = new THREE.WebGLRenderer({
-    canvas: document.getElementById('main-canvas') as HTMLCanvasElement,
-    antialias: true,
-  });
+  private renderer: THREE.WebGLRenderer;
   private shipBuilder = new ShipMeshBuilder();
   private ships = new Map<string, THREE.Group>();
   private network = networkManager;
@@ -27,7 +24,11 @@ export class Renderer {
     roll: 0,
   };
 
-  constructor() {
+  constructor(canvas: HTMLCanvasElement) {
+    this.renderer = new THREE.WebGLRenderer({
+      canvas: canvas,
+      antialias: true,
+    });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(window.devicePixelRatio);
 

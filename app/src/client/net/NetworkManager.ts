@@ -172,4 +172,9 @@ export class NetworkManager {
   }
 }
 
-export const networkManager = new NetworkManager('ws://localhost:8080/ws');
+const getWsUrl = () => {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.host}/ws`;
+};
+
+export const networkManager = new NetworkManager(getWsUrl());

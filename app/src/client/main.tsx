@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import ReactDOM from 'react-dom/client';
 import { Renderer } from './Renderer';
 import { OverviewTab } from './OverviewTab';
@@ -14,6 +14,7 @@ const App = () => {
   const [token, setToken] = useState<string | null>(null);
   const [callsign, setCallsign] = useState('');
   const [claimError, setClaimError] = useState<string | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [livery, setLivery] = useState<Livery>({
     hull: '#cccccc',
     accent: '#ff0000',
@@ -21,9 +22,6 @@ const App = () => {
   });
 
   useEffect(() => {
-    const r = new Renderer();
-    setRenderer(r);
-
     fetch('/api/ships')
       .then((res) => {
         if (!res.ok) throw new Error('Not authenticated');
@@ -31,15 +29,21 @@ const App = () => {
       })
       .then((data) => {
         if (data.livery) {
-          const currentLivery = data.livery;
-          setLivery(currentLivery);
-          r.updateLivery(currentLivery);
+          setLivery(data.livery);
         }
       })
       .catch((err) => {
         console.log('No existing session found, waiting for claim.');
       });
   }, []);
+
+  useEffect(() => {
+    if (!token || !canvasRef.current) return;
+
+    const r = new Renderer(canvasRef.current);
+    setRenderer(r);
+    r.updateLivery(livery);
+  }, [token]);
 
   const handleClaim = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -146,11 +150,11 @@ const App = () => {
       </div>
 
       <ChatLog />
-      <PlayerList />
+      <PlayerList localCallsign={callsign} />
       <ToastStack />
       <ConnectionOverlay />
 
-      <canvas id="main-canvas" style={{ width: '100%', height: '100%', display: 'block' }} />
+      <canvas ref={canvasRef} id="main-canvas" style={{ width: '100%', height: '100%', display: 'block' }} />
     </div>
   );
 };

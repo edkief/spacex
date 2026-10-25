@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { presenceStore, PresencePlayer } from '../net/presence';
 
-export const PlayerList: React.FC = () => {
+export const PlayerList: React.FC<{ localCallsign: string }> = ({ localCallsign }) => {
   const [players, setPlayers] = useState<Map<string, PresencePlayer>>(new Map());
 
   useEffect(() => {
@@ -44,7 +44,7 @@ export const PlayerList: React.FC = () => {
       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
         <div style={{ color: '#fff' }}>
           <span style={{ marginRight: '8px' }}>●</span>
-          (you)
+          <span>{localCallsign || '(you)'}</span>
         </div>
         {Array.from(players.values()).map((player, i) => (
           <div key={i} style={{ display: 'flex', alignItems: 'center' }}>
@@ -57,7 +57,7 @@ export const PlayerList: React.FC = () => {
                 backgroundColor: player.onFoot ? '#ffeb3b' : '#4caf50',
               }}
             />
-            {player.callsign}
+            <span>{player.callsign}</span>
           </div>
         ))}
         {players.size === 0 && <div style={{ opacity: 0.5 }}>No other players</div>}

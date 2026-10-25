@@ -48,6 +48,7 @@ export const test = base.extend<GameFixtures>({
         DB_PATH: dbPath,
         NODE_ENV: 'test'
       },
+      stdio: 'inherit',
     });
 
     // Start Vite
@@ -58,6 +59,7 @@ export const test = base.extend<GameFixtures>({
         ...process.env, 
         SERVER_PORT: serverPort.toString(),
       },
+      stdio: 'inherit',
     });
 
     // Wait for server health check

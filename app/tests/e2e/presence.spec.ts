@@ -2,8 +2,8 @@ import { test, expect } from './fixtures';
 import { ClaimPage } from './pages/claim';
 
 test('presence list should show other players', async ({ browser, gameServer }) => {
-  const callsign1 = `PRES1-${Date.now()}`;
-  const callsign2 = `PRES2-${Date.now()}`;
+  const callsign1 = `PRES1-${Date.now().toString().slice(-6)}`;
+  const callsign2 = `PRES2-${Date.now().toString().slice(-6)}`;
 
   const context1 = await browser.newContext();
   const page1 = await context1.newPage();

@@ -9,7 +9,7 @@ test.describe('Core Game Flow', () => {
     await page.goto(gameServer.baseUrl);
     await page.screenshot({ path: '.ralph/screenshots/e2e-debug-1.png' });
     
-    const callsign = `PILOT-${Date.now()}`;
+    const callsign = `PILOT-${Date.now().toString().slice(-6)}`;
     await claimPage.claimCallsign(callsign);
 
     // Wait for the game to load and the HUD to appear
@@ -17,7 +17,7 @@ test.describe('Core Game Flow', () => {
     await page.screenshot({ path: '.ralph/screenshots/e2e-debug-2.png' });
     
     // Check if the player list shows the callsign
-    await expect(page.locator('div').filter({ hasText: callsign })).toBeVisible();
+    await expect(page.getByText(callsign, { exact: true })).toBeVisible();
 
     // Headless WebGL check: read pixels from the canvas
     const canvas = page.locator('#main-canvas');
@@ -47,8 +47,8 @@ test.describe('Core Game Flow', () => {
 
 test.describe('Multiplayer Interaction', () => {
   test('two players see each other and chat', async ({ browser, gameServer }) => {
-    const callsign1 = `PLAYER1-${Date.now()}`;
-    const callsign2 = `PLAYER2-${Date.now()}`;
+    const callsign1 = `PLAYER1-${Date.now().toString().slice(-6)}`;
+    const callsign2 = `PLAYER2-${Date.now().toString().slice(-6)}`;
 
     const context1 = await browser.newContext();
     const page1 = await context1.newPage();
@@ -60,15 +60,15 @@ test.describe('Multiplayer Interaction', () => {
 
     await page1.goto(gameServer.baseUrl);
     await claimPage1.claimCallsign(callsign1);
-    await expect(page1.getByText(callsign1)).toBeVisible();
+    await expect(page1.getByText(callsign1, { exact: true })).toBeVisible();
 
     await page2.goto(gameServer.baseUrl);
     await claimPage2.claimCallsign(callsign2);
-    await expect(page2.getByText(callsign2)).toBeVisible();
+    await expect(page2.getByText(callsign2, { exact: true })).toBeVisible();
 
     // Verify presence
-    await expect(page1.getByText(callsign2)).toBeVisible({ timeout: 5000 });
-    await expect(page2.getByText(callsign1)).toBeVisible({ timeout: 5000 });
+    await expect(page1.getByText(callsign2, { exact: true })).toBeVisible({ timeout: 5000 });
+    await expect(page2.getByText(callsign1, { exact: true })).toBeVisible({ timeout: 5000 });
 
     // Chat test
     const message = `Hello from ${callsign1}! ${Date.now()}`;

@@ -5,7 +5,8 @@ import { WebSocketServer } from 'ws';
 import { setupWebSocketHandler } from './ws';
 import { router } from './galaxy';
 import { persistService } from './persist';
-import { closeDb } from './db/client';
+import { closeDb, migrate } from './db/client';
+
 
 dotenv.config({ path: path.resolve(__dirname, '../../../.env.local') });
 
@@ -14,7 +15,8 @@ const WS_PATH = process.env.WS_PATH || '/ws';
 
 const start = async () => {
   try {
-    const fastify = createApp();
+    await migrate();
+    const fastify = createApp({ logger: true });
     await fastify.listen({ port: PORT, host: '0.0.0.0' });
     console.log(`Server listening on port ${PORT}`);
 
