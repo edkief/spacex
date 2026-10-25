@@ -14,6 +14,7 @@ export interface ServerShipState extends BaseShipState {
   targetId: string | null;
   lastAppliedSeq?: number;
   wreckExpiresAt?: number;
+  dockedPadId?: string;
 }
 
 export interface ConnState {

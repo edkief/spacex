@@ -18,11 +18,32 @@ import { initDriftDebug } from './driftDebug';
 import { DEFAULT_GALAXY_SEED } from '../shared/galaxy/config';
 initDriftDebug();
 
+const DockedIndicator = ({ docked }: { docked: boolean }) => {
+  if (!docked) return null;
+  return (
+    <div style={{
+      position: 'absolute',
+      bottom: 100,
+      left: '50%',
+      transform: 'translateX(-50%)',
+      color: '#00ff00',
+      fontSize: '2rem',
+      fontWeight: 'bold',
+      textShadow: '0 0 10px #00ff00',
+      zIndex: 10,
+      pointerEvents: 'none',
+    }}>
+      DOCKED
+    </div>
+  );
+};
+
 const App = () => {
   const [renderer, setRenderer] = useState<Renderer | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [callsign, setCallsign] = useState('');
   const [claimError, setClaimError] = useState<string | null>(null);
+  const [isDocked, setIsDocked] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const galaxySeedRef = useRef(DEFAULT_GALAXY_SEED);
   const [livery, setLivery] = useState<Livery>({
@@ -113,6 +134,14 @@ const App = () => {
       if (code === 'system-full') {
         warpStore.setState('idle');
         toastStore.addToast(message || 'Target system is full', 'error');
+      }
+    };
+
+    networkManager.onStateUpdate = (data: any) => {
+      if (data.state === 'docked') {
+        setIsDocked(true);
+      } else if (data.state === 'undocked') {
+        setIsDocked(false);
       }
     };
   }, [token]);
@@ -253,6 +282,7 @@ const App = () => {
       <StarChart isOpen={isChartOpen} onClose={() => setIsChartOpen(false)} />
       <WarpOverlay />
       <DebugOverlay renderer={renderer} />
+       <DockedIndicator docked={isDocked} />
       
       <canvas
         ref={canvasRef}

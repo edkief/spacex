@@ -3,6 +3,7 @@ import { generateSystem } from '../../shared/galaxy/system';
 import { ChunkManager } from './chunks';
 import { ChunkScene } from './ChunkScene';
 import { planetWorldPosition } from '../../shared/galaxy/regime-planets';
+import { padsFor } from '../../shared/world/pads';
 
 export class WorldManager {
   private scene: THREE.Scene;
@@ -57,6 +58,22 @@ export class WorldManager {
         const pos = planetWorldPosition(seed, systemId, index);
         planetMesh.position.set(pos.x, pos.y, pos.z);
         newWorldObjects.add(planetMesh);
+      });
+
+      // 3. Landing Pads
+      const pads = padsFor(seed, systemId);
+      const ringGeo = new THREE.RingGeometry(19, 20, 32);
+      const ringMat = new THREE.MeshBasicMaterial({ 
+        color: 0x00ff00, 
+        side: THREE.DoubleSide, 
+        transparent: true, 
+        opacity: 0.5 
+      });
+      pads.forEach(pad => {
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.position.set(pad.pos.x, pad.pos.y, pad.pos.z);
+        ring.rotation.set(-Math.PI / 2, 0, 0); // Lay flat
+        newWorldObjects.add(ring);
       });
 
       // Atomic swap: remove old, add new

@@ -85,6 +85,18 @@ export function integrateShip(
   // 3. Integration
   currentVel = vec3.add(currentVel, vec3.scale(accel, dt));
 
+  // VTOL Drift Damping
+  if (input.up && options.nearestPad && options.nearestPad.dist < 100) {
+    const speed = vec3.len(currentVel);
+    if (speed < 50) {
+      // Damp horizontal velocity (approx 0.5x per second at 20Hz)
+      const horizontalVel = { x: currentVel.x, y: 0, z: currentVel.z };
+      const dampedHorizontal = vec3.scale(horizontalVel, 0.965);
+      currentVel.x = dampedHorizontal.x;
+      currentVel.z = dampedHorizontal.z;
+    }
+  }
+
   // Soft speed cap
   const currentSpeed = vec3.len(currentVel);
   if (currentSpeed > shipClass.maxVelocity) {

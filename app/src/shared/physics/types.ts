@@ -29,4 +29,6 @@ export interface Planet {
 export interface FlightOptions {
   /** Callback to get terrain height at (x, z) */
   heightAt?: (x: number, z: number) => number;
+  /** Nearest pad for VTOL assist */
+  nearestPad?: { pos: Vec3; dist: number };
 }

@@ -16,6 +16,7 @@ export class NetworkManager {
 
   public onWarpArrived: ((data: any) => void) | null = null;
   public onError: ((code: string, message: string) => void) | null = null;
+  public onStateUpdate: ((data: any) => void) | null = null;
 
   private retryCount = 0;
   private retryTimer: any = null;
@@ -122,6 +123,10 @@ export class NetworkManager {
     } else if (type === 'entity_update') {
       const update = payload as { entities: EntityState[] };
       this.handleSnapshot({ entities: update.entities } as any);
+    } else if (type === 'entity_update.state') {
+      if (this.onStateUpdate) {
+        this.onStateUpdate(payload);
+      }
     } else if (type === 'presence_join') {
       const p = payload as any;
       presenceStore.join(p.playerId, { callsign: p.callsign });

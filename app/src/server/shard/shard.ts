@@ -11,6 +11,8 @@ import { persistService } from '../persist';
 import { generateSystem } from '../../shared/galaxy/system';
 import { getRegimePlanetContexts } from '../../shared/galaxy/regime-planets';
 import { regimeFor } from '../../shared/regime';
+import { padsFor, Pad } from '../../shared/world/pads';
+import { vec3 } from '../../shared/physics/vec';
 
 export class Shard extends EventEmitter {
   public entities = new Map<string, ServerShipState>();
@@ -22,6 +24,7 @@ export class Shard extends EventEmitter {
   private tickDurations: number[] = [];
   private maxHistogramSize = 1000;
   private planetContexts: any[] = [];
+  public pads: Pad[] = [];
 
   constructor(public readonly systemId: string, private readonly seed: string) {
     super();
@@ -30,6 +33,7 @@ export class Shard extends EventEmitter {
     // Pre-generate planet contexts for regime resolution
     const system = generateSystem(this.seed, this.systemId);
     this.planetContexts = getRegimePlanetContexts(this.seed, this.systemId, system.planets);
+    this.pads = padsFor(this.seed, this.systemId);
 
     gameEvents.on(GameEventType.REPAIR_COMPLETED, ({ playerId, shipId }) => {
       const entity = this.entities.get(shipId);
@@ -181,33 +185,38 @@ export class Shard extends EventEmitter {
     }
 
     // 1. Drain inputs and integrate ships
+    const latestInputs = new Map<string, any>();
     for (const [connId, conn] of this.connections) {
       if (conn.inputQueue.length === 0) continue;
-
-      // Latest input per player wins
       const input = conn.inputQueue.pop()!;
-      conn.inputQueue = []; // Clear the rest
-
+      conn.inputQueue = [];
       const shipId = this.playerShips.get(conn.playerId);
-      if (!shipId) continue;
+      if (shipId) {
+        latestInputs.set(shipId, input);
+      }
+    }
 
-      const entity = this.entities.get(shipId);
-      if (!entity || entity.destroyed || entity.kind === 'wreck') continue;
+    for (const [shipId, entity] of this.entities) {
+      if (entity.destroyed || entity.kind === 'wreck') continue;
+
+      const input = latestInputs.get(shipId) || {
+        thrust: 0, pitch: 0, yaw: 0, turn: 0, up: false, seq: 0
+      };
 
       const { regime, planet } = this.resolveRegime(entity);
       const shipClass = this.getShipClass(entity);
 
-      // Map InputMsg to FlightInput
       const flightInput = {
-        thrust: input.thrust,
-        pitch: input.pitch,
-        yaw: input.yaw,
-        roll: input.turn, // mapping 'turn' to 'roll'
-        up: false, // missing in InputSchema, stubbed
+        thrust: input.thrust || 0,
+        pitch: input.pitch || 0,
+        yaw: input.yaw || 0,
+        roll: input.turn || 0,
+        up: input.up || false,
       };
 
       const newState = integrateShip(entity, flightInput, dt, regime, shipClass, planet, {
         heightAt: (x: number, z: number) => 0, // stubbed heightAt
+        nearestPad: this.getNearestPad(entity.pos),
       });
 
       // Update entity state (keeping combat-ready fields)
@@ -218,8 +227,10 @@ export class Shard extends EventEmitter {
         hull: entity.hull,
         shields: entity.shields,
         targetId: entity.targetId,
-        lastAppliedSeq: input.seq,
+        lastAppliedSeq: input.seq || entity.lastAppliedSeq,
       });
+
+      this.updateDockingState(this.entities.get(shipId)!);
     }
 
     // 2. Handle AI ships (stub until TASK-46)
@@ -289,5 +300,68 @@ export class Shard extends EventEmitter {
 
   private getShipClass(entity: ServerShipState): ShipClass {
     return shipStats(entity.classId as ShipClassId);
+  }
+
+  private getNearestPad(pos: { x: number, y: number, z: number }) {
+    let nearest: any = null;
+    let minDist = Infinity;
+    for (const pad of this.pads) {
+      const d = vec3.len(vec3.sub(pos, pad.pos));
+      if (d < minDist) {
+        minDist = d;
+        nearest = pad;
+      }
+    }
+    return nearest ? { pos: nearest.pos, dist: minDist } : null;
+  }
+
+  private updateDockingState(entity: ServerShipState) {
+    const currentPadId = entity.dockedPadId;
+    let nearestPad: Pad | null = null;
+    let minDist = Infinity;
+
+    for (const pad of this.pads) {
+      const d = vec3.len(vec3.sub(entity.pos, pad.pos));
+      if (d < minDist) {
+        minDist = d;
+        nearestPad = pad;
+      }
+    }
+
+    if (!nearestPad) return;
+
+    const isWithinDockingRange = minDist < 20;
+    const isSlowEnough = Math.abs(entity.vel.y) < 2;
+    const isLowEnough = Math.abs(entity.pos.y - nearestPad.pos.y) < 1;
+
+    let nextPadId: string | undefined = undefined;
+
+    if (currentPadId) {
+      // Currently docked. Check if we should stay docked.
+      const pad = this.pads.find(p => p.id === currentPadId);
+      if (pad) {
+        const d = vec3.len(vec3.sub(entity.pos, pad.pos));
+        const verticalSpeed = entity.vel.y;
+        
+        // Stay docked unless distance > 25m or vertical speed > 2 u/s (takeoff)
+        if (d <= 25 && verticalSpeed <= 2) {
+          nextPadId = currentPadId;
+        }
+      }
+    } else {
+      // Not docked. Check if we should dock.
+      if (isWithinDockingRange && isSlowEnough && isLowEnough) {
+        nextPadId = nearestPad.id;
+      }
+    }
+
+    if (nextPadId !== currentPadId) {
+      entity.dockedPadId = nextPadId;
+      this.broadcast('entity_update.state', { 
+        id: entity.id, 
+        state: nextPadId ? 'docked' : 'undocked', 
+        padId: nextPadId 
+      });
+    }
   }
 }
