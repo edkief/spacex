@@ -1,0 +1,32 @@
+{
+  "id": "TASK-29.1",
+  "title": "Landing pads: Fix Authentication and Debug Teleportation",
+  "category": "functional",
+  "description": "Fix the session token storage in the client and verify the authentication middleware for debug teleportation endpoints to enable E2E testing of the docking state.",
+  "acceptanceCriteria": [
+    "The client application (main.tsx) saves the session token to localStorage as 'drift_token' upon login/callsign claim.",
+    "The debug endpoints '/api/debug/teleport' and '/api/debug/teleport-to-pad' correctly authenticate requests using the 'Authorization: Bearer <token>' header via authMiddleware.",
+    "Calling the 'teleportToPad' debug function from the client successfully moves the ship to the landing pad (verified via network response or manual check).",
+    "No regression in existing authentication flows."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Fix token storage",
+      "details": "In app/src/client/main.tsx, ensure that the token received during authentication is saved to localStorage.getItem('drift_token')."
+    },
+    {
+      "step": 2,
+      "description": "Verify authMiddleware",
+      "details": "Check app/src/server/routes/ships.ts to ensure authMiddleware is correctly applied to debug routes and that it handles the bearer token from the request headers."
+    },
+    {
+      "step": 3,
+      "description": "Verify teleportation",
+      "details": "Use the browser console or a simple test script to call __DRIFT__.teleportToPad() and verify a 200 OK response."
+    }
+  ],
+  "notes": "This task picks up from the crash in the previous attempt at TASK-29. Most functional work (pad derivation, docking logic, VTOL assist, and UI indicators) is already committed in 41e88e2. The primary blocker is that the E2E tests cannot authenticate with the debug teleport endpoints because the token is not persisted in localStorage. Avoid reading entire files if they are large; use read ranges or grep.",
+  "splitFrom": "TASK-29",
+  "splitDepth": 1
+}

@@ -1,0 +1,32 @@
+{
+  "id": "TASK-29.2",
+  "title": "Landing pads: Finalize E2E Tests and Verification",
+  "category": "functional",
+  "description": "Complete the verification of the landing pad system by fixing and running E2E tests and ensuring all unit tests pass.",
+  "acceptanceCriteria": [
+    "The E2E test 'app/tests/e2e/docking.spec.ts' passes successfully.",
+    "A screenshot is captured of the 'DOCKED' indicator in the HUD at '.ralph/screenshots/TASK-29-docked.png'.",
+    "All unit tests in the app directory pass ('npm run test').",
+    "The 'DOCKED' indicator appears and disappears correctly according to the docking state machine (verified by the E2E test)."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Run E2E tests",
+      "details": "Execute 'npx playwright test app/tests/e2e/docking.spec.ts' and fix any remaining issues in the test script or the UI indicator implementation."
+    },
+    {
+      "step": 2,
+      "description": "Verify screenshot",
+      "details": "Ensure that the 'DOCKED' indicator is clearly visible in the captured screenshot."
+    },
+    {
+      "step": 3,
+      "description": "Final test suite run",
+      "details": "Run the full test suite ('npm run test') to ensure no regressions in physics or server logic."
+    }
+  ],
+  "notes": "This task depends on TASK-29.1. Once authentication is fixed, the E2E tests should be able to use the teleport debug hook to reach the landing pad and verify the 'DOCKED' state. Use quiet test reporters if output is too large to avoid context overflow.",
+  "splitFrom": "TASK-29",
+  "splitDepth": 1
+}

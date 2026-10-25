@@ -1,0 +1,21 @@
+{
+  "task": "TASK-29",
+  "splittable": true,
+  "reason": "The previous attempts failed due to context limits, likely caused by large E2E test logs. Splitting the task separates the authentication/debug infrastructure fix from the final verification and E2E testing, allowing each to be completed in a fresh session with less context load.",
+  "tasks": [
+    {
+      "id": "TASK-29.1",
+      "title": "Landing pads: Fix Authentication and Debug Teleportation"
+    },
+    {
+      "id": "TASK-29.2",
+      "title": "Landing pads: Finalize E2E Tests and Verification"
+    }
+  ],
+  "parent": {
+    "title": "Landing pads: detection, VTOL assist, docking state",
+    "specFilePath": ".ralph/split/TASK-29/TASK-29.json",
+    "handoffPath": ".ralph/split/TASK-29/handoff.md"
+  },
+  "appliedAt": "2026-10-25T19:01:59.988Z"
+}

@@ -260,10 +260,11 @@
     "passes": true
   },
   {
-    "id": "TASK-29",
-    "title": "Landing pads: detection, VTOL assist, landed state",
-    "category": "functional",
-    "specFilePath": ".ralph/tasks/TASK-29.json",
+    "id": "TASK-29.1",
+    "passes": false
+  },
+  {
+    "id": "TASK-29.2",
     "passes": false
   },
   {
