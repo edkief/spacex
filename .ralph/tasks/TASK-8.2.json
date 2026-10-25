@@ -1,0 +1,49 @@
+{
+  "id": "TASK-8.2",
+  "title": "Warp Edge Cases and Robustness",
+  "category": "functional",
+  "description": "Implement and verify the edge cases and robustness requirements for the inter-system warp flow, ensuring stability under error conditions and full occupancy.",
+  "acceptanceCriteria": [
+    "Cancel/edge: Warp cannot be started twice; the warp button is disabled during the transition period",
+    "Occupancy: Warping into a full system (16 players) is aborted; server rejects the warp, and the client rolls back the warp overlay and shows a 'System full' toast",
+    "Robustness: Disconnecting mid-warp leaves no ghost entities in either the source or target shards (verified via WS integration tests of shard entity counts)",
+    "e2e (TASK-70): All warp flow tests, including rejection and edge cases, pass in the e2e suite (npm run test:e2e)"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Implement Warp Button Lock",
+      "details": "Ensure the warp button in the star chart is disabled while the warp state machine is in 'warping-in', 'awaiting', or 'warping-out' states.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Implement System Full Rejection",
+      "details": "Update server warp handler to reject warp if target shard is full (16 players), sending {code: 'system-full'}. Update client to handle this response by rolling back the warp overlay and triggering a toast notification.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Implement Mid-Warp Disconnect Safety",
+      "details": "Ensure that if a connection is lost during the warp transition, the entity is correctly removed from the source shard and not left as a 'ghost' in the target shard.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Full E2E and Integration Validation",
+      "details": "Run WS integration tests for shard occupancy and disconnects, and run the full e2e suite (npm run test:e2e) to verify all warp-related criteria are met.",
+      "pass": false
+    }
+  ],
+  "dependencies": [
+    "TASK-8.1"
+  ],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "Builds upon the fixed happy path from TASK-8.1.",
+    "System full limit is 16 players.",
+    "Verification of ghost entities requires checking shard entity lists on the server side during integration tests."
+  ],
+  "splitFrom": "TASK-8",
+  "splitDepth": 1
+}

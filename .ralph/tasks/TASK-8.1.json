@@ -1,0 +1,46 @@
+{
+  "id": "TASK-8.1",
+  "title": "Fix Warp Happy Path and Visuals",
+  "category": "functional",
+  "description": "Fix the critical bugs in the inter-system warp flow to enable a successful transition between systems without errors or rendering issues.",
+  "acceptanceCriteria": [
+    "Warp flow A\\u2192B: client plays warp-in, sends 'warp', server moves ship, client swaps world and plays warp-out, ending in the target system",
+    "No loading screen: the 'black screen' failure in e2e (pixel-variance check) is fixed; WarpOverlay.tsx is correctly rendered and visible during transition",
+    "World swap: 'Star not found' error in WorldManager.loadWorld is resolved; the target system's star and planet are rendered correctly (verified by e2e screenshot diff)",
+    "e2e (TASK-70): basic warp flow tests in app/tests/e2e/warp.spec.ts pass"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Fix World Loading Error",
+      "details": "Investigate app/src/shared/galaxy/system.ts and app/src/client/world/WorldManager.ts to resolve the 'Star with ID ... not found in galaxy generated with seed' error. Ensure seed-based system generation is consistent between server and client.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Fix Black Screen Rendering",
+      "details": "Debug app/tests/e2e/warp.spec.ts failure at line 72 (pixel variance check). Verify that WarpOverlay.tsx animations are rendering on top of the canvas and not being blocked or resulting in a clear-canvas/black-frame.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Verify Happy Path E2E",
+      "details": "Run 'cd app && npm run test:e2e' and ensure the basic warp transition from one system to another completes successfully without errors and matches the expected visual baseline.",
+      "pass": false
+    }
+  ],
+  "dependencies": [
+    "TASK-7",
+    "TASK-11",
+    "TASK-12"
+  ],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "Picks up from previous attempts where server crashes were fixed and atomic world swap was implemented in WorldManager.ts.",
+    "The working tree has uncommitted changes in app/src/server/shard/shard.ts and app/src/client/world/WorldManager.ts that should be reviewed/committed first.",
+    "The focus is on the 'Happy Path' (A\\u2192B warp). Edge cases (system full, disconnects) are deferred to TASK-8.2.",
+    "E2E tests are located in app/tests/e2e/warp.spec.ts and must be run from the app/ directory."
+  ],
+  "splitFrom": "TASK-8",
+  "splitDepth": 1
+}

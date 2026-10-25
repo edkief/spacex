@@ -1,0 +1,21 @@
+{
+  "task": "TASK-8",
+  "splittable": true,
+  "reason": "The previous attempts ran out of time primarily due to fighting server crashes and debugging slow E2E tests. Splitting the task into 'Happy Path & Visuals' and 'Edge Cases & Robustness' allows the agent to first stabilize the core flow and fix rendering bugs before moving to less critical but time-consuming edge case implementations and tests.",
+  "tasks": [
+    {
+      "id": "TASK-8.1",
+      "title": "Fix Warp Happy Path and Visuals"
+    },
+    {
+      "id": "TASK-8.2",
+      "title": "Warp Edge Cases and Robustness"
+    }
+  ],
+  "parent": {
+    "title": "Inter-system warp flow with seamless transition",
+    "specFilePath": ".ralph/split/TASK-8/TASK-8.json",
+    "handoffPath": ".ralph/split/TASK-8/handoff.md"
+  },
+  "appliedAt": "2026-10-25T06:42:51.727Z"
+}
