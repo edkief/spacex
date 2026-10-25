@@ -1,3 +1,4 @@
+2026-10-25 15:05 - TASK-27: Implemented continuous camera handoff system with Cockpit and OnFoot modes. Added exponential smoothing for cockpit and mouse-look with pitch clamping for on-foot. Implemented 600ms ease-in-out handoff animation with terrain-aware position nudging. Verified with unit tests for math and animation timing.
 2026-10-25: Completed TASK-26: World streaming pipeline.
 - Implemented ChunkManager with LRU cache (400 chunks) and dynamic active set (13 chunks for slow, 25 for fast flight).
 - Implemented FrameScheduler for incremental chunk generation (< 4ms per frame) with nearest-first priority.

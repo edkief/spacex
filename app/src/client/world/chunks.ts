@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { Planet, Biome } from '../../shared/galaxy/types';
-import { generateSurfaceChunk, SurfaceChunk } from '../../shared/galaxy/surface';
+import { generateSurfaceChunk, SurfaceChunk, fBm } from '../../shared/galaxy/surface';
 import { frameMonitor } from '../perf/frameMonitor';
+import { seedFromString, hash2 } from '../../shared/random';
 
 export type ChunkKey = string;
 
@@ -162,6 +163,12 @@ export class ChunkManager {
       return entry.geo;
     }
     return undefined;
+  }
+
+  public getHeightAt(x: number, z: number): number {
+    const masterSeed = seedFromString(this.seed); // I need seedFromString
+    const planetSeed = hash2(masterSeed, BigInt(this.planet.id.replace('p-', '')));
+    return fBm(x, z, planetSeed) * 100;
   }
 
   public updateScheduler() {

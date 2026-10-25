@@ -7,15 +7,11 @@ import { WorldManager } from './world/WorldManager';
 import { frameMonitor } from './perf/frameMonitor';
 import { getControlScheme, ControlAxis } from './input/controls';
 import { FlightRegime } from '../shared/physics/types';
+import { CameraRig } from './camera/CameraRig';
 
 export class Renderer {
   private scene = new THREE.Scene();
-  private camera = new THREE.PerspectiveCamera(
-    75,
-    window.innerWidth / window.innerHeight,
-    0.1,
-    1000,
-  );
+  private cameraRig = new CameraRig();
   public renderer: THREE.WebGLRenderer;
   private shipBuilder = new ShipMeshBuilder();
   private worldManager = new WorldManager(this.scene);
@@ -45,10 +41,6 @@ export class Renderer {
     const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
     directionalLight.position.set(5, 5, 5);
     this.scene.add(directionalLight);
-
-    this.camera.position.z = 10;
-    this.camera.position.y = 5;
-    this.camera.lookAt(0, 0, 0);
 
     window.addEventListener('resize', () => this.onResize());
     window.addEventListener('keydown', (e) => this.onKeyDown(e));
@@ -84,8 +76,8 @@ export class Renderer {
   }
 
   private onResize() {
-    this.camera.aspect = window.innerWidth / window.innerHeight;
-    this.camera.updateProjectionMatrix();
+    this.cameraRig.camera.aspect = window.innerWidth / window.innerHeight;
+    this.cameraRig.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   }
 
@@ -97,21 +89,35 @@ export class Renderer {
     await this.worldManager.loadWorld(systemId, seed);
   }
 
+  private lastFrameTime = performance.now();
+
   private animate = () => {
     frameMonitor.frameStarted();
     requestAnimationFrame(this.animate);
+
+    const now = performance.now();
+    const dt = (now - this.lastFrameTime) / 1000;
+    this.lastFrameTime = now;
 
     // Update ship positions and sync regime
     const states = this.network.getState(Date.now());
     
     // Assume the first entity is the local player for now
+    let localPlayer: any = null;
     if (states.length > 0) {
-      const localState = states[0];
-      if (localState.regime !== this.currentRegime) {
-        console.debug(`[Renderer] Regime swap: ${this.currentRegime} -> ${localState.regime}`);
-        this.currentRegime = localState.regime as FlightRegime;
+      localPlayer = states[0];
+      if (localPlayer.regime !== this.currentRegime) {
+        console.debug(`[Renderer] Regime swap: ${this.currentRegime} -> ${localPlayer.regime}`);
+        this.currentRegime = localPlayer.regime as FlightRegime;
+        
+        // Update camera rig mode
+        const mode = localPlayer.regime === 'surface' ? 'OnFoot' : 'Cockpit';
+        this.cameraRig.setMode(mode);
       }
     }
+
+    // Update camera rig
+    this.cameraRig.update(dt, localPlayer, this.worldManager);
 
     // Handle input
     this.network.sendInput({
@@ -135,7 +141,7 @@ export class Renderer {
       // Rotation would be updated here using state.quat if available
     }
 
-    this.renderer.render(this.scene, this.camera);
+    this.renderer.render(this.scene, this.cameraRig.camera);
     frameMonitor.frameEnded();
   };
 }

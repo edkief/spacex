@@ -89,8 +89,9 @@ export class WorldManager {
     group.clear();
   }
 
-  public getCurrentSystemId(): string | null {
-    return this.currentSystemId;
+  public heightAt(x: number, z: number): number {
+    if (!this.chunkManager) return 0;
+    return this.chunkManager.getHeightAt(x, z);
   }
 
   public update(playerPos: THREE.Vector3, velocity: THREE.Vector3) {
