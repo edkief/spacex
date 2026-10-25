@@ -100,6 +100,7 @@ export class Repository {
     if (updateValues.livery) updateValues.livery = JSON.stringify(updateValues.livery);
     if (updateValues.position) updateValues.position = JSON.stringify(updateValues.position);
     if (updateValues.velocity) updateValues.velocity = JSON.stringify(updateValues.velocity);
+    if (updateValues.quat) updateValues.quat = JSON.stringify(updateValues.quat);
 
     const result = await this.getDb(tx)
       .update(schema.ships)
@@ -124,6 +125,7 @@ export class Repository {
     if (updateValues.livery) updateValues.livery = JSON.stringify(updateValues.livery);
     if (updateValues.position) updateValues.position = JSON.stringify(updateValues.position);
     if (updateValues.velocity) updateValues.velocity = JSON.stringify(updateValues.velocity);
+    if (updateValues.quat) updateValues.quat = JSON.stringify(updateValues.quat);
 
     const result = this.getDb(tx)
       .update(schema.ships)

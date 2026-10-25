@@ -30,7 +30,8 @@ describe('Ship State Persistence Crash Test', () => {
           ...process.env, 
           PORT: PORT.toString(),
           DB_PATH: TEST_DB_PATH,
-          DB_DRIVER: 'sqlite'
+          DB_DRIVER: 'sqlite',
+          PERSIST_INTERVAL_MS: '5000'
         },
       });
 
@@ -101,8 +102,8 @@ describe('Ship State Persistence Crash Test', () => {
       await new Promise(r => setTimeout(r, 50));
     }
 
-    // Wait for the 30s flush to occur
-    await new Promise(r => setTimeout(r, 31000));
+    // Wait for the 5s flush to occur
+    await new Promise(r => setTimeout(r, 6000));
 
     // Wait for a snapshot to confirm position
     let finalPos = { x: 0, y: 0, z: 0 };

@@ -21,7 +21,8 @@ export class PersistService {
   }
 
   private startInterval() {
-    this.intervalId = setInterval(() => this.saveDirtyShips(), 30000);
+    const interval = Number(process.env.PERSIST_INTERVAL_MS) || 30000;
+    this.intervalId = setInterval(() => this.saveDirtyShips(), interval);
   }
 
   public stop() {
@@ -76,7 +77,7 @@ export class PersistService {
   }
 
   public async flushShips(systemId: string, ships: Map<string, any>): Promise<void> {
-    await db.transaction(async (tx: any) => {
+    await db.transaction((tx: any) => {
       for (const [shipId, entity] of ships) {
         // Map sim entity state to DB ship state
         const shipState: any = {
@@ -92,7 +93,7 @@ export class PersistService {
           updated_at: new Date(),
         };
 
-        await repo.saveShipState(shipId, shipState, tx);
+        repo.saveShipStateSync(shipId, shipState, tx);
       }
     });
   }
