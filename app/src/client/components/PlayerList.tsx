@@ -23,6 +23,7 @@ export const PlayerList: React.FC<{ localCallsign: string }> = ({ localCallsign 
 
   return (
     <div
+      data-testid="player-list"
       style={{
         position: 'absolute',
         bottom: '20px',
@@ -44,7 +45,7 @@ export const PlayerList: React.FC<{ localCallsign: string }> = ({ localCallsign 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
         <div style={{ color: '#fff' }}>
           <span style={{ marginRight: '8px' }}>●</span>
-          <span>{localCallsign || '(you)'}</span>
+          <span>{(localCallsign || '(you)').toLowerCase()}</span>
         </div>
         {Array.from(players.values()).map((player, i) => (
           <div key={i} style={{ display: 'flex', alignItems: 'center' }}>

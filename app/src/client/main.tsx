@@ -63,6 +63,7 @@ const App = () => {
     // Warp Coordination Logic
     if (warpState === 'warping-in' && warpStore.targetSystemId) {
       const timer = setTimeout(() => {
+        setIsChartOpen(false);
         networkManager.sendWarp(warpStore.targetSystemId!);
         warpStore.setState('awaiting');
       }, 2000);

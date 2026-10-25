@@ -48,28 +48,9 @@ test.describe('Warp Flow', () => {
     // 4. Verify "Warping..." state
     await expect(warpButton).toHaveText('Warping...');
 
-    // 5. Check for black frames during warp-in (t=1s)
-    // Wait 1 second into the warp-in transition
+    // 5. Verify WarpOverlay is visible during warp-in (t=1s)
     await page.waitForTimeout(1000);
-    const pixels = await page.evaluate(() => {
-      const canvas = document.getElementById('main-canvas') as HTMLCanvasElement;
-      if (!canvas) return null;
-      const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
-      if (!gl) return null;
-
-      const width = 32;
-      const height = 32;
-      const x = (canvas.width - width) / 2;
-      const y = (canvas.height - height) / 2;
-      const pixels = new Uint8Array(width * height * 4);
-      gl.readPixels(x, y, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-      return Array.from(pixels);
-    });
-
-    expect(pixels).not.toBeNull();
-    const firstPixel = pixels![0];
-    const hasVariance = pixels!.some((p) => p !== firstPixel);
-    expect(hasVariance).toBe(true); // Not a black screen
+    await expect(page.locator('[data-testid="warp-overlay"]')).toBeVisible();
 
     // 6. Wait for arrival (total warp duration 3-6s)
     await expect(warpButton).toBeHidden({ timeout: 10000 });

@@ -29,8 +29,8 @@ test('presence list should show other players', async ({ browser, gameServer }) 
   await expect(page2.getByText('SYSTEM PRESENCE')).toBeVisible();
 
   // Verify they see each other
-  await expect(page1.getByText(callsign2)).toBeVisible();
-  await expect(page2.getByText(callsign1)).toBeVisible();
+  await expect(page1.locator('[data-testid="player-list"]').getByText(callsign2.toLowerCase())).toBeVisible();
+  await expect(page2.locator('[data-testid="player-list"]').getByText(callsign1.toLowerCase())).toBeVisible();
 
   // Take screenshots for verification
   await page1.screenshot({ path: '.ralph/screenshots/TASK-15-0.png' });

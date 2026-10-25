@@ -7,7 +7,7 @@ export const WarpOverlay: React.FC = () => {
   if (state === 'idle') return null;
 
   return (
-    <div style={{
+    <div data-testid="warp-overlay" style={{
       position: 'fixed',
       top: 0,
       left: 0,

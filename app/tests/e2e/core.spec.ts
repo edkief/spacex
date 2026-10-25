@@ -17,7 +17,7 @@ test.describe('Core Game Flow', () => {
     await page.screenshot({ path: '.ralph/screenshots/e2e-debug-2.png' });
 
     // Check if the player list shows the callsign
-    await expect(page.getByText(callsign, { exact: true })).toBeVisible();
+    await expect(page.locator('[data-testid="player-list"]').getByText(callsign.toLowerCase(), { exact: true })).toBeVisible();
 
     // Headless WebGL check: read pixels from the canvas
     const canvas = page.locator('#main-canvas');
@@ -60,15 +60,15 @@ test.describe('Multiplayer Interaction', () => {
 
     await page1.goto(gameServer.baseUrl);
     await claimPage1.claimCallsign(callsign1);
-    await expect(page1.getByText(callsign1, { exact: true })).toBeVisible();
+    await expect(page1.locator('[data-testid="player-list"]').getByText(callsign1.toLowerCase(), { exact: true })).toBeVisible();
 
     await page2.goto(gameServer.baseUrl);
     await claimPage2.claimCallsign(callsign2);
-    await expect(page2.getByText(callsign2, { exact: true })).toBeVisible();
+    await expect(page2.locator('[data-testid="player-list"]').getByText(callsign2.toLowerCase(), { exact: true })).toBeVisible();
 
     // Verify presence
-    await expect(page1.getByText(callsign2, { exact: true })).toBeVisible({ timeout: 5000 });
-    await expect(page2.getByText(callsign1, { exact: true })).toBeVisible({ timeout: 5000 });
+    await expect(page1.locator('[data-testid="player-list"]').getByText(callsign2.toLowerCase(), { exact: true })).toBeVisible({ timeout: 5000 });
+    await expect(page2.locator('[data-testid="player-list"]').getByText(callsign1.toLowerCase(), { exact: true })).toBeVisible({ timeout: 5000 });
 
     // Chat test
     const message = `Hello from ${callsign1}! ${Date.now()}`;
