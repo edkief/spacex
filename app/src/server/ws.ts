@@ -21,6 +21,11 @@ import { verifyToken, hashToken } from './auth/token';
 import { gameEvents, GameEventType } from './events';
 import { router } from './galaxy';
 import { Shard } from './shard/shard';
+import { GALAXY_SEED } from './app';
+import { generateStars } from '../shared/galaxy/stars';
+
+const GALAXY_STARS = generateStars(GALAXY_SEED);
+const DEFAULT_SYSTEM_ID = GALAXY_STARS[0].id;
 
 type ConnectionState = 'hello' | 'auth' | 'join_system' | 'active';
 
@@ -234,7 +239,10 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
           ctx.playerId = session.player_id;
           ctx.tokenHash = tokenHash;
           ctx.state = 'join_system';
-          ws.send(encodeMessage('auth_ok', { playerId: session.player_id }));
+                     ws.send(encodeMessage('auth_ok', { 
+             playerId: session.player_id, 
+             systemId: DEFAULT_SYSTEM_ID 
+           }));
         } else {
           sendError(ws, 'invalid-message', 'Expected auth message');
         }
@@ -374,6 +382,7 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
 
             ws.send(encodeMessage('warp-arrived', {
               systemId: destinationSystemId,
+              shipId: ship.id,
               snapshot: shard.getSnapshot(),
             }));
           } catch (err) {

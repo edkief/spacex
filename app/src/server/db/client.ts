@@ -63,13 +63,14 @@ export async function migrate() {
     return;
   }
 
+  const currentDbPath = process.env.DB_PATH || DB_PATH;
   const migrationsDir = path.join(__dirname, 'migrations');
   if (!fs.existsSync(migrationsDir)) {
     console.log('No migrations directory found, skipping SQLite migrations');
     return;
   }
 
-  const sqliteDb = new Database(DB_PATH);
+  const sqliteDb = new Database(currentDbPath);
 
   sqliteDb.exec(`
     CREATE TABLE IF NOT EXISTS _migrations (

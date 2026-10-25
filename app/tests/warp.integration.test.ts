@@ -7,6 +7,7 @@ import { encodeMessage, decodeEnvelope } from '../src/shared/protocol';
 import { migrate } from '../src/server/db/client';
 import { router } from '../src/server/galaxy';
 import fastify from 'fastify';
+import fs from 'node:fs';
 
 describe('Warp Integration (TASK-8)', () => {
   let wss: WebSocketServer;
@@ -15,6 +16,9 @@ describe('Warp Integration (TASK-8)', () => {
 
   beforeEach(async () => {
     process.env.DB_PATH = '/tmp/warp_test.sqlite';
+    if (fs.existsSync(process.env.DB_PATH)) {
+      fs.unlinkSync(process.env.DB_PATH);
+    }
     await migrate();
     server = createApp();
     await server.listen({ port: 0, host: '127.0.0.1' });
@@ -54,7 +58,11 @@ describe('Warp Integration (TASK-8)', () => {
       url: '/api/callsigns',
       payload: { callsign },
     });
-    const { token, playerId } = JSON.parse(claimResp.payload as string);
+    const payload = typeof claimResp.payload === 'string' 
+      ? JSON.parse(claimResp.payload) 
+      : claimResp.payload;
+    console.log(`[Test] Claim payload: ${JSON.stringify(payload)}`);
+    const { token, playerId } = payload;
     
     const ws = await createClient();
     ws.send(encodeMessage('hello', { v: 1 }));
@@ -82,12 +90,10 @@ describe('Warp Integration (TASK-8)', () => {
     expect(resp.payload.snapshot).toBeDefined();
     
     // Verify position is at spawn gate (100, 0, 0)
-    const ship = resp.payload.snapshot.entities.find((e: any) => e.id === playerId);
+    const shipId = resp.payload.shipId;
+    const ship = resp.payload.snapshot.find((e: any) => e.id === shipId);
     if (!ship) {
-        // The ship might not be in the snapshot if it's the local player? 
-        // No, the server sends a full snapshot on warp-arrived.
-        // Wait, in my implemention I used shard.getSnapshot() which includes all entities.
-        throw new Error('Ship not found in warp-arrived snapshot');
+        throw new Error(`Ship ${shipId} not found in warp-arrived snapshot`);
     }
     expect(ship.pos).toEqual({ x: 100, y: 0, z: 0 });
     

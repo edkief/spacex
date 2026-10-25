@@ -19,7 +19,7 @@ export const WarpOverlay: React.FC = () => {
       alignItems: 'center',
       justifyContent: 'center',
       overflow: 'hidden',
-      backgroundColor: state === 'awaiting' ? 'rgba(0,0,0,0.8)' : 'transparent',
+      backgroundColor: state === 'awaiting' ? 'rgba(0,0,0,0.8)' : 'rgba(0,0,0,0.5)',
       transition: 'background-color 0.5s ease',
     }}>
       {(state === 'warping-in' || state === 'warping-out') && (
@@ -27,7 +27,7 @@ export const WarpOverlay: React.FC = () => {
           position: 'absolute',
           width: '200%',
           height: '200%',
-          backgroundImage: 'radial-gradient(circle, transparent 20%, rgba(255,255,255,0.2) 21%, transparent 22%)',
+          backgroundImage: 'radial-gradient(circle, transparent 20%, rgba(255,255,255,0.6) 21%, transparent 22%)',
           backgroundSize: '100px 100px',
           animation: state === 'warping-in' 
             ? 'warp-in 2s ease-in forwards' 

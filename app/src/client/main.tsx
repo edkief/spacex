@@ -13,10 +13,8 @@ import { networkManager } from './net/NetworkManager';
 import { warpStore } from './state/warpStore';
 import { initDriftDebug } from './driftDebug';
 
-// Install dev-only debug hooks
+import { DEFAULT_GALAXY_SEED } from '../shared/galaxy/config';
 initDriftDebug();
-
-const GALAXY_SEED = 'drift-galaxy-2026';
 
 const App = () => {
   const [renderer, setRenderer] = useState<Renderer | null>(null);
@@ -24,6 +22,7 @@ const App = () => {
   const [callsign, setCallsign] = useState('');
   const [claimError, setClaimError] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const galaxySeedRef = useRef(DEFAULT_GALAXY_SEED);
   const [livery, setLivery] = useState<Livery>({
     hull: '#cccccc',
     accent: '#ff0000',
@@ -37,6 +36,17 @@ const App = () => {
       setWarpState(warpStore.state);
     });
     return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    fetch('/api/health')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.galaxySeed) {
+          galaxySeedRef.current = data.galaxySeed;
+        }
+      })
+      .catch((err) => console.error('Failed to fetch galaxy seed:', err));
   }, []);
 
   useEffect(() => {
@@ -87,7 +97,7 @@ const App = () => {
     networkManager.onWarpArrived = async (data: any) => {
       const { systemId } = data;
       if (r) {
-        await r.loadWorld(systemId, GALAXY_SEED);
+        await r.loadWorld(systemId, galaxySeedRef.current);
       }
       warpStore.setState('warping-out');
       

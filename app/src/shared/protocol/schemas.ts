@@ -234,6 +234,7 @@ export const PresenceSchema = z
 export const WarpArrivedSchema = z
   .object({
     systemId: z.string(),
+    shipId: z.string(),
     snapshot: z.any(), // Using any for snapshot to avoid duplication of EnterSystemSchema's inner object
   })
   .strict();

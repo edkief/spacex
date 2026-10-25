@@ -16,7 +16,7 @@ interface GameFixtures {
 }
 
 export const test = base.extend<GameFixtures>({
-  gameServer: async (_, use) => {
+  gameServer: async ({}, use) => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'game-e2e-'));
     const dbPath = path.join(tmpDir, 'test.sqlite');
 

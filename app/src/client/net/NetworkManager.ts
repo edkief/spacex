@@ -96,7 +96,7 @@ export class NetworkManager {
       const authData = payload as any;
       this.localShipId = authData.playerId;
       presenceStore.setLocalPlayerId(authData.playerId);
-      this.send('join_system', { systemId: 'sol' });
+      this.send('join_system', { systemId: authData.systemId });
     } else if (type === 'enter_system') {
       const snapshot = payload as any;
 

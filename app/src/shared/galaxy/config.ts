@@ -1,5 +1,7 @@
 import { SpectralClass } from './types';
 
+export const DEFAULT_GALAXY_SEED = 'drift-galaxy-2026';
+
 export const GALAXY_STAR_COUNT = 200;
 
 export const MAX_PLAYERS_PER_SYSTEM = 16;

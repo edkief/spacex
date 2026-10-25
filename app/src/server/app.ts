@@ -7,11 +7,11 @@ import { playersRoutes } from './routes/players';
 import { shipsRoutes } from './routes/ships';
 import { galaxyRoutes } from './routes/galaxy';
 
-// Load environment variables from PROJECT_ROOT/.env.local
+import { DEFAULT_GALAXY_SEED } from '../shared/galaxy/config';
 
 dotenv.config({ path: path.resolve(__dirname, '../../../.env.local') });
 
-const GALAXY_SEED = process.env.GALAXY_SEED || 'default-seed';
+const GALAXY_SEED = process.env.GALAXY_SEED || DEFAULT_GALAXY_SEED;
 
 export function createApp(options: { logger?: any } = {}) {
   const fastify = Fastify({ logger: options.logger ?? false });
