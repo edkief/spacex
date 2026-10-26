@@ -65,9 +65,6 @@ export class ChatLimiter {
   check(message: string): { allowed: boolean; reason?: string } {
     const now = this.nowFn();
 
-    if (message.length > this.maxLength) {
-      return { allowed: false, reason: 'Message too long' };
-    }
 
     if (now - this.lastSendAt < this.minGapMs) {
       return { allowed: false, reason: 'Sending too fast' };

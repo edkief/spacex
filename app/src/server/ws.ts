@@ -48,7 +48,7 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
   const MAX_MESSAGE_SIZE = 64 * 1024;
 
   // Listen for livery changes and broadcast to all players in the same system
-  gameEvents.on(GameEventType.LIVERY_CHANGED, async ({ playerId, livery }) => {
+  const liveryHandler = async ({ playerId, livery }: { playerId: string; livery: any }) => {
     const ship = await repo.getShipByOwner(playerId);
     if (!ship) return;
 
@@ -78,7 +78,9 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
         ws.send(message);
       }
     });
-  });
+  };
+
+  gameEvents.on(GameEventType.LIVERY_CHANGED, liveryHandler);
 
   wss.on('connection', (ws) => {
     const ctx: ConnectionContext = {
@@ -132,7 +134,7 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
   });
 
   // Keepalive loop
-  setInterval(() => {
+  const keepalive = setInterval(() => {
     const now = Date.now();
     connections.forEach((ctx, ws) => {
       if (now - ctx.lastPong > 45000) {
@@ -144,268 +146,273 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
     });
   }, 15000);
 
-  function handleViolation(ws: WebSocket, ctx: ConnectionContext) {
-    const now = Date.now();
-    ctx.violationTimestamps.push(now);
+  return () => {
+    gameEvents.off(GameEventType.LIVERY_CHANGED, liveryHandler);
+    clearInterval(keepalive);
+  };
+}
 
-    // Keep only last 10 seconds of violations
-    ctx.violationTimestamps = ctx.violationTimestamps.filter((ts) => now - ts <= 10000);
-
-    if (ctx.violationTimestamps.length >= 3) {
-      ws.close(4009, 'flooded');
-      return true;
-    }
-    return false;
+async function handleMessage(ws: WebSocket, ctx: ConnectionContext, envelope: Envelope) {
+  console.log(`[WS] Message received: ${envelope.type} from ${ctx.playerId || 'unauth'} (state: ${ctx.state})`);
+  // General rate limiting
+  if (!ctx.bucket.take()) {
+    if (handleViolation(ws, ctx)) return;
+    sendError(ws, 'rate-limited', 'Too many messages');
+    return;
   }
 
-  async function handleMessage(ws: WebSocket, ctx: ConnectionContext, envelope: Envelope) {
-    console.log(`[WS] Message received: ${envelope.type} from ${ctx.playerId || 'unauth'} (state: ${ctx.state})`);
-    // General rate limiting
-    if (!ctx.bucket.take()) {
-      if (handleViolation(ws, ctx)) return;
-      sendError(ws, 'rate-limited', 'Too many messages');
+  const { type, payload, v } = envelope;
+
+  if (v !== PROTOCOL_VERSION) {
+    sendError(
+      ws,
+      'version-mismatch',
+      `Protocol version mismatch: expected ${PROTOCOL_VERSION}, got ${v}`,
+    );
+    return;
+  }
+
+  if (!(type in MessageSchemas)) {
+    ctx.unknownTypeCount++;
+    if (ctx.unknownTypeCount > 50) {
+      ws.terminate();
+      connections.delete(ws);
       return;
     }
+    sendError(ws, 'unknown-type', `Unknown message type: ${type}`);
+    return;
+  }
 
-    const { type, payload, v } = envelope;
+  const result = parseMessage(type, payload);
+  if (!result.success) {
+    sendError(
+      ws,
+      'invalid-message',
+      result.error === 'unknown-type' ? 'Unknown type' : 'Invalid payload',
+    );
+    return;
+  }
 
-    if (v !== PROTOCOL_VERSION) {
-      sendError(
-        ws,
-        'version-mismatch',
-        `Protocol version mismatch: expected ${PROTOCOL_VERSION}, got ${v}`,
-      );
-      return;
-    }
+  const data = result.data;
 
-    if (!(type in MessageSchemas)) {
-      ctx.unknownTypeCount++;
-      if (ctx.unknownTypeCount > 50) {
-        ws.terminate();
-        connections.delete(ws);
-        return;
+  // Handshake state machine
+  switch (ctx.state) {
+    case 'hello':
+      if (type === 'hello') {
+        ws.send(encodeMessage('version-ok', { v: PROTOCOL_VERSION }));
+        ctx.state = 'auth';
+      } else {
+        sendError(ws, 'invalid-message', 'Expected hello message');
       }
-      sendError(ws, 'unknown-type', `Unknown message type: ${type}`);
-      return;
-    }
+      break;
 
-    const result = parseMessage(type, payload);
-    if (!result.success) {
-      sendError(
-        ws,
-        'invalid-message',
-        result.error === 'unknown-type' ? 'Unknown type' : 'Invalid payload',
-      );
-      return;
-    }
+    case 'auth':
+      if (type === 'auth') {
+        const authData = data as z.infer<typeof AuthSchema>;
+        const token = authData.token;
 
-    const data = result.data;
-
-    // Handshake state machine
-    switch (ctx.state) {
-      case 'hello':
-        if (type === 'hello') {
-          ws.send(encodeMessage('version-ok', { v: PROTOCOL_VERSION }));
-          ctx.state = 'auth';
-        } else {
-          sendError(ws, 'invalid-message', 'Expected hello message');
+        if (!token) {
+          sendError(ws, 'unauthenticated', 'Missing session token');
+          return;
         }
-        break;
 
-      case 'auth':
-        if (type === 'auth') {
-          const authData = data as z.infer<typeof AuthSchema>;
-          const token = authData.token;
-
-          if (!token) {
-            sendError(ws, 'unauthenticated', 'Missing session token');
-            return;
-          }
-
-          const sessionPayload = verifyToken(token);
-          if (!sessionPayload) {
-            sendError(ws, 'unauthenticated', 'Invalid or expired session token');
-            return;
-          }
-
-          const tokenHash = hashToken(token);
-          const session = await repo.findSession(tokenHash);
-          if (!session) {
-            sendError(ws, 'unauthenticated', 'Session not found or revoked');
-            return;
-          }
-
-          console.log(`[WS] Auth success: ${session.player_id}`);
-          ctx.playerId = session.player_id;
-          ctx.tokenHash = tokenHash;
-          ctx.state = 'join_system';
-           const player = await repo.findPlayerById(session.player_id);
-           if (!player) {
-             sendError(ws, 'unauthenticated', 'Player not found');
-             return;
-           }
-           ws.send(encodeMessage('auth_ok', { 
-             playerId: session.player_id, 
-             systemId: player.home_system_id 
-           }));
-        } else {
-          sendError(ws, 'invalid-message', 'Expected auth message');
+        const sessionPayload = verifyToken(token);
+        if (!sessionPayload) {
+          sendError(ws, 'unauthenticated', 'Invalid or expired session token');
+          return;
         }
-        break;
 
-      case 'join_system':
-        if (type === 'join_system') {
-          console.log(`[WS] Processing join_system for ${ctx.playerId}`);
-          const joinData = data as z.infer<typeof JoinSystemSchema>;
-          const { systemId } = joinData;
-          ctx.systemId = systemId;
+        const tokenHash = hashToken(token);
+        const session = await repo.findSession(tokenHash);
+        if (!session) {
+          sendError(ws, 'unauthenticated', 'Session not found or revoked');
+          return;
+        }
 
-          const player = await repo.findPlayerById(ctx.playerId!);
-          if (!player) {
-            sendError(ws, 'unauthenticated', 'Player not found');
+        console.log(`[WS] Auth success: ${session.player_id}`);
+        ctx.playerId = session.player_id;
+        ctx.tokenHash = tokenHash;
+        ctx.state = 'join_system';
+         const player = await repo.findPlayerById(session.player_id);
+         if (!player) {
+           sendError(ws, 'unauthenticated', 'Player not found');
+           return;
+         }
+         ws.send(encodeMessage('auth_ok', { 
+           playerId: session.player_id, 
+           systemId: player.home_system_id 
+         }));
+      } else {
+        sendError(ws, 'invalid-message', 'Expected auth message');
+      }
+      break;
+
+    case 'join_system':
+      if (type === 'join_system') {
+        console.log(`[WS] Processing join_system for ${ctx.playerId}`);
+        const joinData = data as z.infer<typeof JoinSystemSchema>;
+        const { systemId } = joinData;
+        ctx.systemId = systemId;
+
+        const player = await repo.findPlayerById(ctx.playerId!);
+        if (!player) {
+          sendError(ws, 'unauthenticated', 'Player not found');
+          return;
+        }
+
+        const connState = {
+          playerId: ctx.playerId!,
+          callsign: player.callsign,
+          lastSeq: 0,
+          inputQueue: [],
+        };
+
+        const result = await router.joinSystem(systemId, ctx.playerId!, connState);
+        if ('code' in result) {
+          sendError(ws, result.code, result.message);
+          return;
+        }
+
+        const { shard, snapshot } = result;
+        ctx.shard = shard;
+
+        // Set up shard output listener for this specific connection
+        const sendHandler = (connId: string, type: string, payload: string) => {
+          if (connId === ctx.playerId) {
+            ws.send(encodeMessage(type, JSON.parse(payload)));
+          }
+        };
+        shard.on('send', sendHandler);
+
+        // Store handler so we can remove it on close
+        (ws as any)._shardHandler = sendHandler;
+
+        ws.send(encodeMessage('enter_system', { snapshot: { systemId, entities: snapshot } }));
+        ctx.state = 'active';
+      } else {
+        sendError(ws, 'invalid-message', 'Expected join_system message');
+      }
+      break;
+
+    case 'active':
+      if (type === 'pong') {
+        ctx.lastPong = Date.now();
+      } else if (type === 'input') {
+        if (ctx.shard && ctx.playerId) {
+          ctx.shard.handleInput(ctx.playerId, data as any);
+        }
+      } else if (type === 'chat') {
+        const chatData = data as z.infer<typeof ChatSchema>;
+        const chatCheck = ctx.chatLimiter.check(chatData.text);
+        if (!chatCheck.allowed) {
+          if (handleViolation(ws, ctx)) return;
+          sendError(ws, 'rate-limited', chatCheck.reason || 'Chat limit exceeded');
+          return;
+        }
+        ctx.chatLimiter.recordSend();
+
+        if (ctx.shard && ctx.playerId) {
+          const result = ctx.shard.handleChat(ctx.playerId, chatData.text);
+          if (!result.success) {
+            sendError(ws, result.code, 'Invalid chat message');
+          }
+        }
+      } else if (type === 'warp') {
+        if (!ctx.shard || !ctx.playerId || !ctx.systemId) {
+          sendError(ws, 'invalid-state', 'Not currently in a system');
+          return;
+        }
+
+        const warpData = data as z.infer<typeof WarpSchema>;
+        const { destinationSystemId } = warpData;
+
+        if (destinationSystemId === ctx.systemId) {
+          sendError(ws, 'invalid-warp', 'Already in target system');
+          return;
+        }
+
+        try {
+          const targetShard = await router.getShard(destinationSystemId);
+          console.log(`[WS] Warp: Target shard ${destinationSystemId} found. Connections: ${targetShard.connections.size}`);
+          if (targetShard.connections.size >= MAX_PLAYERS_PER_SYSTEM) {
+            console.log(`[WS] Warp: Target system ${destinationSystemId} is full`);
+            sendError(ws, 'system-full', 'Target system is full');
             return;
           }
 
+          const ship = await repo.getShipByOwner(ctx.playerId);
+          if (!ship) {
+            console.log(`[WS] Warp: No ship found for player ${ctx.playerId}`);
+            sendError(ws, 'no-ship', 'Player has no ship');
+            return;
+          }
+
+          router.leaveSystem(ctx.systemId, ctx.playerId);
+          ctx.systemId = destinationSystemId;
+
+          await repo.saveShipState(ship.id, { system_id: destinationSystemId });
+
+          const player = await repo.findPlayerById(ctx.playerId);
           const connState = {
-            playerId: ctx.playerId!,
-            callsign: player.callsign,
+            playerId: ctx.playerId,
+            callsign: player?.callsign || 'Unknown',
             lastSeq: 0,
             inputQueue: [],
           };
 
-          const result = await router.joinSystem(systemId, ctx.playerId!, connState);
-          if ('code' in result) {
-            sendError(ws, result.code, result.message);
+          const joinResult = await router.joinSystem(destinationSystemId, ctx.playerId, connState);
+          if ('code' in joinResult) {
+            sendError(ws, joinResult.code, joinResult.message);
             return;
           }
 
-          const { shard, snapshot } = result;
+          const { shard } = joinResult;
+          const spawnPos = { x: 100, y: 0, z: 0 };
+          shard.spawnShip(ctx.playerId, ship.id, spawnPos, ship);
+
           ctx.shard = shard;
 
-          // Set up shard output listener for this specific connection
           const sendHandler = (connId: string, type: string, payload: string) => {
             if (connId === ctx.playerId) {
               ws.send(encodeMessage(type, JSON.parse(payload)));
             }
           };
           shard.on('send', sendHandler);
-
-          // Store handler so we can remove it on close
           (ws as any)._shardHandler = sendHandler;
 
-          ws.send(encodeMessage('enter_system', { snapshot: { systemId, entities: snapshot } }));
-          ctx.state = 'active';
-        } else {
-          sendError(ws, 'invalid-message', 'Expected join_system message');
+          ws.send(encodeMessage('warp-arrived', {
+            systemId: destinationSystemId,
+            shipId: ship.id,
+            snapshot: shard.getSnapshot(),
+          }));
+        } catch (err) {
+          console.error('Warp error:', err);
+          sendError(ws, 'warp-failed', 'An error occurred during warp');
         }
-        break;
-
-      case 'active':
-        if (type === 'pong') {
-          ctx.lastPong = Date.now();
-        } else if (type === 'input') {
-          if (ctx.shard && ctx.playerId) {
-            ctx.shard.handleInput(ctx.playerId, data as any);
-          }
-        } else if (type === 'chat') {
-          const chatData = data as z.infer<typeof ChatSchema>;
-          const chatCheck = ctx.chatLimiter.check(chatData.text);
-          if (!chatCheck.allowed) {
-            if (handleViolation(ws, ctx)) return;
-            sendError(ws, 'rate-limited', chatCheck.reason || 'Chat limit exceeded');
-            return;
-          }
-          ctx.chatLimiter.recordSend();
-
-          if (ctx.shard && ctx.playerId) {
-            const result = ctx.shard.handleChat(ctx.playerId, chatData.text);
-            if (!result.success) {
-              sendError(ws, result.code, 'Invalid chat message');
-            }
-          }
-        } else if (type === 'warp') {
-          if (!ctx.shard || !ctx.playerId || !ctx.systemId) {
-            sendError(ws, 'invalid-state', 'Not currently in a system');
-            return;
-          }
-
-          const warpData = data as z.infer<typeof WarpSchema>;
-          const { destinationSystemId } = warpData;
-
-          if (destinationSystemId === ctx.systemId) {
-            sendError(ws, 'invalid-warp', 'Already in target system');
-            return;
-          }
-
-          try {
-            const targetShard = await router.getShard(destinationSystemId);
-            console.log(`[WS] Warp: Target shard ${destinationSystemId} found. Connections: ${targetShard.connections.size}`);
-            if (targetShard.connections.size >= MAX_PLAYERS_PER_SYSTEM) {
-              console.log(`[WS] Warp: Target system ${destinationSystemId} is full`);
-              sendError(ws, 'system-full', 'Target system is full');
-              return;
-            }
-
-            const ship = await repo.getShipByOwner(ctx.playerId);
-            if (!ship) {
-              console.log(`[WS] Warp: No ship found for player ${ctx.playerId}`);
-              sendError(ws, 'no-ship', 'Player has no ship');
-              return;
-            }
-
-            router.leaveSystem(ctx.systemId, ctx.playerId);
-            ctx.systemId = destinationSystemId;
-
-            await repo.saveShipState(ship.id, { system_id: destinationSystemId });
-
-            const player = await repo.findPlayerById(ctx.playerId);
-            const connState = {
-              playerId: ctx.playerId,
-              callsign: player?.callsign || 'Unknown',
-              lastSeq: 0,
-              inputQueue: [],
-            };
-
-            const joinResult = await router.joinSystem(destinationSystemId, ctx.playerId, connState);
-            if ('code' in joinResult) {
-              sendError(ws, joinResult.code, joinResult.message);
-              return;
-            }
-
-            const { shard } = joinResult;
-            const spawnPos = { x: 100, y: 0, z: 0 };
-            shard.spawnShip(ctx.playerId, ship.id, spawnPos, ship);
-
-            ctx.shard = shard;
-
-            const sendHandler = (connId: string, type: string, payload: string) => {
-              if (connId === ctx.playerId) {
-                ws.send(encodeMessage(type, JSON.parse(payload)));
-              }
-            };
-            shard.on('send', sendHandler);
-            (ws as any)._shardHandler = sendHandler;
-
-            ws.send(encodeMessage('warp-arrived', {
-              systemId: destinationSystemId,
-              shipId: ship.id,
-              snapshot: shard.getSnapshot(),
-            }));
-          } catch (err) {
-            console.error('Warp error:', err);
-            sendError(ws, 'warp-failed', 'An error occurred during warp');
-          }
-        } else if (type === 'logout') {
-          if (ctx.tokenHash) {
-            await repo.deleteSession(ctx.tokenHash);
-          }
-          ws.close(1000);
-        } else {
-          // Handle other active messages...
+      } else if (type === 'logout') {
+        if (ctx.tokenHash) {
+          await repo.deleteSession(ctx.tokenHash);
         }
-        break;
-    }
+        ws.close(1000);
+      } else {
+        // Handle other active messages...
+      }
+      break;
   }
+}
+
+function handleViolation(ws: WebSocket, ctx: ConnectionContext) {
+  const now = Date.now();
+  ctx.violationTimestamps.push(now);
+
+  // Keep only last 10 seconds of violations
+  ctx.violationTimestamps = ctx.violationTimestamps.filter((ts) => now - ts <= 10000);
+
+  if (ctx.violationTimestamps.length >= 3) {
+    ws.close(4009, 'flooded');
+    return true;
+  }
+  return false;
 }
 
 function sendError(ws: WebSocket, code: any, message: string) {

@@ -11,6 +11,8 @@ describe('Regime Integration', () => {
       {
         id: 'p1',
         radiusKm: 1000,
+        atmosphereHeight: 100,
+        atmosphereDensity: 1.0,
         hasAtmosphere: true,
         // other fields not used by getRegimePlanetContexts
       },

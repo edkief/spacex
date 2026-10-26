@@ -101,7 +101,7 @@ export class Shard extends EventEmitter {
     }
 
     // Sanitization: strip control characters and non-text
-    const sanitized = trimmed.replace(/[\\x00-\\x1F\\x7F]/g, '');
+    const sanitized = trimmed.replace(/[\x00-\x1F\x7F]/g, '');
 
     const chatMsg = {
       from: conn.callsign,

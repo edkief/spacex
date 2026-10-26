@@ -42,6 +42,7 @@ export async function closeDb() {
     _sqliteDb.close();
     _sqliteDb = null;
   }
+  _dbInstance = null;
   if (_pgPool) {
     await _pgPool.end();
     _pgPool = null;

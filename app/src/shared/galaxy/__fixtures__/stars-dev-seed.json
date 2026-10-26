@@ -1,5 +1,5 @@
 {
-  "checksum": "bcc67fd4f50b667c381b21e805d7fb5541dede429524a4fabeda9e216678453d",
+  "checksum": "30b5e8e3c219a0ba4f9c38313c218d1cfff860f85bc861968db55c2e5bd24275",
   "first25": [
     {
       "class": "G",
@@ -99,6 +99,15 @@
       "x": 10,
       "y": 10,
       "z": 10
+    },
+    {
+      "class": "G",
+      "id": "c84cb1888d1e8b0c",
+      "name": "Test System",
+      "systemCount": 2,
+      "x": 11,
+      "y": 11,
+      "z": 11
     },
     {
       "class": "M",
@@ -216,15 +225,6 @@
       "x": 8.056199522520824,
       "y": -5.338503012588366,
       "z": -0.12000959002479686
-    },
-    {
-      "class": "M",
-      "id": "8b10cc2f337374f9",
-      "name": "Upsilon Regulus Cluster",
-      "systemCount": 3,
-      "x": -28.097659913888716,
-      "y": 17.62100465854195,
-      "z": 0.06448392458390233
     }
   ],
   "totalCount": 200

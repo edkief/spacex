@@ -4,26 +4,29 @@ import { WebSocketServer } from 'ws';
 import WebSocket from 'ws';
 import { setupWebSocketHandler } from './ws';
 import { encodeMessage, decodeEnvelope } from '../shared/protocol';
-import { migrate } from './db/client';
+import { migrate, closeDb } from './db/client';
 
 describe('Rate Limiting Integration', () => {
   let wss: WebSocketServer;
   let fastify: any;
   let port: number;
+  let cleanup: () => void;
 
   beforeEach(async () => {
-    process.env.DB_PATH = '/tmp/ratelimit.sqlite';
+    process.env.DB_PATH = `/tmp/ratelimit_${Math.random().toString(36).substring(7)}.sqlite`;
     await migrate();
     fastify = createApp();
     await fastify.listen({ port: 0, host: '127.0.0.1' });
     port = (fastify.server as any).address().port;
     wss = new WebSocketServer({ server: fastify.server });
-    setupWebSocketHandler(wss);
+    cleanup = setupWebSocketHandler(wss);
   });
 
   afterEach(async () => {
+    if (cleanup) cleanup();
     wss.close();
     await fastify.close();
+    await closeDb();
   });
 
   const createClient = () =>
@@ -41,28 +44,46 @@ describe('Rate Limiting Integration', () => {
     return JSON.parse(resp.payload as string).token;
   };
 
-  const receive = (ws: WebSocket): Promise<any> =>
+  const receiveMessageType = (ws: WebSocket, type: string): Promise<any> =>
     new Promise((resolve, reject) => {
-      ws.once('message', (data) => {
+      const handler = (data: any) => {
         const result = decodeEnvelope(data.toString());
         if (result.success) {
-          resolve(result.data);
-        } else {
-          reject(new Error(`Decode error: ${result.error}`));
+          if (result.data.type === type) {
+            ws.off('message', handler);
+            resolve(result.data);
+          } else if (result.data.type === 'error') {
+            ws.off('message', handler);
+            reject(new Error(`Server error while waiting for ${type}: ${JSON.stringify(result.data.payload)}`));
+          }
         }
+      };
+      ws.on('message', handler);
+      
+      // Add a timeout to avoid hanging forever
+      setTimeout(() => {
+        ws.off('message', handler);
+        reject(new Error(`Timeout waiting for message type: ${type}`));
+      }, 15000);
+
+      ws.once('close', () => {
+        ws.off('message', handler);
+        reject(new Error('Connection closed'));
       });
-      ws.once('close', () => reject(new Error('Connection closed')));
-      ws.once('error', (err) => reject(err));
+      ws.once('error', (err) => {
+        ws.off('message', handler);
+        reject(err);
+      });
     });
 
   const completeHandshake = async (ws: WebSocket) => {
     const token = await getAuthToken(`RateLimit-${Math.random().toString(36).substring(7)}`);
     ws.send(encodeMessage('hello', { v: 1 }));
-    await receive(ws);
+    await receiveMessageType(ws, 'version-ok');
     ws.send(encodeMessage('auth', { token }));
-    await receive(ws);
+    await receiveMessageType(ws, 'auth_ok');
     ws.send(encodeMessage('join_system', { systemId: 'sol' }));
-    await receive(ws);
+    await receiveMessageType(ws, 'enter_system');
   };
 
   it('should allow burst of 40 messages then rate limit', async () => {
@@ -72,15 +93,12 @@ describe('Rate Limiting Integration', () => {
     // Send 40 messages (burst)
     for (let i = 0; i < 40; i++) {
       ws.send(encodeMessage('pong', { ts: Date.now() }));
-      // We don't expect a response for pong in current handleMessage,
-      // but the server should not send an error.
     }
 
     // 41st message should be rate-limited
     ws.send(encodeMessage('pong', { ts: Date.now() }));
-    const resp = await receive(ws);
-    expect(resp.type).toBe('error');
-    expect((resp.payload as any).code).toBe('rate-limited');
+    const resp = await receiveMessageType(ws, 'error');
+    expect(resp.payload.code).toBe('rate-limited');
 
     ws.close();
   });
@@ -94,17 +112,12 @@ describe('Rate Limiting Integration', () => {
       ws.send(encodeMessage('pong', { ts: Date.now() }));
     }
 
-    // We expect 2 rate-limited responses and then a close
-    const responses: any[] = [];
-    ws.on('message', (data) => {
-      const result = decodeEnvelope(data.toString());
-      if (result.success) responses.push(result.data);
-    });
-
     // Violation 1
     ws.send(encodeMessage('pong', { ts: Date.now() }));
+    await receiveMessageType(ws, 'error');
     // Violation 2
     ws.send(encodeMessage('pong', { ts: Date.now() }));
+    await receiveMessageType(ws, 'error');
     // Violation 3 -> should close with 4009
     ws.send(encodeMessage('pong', { ts: Date.now() }));
 
@@ -123,22 +136,24 @@ describe('Rate Limiting Integration', () => {
 
     // 1. First chat message: ok
     ws.send(encodeMessage('chat', { text: 'Hello world', channel: 'local' }));
-    // Current mock server doesn't respond to chat, so we just check that it doesn't error
-    // But we can check for the next one.
+    // We don't expect a response for chat from server currently, 
+    // but we should wait for it to be processed if necessary.
+    // In a real scenario we might wait for the broadcast.
+    
+    // Give a small delay for the server to process the first message
+    await new Promise(resolve => setTimeout(resolve, 100));
 
     // 2. Immediate second message: rate-limited (gap < 2s)
     ws.send(encodeMessage('chat', { text: 'Spamming', channel: 'local' }));
-    const resp = await receive(ws);
-    expect(resp.type).toBe('error');
-    expect((resp.payload as any).code).toBe('rate-limited');
-    expect((resp.payload as any).message).toContain('Sending too fast');
+    const resp = await receiveMessageType(ws, 'error');
+    expect(resp.payload.code).toBe('rate-limited');
+    expect(resp.payload.message).toContain('Sending too fast');
 
     // 3. Message too long: rate-limited
     ws.send(encodeMessage('chat', { text: 'a'.repeat(501), channel: 'local' }));
-    const respLong = await receive(ws);
-    expect(respLong.type).toBe('error');
-    expect((respLong.payload as any).code).toBe('rate-limited');
-    expect((respLong.payload as any).message).toContain('Message too long');
+    const respLong = await receiveMessageType(ws, 'error');
+    expect(respLong.payload.code).toBe('rate-limited');
+    expect(respLong.payload.message).toContain('Message too long');
 
     ws.close();
   });
@@ -149,12 +164,13 @@ describe('Rate Limiting Integration', () => {
 
     // 3 chat violations
     ws.send(encodeMessage('chat', { text: '1', channel: 'local' })); // OK
+    await new Promise(resolve => setTimeout(resolve, 100));
 
     ws.send(encodeMessage('chat', { text: '2', channel: 'local' })); // Violation 1 (gap)
-    await receive(ws);
+    await receiveMessageType(ws, 'error');
 
     ws.send(encodeMessage('chat', { text: '3', channel: 'local' })); // Violation 2 (gap)
-    await receive(ws);
+    await receiveMessageType(ws, 'error');
 
     ws.send(encodeMessage('chat', { text: '4', channel: 'local' })); // Violation 3 (gap)
 
