@@ -1,94 +1,98 @@
 {
-  "name": "Iota Regulus Gorge system",
+  "name": "Sol system",
   "planets": [
     {
       "aiRoster": {
-        "classes": ["scout", "scout", "interceptor", "scout", "interceptor"],
-        "count": 5
-      },
-      "class": "ice",
-      "dockCount": 1,
-      "hasAtmosphere": true,
-      "id": "p-0",
-      "landable": true,
-      "name": "Aurelia Major",
-      "radiusKm": 3600,
-      "resourceTypes": ["iron", "copper"]
-    },
-    {
-      "aiRoster": {
-        "classes": ["scout", "interceptor", "freighter", "scout"],
-        "count": 4
-      },
-      "class": "gas",
-      "dockCount": 0,
-      "hasAtmosphere": true,
-      "id": "p-1",
-      "landable": false,
-      "name": "Aurelia Alpha",
-      "radiusKm": 24212,
-      "resourceTypes": ["copper", "iron", "water"]
-    },
-    {
-      "aiRoster": {
-        "classes": ["interceptor", "interceptor"],
+        "classes": [
+          "interceptor",
+          "interceptor"
+        ],
         "count": 2
       },
-      "class": "gas",
-      "dockCount": 0,
-      "hasAtmosphere": true,
-      "id": "p-2",
-      "landable": false,
-      "name": "Nova Major",
-      "radiusKm": 39130,
-      "resourceTypes": ["gas-compounds", "silicon", "copper"]
+      "atmosphereDensity": 0,
+      "atmosphereHeight": 0,
+      "class": "ice",
+      "dockCount": 1,
+      "hasAtmosphere": false,
+      "id": "p-0",
+      "landable": true,
+      "name": "Krios Prime",
+      "radiusKm": 6697,
+      "resourceTypes": [
+        "gas-compounds"
+      ]
     },
     {
       "aiRoster": {
-        "classes": ["interceptor", "scout", "interceptor", "scout"],
+        "classes": [
+          "interceptor",
+          "scout"
+        ],
+        "count": 2
+      },
+      "atmosphereDensity": 0.9823594637680799,
+      "atmosphereHeight": 54,
+      "class": "terran",
+      "dockCount": 1,
+      "hasAtmosphere": true,
+      "id": "p-1",
+      "landable": true,
+      "name": "Erebos Alpha",
+      "radiusKm": 6568,
+      "resourceTypes": [
+        "water",
+        "rare-earths"
+      ]
+    },
+    {
+      "aiRoster": {
+        "classes": [
+          "interceptor",
+          "freighter",
+          "freighter"
+        ],
+        "count": 3
+      },
+      "atmosphereDensity": 0.8166532391682267,
+      "atmosphereHeight": 344,
+      "class": "terran",
+      "dockCount": 2,
+      "hasAtmosphere": true,
+      "id": "p-2",
+      "landable": true,
+      "name": "Nova Delta",
+      "radiusKm": 6907,
+      "resourceTypes": [
+        "iron"
+      ]
+    },
+    {
+      "aiRoster": {
+        "classes": [
+          "scout",
+          "freighter",
+          "freighter",
+          "interceptor"
+        ],
         "count": 4
       },
+      "atmosphereDensity": 0.5598833761177957,
+      "atmosphereHeight": 146,
       "class": "ocean",
       "dockCount": 2,
       "hasAtmosphere": true,
       "id": "p-3",
       "landable": true,
-      "name": "Pyros Gamma",
-      "radiusKm": 5706,
-      "resourceTypes": ["iron", "rare-earths"]
-    },
-    {
-      "aiRoster": {
-        "classes": ["scout", "scout", "interceptor", "interceptor", "scout"],
-        "count": 5
-      },
-      "class": "rocky",
-      "dockCount": 1,
-      "hasAtmosphere": false,
-      "id": "p-4",
-      "landable": true,
-      "name": "Hestia Alpha",
-      "radiusKm": 7451,
-      "resourceTypes": ["iron"]
-    },
-    {
-      "aiRoster": {
-        "classes": ["freighter", "interceptor", "freighter", "scout", "scout"],
-        "count": 5
-      },
-      "class": "rocky",
-      "dockCount": 2,
-      "hasAtmosphere": false,
-      "id": "p-5",
-      "landable": true,
-      "name": "Erebos Delta",
-      "radiusKm": 7733,
-      "resourceTypes": ["water"]
+      "name": "Hestia IX",
+      "radiusKm": 2322,
+      "resourceTypes": [
+        "iron"
+      ]
     }
   ],
   "star": {
-    "class": "M",
-    "name": "Iota Regulus Gorge"
+    "class": "G",
+    "name": "Sol"
   },
-  "systemId": "c7aadd5096fec95"
+  "systemId": "cacfad36207cf97a"
 }

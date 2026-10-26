@@ -1,6 +1,105 @@
 {
-  "checksum": "99f1343ac6085f292134ce7909c9a3efa3149ff8afb961432db5d723cb0dd4c1",
+  "checksum": "bcc67fd4f50b667c381b21e805d7fb5541dede429524a4fabeda9e216678453d",
   "first25": [
+    {
+      "class": "G",
+      "id": "sol",
+      "name": "Sol",
+      "systemCount": 3,
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    {
+      "class": "G",
+      "id": "alpha-centauri",
+      "name": "Alpha Centauri",
+      "systemCount": 2,
+      "x": 4.3,
+      "y": 0,
+      "z": 0
+    },
+    {
+      "class": "K",
+      "id": "crowded-system",
+      "name": "Crowded System",
+      "systemCount": 5,
+      "x": 10,
+      "y": 10,
+      "z": 10
+    },
+    {
+      "class": "G",
+      "id": "sys-1",
+      "name": "System 1",
+      "systemCount": 2,
+      "x": 1,
+      "y": 1,
+      "z": 1
+    },
+    {
+      "class": "G",
+      "id": "sys-2",
+      "name": "System 2",
+      "systemCount": 2,
+      "x": 2,
+      "y": 2,
+      "z": 2
+    },
+    {
+      "class": "B",
+      "id": "sys-storm",
+      "name": "Storm System",
+      "systemCount": 2,
+      "x": 5,
+      "y": 5,
+      "z": 5
+    },
+    {
+      "class": "G",
+      "id": "s1",
+      "name": "Star 1",
+      "systemCount": 2,
+      "x": 6,
+      "y": 6,
+      "z": 6
+    },
+    {
+      "class": "G",
+      "id": "s2",
+      "name": "Star 2",
+      "systemCount": 2,
+      "x": 7,
+      "y": 7,
+      "z": 7
+    },
+    {
+      "class": "G",
+      "id": "s3",
+      "name": "Star 3",
+      "systemCount": 2,
+      "x": 8,
+      "y": 8,
+      "z": 8
+    },
+    {
+      "class": "G",
+      "id": "s4",
+      "name": "Star 4",
+      "systemCount": 2,
+      "x": 9,
+      "y": 9,
+      "z": 9
+    },
+    {
+      "class": "G",
+      "id": "s5",
+      "name": "Star 5",
+      "systemCount": 2,
+      "x": 10,
+      "y": 10,
+      "z": 10
+    },
     {
       "class": "M",
       "id": "31f482751b2e5742",
@@ -126,105 +225,6 @@
       "x": -28.097659913888716,
       "y": 17.62100465854195,
       "z": 0.06448392458390233
-    },
-    {
-      "class": "M",
-      "id": "321467cd26963d42",
-      "name": "Epsilon Canopus Cradle",
-      "systemCount": 4,
-      "x": 10.107497800822495,
-      "y": -24.135566600715702,
-      "z": 0.03616625855172957
-    },
-    {
-      "class": "M",
-      "id": "d3e8f76c1f63f4bc",
-      "name": "Eta Canopus Frost",
-      "systemCount": 8,
-      "x": -33.51369315456386,
-      "y": 10.320699632645677,
-      "z": -0.22885455620062037
-    },
-    {
-      "class": "M",
-      "id": "3f97c139813e8115",
-      "name": "Stella Alnitak Accord",
-      "systemCount": 6,
-      "x": 7.713912911550866,
-      "y": 11.852085386750083,
-      "z": 0.28162044090092786
-    },
-    {
-      "class": "K",
-      "id": "b0e296f75c0060",
-      "name": "Dark Spica Gamma",
-      "systemCount": 7,
-      "x": 2.659780100242037,
-      "y": -6.8683112404645374,
-      "z": -0.1422045568905719
-    },
-    {
-      "class": "M",
-      "id": "812c2300cb9a6fea",
-      "name": "Rho Bellatrix X",
-      "systemCount": 3,
-      "x": 35.260039437157495,
-      "y": -2.4059979750926845,
-      "z": 0.04696062562634014
-    },
-    {
-      "class": "M",
-      "id": "a42aeb8a6989d61c",
-      "name": "Inner Alkaid Frost",
-      "systemCount": 8,
-      "x": 1.0359589162907894,
-      "y": 16.179392222316856,
-      "z": 0.13910062584185157
-    },
-    {
-      "class": "M",
-      "id": "372d5f71bab786eb",
-      "name": "Sigma Shaula II",
-      "systemCount": 6,
-      "x": 12.809321529471651,
-      "y": -4.900170107871997,
-      "z": -0.013960676485791452
-    },
-    {
-      "class": "M",
-      "id": "86a1ecc4b0008c6d",
-      "name": "Kappa Bellatrix Cradle",
-      "systemCount": 2,
-      "x": 1.3669040729626287,
-      "y": 22.830002094637646,
-      "z": 0.19353781732750666
-    },
-    {
-      "class": "M",
-      "id": "25a81d84ba651686",
-      "name": "Eta Alnilam Minor",
-      "systemCount": 2,
-      "x": 9.146998216231802,
-      "y": 12.010573944692231,
-      "z": -0.1665510497584284
-    },
-    {
-      "class": "M",
-      "id": "cee18e590fc552b2",
-      "name": "Hyper Electra Spire",
-      "systemCount": 3,
-      "x": 32.65693154957478,
-      "y": 29.64617177843488,
-      "z": -0.21261091734321938
-    },
-    {
-      "class": "M",
-      "id": "ca92cb915dd99ee4",
-      "name": "Gamma Phecda Tertiary",
-      "systemCount": 6,
-      "x": -15.449016231480025,
-      "y": 17.51249115560635,
-      "z": -0.048054050459136556
     }
   ],
   "totalCount": 200

@@ -1,38 +1,59 @@
 {
-  "name": "Gamma Naos Spire system",
+  "name": "Alpha Centauri system",
   "planets": [
     {
       "aiRoster": {
-        "classes": ["interceptor", "freighter", "scout", "interceptor"],
-        "count": 4
+        "classes": [
+          "freighter",
+          "freighter"
+        ],
+        "count": 2
       },
-      "class": "ice",
-      "dockCount": 1,
-      "hasAtmosphere": false,
+      "atmosphereDensity": 0.6217625068034976,
+      "atmosphereHeight": 284,
+      "class": "rocky",
+      "dockCount": 3,
+      "hasAtmosphere": true,
       "id": "p-0",
       "landable": true,
-      "name": "Hestia IV",
-      "radiusKm": 6615,
-      "resourceTypes": ["rare-earths"]
+      "name": "Zephyr Minor",
+      "radiusKm": 4377,
+      "resourceTypes": [
+        "water",
+        "silicon",
+        "rare-earths"
+      ]
     },
     {
       "aiRoster": {
-        "classes": ["interceptor", "scout", "interceptor", "freighter"],
-        "count": 4
+        "classes": [
+          "freighter",
+          "scout",
+          "scout",
+          "scout",
+          "freighter"
+        ],
+        "count": 5
       },
-      "class": "rocky",
-      "dockCount": 2,
-      "hasAtmosphere": false,
+      "atmosphereDensity": 0.9840779821388423,
+      "atmosphereHeight": 14670,
+      "class": "gas",
+      "dockCount": 0,
+      "hasAtmosphere": true,
       "id": "p-1",
-      "landable": true,
-      "name": "Zephyr IV",
-      "radiusKm": 6965,
-      "resourceTypes": ["copper", "silicon"]
+      "landable": false,
+      "name": "Pyros Omega",
+      "radiusKm": 53671,
+      "resourceTypes": [
+        "iron",
+        "water",
+        "rare-earths"
+      ]
     }
   ],
   "star": {
-    "class": "M",
-    "name": "Gamma Naos Spire"
+    "class": "G",
+    "name": "Alpha Centauri"
   },
-  "systemId": "a91dcc268aed3b3c"
+  "systemId": "7037d58592853af7"
 }

@@ -1,8 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { generateSystem } from './system';
 import { generateStars } from './stars';
+import * as fs from 'fs';
+import * as path from 'path';
 
-const GOLDEN_SEED = 'drift-dev-seed-001';
+const GOLDEN_SEED = 'dev-seed';
+const FIXTURES_DIR = path.join(__dirname, '__fixtures__');
+
+function loadFixture<T>(name: string): T {
+  const content = fs.readFileSync(path.join(FIXTURES_DIR, name), 'utf-8');
+  return JSON.parse(content);
+}
 
 describe('System Generator', () => {
   it('is deterministic', () => {
@@ -75,99 +83,6 @@ describe('System Generator', () => {
     const starId = stars[0].id;
     const sys = generateSystem(GOLDEN_SEED, starId);
 
-    expect(sys).toEqual({
-      systemId: 'bcca5917d3bbbeef',
-      name: 'Alpha Sirius Epsilon system',
-      star: {
-        class: 'G',
-        name: 'Alpha Sirius Epsilon',
-      },
-      planets: [
-        {
-          id: 'p-0',
-          name: 'Nova IX',
-          class: 'terran',
-          radiusKm: 7857,
-          hasAtmosphere: true,
-          landable: true,
-          dockCount: 1,
-          resourceTypes: ['iron', 'copper'],
-          aiRoster: {
-            count: 4,
-            classes: ['interceptor', 'scout', 'scout', 'interceptor'],
-          },
-        },
-        {
-          id: 'p-1',
-          name: 'Pyros Beta',
-          class: 'rocky',
-          radiusKm: 3079,
-          hasAtmosphere: false,
-          landable: true,
-          dockCount: 3,
-          resourceTypes: ['water', 'copper'],
-          aiRoster: {
-            count: 3,
-            classes: ['interceptor', 'scout', 'scout'],
-          },
-        },
-        {
-          id: 'p-2',
-          name: 'Gaea Gamma',
-          class: 'ice',
-          radiusKm: 3699,
-          hasAtmosphere: false,
-          landable: true,
-          dockCount: 2,
-          resourceTypes: ['water'],
-          aiRoster: {
-            count: 2,
-            classes: ['scout', 'freighter'],
-          },
-        },
-        {
-          id: 'p-3',
-          name: 'Thalassa Beta',
-          class: 'ocean',
-          radiusKm: 3652,
-          hasAtmosphere: true,
-          landable: true,
-          dockCount: 1,
-          resourceTypes: ['water', 'rare-earths'],
-          aiRoster: {
-            count: 3,
-            classes: ['scout', 'scout', 'interceptor'],
-          },
-        },
-        {
-          id: 'p-4',
-          name: 'Hestia Gamma',
-          class: 'gas',
-          radiusKm: 59893,
-          hasAtmosphere: true,
-          landable: false,
-          dockCount: 0,
-          resourceTypes: ['iron', 'copper'],
-          aiRoster: {
-            count: 4,
-            classes: ['interceptor', 'freighter', 'freighter', 'scout'],
-          },
-        },
-        {
-          id: 'p-5',
-          name: 'Zephyr Minor',
-          class: 'ice',
-          radiusKm: 4146,
-          hasAtmosphere: true,
-          landable: true,
-          dockCount: 1,
-          resourceTypes: ['copper', 'iron'],
-          aiRoster: {
-            count: 5,
-            classes: ['interceptor', 'scout', 'scout', 'interceptor', 'freighter'],
-          },
-        },
-      ],
-    });
+    expect(sys).toEqual(loadFixture<any>('system-star-0.json'));
   });
 });

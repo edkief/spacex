@@ -88,10 +88,10 @@ describe('NetworkManager Presence Integration', () => {
         type: 'enter_system',
         payload: {
           snapshot: {
-            systemId: 'sol',
+            systemId: 'cfd49a34bb6baf64',
             players: [
-              { id: 'p1', callsign: 'Alpha', systemId: 'sol' },
-              { id: 'p2', callsign: 'Beta', systemId: 'sol' },
+              { id: 'p1', callsign: 'Alpha', systemId: 'cfd49a34bb6baf64' },
+              { id: 'p2', callsign: 'Beta', systemId: 'cfd49a34bb6baf64' },
             ],
           },
         },

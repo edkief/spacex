@@ -9,7 +9,7 @@ describe('Combat Damage Model', () => {
   let entity: ServerShipState;
 
   beforeEach(() => {
-    shard = new Shard('test-system');
+    shard = new Shard('cfd49a34bb6baf64', 'DRIFT-SEED-0001');
     shipId = 'ship-1';
     entity = {
       id: shipId,

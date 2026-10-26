@@ -293,7 +293,7 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
           // Store handler so we can remove it on close
           (ws as any)._shardHandler = sendHandler;
 
-          ws.send(encodeMessage('enter_system', { snapshot }));
+          ws.send(encodeMessage('enter_system', { snapshot: { systemId, entities: snapshot } }));
           ctx.state = 'active';
         } else {
           sendError(ws, 'invalid-message', 'Expected join_system message');

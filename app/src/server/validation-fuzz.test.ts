@@ -151,7 +151,7 @@ describe('Validation Fuzzing', () => {
     ws.send(encodeMessage('auth', { token }));
     await receive(ws);
 
-    ws.send(encodeMessage('join_system', { systemId: 'sol' }));
+    ws.send(encodeMessage('join_system', { systemId: 'cfd49a34bb6baf64' }));
     const joinResp = await receive(ws);
     expect(joinResp.type).toBe('enter_system');
 

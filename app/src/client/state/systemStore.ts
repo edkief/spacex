@@ -1,5 +1,5 @@
 export const systemStore = {
-  currentSystemId: 'sol',
+  currentSystemId: 'cfd49a34bb6baf64',
   listeners: new Set<() => void>(),
 
   setSystemId(id: string) {

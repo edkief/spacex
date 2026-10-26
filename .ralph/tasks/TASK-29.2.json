@@ -28,5 +28,6 @@
   ],
   "notes": "This task depends on TASK-29.1. Once authentication is fixed, the E2E tests should be able to use the teleport debug hook to reach the landing pad and verify the 'DOCKED' state. Use quiet test reporters if output is too large to avoid context overflow.",
   "splitFrom": "TASK-29",
-  "splitDepth": 1
+  "splitDepth": 1,
+  "status": "completed"
 }

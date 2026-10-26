@@ -59,11 +59,11 @@ describe('Livery Broadcast Integration', () => {
     });
 
   const setupPlayer = async (callsign: string) => {
-    const player = await repo.createPlayer(callsign, 'sol');
-    const token = signToken({ playerId: player.id, systemId: 'sol', exp: Date.now() + 3600000 });
+    const player = await repo.createPlayer(callsign, 'cfd49a34bb6baf64');
+    const token = signToken({ playerId: player.id, systemId: 'cfd49a34bb6baf64', exp: Date.now() + 3600000 });
     const tokenHash = hashToken(token);
-    await repo.createSession(player.id, 'sol', tokenHash);
-    await repo.getOrCreateStarterShip(player.id, 'sol');
+    await repo.createSession(player.id, 'cfd49a34bb6baf64', tokenHash);
+    await repo.getOrCreateStarterShip(player.id, 'cfd49a34bb6baf64');
     return { player, token };
   };
 
@@ -72,7 +72,7 @@ describe('Livery Broadcast Integration', () => {
     await receive(ws);
     ws.send(encodeMessage('auth', { token }));
     await receive(ws);
-    ws.send(encodeMessage('join_system', { systemId: 'sol' }));
+    ws.send(encodeMessage('join_system', { systemId: 'cfd49a34bb6baf64' }));
     await receive(ws);
   };
 

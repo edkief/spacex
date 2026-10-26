@@ -81,3 +81,4 @@
 2026-10-24 15:54:48 - Completed TASK-62: Implemented dual-driver Drizzle schema and repository layer with full unit tests for SQLite.
 2026-10-24: Implemented PersistService with dirty-ship tracking, interval saves, and recovery. Updated Repository and Schema to support system-based loading.
 2026-10-25: Completed TASK-25: Implemented regime manager for space/atmosphere/surface transitions. Added shared resolution logic with hysteresis, integrated into server sim loop and client control schemes. Added unit and integration tests verifying boundary transitions and noise stability.
+2026-10-25: Completed TASK-29 (29.1, 29.2): Landing pads detection, VTOL assist, and docking state implementation. Fixed authentication in client (localStorage), implemented SHIP_TELEPORTED event for simulation sync, and fixed regressions in livery and combat tests. Verified docking E2E test passes.

@@ -19,7 +19,7 @@ describe('Persistence Performance', () => {
   });
 
   it('should flush 16 ships in under 8ms p95', async () => {
-    const systemId = 'sol';
+    const systemId = 'cfd49a34bb6baf64';
     const ships = new Map<string, any>();
 
     // Setup 16 ships in DB and simulation

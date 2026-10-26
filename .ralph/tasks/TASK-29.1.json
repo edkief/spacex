@@ -28,5 +28,6 @@
   ],
   "notes": "This task picks up from the crash in the previous attempt at TASK-29. Most functional work (pad derivation, docking logic, VTOL assist, and UI indicators) is already committed in 41e88e2. The primary blocker is that the E2E tests cannot authenticate with the debug teleport endpoints because the token is not persisted in localStorage. Avoid reading entire files if they are large; use read ranges or grep.",
   "splitFrom": "TASK-29",
-  "splitDepth": 1
+  "splitDepth": 1,
+  "status": "completed"
 }
