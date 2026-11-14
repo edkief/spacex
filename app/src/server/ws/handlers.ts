@@ -22,12 +22,19 @@ export const sessionHandlers: HandlerMap = {
     });
   },
 
-  async auth({ conn, deps }, payload) {
+  async auth({ conn, deps, hub }, payload) {
     const result = await deps.authenticator.authenticate(payload.token);
     if (!result.ok) {
       conn.sendError('unauthenticated', 'invalid or expired session token');
       return;
     }
+    const { tokenHash } = result.session;
+    if (!hub.tokenLimiter.acquire(tokenHash)) {
+      conn.sendError('too-many-connections', 'too many connections for this session');
+      conn.close(CLOSE_CODES.connectionLimit, 'too-many-connections');
+      return;
+    }
+    conn.onClose(() => hub.tokenLimiter.release(tokenHash));
     if (!conn.transition('authenticated')) return;
     conn.session = result.session;
     const { playerId, callsign, shipId, homeSystemId } = result.session;

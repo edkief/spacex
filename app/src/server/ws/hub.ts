@@ -1,7 +1,13 @@
+import { LIMITS } from '../limits.ts';
+import { ConnectionLimiter } from '../ratelimit.ts';
 import type { Connection } from './connection.ts';
 
 /** Registry of open connections, indexed by system for room-style broadcasts (chat). */
 export class Hub {
+  /** Concurrent sockets per session token (taken at auth). */
+  readonly tokenLimiter = new ConnectionLimiter(LIMITS.socketsPerToken);
+  /** Concurrent sockets per client IP (taken at upgrade). */
+  readonly ipLimiter = new ConnectionLimiter(LIMITS.socketsPerIp);
   private readonly all = new Set<Connection>();
   private readonly bySystem = new Map<string, Set<Connection>>();
 

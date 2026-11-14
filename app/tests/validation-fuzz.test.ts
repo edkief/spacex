@@ -136,8 +136,20 @@ describe('validation fuzz against a live in-process server', () => {
   });
 
   it('drops a client that keeps sending invalid messages (50) with close code 4011', async () => {
-    const client = await connectTo('fresh');
-    for (let i = 0; i < 50; i++) client.sendRaw('{broken');
-    expect(await client.closed()).toBe(4011);
+    // Fake time lets us pace the garbage below the rate limit so the invalid counter is what trips.
+    const paced = await startTestServer({ fakeTimers: true });
+    try {
+      const client = await paced.connect();
+      for (let i = 0; i < 50; i++) {
+        client.sendRaw('{broken');
+        if (i % 10 === 9) {
+          await new Promise((resolve) => setTimeout(resolve, 30));
+          paced.timers.advance(1000);
+        }
+      }
+      expect(await client.closed()).toBe(4011);
+    } finally {
+      await paced.close();
+    }
   });
 });

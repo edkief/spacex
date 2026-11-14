@@ -70,7 +70,9 @@ export class TestClient {
 
   /** Waits for the next message and asserts its type. */
   async expect(type: string, timeoutMs?: number): Promise<Record<string, unknown>> {
-    const message = await this.next(timeoutMs);
+    let message = await this.next(timeoutMs);
+    // Heartbeat pings are background noise unless the test asked for one.
+    while (message.type === 'ping' && type !== 'ping') message = await this.next(timeoutMs);
     if (message.type !== type) {
       throw new Error(`expected ${type}, got ${message.type}: ${JSON.stringify(message.payload)}`);
     }

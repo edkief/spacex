@@ -41,7 +41,7 @@ function setup(handlers: HandlerMap = {}) {
     log: { error: vi.fn(), warn: vi.fn(), debug: vi.fn(), info: vi.fn() } as never,
   };
   const socket = new FakeSocket();
-  const conn = new Connection(socket, '127.0.0.1', timers.now());
+  const conn = new Connection(socket, '127.0.0.1', timers.now);
   const hub = new Hub();
   const dispatch = createDispatcher(handlers, deps, hub);
   const send = (type: string, payload: unknown, v = PROTOCOL_VERSION) =>

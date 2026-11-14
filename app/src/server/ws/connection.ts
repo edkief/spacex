@@ -2,10 +2,13 @@ import { encodeMessage } from '@shared/protocol/envelope.ts';
 import { errorBody, type ErrorCode } from '@shared/protocol/errors.ts';
 import type { ServerPayload, ServerType } from '@shared/protocol/registry.ts';
 import type { AuthenticatedSession } from '../auth/types.ts';
+import { createConnectionLimits, type ConnectionLimits } from '../ratelimit.ts';
 import { reduce, type ConnEvent, type ConnState } from './state.ts';
 
 /** The slice of a WebSocket the connection logic needs; tests supply a fake. */
 export interface Socket {
+  /** False once the socket is closing or closed; sends are skipped then. Defaults to open. */
+  readonly open?: boolean;
   send(data: string): void;
   close(code: number, reason?: string): void;
   terminate(): void;
@@ -26,6 +29,9 @@ export class Connection {
   unknownTypes = 0;
   invalidMessages = 0;
   lastSeenAt: number;
+  readonly limits: ConnectionLimits;
+  /** Set once the connection is being dropped; further frames are ignored silently. */
+  dropping = false;
   /** Serialises message handling so async handlers never reorder a client's messages. */
   private chain: Promise<void> = Promise.resolve();
   /** Cleanup callbacks (timers, limiter slots) run exactly once on close. */
@@ -35,10 +41,11 @@ export class Connection {
   private readonly socket: Socket;
   readonly ip: string;
 
-  constructor(socket: Socket, ip: string, now: number) {
+  constructor(socket: Socket, ip: string, clock: () => number) {
     this.socket = socket;
     this.ip = ip;
-    this.lastSeenAt = now;
+    this.lastSeenAt = clock();
+    this.limits = createConnectionLimits(clock);
   }
 
   /** Applies a lifecycle event; returns false (and changes nothing) if it is not allowed. */
@@ -51,7 +58,7 @@ export class Connection {
 
   /** Sends a server message (the payload type is checked against the server registry). */
   send<K extends ServerType>(type: K, payload: ServerPayload<K>): void {
-    if (this.closed) return;
+    if (this.closed || this.socket.open === false) return;
     this.socket.send(encodeMessage(type, payload));
   }
 

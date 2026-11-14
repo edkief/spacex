@@ -42,7 +42,7 @@ function setup() {
   };
   const hub = new Hub();
   const socket = new RecordingSocket();
-  const conn = new Connection(socket, '127.0.0.1', timers.now());
+  const conn = new Connection(socket, '127.0.0.1', timers.now);
   hub.add(conn);
   return { timers, deps, hub, socket, conn };
 }

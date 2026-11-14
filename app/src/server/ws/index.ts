@@ -1,13 +1,16 @@
 import type { FastifyInstance } from 'fastify';
-import { WebSocketServer, type RawData, type WebSocket } from 'ws';
+import { WebSocket as WsSocket, WebSocketServer, type RawData } from 'ws';
 import { MAX_FRAME_BYTES } from '@shared/protocol/envelope.ts';
-import { CLOSE_CODES } from '@shared/protocol/errors.ts';
+import { CLOSE_CODES, errorBody } from '@shared/protocol/errors.ts';
+import { clientIp } from '../clientIp.ts';
 import { Connection } from './connection.ts';
 import type { WsDeps } from './context.ts';
 import { createDispatcher, rejectBinary, type HandlerMap } from './dispatch.ts';
+import { chatHandlers } from './chat.ts';
 import { sessionHandlers } from './handlers.ts';
 import { armHandshakeTimeout, startHeartbeat } from './heartbeat.ts';
 import { Hub } from './hub.ts';
+import { admitFrame } from './limits.ts';
 
 export interface WebSocketLayer {
   hub: Hub;
@@ -28,7 +31,7 @@ function frameText(data: RawData): string {
 export function attachWebSocket(
   app: FastifyInstance,
   deps: WsDeps,
-  handlers: HandlerMap = sessionHandlers,
+  handlers: HandlerMap = { ...sessionHandlers, ...chatHandlers },
 ): WebSocketLayer {
   const hub = new Hub();
   const dispatch = createDispatcher(handlers, deps, hub);
@@ -45,22 +48,48 @@ export function attachWebSocket(
       socket.destroy();
       return;
     }
-    wss.handleUpgrade(request, socket, head, (client) => wss.emit('connection', client, request));
+    const ip = clientIp(request, deps.config.trustProxy);
+    if (!hub.ipLimiter.acquire(ip)) {
+      const body = JSON.stringify(errorBody('too-many-connections', 'too many connections'));
+      socket.end(
+        `HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
+      );
+      return;
+    }
+    // The raw TCP socket closes on every path (refused handshake, normal close, terminate).
+    socket.once('close', () => hub.ipLimiter.release(ip));
+    wss.handleUpgrade(request, socket, head, (client) =>
+      wss.emit('connection', client, request, ip),
+    );
   });
 
-  wss.on('connection', (socket: WebSocket, request) => {
-    const ip = request.socket.remoteAddress ?? 'unknown';
-    const conn = new Connection(socket, ip, deps.clock());
+  wss.on('connection', (socket: WsSocket, _request: unknown, ip: string) => {
+    const conn = new Connection(
+      {
+        get open() {
+          return socket.readyState === WsSocket.OPEN;
+        },
+        send: (data) => socket.send(data),
+        close: (code, reason) => socket.close(code, reason),
+        terminate: () => socket.terminate(),
+      },
+      ip,
+      deps.clock,
+    );
     hub.add(conn);
     armHandshakeTimeout(conn, deps);
 
     socket.on('error', (error) => deps.log.warn({ err: error }, 'websocket error'));
     socket.on('message', (data, isBinary) => {
+      // Rate limiting happens before queueing so a flood can never build a backlog.
+      if (!admitFrame(conn)) return;
       if (isBinary) {
         rejectBinary(conn, deps);
         return;
       }
-      void conn.enqueue(() => dispatch(conn, frameText(data)));
+      void conn.enqueue(() =>
+        conn.dropping ? Promise.resolve() : dispatch(conn, frameText(data)),
+      );
     });
     socket.on('close', () => {
       const { systemId, session } = conn;

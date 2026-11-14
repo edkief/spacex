@@ -20,6 +20,7 @@ const envObject = z.object({
   API_PORT: portSchema.optional(),
   SESSION_SECRET: sessionSecretSchema,
   GALAXY_SEED: z.string().min(1).default('drift-default-galaxy'),
+  TRUST_PROXY: z.stringbool().default(false),
   DB_DRIVER: z.enum(['sqlite', 'postgres']).default('sqlite'),
   DB_PATH: z.string().min(1).default('./data/drift.db'),
   DATABASE_URL: z.string().optional(),
@@ -53,6 +54,8 @@ export interface ServerConfig {
   nodeEnv: 'development' | 'production' | 'test';
   isProduction: boolean;
   host: string;
+  /** Trust X-Forwarded-For from a reverse proxy when deriving the client IP. */
+  trustProxy: boolean;
   /** Public port: Vite in dev, the Node server in production. */
   port: number;
   /** Port the Node server listens on in dev (Vite proxies to it). Defaults to PORT + 1. */
@@ -113,6 +116,7 @@ export function loadConfig(env: EnvSource): ServerConfig {
     nodeEnv: parsed.NODE_ENV,
     isProduction,
     host: parsed.HOST,
+    trustProxy: parsed.TRUST_PROXY,
     port: parsed.PORT,
     apiPort,
     listenPort: isProduction ? parsed.PORT : apiPort,

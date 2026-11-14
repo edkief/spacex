@@ -37,6 +37,7 @@ export function buildServer(deps: ServerDeps, options: BuildServerOptions = {}):
   const { config } = deps;
   const app = Fastify({
     bodyLimit: REST_BODY_LIMIT,
+    trustProxy: config.trustProxy,
     logger: { level: options.logLevel ?? (config.nodeEnv === 'test' ? 'silent' : 'info') },
   });
 

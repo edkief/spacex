@@ -21,6 +21,7 @@ describe('loadConfig', () => {
       nodeEnv: 'development',
       isProduction: false,
       host: '127.0.0.1',
+      trustProxy: false,
       port: 3000,
       apiPort: 3001,
       listenPort: 3001,
@@ -100,6 +101,15 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ ...valid, WS_PATH: 'ws' })).toThrow(/WS_PATH/);
     expect(() => loadConfig({ ...valid, API_PORT: '3000' })).toThrow(/API_PORT/);
     expect(() => loadConfig({ ...valid, PORT: '65535' })).toThrow(/API_PORT/);
+  });
+});
+
+describe('TRUST_PROXY', () => {
+  it('defaults to false and parses booleans', () => {
+    expect(loadConfig(valid).trustProxy).toBe(false);
+    expect(loadConfig({ ...valid, TRUST_PROXY: 'true' }).trustProxy).toBe(true);
+    expect(loadConfig({ ...valid, TRUST_PROXY: 'false' }).trustProxy).toBe(false);
+    expect(() => loadConfig({ ...valid, TRUST_PROXY: 'maybe' })).toThrow(/TRUST_PROXY/);
   });
 });
 
