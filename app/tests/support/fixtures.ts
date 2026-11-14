@@ -10,6 +10,14 @@ export function serializeFixture(value: unknown): string {
   return canonicalStringify(value, 2) + '\n';
 }
 
+const DIGEST_KEYS = new Set(['checksum', 'sha256']);
+
+/** Sort order for diffing: ordinary keys alphabetically, digest keys last so data diffs first. */
+function byDataFirst(a: string, b: string): number {
+  const digestOrder = Number(DIGEST_KEYS.has(a)) - Number(DIGEST_KEYS.has(b));
+  return digestOrder !== 0 ? digestOrder : a < b ? -1 : a > b ? 1 : 0;
+}
+
 /** Finds the first differing path between two JSON values, or undefined when equal. */
 export function firstDiffPath(a: unknown, b: unknown, at = '$'): string | undefined {
   if (Object.is(a, b)) return undefined;
@@ -18,7 +26,7 @@ export function firstDiffPath(a: unknown, b: unknown, at = '$'): string | undefi
   if (Array.isArray(a) !== Array.isArray(b)) return `${at}: array/object mismatch`;
   const left = a as Record<string, unknown>;
   const right = b as Record<string, unknown>;
-  const keys = [...new Set([...Object.keys(left), ...Object.keys(right)])].sort();
+  const keys = [...new Set([...Object.keys(left), ...Object.keys(right)])].sort(byDataFirst);
   for (const key of keys) {
     if (!(key in left) || !(key in right)) return `${at}.${key}: present on one side only`;
     const diff = firstDiffPath(

@@ -63,6 +63,36 @@ function surfaceFixture(chunkX: number, chunkZ: number): unknown {
   return { seed: SNAPSHOT_SEED, planetId: planet.id, chunk: chunkFixtureBody(chunk) };
 }
 
+const DIGEST_CHUNK_RANGE = [-4, -3, -2, -1, 0, 1, 2, 3];
+
+/**
+ * Broad-coverage digests: sha256 over every system of the chart, and over an 8x8 chunk grid for
+ * the first landable planet of each class. Catches small probability or constant changes that
+ * the few fully recorded fixtures would not happen to exercise.
+ */
+function galaxyDigests(): unknown {
+  const stars = generateStars(SNAPSHOT_SEED);
+  const systems = stars.map((star) => generateSystemForStar(SNAPSHOT_SEED, star));
+  const classes = ['terran', 'rocky', 'ocean', 'ice'] as const;
+  const surfaces = classes.map((planetClass) => {
+    const { planet } = firstPlanet(SNAPSHOT_SEED, (p) => p.landable && p.class === planetClass);
+    const chunks = DIGEST_CHUNK_RANGE.flatMap((cz) =>
+      DIGEST_CHUNK_RANGE.map((cx) => generateSurfaceChunk(SNAPSHOT_SEED, planet, cx, cz)),
+    );
+    return {
+      class: planetClass,
+      planetId: planet.id,
+      chunkCount: chunks.length,
+      sha256: sha256Hex(canonicalJson(chunks)),
+    };
+  });
+  return {
+    seed: SNAPSHOT_SEED,
+    systems: { count: systems.length, sha256: sha256Hex(canonicalJson(systems)) },
+    surfaces,
+  };
+}
+
 /** Every committed snapshot fixture, shared by the comparison tests and `snapshot:update`. */
 export function snapshotCases(): SnapshotCase[] {
   return [
@@ -72,5 +102,6 @@ export function snapshotCases(): SnapshotCase[] {
     { file: 'surface-0-0.json', build: () => surfaceFixture(0, 0) },
     { file: 'surface-1-0.json', build: () => surfaceFixture(1, 0) },
     { file: 'surface-0-1.json', build: () => surfaceFixture(0, 1) },
+    { file: 'galaxy-digests.json', build: galaxyDigests },
   ];
 }

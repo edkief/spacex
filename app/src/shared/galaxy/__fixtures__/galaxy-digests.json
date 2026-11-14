@@ -1,0 +1,33 @@
+{
+  "seed": "drift-dev-seed-001",
+  "surfaces": [
+    {
+      "chunkCount": 64,
+      "class": "terran",
+      "planetId": "23af299cef52680f",
+      "sha256": "7f2b690c376ba5e14669d880913f9cdbaffad65343265d1bb902caa0c1c15a13"
+    },
+    {
+      "chunkCount": 64,
+      "class": "rocky",
+      "planetId": "aaf5ca949fca4fc9",
+      "sha256": "7e40551785658ab4b1d00336c45bcb5c976cbb24ba9dbeb84583dda1a7569117"
+    },
+    {
+      "chunkCount": 64,
+      "class": "ocean",
+      "planetId": "44a7688dbb0b9ecd",
+      "sha256": "358fe573a1c68e64f78bcf044f5a2beb1e7935acfc5d855b630f0841cc168d90"
+    },
+    {
+      "chunkCount": 64,
+      "class": "ice",
+      "planetId": "3ba328146e798a83",
+      "sha256": "47b5cc77e6c9efb022b8042e0b400e3d39e5593b5eb33a4bc3e2853cebf9814a"
+    }
+  ],
+  "systems": {
+    "count": 200,
+    "sha256": "1a691180a0f7b7cf2f147e2c669c47e50a21a5961494085aa369843c7efe0a98"
+  }
+}
