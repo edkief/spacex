@@ -58,7 +58,7 @@ if (mode === 'storm') {
   ]);
   await persist.onDock({
     ...live,
-    position: { systemId: SYSTEM, x: 100.5, y: -20.25, z: 3 },
+    position: { systemId: SYSTEM, frame: 'system', x: 100.5, y: -20.25, z: 3 },
     cargo: [
       { resourceType: 'iron', quantity: 7 },
       { resourceType: 'water', quantity: 2 },
@@ -68,7 +68,7 @@ if (mode === 'storm') {
   persist.markDirty({
     ...live,
     state: 'flying',
-    position: { systemId: SYSTEM, x: 5000.5, y: 0, z: 0 },
+    position: { systemId: SYSTEM, frame: 'system', x: 5000.5, y: 0, z: 0 },
     cargo: [{ resourceType: 'iron', quantity: 9 }],
   });
   if (mode === 'interval') {

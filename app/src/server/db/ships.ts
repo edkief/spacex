@@ -52,7 +52,7 @@ export function shipsRepo(ctx: RepoContext): ShipsRepo {
           livery: STARTER_LIVERY,
           hull: scout.hull,
           shields: scout.shieldCapacity,
-          position: { systemId: owner[0].homeSystemId, x: 0, y: 0, z: 0 },
+          position: { systemId: owner[0].homeSystemId, frame: 'system' as const, x: 0, y: 0, z: 0 },
           velocity: { x: 0, y: 0, z: 0 },
           state: 'docked' as const,
           updatedAt: tx.now(),

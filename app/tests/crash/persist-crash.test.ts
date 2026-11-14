@@ -85,7 +85,13 @@ describe('crash recovery (child process killed with SIGKILL)', () => {
     const [ship] = state.ships;
     expect(ship?.state).toBe('docked');
     expect(Math.abs((ship?.position.x ?? 0) - 100.5)).toBeLessThanOrEqual(100);
-    expect(ship?.position).toEqual({ systemId: 'sys-crash', x: 100.5, y: -20.25, z: 3 });
+    expect(ship?.position).toEqual({
+      systemId: 'sys-crash',
+      frame: 'system',
+      x: 100.5,
+      y: -20.25,
+      z: 3,
+    });
     expect(ship?.cargo).toEqual([
       { resourceType: 'iron', quantity: 7 },
       { resourceType: 'water', quantity: 2 },

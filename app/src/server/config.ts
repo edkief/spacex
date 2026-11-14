@@ -22,10 +22,7 @@ const envObject = z.object({
   GALAXY_SEED: z.string().min(1).default('drift-default-galaxy'),
   DB_DRIVER: z.enum(['sqlite', 'postgres']).default('sqlite'),
   DB_PATH: z.string().min(1).default('./data/drift.db'),
-  DATABASE_URL: z
-    .string()
-    .regex(/^postgres(ql)?:\/\//, 'must be a postgres:// or postgresql:// URL')
-    .optional(),
+  DATABASE_URL: z.string().optional(),
   SYSTEM_INSTANCE_COUNT: z.coerce.number().int().min(1).max(64).default(3),
   WS_PATH: z
     .string()
@@ -34,11 +31,19 @@ const envObject = z.object({
 });
 
 const envSchema = envObject.superRefine((env, ctx) => {
-  if (env.DB_DRIVER === 'postgres' && !env.DATABASE_URL) {
+  // Only the postgres driver reads DATABASE_URL; with sqlite any value (even a placeholder) is ignored.
+  if (env.DB_DRIVER !== 'postgres') return;
+  if (!env.DATABASE_URL) {
     ctx.addIssue({
       code: 'custom',
       path: ['DATABASE_URL'],
       message: 'is required when DB_DRIVER=postgres',
+    });
+  } else if (!/^postgres(ql)?:\/\//.test(env.DATABASE_URL)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['DATABASE_URL'],
+      message: 'must be a postgres:// or postgresql:// URL',
     });
   }
 });
@@ -115,7 +120,7 @@ export function loadConfig(env: EnvSource): ServerConfig {
     galaxySeed: parsed.GALAXY_SEED,
     dbDriver: parsed.DB_DRIVER,
     dbPath: parsed.DB_PATH,
-    databaseUrl: parsed.DATABASE_URL,
+    databaseUrl: parsed.DB_DRIVER === 'postgres' ? parsed.DATABASE_URL : undefined,
     systemInstanceCount: parsed.SYSTEM_INSTANCE_COUNT,
     wsPath: parsed.WS_PATH,
   };

@@ -106,9 +106,15 @@ describe('loadConfig', () => {
 describe('DATABASE_URL', () => {
   const url = 'postgres://user:hunter2-db-password@db.example:5432/drift';
 
-  it('is optional for sqlite and ignored there', () => {
+  it('is optional for sqlite and not carried into the config there', () => {
     expect(loadConfig(valid).databaseUrl).toBeUndefined();
-    expect(loadConfig({ ...valid, DATABASE_URL: url }).databaseUrl).toBe(url);
+    expect(loadConfig({ ...valid, DATABASE_URL: url }).databaseUrl).toBeUndefined();
+  });
+
+  it('is ignored entirely under sqlite, even when it holds a placeholder', () => {
+    const config = loadConfig({ ...valid, DATABASE_URL: 'TODO_FILL_MANUALLY' });
+    expect(config.dbDriver).toBe('sqlite');
+    expect(config.databaseUrl).toBeUndefined();
   });
 
   it('is required for postgres, naming the variable', () => {

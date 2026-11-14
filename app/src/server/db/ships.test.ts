@@ -5,7 +5,13 @@ import { CorruptRowError, NotFoundError } from './errors.ts';
 import { STARTER_LIVERY } from './ships.ts';
 import { describeBackends, uniqueCallsign } from './testing/backends.ts';
 
-const position = (systemId: string) => ({ systemId, x: 1.5, y: -2.25, z: 3 });
+const position = (systemId: string) => ({
+  systemId,
+  frame: 'system' as const,
+  x: 1.5,
+  y: -2.25,
+  z: 3,
+});
 const velocity = { x: 0.1, y: 0.2, z: -0.3 };
 
 describeBackends('ships', (fx) => {

@@ -23,20 +23,22 @@ test('loads the shell, canvas and proxied API/WS with no console errors', async 
   expect(body.ok).toBe(true);
   expect(body.galaxySeed).toBeTruthy();
 
-  const reply = await page.evaluate(
+  const welcome = await page.evaluate(
     (path) =>
-      new Promise<string>((resolve, reject) => {
+      new Promise<{ type: string; payload: { v: number; tickRate: number } }>((resolve, reject) => {
         const socket = new WebSocket(`ws://${location.host}${path}`);
-        socket.onopen = () => socket.send('ping');
+        socket.onopen = () =>
+          socket.send(JSON.stringify({ v: 1, type: 'hello', payload: { v: 1 } }));
         socket.onmessage = (event) => {
-          resolve(String(event.data));
+          resolve(JSON.parse(String(event.data)) as never);
           socket.close();
         };
         socket.onerror = () => reject(new Error('websocket error'));
       }),
     wsPath,
   );
-  expect(reply).toBe('pong');
+  expect(welcome.type).toBe('welcome');
+  expect(welcome.payload).toMatchObject({ v: 1, tickRate: 20 });
 
   await page.screenshot({ path: testInfo.outputPath('page.png') });
   expect(problems).toEqual([]);

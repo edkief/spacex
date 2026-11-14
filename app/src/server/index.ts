@@ -1,6 +1,8 @@
 import path from 'node:path';
 import { buildServer } from './app.ts';
+import { denyAllAuthenticator } from './auth/types.ts';
 import { ConfigError, loadConfig } from './config.ts';
+import { createGalaxyDirectory } from './directory.ts';
 import { findAppDir, loadAppEnv } from './env.ts';
 
 /** Loads config, starts the server and wires graceful shutdown. Exits 1 on invalid config. */
@@ -18,7 +20,14 @@ async function main(): Promise<void> {
   }
 
   const staticDir = config.isProduction ? path.join(appDir, 'dist', 'client') : undefined;
-  const app = buildServer(config, staticDir ? { staticDir } : {});
+  const app = buildServer(
+    {
+      config,
+      authenticator: denyAllAuthenticator,
+      directory: createGalaxyDirectory({ seed: config.galaxySeed }),
+    },
+    staticDir ? { staticDir } : {},
+  );
 
   const shutdown = (): void => {
     void app.close().then(() => process.exit(0));
