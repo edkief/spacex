@@ -6,5 +6,5 @@
     "paths": { "@shared/*": ["./src/shared/*"], "@server/*": ["./src/server/*"] }
   },
   "include": ["src/server", "src/shared"],
-  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/client"]
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/**/testing/**", "src/client"]
 }

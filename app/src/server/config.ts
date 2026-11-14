@@ -13,7 +13,7 @@ const sessionSecretSchema = z
     error: `still holds the ${SESSION_SECRET_PLACEHOLDER} placeholder; fill in a real secret`,
   });
 
-const envSchema = z.object({
+const envObject = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   HOST: z.string().min(1).default('127.0.0.1'),
   PORT: portSchema.default(3000),
@@ -22,11 +22,25 @@ const envSchema = z.object({
   GALAXY_SEED: z.string().min(1).default('drift-default-galaxy'),
   DB_DRIVER: z.enum(['sqlite', 'postgres']).default('sqlite'),
   DB_PATH: z.string().min(1).default('./data/drift.db'),
+  DATABASE_URL: z
+    .string()
+    .regex(/^postgres(ql)?:\/\//, 'must be a postgres:// or postgresql:// URL')
+    .optional(),
   SYSTEM_INSTANCE_COUNT: z.coerce.number().int().min(1).max(64).default(3),
   WS_PATH: z
     .string()
     .regex(/^\/[^\s?#]*$/, 'must be an absolute path such as /ws')
     .default('/ws'),
+});
+
+const envSchema = envObject.superRefine((env, ctx) => {
+  if (env.DB_DRIVER === 'postgres' && !env.DATABASE_URL) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['DATABASE_URL'],
+      message: 'is required when DB_DRIVER=postgres',
+    });
+  }
 });
 
 /** Fully validated server configuration. */
@@ -44,6 +58,8 @@ export interface ServerConfig {
   galaxySeed: string;
   dbDriver: 'sqlite' | 'postgres';
   dbPath: string;
+  /** Postgres connection string; required only when dbDriver is 'postgres'. Never log it. */
+  databaseUrl: string | undefined;
   systemInstanceCount: number;
   wsPath: string;
 }
@@ -99,6 +115,7 @@ export function loadConfig(env: EnvSource): ServerConfig {
     galaxySeed: parsed.GALAXY_SEED,
     dbDriver: parsed.DB_DRIVER,
     dbPath: parsed.DB_PATH,
+    databaseUrl: parsed.DATABASE_URL,
     systemInstanceCount: parsed.SYSTEM_INSTANCE_COUNT,
     wsPath: parsed.WS_PATH,
   };
@@ -110,6 +127,10 @@ export function loadConfig(env: EnvSource): ServerConfig {
  */
 export function loadEndpointConfig(env: EnvSource): EndpointConfig {
   const dummySecret = 'x'.repeat(MIN_SECRET_LENGTH);
-  const { host, port, apiPort, wsPath } = loadConfig({ ...env, SESSION_SECRET: dummySecret });
+  const { host, port, apiPort, wsPath } = loadConfig({
+    ...env,
+    SESSION_SECRET: dummySecret,
+    DB_DRIVER: 'sqlite',
+  });
   return { host, port, apiPort, wsPath };
 }

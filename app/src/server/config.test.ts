@@ -28,6 +28,7 @@ describe('loadConfig', () => {
       galaxySeed: 'drift-default-galaxy',
       dbDriver: 'sqlite',
       dbPath: './data/drift.db',
+      databaseUrl: undefined,
       systemInstanceCount: 3,
       wsPath: '/ws',
     });
@@ -40,6 +41,7 @@ describe('loadConfig', () => {
       API_PORT: '4100',
       GALAXY_SEED: 'seed',
       DB_DRIVER: 'postgres',
+      DATABASE_URL: 'postgresql://u:p@localhost/db',
       DB_PATH: '/tmp/x.db',
       SYSTEM_INSTANCE_COUNT: '5',
       WS_PATH: '/socket',
@@ -98,6 +100,36 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ ...valid, WS_PATH: 'ws' })).toThrow(/WS_PATH/);
     expect(() => loadConfig({ ...valid, API_PORT: '3000' })).toThrow(/API_PORT/);
     expect(() => loadConfig({ ...valid, PORT: '65535' })).toThrow(/API_PORT/);
+  });
+});
+
+describe('DATABASE_URL', () => {
+  const url = 'postgres://user:hunter2-db-password@db.example:5432/drift';
+
+  it('is optional for sqlite and ignored there', () => {
+    expect(loadConfig(valid).databaseUrl).toBeUndefined();
+    expect(loadConfig({ ...valid, DATABASE_URL: url }).databaseUrl).toBe(url);
+  });
+
+  it('is required for postgres, naming the variable', () => {
+    const error = catchConfigError(() => loadConfig({ ...valid, DB_DRIVER: 'postgres' }));
+    expect(error.message).toContain('DATABASE_URL');
+  });
+
+  it('accepts a postgres URL and rejects other schemes without echoing the value', () => {
+    expect(loadConfig({ ...valid, DB_DRIVER: 'postgres', DATABASE_URL: url }).dbDriver).toBe(
+      'postgres',
+    );
+    const error = catchConfigError(() =>
+      loadConfig({ ...valid, DB_DRIVER: 'postgres', DATABASE_URL: 'mysql://root:hunter2@host/db' }),
+    );
+    expect(error.message).toContain('DATABASE_URL');
+    expect(error.message).not.toContain('hunter2');
+    expect(error.message).not.toContain('mysql://');
+  });
+
+  it('does not break endpoint config when DB_DRIVER=postgres without a URL', () => {
+    expect(loadEndpointConfig({ DB_DRIVER: 'postgres', PORT: '5000' }).port).toBe(5000);
   });
 });
 
