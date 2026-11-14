@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveChromiumPath, type ChromiumDeps } from './chromium';
+import { resolveChromiumPath, type ChromiumDeps } from './chromium.ts';
 
 /** Builds fake deps over an in-memory set of existing paths and directory listings. */
 function fakeDeps(

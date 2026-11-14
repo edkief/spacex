@@ -25,6 +25,13 @@ function restrictGlobals(names, message) {
   return { 'no-restricted-globals': ['error', ...names.map((name) => ({ name, message }))] };
 }
 
+/** Relative imports of TS modules must carry their extension (native config loader needs it). */
+const relativeImportExtension = {
+  selector:
+    'ImportDeclaration[source.value=/^\\.\\.?\\//]:not([source.value=/\\.(ts|tsx|css|json)$/])',
+  message: 'Relative imports must include the file extension, e.g. ./config.ts.',
+};
+
 export default tseslint.config(
   { ignores: ['dist', 'dist-server', 'node_modules', 'test-results', 'playwright-report', 'data'] },
   js.configs.recommended,
@@ -36,6 +43,7 @@ export default tseslint.config(
     rules: {
       '@typescript-eslint/consistent-type-imports': 'error',
       'max-lines': ['error', { max: 300, skipBlankLines: true, skipComments: true }],
+      'no-restricted-syntax': ['error', relativeImportExtension],
     },
   },
   { files: ['**/*.js'], ...tseslint.configs.disableTypeChecked },

@@ -1,7 +1,7 @@
 import path from 'node:path';
-import { buildServer } from './app';
-import { ConfigError, loadConfig } from './config';
-import { findAppDir, loadAppEnv } from './env';
+import { buildServer } from './app.ts';
+import { ConfigError, loadConfig } from './config.ts';
+import { findAppDir, loadAppEnv } from './env.ts';
 
 /** Loads config, starts the server and wires graceful shutdown. Exits 1 on invalid config. */
 async function main(): Promise<void> {

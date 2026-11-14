@@ -2,8 +2,8 @@ import { existsSync } from 'node:fs';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { buildHealth } from '@shared/health';
-import type { ServerConfig } from './config';
-import { attachWebSocket } from './ws';
+import type { ServerConfig } from './config.ts';
+import { attachWebSocket } from './ws.ts';
 
 /** Optional extras for `buildServer` that are not part of the validated env config. */
 export interface BuildServerOptions {
