@@ -3,6 +3,10 @@ import path from 'node:path';
 import { expect } from 'vitest';
 import { canonicalStringify } from '@shared/canonical.ts';
 
+export const PHYSICS_FIXTURE_DIR = path.join(
+  import.meta.dirname,
+  '../../src/shared/physics/__fixtures__',
+);
 export const FIXTURE_DIR = path.join(import.meta.dirname, '../../src/shared/galaxy/__fixtures__');
 
 /** Serialises a fixture value exactly as committed: canonical keys, 2-space indent, final newline. */

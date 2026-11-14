@@ -75,6 +75,20 @@ export function fromAxisAngle(axis: Vec3, angle: number): Quat {
   return { x: axis.x * s, y: axis.y * s, z: axis.z * s, w: Math.cos(half) };
 }
 
+/** Shortest rotation taking unit direction `from` to unit direction `to`. */
+export function fromToQuat(from: Vec3, to: Vec3): Quat {
+  const axis = cross(from, to);
+  const sine = length(axis);
+  const cosine = dot(from, to);
+  if (sine < 1e-12) {
+    if (cosine > 0) return QUAT_IDENTITY;
+    // Opposite directions: half-turn about any axis perpendicular to `from`.
+    const perpendicular = Math.abs(from.x) < 0.9 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 };
+    return fromAxisAngle(normalize(cross(from, perpendicular)), Math.PI);
+  }
+  return fromAxisAngle(scale(axis, 1 / sine), Math.atan2(sine, cosine));
+}
+
 /** Rotates `v` by the unit quaternion `q`. */
 export function rotateVector(q: Quat, v: Vec3): Vec3 {
   const t = scale(cross({ x: q.x, y: q.y, z: q.z }, v), 2);

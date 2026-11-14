@@ -1,0 +1,291 @@
+{
+  "dt": 0.05,
+  "samples": [
+    {
+      "frame": "planet",
+      "onPad": null,
+      "pos": [
+        5,
+        190,
+        2
+      ],
+      "quat": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "regime": "atmosphere",
+      "t": 0,
+      "vel": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "frame": "planet",
+      "onPad": null,
+      "pos": [
+        5,
+        183.859443,
+        2
+      ],
+      "quat": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "regime": "atmosphere",
+      "t": 2.5,
+      "vel": [
+        0,
+        -2.973048,
+        0
+      ]
+    },
+    {
+      "frame": "planet",
+      "onPad": null,
+      "pos": [
+        5,
+        176.396425,
+        2
+      ],
+      "quat": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "regime": "atmosphere",
+      "t": 5,
+      "vel": [
+        0,
+        -2.987759,
+        0
+      ]
+    },
+    {
+      "frame": "planet",
+      "onPad": null,
+      "pos": [
+        5,
+        168.926878,
+        2
+      ],
+      "quat": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "regime": "atmosphere",
+      "t": 7.5,
+      "vel": [
+        0,
+        -2.987831,
+        0
+      ]
+    },
+    {
+      "frame": "planet",
+      "onPad": null,
+      "pos": [
+        5,
+        161.4573,
+        2
+      ],
+      "quat": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "regime": "atmosphere",
+      "t": 10,
+      "vel": [
+        0,
+        -2.987831,
+        0
+      ]
+    },
+    {
+      "frame": "planet",
+      "onPad": null,
+      "pos": [
+        5,
+        153.987721,
+        2
+      ],
+      "quat": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "regime": "atmosphere",
+      "t": 12.5,
+      "vel": [
+        0,
+        -2.987831,
+        0
+      ]
+    },
+    {
+      "frame": "planet",
+      "onPad": null,
+      "pos": [
+        5,
+        146.518142,
+        2
+      ],
+      "quat": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "regime": "atmosphere",
+      "t": 15,
+      "vel": [
+        0,
+        -2.987831,
+        0
+      ]
+    },
+    {
+      "frame": "planet",
+      "onPad": null,
+      "pos": [
+        5,
+        139.048563,
+        2
+      ],
+      "quat": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "regime": "atmosphere",
+      "t": 17.5,
+      "vel": [
+        0,
+        -2.987831,
+        0
+      ]
+    },
+    {
+      "frame": "planet",
+      "onPad": null,
+      "pos": [
+        5,
+        131.578985,
+        2
+      ],
+      "quat": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "regime": "atmosphere",
+      "t": 20,
+      "vel": [
+        0,
+        -2.987831,
+        0
+      ]
+    },
+    {
+      "frame": "planet",
+      "onPad": null,
+      "pos": [
+        5,
+        124.109406,
+        2
+      ],
+      "quat": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "regime": "atmosphere",
+      "t": 22.5,
+      "vel": [
+        0,
+        -2.987831,
+        0
+      ]
+    },
+    {
+      "frame": "planet",
+      "onPad": null,
+      "pos": [
+        5,
+        116.639827,
+        2
+      ],
+      "quat": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "regime": "atmosphere",
+      "t": 25,
+      "vel": [
+        0,
+        -2.987831,
+        0
+      ]
+    },
+    {
+      "frame": "planet",
+      "onPad": null,
+      "pos": [
+        5,
+        109.170248,
+        2
+      ],
+      "quat": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "regime": "atmosphere",
+      "t": 27.5,
+      "vel": [
+        0,
+        -2.987831,
+        0
+      ]
+    },
+    {
+      "frame": "planet",
+      "onPad": "golden-pad",
+      "pos": [
+        5,
+        102.399418,
+        2
+      ],
+      "quat": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "regime": "surface",
+      "t": 30,
+      "vel": [
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

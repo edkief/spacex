@@ -8,6 +8,20 @@ const UUID_B = '9b2f4c1a-7d3e-4a5b-8c6d-1e2f3a4b5c6d';
 const pos = { frame: 'system', x: 1.5, y: -2, z: 3 };
 const vec = { x: 0, y: 1, z: -1 };
 const quat = { x: 0, y: 0, z: 0, w: 1 };
+/** A valid, all-neutral flight input. */
+export const GOOD_INPUT = {
+  seq: 1,
+  thrust: 0,
+  yaw: 0,
+  pitch: 0,
+  roll: 0,
+  up: 0,
+  brake: false,
+  fire: false,
+  lock: false,
+  action: 'none',
+};
+
 const livery = { hull: '#112233', accent: '#445566', trim: '#778899' };
 
 const entity = {
@@ -42,16 +56,7 @@ export const VALID_CLIENT_PAYLOADS: Record<ClientType, unknown> = {
   logout: {},
   join_system: { systemId: SYSTEM },
   chat: { text: 'hello there' },
-  input: {
-    seq: 1,
-    thrust: 1,
-    turn: -0.5,
-    pitch: 0,
-    yaw: 0,
-    fire: false,
-    lock: false,
-    action: 'none',
-  },
+  input: { ...GOOD_INPUT, thrust: 1, yaw: -0.5 },
   warp: { targetSystemId: SYSTEM },
   interact: { targetId: UUID_A },
   mine: { nodeId: PLANET, active: true },
@@ -118,21 +123,17 @@ export const INVALID_CLIENT_PAYLOADS: Record<ClientType, unknown[]> = {
   ],
   input: [
     {},
-    { seq: -1, thrust: 0, turn: 0, pitch: 0, yaw: 0, fire: false, lock: false, action: 'none' },
-    { seq: 1.5, thrust: 0, turn: 0, pitch: 0, yaw: 0, fire: false, lock: false, action: 'none' },
-    { seq: 1, thrust: 2, turn: 0, pitch: 0, yaw: 0, fire: false, lock: false, action: 'none' },
-    {
-      seq: 1,
-      thrust: Number.NaN,
-      turn: 0,
-      pitch: 0,
-      yaw: 0,
-      fire: false,
-      lock: false,
-      action: 'none',
-    },
-    { seq: 1, thrust: 0, turn: 0, pitch: 0, yaw: 0, fire: 'yes', lock: false, action: 'none' },
-    { seq: 1, thrust: 0, turn: 0, pitch: 0, yaw: 0, fire: false, lock: false, action: 'explode' },
+    { ...GOOD_INPUT, seq: -1 },
+    { ...GOOD_INPUT, seq: 1.5 },
+    { ...GOOD_INPUT, thrust: 2 },
+    { ...GOOD_INPUT, thrust: Number.NaN },
+    { ...GOOD_INPUT, up: -1.5 },
+    { ...GOOD_INPUT, roll: '1' },
+    { ...GOOD_INPUT, brake: 'yes' },
+    { ...GOOD_INPUT, fire: 'yes' },
+    { ...GOOD_INPUT, action: 'explode' },
+    { ...GOOD_INPUT, turn: 0 },
+    { seq: 1, thrust: 0, yaw: 0, pitch: 0 },
   ],
   warp: [{}, { targetSystemId: 'x' }, { targetSystemId: SYSTEM, extra: 1 }],
   interact: [{}, { targetId: 'nope' }, { targetId: 5 }],

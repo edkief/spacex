@@ -76,16 +76,27 @@ export const entityUpdateSchema = z.strictObject({
 
 const axis = z.number().min(-1).max(1);
 
-/** Flight input. `seq` must increase strictly within a connection. */
+/**
+ * Flight input, one per client tick. `seq` must increase strictly within a connection.
+ * - thrust: forward (+) / reverse (-) along the ship's nose; scaled by the ship's acceleration.
+ * - yaw, pitch, roll: angular rate demands (+yaw = turn left, +pitch = nose up, +roll = bank
+ *   right), each as a fraction of the class turn rate; the combined demand is capped at 1.
+ * - up: vertical. In atmosphere/surface it commands VTOL climb (+) or descent (-) in the world
+ *   vertical; in space it is thrust along the ship's up axis.
+ * - brake: retro-thrust against the current velocity (horizontal velocity on a planet).
+ * - fire, lock: weapons (combat tasks); action: one-shot docking commands.
+ */
 export const inputSchema = z.strictObject({
   seq: seqSchema,
   thrust: axis,
-  turn: axis,
-  pitch: axis,
   yaw: axis,
+  pitch: axis,
+  roll: axis,
+  up: axis,
+  brake: z.boolean(),
   fire: z.boolean(),
   lock: z.boolean(),
-  action: z.enum(['none', 'boost', 'brake', 'dock', 'undock']),
+  action: z.enum(['none', 'dock', 'undock']),
 });
 
 export const warpSchema = z.strictObject({ targetSystemId: hex16Schema });
