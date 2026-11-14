@@ -3,12 +3,21 @@
 `Current Status`
 =================
 **Last Updated:** 2026-11-14
-**Tasks Completed:** 2 / 71
-**Current Task:** TASK-68 Complete
+**Tasks Completed:** 7 / 71
+**Current Task:** TASK-6 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-11-14 — TASK-2 to TASK-6 Deterministic PRNG and galaxy generation (M0)
+
+- `src/shared/random.ts`: FNV-1a 64 seeding, splitmix64, xoshiro128**, `hash2`, 53-bit `nextF64`, unbiased `nextInt`, Irwin-Hall `nextGauss`. Golden values for `drift-dev-seed-001` were reproduced by the lead with a separate Python implementation.
+- **Cross-engine rule:** generation code uses only exactly-specified operations (no sin/cos/log/exp/pow, no `**`); enforced by eslint and a source-scan guard test. This is why `nextGauss` is not Box-Muller as the spec suggested.
+- Stars (200, disk layout, unique names), systems (2-6 planets, docks, resource fields, AI rosters), surface chunks (64x64 heightmap in decimetres at 4 m spacing, 256 m chunks, biomes, resource nodes, landing pads). `createSurfaceField` / `surfaceHeightAt` is the single source of truth for terrain height.
+- Snapshot fixtures in `src/shared/galaxy/__fixtures__/` plus a digest fixture over all 200 systems and an 8x8 chunk grid per planet class; regenerate only with `npm run snapshot:update`. Mutation checks performed (four generator constants; all detected once digests were added).
+- Known limits: node and jsdom both run V8, so cross-engine equality is by construction, not yet measured (TASK-71). Star #0 of the dev seed has no landable planet — spawn selection must not assume it does. Systems have no orbital positions yet; these will be added when the flight model needs them (fixtures will change deliberately).
+- Verified by lead: lint, typecheck and 174 tests pass.
 
 ### 2026-11-14 — TASK-68 Scaffold TS monorepo (client/server/shared) with tooling
 
