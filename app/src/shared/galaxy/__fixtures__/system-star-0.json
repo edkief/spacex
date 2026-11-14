@@ -1,0 +1,56 @@
+{
+  "seed": "drift-dev-seed-001",
+  "starId": "e0e852068803aa36",
+  "system": {
+    "name": "Lyrelea System",
+    "planets": [
+      {
+        "aiRoster": {
+          "classes": [
+            "interceptor",
+            "scout",
+            "freighter",
+            "scout"
+          ],
+          "count": 4
+        },
+        "class": "gas",
+        "dockCount": 0,
+        "hasAtmosphere": true,
+        "id": "dedc6a00e0135caf",
+        "landable": false,
+        "name": "Lyrelea I",
+        "radiusKm": 30569,
+        "resourceTypes": [
+          "water",
+          "silicon",
+          "gas-compounds"
+        ]
+      },
+      {
+        "aiRoster": {
+          "classes": [
+            "freighter",
+            "scout"
+          ],
+          "count": 2
+        },
+        "class": "gas",
+        "dockCount": 0,
+        "hasAtmosphere": true,
+        "id": "330af878861d4ebf",
+        "landable": false,
+        "name": "Lyrelea II",
+        "radiusKm": 59975,
+        "resourceTypes": [
+          "gas-compounds"
+        ]
+      }
+    ],
+    "star": {
+      "class": "M",
+      "name": "Lyrelea"
+    },
+    "systemId": "acc518438559f1e1"
+  }
+}

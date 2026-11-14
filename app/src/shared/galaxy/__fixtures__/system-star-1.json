@@ -1,0 +1,60 @@
+{
+  "seed": "drift-dev-seed-001",
+  "starId": "4664bbe68ccc59ce",
+  "system": {
+    "name": "Lyretaox System",
+    "planets": [
+      {
+        "aiRoster": {
+          "classes": [
+            "freighter",
+            "freighter",
+            "scout",
+            "scout",
+            "interceptor"
+          ],
+          "count": 5
+        },
+        "class": "gas",
+        "dockCount": 0,
+        "hasAtmosphere": true,
+        "id": "1c7e2d9b08684f4e",
+        "landable": false,
+        "name": "Lyretaox I",
+        "radiusKm": 22719,
+        "resourceTypes": [
+          "silicon",
+          "iron"
+        ]
+      },
+      {
+        "aiRoster": {
+          "classes": [
+            "interceptor",
+            "scout",
+            "scout",
+            "interceptor"
+          ],
+          "count": 4
+        },
+        "class": "rocky",
+        "dockCount": 0,
+        "hasAtmosphere": true,
+        "id": "70c928e08bdc84d7",
+        "landable": false,
+        "name": "Lyretaox II",
+        "radiusKm": 3341,
+        "resourceTypes": [
+          "water",
+          "gas-compounds",
+          "silicon"
+        ]
+      }
+    ],
+    "star": {
+      "class": "M",
+      "name": "Lyretaox"
+    },
+    "systemId": "8433a81826be649d"
+  }
+}
