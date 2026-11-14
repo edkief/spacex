@@ -1,0 +1,1807 @@
+{
+  "checksum": "141e5195b1727c827e7922d734b9c0b971751314ca08a70e598233954966908e",
+  "count": 200,
+  "seed": "drift-dev-seed-001",
+  "stars": [
+    {
+      "class": "M",
+      "id": "e0e852068803aa36",
+      "name": "Lyrelea",
+      "systemCount": 4,
+      "x": 159.714,
+      "y": 57.366,
+      "z": 4.243
+    },
+    {
+      "class": "M",
+      "id": "4664bbe68ccc59ce",
+      "name": "Lyretaox",
+      "systemCount": 3,
+      "x": 262.785,
+      "y": -106.253,
+      "z": 8.658
+    },
+    {
+      "class": "K",
+      "id": "79b1acec621ddc48",
+      "name": "Noritha",
+      "systemCount": 4,
+      "x": -68.277,
+      "y": 4.392,
+      "z": -24.161
+    },
+    {
+      "class": "M",
+      "id": "ee35e290997ef2d8",
+      "name": "Boralys",
+      "systemCount": 5,
+      "x": 140.87,
+      "y": 114.264,
+      "z": 16.743
+    },
+    {
+      "class": "O",
+      "id": "2d32074c89efca98",
+      "name": "Galesoae",
+      "systemCount": 3,
+      "x": 131.115,
+      "y": 151.541,
+      "z": -27.785
+    },
+    {
+      "class": "K",
+      "id": "2c7d887d007fde46",
+      "name": "Tarecean",
+      "systemCount": 7,
+      "x": -64.937,
+      "y": -311.677,
+      "z": 9.71
+    },
+    {
+      "class": "G",
+      "id": "463887faadf35b2a",
+      "name": "Velaria",
+      "systemCount": 8,
+      "x": 170.621,
+      "y": -194.059,
+      "z": -18.32
+    },
+    {
+      "class": "K",
+      "id": "dae6511614dd02db",
+      "name": "Erioleth",
+      "systemCount": 2,
+      "x": -172.829,
+      "y": -449.978,
+      "z": 15.39
+    },
+    {
+      "class": "K",
+      "id": "b6491800497a6050",
+      "name": "Galuresh",
+      "systemCount": 6,
+      "x": -24.227,
+      "y": 207.993,
+      "z": -5.592
+    },
+    {
+      "class": "M",
+      "id": "78b1c228e98bed3b",
+      "name": "Kaladora",
+      "systemCount": 5,
+      "x": -293.1,
+      "y": 28.492,
+      "z": 4.394
+    },
+    {
+      "class": "M",
+      "id": "acde4441e9d37a65",
+      "name": "Belecan",
+      "systemCount": 5,
+      "x": 121.137,
+      "y": 216.068,
+      "z": 0.036
+    },
+    {
+      "class": "K",
+      "id": "ba655712c789d9cc",
+      "name": "Oximeos",
+      "systemCount": 6,
+      "x": -99.987,
+      "y": -6.846,
+      "z": -44.095
+    },
+    {
+      "class": "G",
+      "id": "0ae24e3781ab9c93",
+      "name": "Boresoora",
+      "systemCount": 5,
+      "x": 178.266,
+      "y": 156.291,
+      "z": -21.692
+    },
+    {
+      "class": "K",
+      "id": "6d728dde1b2faf34",
+      "name": "Solaraa",
+      "systemCount": 4,
+      "x": -113.203,
+      "y": -184.201,
+      "z": 20.189
+    },
+    {
+      "class": "K",
+      "id": "cdf6f9702c4a3036",
+      "name": "Galarean",
+      "systemCount": 5,
+      "x": 114.508,
+      "y": -145.138,
+      "z": 17.466
+    },
+    {
+      "class": "K",
+      "id": "332c450496a54af4",
+      "name": "Cyrimeoth",
+      "systemCount": 4,
+      "x": 268.514,
+      "y": 129.945,
+      "z": 5.469
+    },
+    {
+      "class": "M",
+      "id": "beaf1f7ebe146269",
+      "name": "Helorois",
+      "systemCount": 3,
+      "x": -74.641,
+      "y": 63.524,
+      "z": 23.796
+    },
+    {
+      "class": "M",
+      "id": "7606d9d448a9a00d",
+      "name": "Arithar",
+      "systemCount": 3,
+      "x": 73.799,
+      "y": -186.238,
+      "z": -10.676
+    },
+    {
+      "class": "M",
+      "id": "8faeee11964c3482",
+      "name": "Maroroesh",
+      "systemCount": 2,
+      "x": -363.567,
+      "y": -0.62,
+      "z": 4.613
+    },
+    {
+      "class": "K",
+      "id": "79cd740890d43810",
+      "name": "Yorelaox",
+      "systemCount": 2,
+      "x": 174.341,
+      "y": -62.75,
+      "z": 1.221
+    },
+    {
+      "class": "K",
+      "id": "532b1de755534668",
+      "name": "Iororire",
+      "systemCount": 7,
+      "x": -192.895,
+      "y": -132.614,
+      "z": 17.854
+    },
+    {
+      "class": "G",
+      "id": "6de924ae79a1ded2",
+      "name": "Norubeax",
+      "systemCount": 4,
+      "x": -130.781,
+      "y": 284.746,
+      "z": -4.868
+    },
+    {
+      "class": "M",
+      "id": "5357b109029b40d3",
+      "name": "Polarune",
+      "systemCount": 4,
+      "x": -210.512,
+      "y": 299.948,
+      "z": 14.155
+    },
+    {
+      "class": "F",
+      "id": "3302c554a3c3fddb",
+      "name": "Polaraar",
+      "systemCount": 7,
+      "x": 194.301,
+      "y": -117.952,
+      "z": 8.166
+    },
+    {
+      "class": "M",
+      "id": "ae5d81d569f37168",
+      "name": "Yororoant",
+      "systemCount": 2,
+      "x": -386.242,
+      "y": 83.428,
+      "z": 2.263
+    },
+    {
+      "class": "K",
+      "id": "eec6d533152eac50",
+      "name": "Xanuman",
+      "systemCount": 3,
+      "x": 102.12,
+      "y": 26.571,
+      "z": 0.781
+    },
+    {
+      "class": "M",
+      "id": "3ee2107494b31480",
+      "name": "Tauolant",
+      "systemCount": 5,
+      "x": 74.941,
+      "y": 37.277,
+      "z": -0.951
+    },
+    {
+      "class": "M",
+      "id": "afb9d8ca0d28a9af",
+      "name": "Sirovaire",
+      "systemCount": 6,
+      "x": -207.946,
+      "y": -135.943,
+      "z": -42.168
+    },
+    {
+      "class": "M",
+      "id": "0b8c6d48f0e35a2b",
+      "name": "Draimeona",
+      "systemCount": 5,
+      "x": -175.697,
+      "y": -175.927,
+      "z": 37.984
+    },
+    {
+      "class": "K",
+      "id": "4178a8729179a564",
+      "name": "Vorotan",
+      "systemCount": 2,
+      "x": 271.147,
+      "y": -77.192,
+      "z": -20.024
+    },
+    {
+      "class": "K",
+      "id": "5a02aaa3de7a6d21",
+      "name": "Fenarae",
+      "systemCount": 8,
+      "x": -17.139,
+      "y": 304.108,
+      "z": 2.816
+    },
+    {
+      "class": "M",
+      "id": "3f147e33bebc908c",
+      "name": "Goruror",
+      "systemCount": 7,
+      "x": -25.567,
+      "y": -330.19,
+      "z": -47.563
+    },
+    {
+      "class": "M",
+      "id": "f39036dde8af8127",
+      "name": "Velamuell",
+      "systemCount": 2,
+      "x": -42.598,
+      "y": -101.626,
+      "z": 10.841
+    },
+    {
+      "class": "G",
+      "id": "59db83a5a6763774",
+      "name": "Fenoreov",
+      "systemCount": 5,
+      "x": 187.805,
+      "y": 154.128,
+      "z": -39.791
+    },
+    {
+      "class": "K",
+      "id": "0addc9efa3867672",
+      "name": "Ulelaek",
+      "systemCount": 7,
+      "x": -81.545,
+      "y": 57.819,
+      "z": -2.862
+    },
+    {
+      "class": "M",
+      "id": "17698f945e25b736",
+      "name": "Faretaon",
+      "systemCount": 3,
+      "x": -23.82,
+      "y": -81.778,
+      "z": 2.929
+    },
+    {
+      "class": "M",
+      "id": "64af2de08d2cbd55",
+      "name": "Siranide",
+      "systemCount": 8,
+      "x": -266.734,
+      "y": 39.077,
+      "z": -0.433
+    },
+    {
+      "class": "M",
+      "id": "492889c80318c5d0",
+      "name": "Tauiroul",
+      "systemCount": 3,
+      "x": -79.285,
+      "y": 160.467,
+      "z": 18.564
+    },
+    {
+      "class": "F",
+      "id": "7f74c0ffc3f4aaec",
+      "name": "Tarenaax",
+      "systemCount": 3,
+      "x": 51.938,
+      "y": -85.882,
+      "z": -23.822
+    },
+    {
+      "class": "M",
+      "id": "e99a36afa7ba4a99",
+      "name": "Erieliek",
+      "systemCount": 8,
+      "x": -31.091,
+      "y": 331.388,
+      "z": -26.871
+    },
+    {
+      "class": "K",
+      "id": "e43efd6568df3007",
+      "name": "Siraxon",
+      "systemCount": 3,
+      "x": 176.666,
+      "y": -125.696,
+      "z": -19.141
+    },
+    {
+      "class": "M",
+      "id": "3e53aeba6a590973",
+      "name": "Alana",
+      "systemCount": 3,
+      "x": 45.854,
+      "y": -77.9,
+      "z": 6.98
+    },
+    {
+      "class": "M",
+      "id": "b4053cd914d7f69b",
+      "name": "Gorisaine",
+      "systemCount": 2,
+      "x": 42.068,
+      "y": -96.284,
+      "z": 14.546
+    },
+    {
+      "class": "A",
+      "id": "9b5c736f68f6c9a3",
+      "name": "Fenurae",
+      "systemCount": 4,
+      "x": 93.395,
+      "y": 317.31,
+      "z": 3.845
+    },
+    {
+      "class": "G",
+      "id": "7bb3bc27ab436b8e",
+      "name": "Farabius",
+      "systemCount": 6,
+      "x": 20.604,
+      "y": -74.539,
+      "z": -27.802
+    },
+    {
+      "class": "M",
+      "id": "fdb2c7d8aca23860",
+      "name": "Rasoreax",
+      "systemCount": 6,
+      "x": -76.176,
+      "y": 93.273,
+      "z": -9.48
+    },
+    {
+      "class": "K",
+      "id": "e8b28a085589616a",
+      "name": "Jorelark",
+      "systemCount": 5,
+      "x": 17.089,
+      "y": -194.413,
+      "z": 19.345
+    },
+    {
+      "class": "M",
+      "id": "b4fdfe607f761b3b",
+      "name": "Zanodae",
+      "systemCount": 8,
+      "x": 282.36,
+      "y": 54.912,
+      "z": -32.408
+    },
+    {
+      "class": "F",
+      "id": "82b983e48e7b4356",
+      "name": "Rigezesh",
+      "systemCount": 4,
+      "x": 211.139,
+      "y": -334.232,
+      "z": 6.194
+    },
+    {
+      "class": "K",
+      "id": "d53cefa3aedadfc4",
+      "name": "Iorecis",
+      "systemCount": 5,
+      "x": 63.153,
+      "y": -96.38,
+      "z": 5.167
+    },
+    {
+      "class": "M",
+      "id": "d0854e743dcedbe1",
+      "name": "Xanonaire",
+      "systemCount": 3,
+      "x": -36.392,
+      "y": -335.17,
+      "z": -1.023
+    },
+    {
+      "class": "F",
+      "id": "9bb74b122b696882",
+      "name": "Yorenaek",
+      "systemCount": 7,
+      "x": 75.124,
+      "y": -97.675,
+      "z": 5.713
+    },
+    {
+      "class": "G",
+      "id": "3a2d248c5397465a",
+      "name": "Belabide",
+      "systemCount": 3,
+      "x": -162.764,
+      "y": 12.694,
+      "z": -12.16
+    },
+    {
+      "class": "M",
+      "id": "13cbadac14053ceb",
+      "name": "Helara",
+      "systemCount": 4,
+      "x": -36.337,
+      "y": 105.127,
+      "z": 25.035
+    },
+    {
+      "class": "M",
+      "id": "632793a7e167b61a",
+      "name": "Itharius",
+      "systemCount": 5,
+      "x": -182.624,
+      "y": -340.635,
+      "z": -15.585
+    },
+    {
+      "class": "G",
+      "id": "0cd812db28c6dba5",
+      "name": "Umbariyn",
+      "systemCount": 5,
+      "x": 111.712,
+      "y": -123.788,
+      "z": 24.752
+    },
+    {
+      "class": "M",
+      "id": "3658dd920da016f8",
+      "name": "Erielia",
+      "systemCount": 2,
+      "x": -233.307,
+      "y": -83.001,
+      "z": 11.392
+    },
+    {
+      "class": "M",
+      "id": "f6de76674ea1fc9b",
+      "name": "Heladous",
+      "systemCount": 7,
+      "x": 76.61,
+      "y": 82.805,
+      "z": 17.112
+    },
+    {
+      "class": "G",
+      "id": "7ffa3dc50a67d86e",
+      "name": "Erietayn",
+      "systemCount": 4,
+      "x": -111.182,
+      "y": 420.904,
+      "z": -30.113
+    },
+    {
+      "class": "M",
+      "id": "3afc6c13ca4e774a",
+      "name": "Gorisys",
+      "systemCount": 4,
+      "x": 14.71,
+      "y": -425.049,
+      "z": 31.3
+    },
+    {
+      "class": "G",
+      "id": "0a7cf75b267ffb7f",
+      "name": "Draoreell",
+      "systemCount": 8,
+      "x": 28.608,
+      "y": 70.26,
+      "z": -2.231
+    },
+    {
+      "class": "K",
+      "id": "e99199ef692c3ac9",
+      "name": "Tarotant",
+      "systemCount": 4,
+      "x": 16.526,
+      "y": 394.68,
+      "z": -3.371
+    },
+    {
+      "class": "G",
+      "id": "f6d3e24a2e3f83bc",
+      "name": "Ioraniius",
+      "systemCount": 6,
+      "x": -86.73,
+      "y": 51.098,
+      "z": 2.05
+    },
+    {
+      "class": "A",
+      "id": "28adb68b6f55de0a",
+      "name": "Velarax",
+      "systemCount": 2,
+      "x": 363.247,
+      "y": 169.932,
+      "z": -9.796
+    },
+    {
+      "class": "G",
+      "id": "1278ab812dc8dc29",
+      "name": "Fenuraona",
+      "systemCount": 2,
+      "x": 27.651,
+      "y": -178.627,
+      "z": -30.773
+    },
+    {
+      "class": "M",
+      "id": "a8ee92e570a757f2",
+      "name": "Casumum",
+      "systemCount": 5,
+      "x": -330.054,
+      "y": 151.093,
+      "z": 10.428
+    },
+    {
+      "class": "M",
+      "id": "3dad5655eaf4c8f7",
+      "name": "Cyrolus",
+      "systemCount": 6,
+      "x": 360.17,
+      "y": 17.449,
+      "z": -3.589
+    },
+    {
+      "class": "M",
+      "id": "5f93b7a3d5be9ad1",
+      "name": "Ulecik",
+      "systemCount": 5,
+      "x": 27.353,
+      "y": -66.247,
+      "z": 1.187
+    },
+    {
+      "class": "G",
+      "id": "7f8b07dd66762c43",
+      "name": "Casovaeth",
+      "systemCount": 2,
+      "x": -98.561,
+      "y": -15.948,
+      "z": 19.616
+    },
+    {
+      "class": "G",
+      "id": "752c004172e80866",
+      "name": "Heletaox",
+      "systemCount": 4,
+      "x": -109.649,
+      "y": 92.222,
+      "z": -23.693
+    },
+    {
+      "class": "M",
+      "id": "fe6f6d684e21c0d2",
+      "name": "Kepolyn",
+      "systemCount": 8,
+      "x": -56.714,
+      "y": 50.603,
+      "z": -15.026
+    },
+    {
+      "class": "M",
+      "id": "187c26cdc43c2eca",
+      "name": "Casineys",
+      "systemCount": 8,
+      "x": 74.595,
+      "y": 142.781,
+      "z": -7.555
+    },
+    {
+      "class": "M",
+      "id": "21348d3f6b646234",
+      "name": "Cyremad",
+      "systemCount": 8,
+      "x": -27.309,
+      "y": 67.062,
+      "z": -29.542
+    },
+    {
+      "class": "M",
+      "id": "864e984074bbc02a",
+      "name": "Solisan",
+      "systemCount": 5,
+      "x": 265.409,
+      "y": -80.957,
+      "z": 22.047
+    },
+    {
+      "class": "M",
+      "id": "4b9232f4664a39ae",
+      "name": "Kepeza",
+      "systemCount": 8,
+      "x": 229.611,
+      "y": 141.962,
+      "z": 34.005
+    },
+    {
+      "class": "K",
+      "id": "d22edbb739e7d24e",
+      "name": "Wynariix",
+      "systemCount": 2,
+      "x": -11.315,
+      "y": 294.37,
+      "z": -6.004
+    },
+    {
+      "class": "G",
+      "id": "e6bda3dd65b00876",
+      "name": "Rasaraark",
+      "systemCount": 3,
+      "x": 229.351,
+      "y": -316.511,
+      "z": -13.872
+    },
+    {
+      "class": "K",
+      "id": "6c2244fc12a014af",
+      "name": "Astetaark",
+      "systemCount": 5,
+      "x": -108.823,
+      "y": -14.873,
+      "z": -10.032
+    },
+    {
+      "class": "G",
+      "id": "f06ae856e9fd6a26",
+      "name": "Astadoum",
+      "systemCount": 7,
+      "x": 372.276,
+      "y": -111.282,
+      "z": 3.532
+    },
+    {
+      "class": "K",
+      "id": "9425fe3bfe9364ff",
+      "name": "Poloroell",
+      "systemCount": 5,
+      "x": -8.439,
+      "y": 128.994,
+      "z": -27.648
+    },
+    {
+      "class": "K",
+      "id": "6916c72265463e6c",
+      "name": "Wynubean",
+      "systemCount": 3,
+      "x": 167.659,
+      "y": -61.866,
+      "z": 25.706
+    },
+    {
+      "class": "B",
+      "id": "1a5498b734bc6933",
+      "name": "Casariell",
+      "systemCount": 3,
+      "x": -185.622,
+      "y": -156.883,
+      "z": 20.427
+    },
+    {
+      "class": "M",
+      "id": "f9cc0769a488e546",
+      "name": "Yorevum",
+      "systemCount": 7,
+      "x": -235.553,
+      "y": -180.658,
+      "z": 2.499
+    },
+    {
+      "class": "K",
+      "id": "86f22f53a63c3230",
+      "name": "Marenaion",
+      "systemCount": 5,
+      "x": 139.621,
+      "y": 319.903,
+      "z": -8.531
+    },
+    {
+      "class": "M",
+      "id": "4c1741be6e4abe7b",
+      "name": "Tauorine",
+      "systemCount": 4,
+      "x": 86.915,
+      "y": -16.387,
+      "z": 15.483
+    },
+    {
+      "class": "M",
+      "id": "a8855b1b51e70d18",
+      "name": "Ioramuar",
+      "systemCount": 7,
+      "x": 40.595,
+      "y": -92.252,
+      "z": 13.656
+    },
+    {
+      "class": "M",
+      "id": "5dce4e92b8638647",
+      "name": "Orievae",
+      "systemCount": 6,
+      "x": -122.847,
+      "y": -57.338,
+      "z": 6.626
+    },
+    {
+      "class": "A",
+      "id": "6fece69e5f7d60d2",
+      "name": "Nemotell",
+      "systemCount": 7,
+      "x": -119.397,
+      "y": -80.067,
+      "z": -24.715
+    },
+    {
+      "class": "F",
+      "id": "01691e6595e3c4a8",
+      "name": "Voralune",
+      "systemCount": 6,
+      "x": 105.494,
+      "y": -202.474,
+      "z": -26.205
+    },
+    {
+      "class": "M",
+      "id": "bd164269be3a3a43",
+      "name": "Zanados",
+      "systemCount": 8,
+      "x": -47.851,
+      "y": 80.011,
+      "z": -8.586
+    },
+    {
+      "class": "M",
+      "id": "269cadd6383b13ad",
+      "name": "Kaladys",
+      "systemCount": 3,
+      "x": 87.073,
+      "y": 34.985,
+      "z": -4.801
+    },
+    {
+      "class": "K",
+      "id": "f27bc68dcdc9315e",
+      "name": "Darenaul",
+      "systemCount": 2,
+      "x": 34.084,
+      "y": -99.757,
+      "z": -4.426
+    },
+    {
+      "class": "M",
+      "id": "e09976ed7f1fa474",
+      "name": "Calovayn",
+      "systemCount": 7,
+      "x": 143.657,
+      "y": -126.858,
+      "z": 32.527
+    },
+    {
+      "class": "K",
+      "id": "4949d468706d9169",
+      "name": "Draimeath",
+      "systemCount": 4,
+      "x": 86.419,
+      "y": -149.414,
+      "z": -9.363
+    },
+    {
+      "class": "K",
+      "id": "d1746ee0ddac24f8",
+      "name": "Oximeix",
+      "systemCount": 5,
+      "x": -58.884,
+      "y": 281.184,
+      "z": 23.414
+    },
+    {
+      "class": "F",
+      "id": "ac3a8295c6c49e11",
+      "name": "Galemys",
+      "systemCount": 3,
+      "x": 91.071,
+      "y": 21.713,
+      "z": 7.268
+    },
+    {
+      "class": "K",
+      "id": "7b9972247a98082e",
+      "name": "Gorimeax",
+      "systemCount": 3,
+      "x": -77.036,
+      "y": -5.337,
+      "z": 17.197
+    },
+    {
+      "class": "M",
+      "id": "64b4984663417992",
+      "name": "Keporoik",
+      "systemCount": 5,
+      "x": 19.722,
+      "y": 379.981,
+      "z": -32.589
+    },
+    {
+      "class": "K",
+      "id": "83c7b768c79b013b",
+      "name": "Sirovaum",
+      "systemCount": 6,
+      "x": -24.703,
+      "y": 388.863,
+      "z": 22.85
+    },
+    {
+      "class": "K",
+      "id": "927bc5f4bdca4d90",
+      "name": "Caleliona",
+      "systemCount": 7,
+      "x": 12.186,
+      "y": 77.675,
+      "z": -37.908
+    },
+    {
+      "class": "K",
+      "id": "6a7868a6e1c5cc20",
+      "name": "Erienaae",
+      "systemCount": 5,
+      "x": -23.12,
+      "y": 62.155,
+      "z": 10.224
+    },
+    {
+      "class": "G",
+      "id": "7be82fa80a011e2f",
+      "name": "Cyronaast",
+      "systemCount": 3,
+      "x": 81.72,
+      "y": -250.625,
+      "z": 20.212
+    },
+    {
+      "class": "F",
+      "id": "7f7e5bc5c60d9bff",
+      "name": "Nemivuoth",
+      "systemCount": 3,
+      "x": -154.196,
+      "y": 14.461,
+      "z": 7.516
+    },
+    {
+      "class": "M",
+      "id": "835d8e4b01cd72d9",
+      "name": "Elemoth",
+      "systemCount": 6,
+      "x": -64.465,
+      "y": -305.264,
+      "z": 3.045
+    },
+    {
+      "class": "K",
+      "id": "da0f49cc37ecb7ca",
+      "name": "Iororaad",
+      "systemCount": 4,
+      "x": 57.511,
+      "y": 80.666,
+      "z": 2.17
+    },
+    {
+      "class": "K",
+      "id": "51ad1d8e2c95be99",
+      "name": "Heluneth",
+      "systemCount": 6,
+      "x": 138.349,
+      "y": -323.471,
+      "z": -13.084
+    },
+    {
+      "class": "M",
+      "id": "4ffe589558bf7be5",
+      "name": "Rigenaion",
+      "systemCount": 7,
+      "x": -83.272,
+      "y": 53.409,
+      "z": -16.087
+    },
+    {
+      "class": "M",
+      "id": "0c0f8fc9d961063f",
+      "name": "Fenisaus",
+      "systemCount": 3,
+      "x": 37.792,
+      "y": -110.252,
+      "z": 10.134
+    },
+    {
+      "class": "M",
+      "id": "59da59409a2cd1d3",
+      "name": "Oxubead",
+      "systemCount": 5,
+      "x": -162.086,
+      "y": 230.13,
+      "z": -32.82
+    },
+    {
+      "class": "M",
+      "id": "63f9ceaff8288e85",
+      "name": "Rigisaire",
+      "systemCount": 3,
+      "x": 56.829,
+      "y": 58.505,
+      "z": 25.826
+    },
+    {
+      "class": "M",
+      "id": "b8daa5a1b75b572d",
+      "name": "Siruraik",
+      "systemCount": 7,
+      "x": -97.378,
+      "y": 162.083,
+      "z": -25.24
+    },
+    {
+      "class": "M",
+      "id": "0018319aa06f9413",
+      "name": "Calovaeth",
+      "systemCount": 7,
+      "x": 76.975,
+      "y": -83.051,
+      "z": 22.692
+    },
+    {
+      "class": "F",
+      "id": "ffb160f334533621",
+      "name": "Solithesh",
+      "systemCount": 8,
+      "x": -77.223,
+      "y": 30.051,
+      "z": 23.376
+    },
+    {
+      "class": "M",
+      "id": "5a0daad5240ae9d2",
+      "name": "Solubeius",
+      "systemCount": 7,
+      "x": 286.89,
+      "y": 116.341,
+      "z": 5.127
+    },
+    {
+      "class": "M",
+      "id": "30f295ddc564f369",
+      "name": "Umbenaora",
+      "systemCount": 7,
+      "x": -298.707,
+      "y": -89.361,
+      "z": 2.375
+    },
+    {
+      "class": "A",
+      "id": "5caa75f3a21396ff",
+      "name": "Polurox",
+      "systemCount": 7,
+      "x": -102.749,
+      "y": -32.683,
+      "z": 9.888
+    },
+    {
+      "class": "K",
+      "id": "41a75fec696b8b3c",
+      "name": "Eriodox",
+      "systemCount": 6,
+      "x": 132.655,
+      "y": -37.575,
+      "z": 15.603
+    },
+    {
+      "class": "M",
+      "id": "4629c0047baff419",
+      "name": "Norabek",
+      "systemCount": 6,
+      "x": -42.317,
+      "y": -65.452,
+      "z": -5.023
+    },
+    {
+      "class": "M",
+      "id": "3f886f4db138aa4c",
+      "name": "Zanithus",
+      "systemCount": 5,
+      "x": -131.402,
+      "y": 37.148,
+      "z": -4.327
+    },
+    {
+      "class": "M",
+      "id": "0acab1128881a355",
+      "name": "Kepotum",
+      "systemCount": 2,
+      "x": -267.431,
+      "y": -94.95,
+      "z": -15.882
+    },
+    {
+      "class": "M",
+      "id": "65b2ce4104e22cbc",
+      "name": "Lyragix",
+      "systemCount": 3,
+      "x": -43.015,
+      "y": 143.129,
+      "z": -4.532
+    },
+    {
+      "class": "K",
+      "id": "454efa2633f6a0d3",
+      "name": "Vorunae",
+      "systemCount": 7,
+      "x": -45.59,
+      "y": 47.501,
+      "z": 0.228
+    },
+    {
+      "class": "K",
+      "id": "fedf15fd8c46d7e8",
+      "name": "Galamuae",
+      "systemCount": 4,
+      "x": 220.145,
+      "y": -100.219,
+      "z": -25.53
+    },
+    {
+      "class": "M",
+      "id": "1c220a51d33bf119",
+      "name": "Helezyn",
+      "systemCount": 7,
+      "x": -164.145,
+      "y": 239.478,
+      "z": 16.188
+    },
+    {
+      "class": "K",
+      "id": "ddd596a9e5040cc1",
+      "name": "Helagius",
+      "systemCount": 6,
+      "x": -150.37,
+      "y": 307.839,
+      "z": 39.79
+    },
+    {
+      "class": "K",
+      "id": "26da486d855e1b36",
+      "name": "Cyronis",
+      "systemCount": 4,
+      "x": -430.457,
+      "y": -103.799,
+      "z": 7.749
+    },
+    {
+      "class": "G",
+      "id": "000420dfc9324501",
+      "name": "Astaniox",
+      "systemCount": 5,
+      "x": -72.588,
+      "y": 8.427,
+      "z": 10.273
+    },
+    {
+      "class": "M",
+      "id": "e6d3aaef114f83f4",
+      "name": "Casorea",
+      "systemCount": 3,
+      "x": 182.511,
+      "y": 113.994,
+      "z": 2.466
+    },
+    {
+      "class": "M",
+      "id": "2081076857cf27f2",
+      "name": "Kepelaora",
+      "systemCount": 6,
+      "x": -293.511,
+      "y": -154.458,
+      "z": 9.8
+    },
+    {
+      "class": "M",
+      "id": "7191d8e2f11e4a7f",
+      "name": "Draonaell",
+      "systemCount": 3,
+      "x": -112.897,
+      "y": 334.44,
+      "z": 46.103
+    },
+    {
+      "class": "G",
+      "id": "c108f0d87afc459c",
+      "name": "Draelum",
+      "systemCount": 7,
+      "x": 62.266,
+      "y": 53.029,
+      "z": 23.159
+    },
+    {
+      "class": "M",
+      "id": "d3b83283ec2f6fdb",
+      "name": "Zelorum",
+      "systemCount": 7,
+      "x": -173.54,
+      "y": -38.084,
+      "z": 15.999
+    },
+    {
+      "class": "M",
+      "id": "86414c5c2d4485c1",
+      "name": "Farisaax",
+      "systemCount": 4,
+      "x": -83.42,
+      "y": 36.893,
+      "z": 26.77
+    },
+    {
+      "class": "G",
+      "id": "6242d2f965825af1",
+      "name": "Itheleth",
+      "systemCount": 5,
+      "x": 194.336,
+      "y": -213.663,
+      "z": -8.911
+    },
+    {
+      "class": "M",
+      "id": "760ff2099e9355b6",
+      "name": "Oriovaos",
+      "systemCount": 6,
+      "x": 305.54,
+      "y": -57.832,
+      "z": -5.446
+    },
+    {
+      "class": "M",
+      "id": "2b33815b95cffa99",
+      "name": "Elecath",
+      "systemCount": 2,
+      "x": 53.028,
+      "y": -112.061,
+      "z": 38.137
+    },
+    {
+      "class": "G",
+      "id": "566fa5df5a490072",
+      "name": "Lyrovaine",
+      "systemCount": 2,
+      "x": -86.796,
+      "y": 54.142,
+      "z": -14.077
+    },
+    {
+      "class": "K",
+      "id": "2fa110ac3b6057e9",
+      "name": "Tauagion",
+      "systemCount": 5,
+      "x": -93.172,
+      "y": 52.513,
+      "z": 24.325
+    },
+    {
+      "class": "M",
+      "id": "2ecaad3659bbc6c6",
+      "name": "Umbagion",
+      "systemCount": 4,
+      "x": -164.335,
+      "y": 91.212,
+      "z": -35.422
+    },
+    {
+      "class": "K",
+      "id": "78d5978615837b5d",
+      "name": "Darenaean",
+      "systemCount": 4,
+      "x": 265.427,
+      "y": 13.79,
+      "z": -5.581
+    },
+    {
+      "class": "M",
+      "id": "e5dea705c98fe6e6",
+      "name": "Fenabean",
+      "systemCount": 3,
+      "x": -231.209,
+      "y": -151.608,
+      "z": -13.076
+    },
+    {
+      "class": "K",
+      "id": "cb8923fcc368aeb5",
+      "name": "Polesoath",
+      "systemCount": 8,
+      "x": -97.68,
+      "y": -192.482,
+      "z": -12.641
+    },
+    {
+      "class": "M",
+      "id": "8db0285aa89e1ce7",
+      "name": "Arevae",
+      "systemCount": 5,
+      "x": 39.853,
+      "y": 129.491,
+      "z": -13.624
+    },
+    {
+      "class": "M",
+      "id": "9e5f3ed60e1cd419",
+      "name": "Galirum",
+      "systemCount": 6,
+      "x": 149.116,
+      "y": -67.779,
+      "z": -26.794
+    },
+    {
+      "class": "M",
+      "id": "9a816cc46ea4ddba",
+      "name": "Solodax",
+      "systemCount": 3,
+      "x": 349.714,
+      "y": 93.406,
+      "z": 1.446
+    },
+    {
+      "class": "M",
+      "id": "3dfe9836daa73738",
+      "name": "Galunov",
+      "systemCount": 4,
+      "x": 56.998,
+      "y": -295.645,
+      "z": 10.714
+    },
+    {
+      "class": "K",
+      "id": "56afef2475dc6000",
+      "name": "Zelenad",
+      "systemCount": 6,
+      "x": -173.556,
+      "y": -105.201,
+      "z": -22.062
+    },
+    {
+      "class": "G",
+      "id": "f051b804de510df8",
+      "name": "Kepanior",
+      "systemCount": 5,
+      "x": 352.428,
+      "y": 61.557,
+      "z": 9.354
+    },
+    {
+      "class": "K",
+      "id": "e20ba83b3843331c",
+      "name": "Riganiune",
+      "systemCount": 7,
+      "x": -113.461,
+      "y": -183.125,
+      "z": 7.972
+    },
+    {
+      "class": "M",
+      "id": "ff6d2b2b9a4ca120",
+      "name": "Eriithov",
+      "systemCount": 8,
+      "x": 18.009,
+      "y": -140.621,
+      "z": 30.899
+    },
+    {
+      "class": "M",
+      "id": "87f555050eab84ee",
+      "name": "Rigorea",
+      "systemCount": 7,
+      "x": 4.305,
+      "y": -152.492,
+      "z": 7.746
+    },
+    {
+      "class": "G",
+      "id": "0eb2b452ff807929",
+      "name": "Sirenul",
+      "systemCount": 7,
+      "x": 275.652,
+      "y": -135.438,
+      "z": 30.984
+    },
+    {
+      "class": "G",
+      "id": "66ebfaae92673847",
+      "name": "Pyrisus",
+      "systemCount": 6,
+      "x": -164.203,
+      "y": -216.573,
+      "z": 2.744
+    },
+    {
+      "class": "M",
+      "id": "bd39505628f3446d",
+      "name": "Ioranea",
+      "systemCount": 8,
+      "x": -134.944,
+      "y": 46.92,
+      "z": 20.47
+    },
+    {
+      "class": "M",
+      "id": "dafc383a7b4a9ffb",
+      "name": "Kepitheth",
+      "systemCount": 5,
+      "x": 69.877,
+      "y": -320.597,
+      "z": -29.344
+    },
+    {
+      "class": "F",
+      "id": "dbb8c8e12ef420ff",
+      "name": "Goretais",
+      "systemCount": 7,
+      "x": -82.783,
+      "y": -108.683,
+      "z": 8.54
+    },
+    {
+      "class": "K",
+      "id": "837cb934bdf909df",
+      "name": "Xanurant",
+      "systemCount": 7,
+      "x": -137.14,
+      "y": -74.019,
+      "z": 21.335
+    },
+    {
+      "class": "K",
+      "id": "964296344688dafb",
+      "name": "Velesoov",
+      "systemCount": 7,
+      "x": -180.1,
+      "y": 91.581,
+      "z": -21.28
+    },
+    {
+      "class": "G",
+      "id": "19f020fc3a508255",
+      "name": "Wynonaik",
+      "systemCount": 2,
+      "x": -90.199,
+      "y": 103.421,
+      "z": 8.977
+    },
+    {
+      "class": "M",
+      "id": "2b6a96606ddb5945",
+      "name": "Eleliov",
+      "systemCount": 6,
+      "x": -87.211,
+      "y": -194.281,
+      "z": 1.299
+    },
+    {
+      "class": "K",
+      "id": "7facd02809f157bf",
+      "name": "Lorumiar",
+      "systemCount": 3,
+      "x": -240.478,
+      "y": -51.374,
+      "z": 23.057
+    },
+    {
+      "class": "M",
+      "id": "4b4f7d1c93182274",
+      "name": "Kalirul",
+      "systemCount": 6,
+      "x": 155.78,
+      "y": -60.674,
+      "z": -10.741
+    },
+    {
+      "class": "M",
+      "id": "e7f9209ccbb927a1",
+      "name": "Riganax",
+      "systemCount": 7,
+      "x": -190.912,
+      "y": 91.367,
+      "z": -46.351
+    },
+    {
+      "class": "G",
+      "id": "6b123270b55b3fb8",
+      "name": "Wynoroor",
+      "systemCount": 7,
+      "x": 209.872,
+      "y": 35.847,
+      "z": -20.114
+    },
+    {
+      "class": "A",
+      "id": "60b1d3ec65161d96",
+      "name": "Jorunesh",
+      "systemCount": 6,
+      "x": 143.35,
+      "y": 176.017,
+      "z": 29.152
+    },
+    {
+      "class": "M",
+      "id": "7c2c66d388df2021",
+      "name": "Erioroyn",
+      "systemCount": 3,
+      "x": 277.413,
+      "y": -125.87,
+      "z": 12.83
+    },
+    {
+      "class": "M",
+      "id": "456b3ddd9b192192",
+      "name": "Sirunath",
+      "systemCount": 8,
+      "x": 161.361,
+      "y": -8.527,
+      "z": 3.456
+    },
+    {
+      "class": "G",
+      "id": "820190c0ca5e31a9",
+      "name": "Fenolor",
+      "systemCount": 5,
+      "x": -64.665,
+      "y": 257.035,
+      "z": 5.151
+    },
+    {
+      "class": "G",
+      "id": "3091a288ca59e9d9",
+      "name": "Xanorar",
+      "systemCount": 8,
+      "x": -135.028,
+      "y": -5.21,
+      "z": -18.541
+    },
+    {
+      "class": "G",
+      "id": "4da3803371514eaa",
+      "name": "Lyrotar",
+      "systemCount": 6,
+      "x": 255.888,
+      "y": -48.525,
+      "z": -6.452
+    },
+    {
+      "class": "M",
+      "id": "e69418032aa43e83",
+      "name": "Yoraba",
+      "systemCount": 6,
+      "x": 159.172,
+      "y": 81.05,
+      "z": 15.479
+    },
+    {
+      "class": "M",
+      "id": "0ab10562c6b4b624",
+      "name": "Helurell",
+      "systemCount": 8,
+      "x": -53.111,
+      "y": -39.686,
+      "z": -6.362
+    },
+    {
+      "class": "F",
+      "id": "2bd4b78468a1f1ba",
+      "name": "Oximeia",
+      "systemCount": 2,
+      "x": -251.261,
+      "y": -379.234,
+      "z": 7.376
+    },
+    {
+      "class": "K",
+      "id": "c85e423b4ebceaa6",
+      "name": "Iorisine",
+      "systemCount": 3,
+      "x": -90.86,
+      "y": 130.38,
+      "z": 8.241
+    },
+    {
+      "class": "K",
+      "id": "02e00f0c2f0d3707",
+      "name": "Belageth",
+      "systemCount": 6,
+      "x": -95.224,
+      "y": -303.405,
+      "z": -5.571
+    },
+    {
+      "class": "M",
+      "id": "c860714ad2a69c65",
+      "name": "Velesoire",
+      "systemCount": 2,
+      "x": 202.182,
+      "y": 17.477,
+      "z": -7.939
+    },
+    {
+      "class": "M",
+      "id": "5502002ee27f42eb",
+      "name": "Casevae",
+      "systemCount": 4,
+      "x": -9.992,
+      "y": 323.044,
+      "z": 5.826
+    },
+    {
+      "class": "K",
+      "id": "8cd40e6a93fa1311",
+      "name": "Noralys",
+      "systemCount": 7,
+      "x": -83.94,
+      "y": -215.231,
+      "z": -3.183
+    },
+    {
+      "class": "M",
+      "id": "2f39db362fa67f69",
+      "name": "Zanenor",
+      "systemCount": 6,
+      "x": -206.76,
+      "y": -211.948,
+      "z": -0.104
+    },
+    {
+      "class": "G",
+      "id": "29a8c1c0a0ff2337",
+      "name": "Ithisaora",
+      "systemCount": 2,
+      "x": -4.535,
+      "y": 115.719,
+      "z": 18.76
+    },
+    {
+      "class": "M",
+      "id": "f7c85852c2576f3b",
+      "name": "Nemezys",
+      "systemCount": 3,
+      "x": -304.909,
+      "y": -96.384,
+      "z": -18.476
+    },
+    {
+      "class": "M",
+      "id": "b479956582e04b50",
+      "name": "Farisath",
+      "systemCount": 4,
+      "x": -178.464,
+      "y": 106.811,
+      "z": 2.077
+    },
+    {
+      "class": "M",
+      "id": "e1a3fcf37cb8165f",
+      "name": "Faroreos",
+      "systemCount": 3,
+      "x": 146.089,
+      "y": -190.314,
+      "z": 12.651
+    },
+    {
+      "class": "K",
+      "id": "0e716c63cf44a69f",
+      "name": "Galithune",
+      "systemCount": 4,
+      "x": 210.551,
+      "y": 49.274,
+      "z": -8.151
+    },
+    {
+      "class": "M",
+      "id": "663286225c92a473",
+      "name": "Wynelark",
+      "systemCount": 4,
+      "x": 292.68,
+      "y": -253.36,
+      "z": -2.923
+    },
+    {
+      "class": "K",
+      "id": "8c612d1596aa2696",
+      "name": "Umbisix",
+      "systemCount": 7,
+      "x": 44.095,
+      "y": 113.095,
+      "z": 35.752
+    },
+    {
+      "class": "G",
+      "id": "89bb00fe086ba8cd",
+      "name": "Noresoesh",
+      "systemCount": 2,
+      "x": -167.942,
+      "y": -312.111,
+      "z": 34.421
+    },
+    {
+      "class": "K",
+      "id": "c1e59ee7945169cb",
+      "name": "Alalox",
+      "systemCount": 3,
+      "x": 394.075,
+      "y": -83.819,
+      "z": -1.795
+    },
+    {
+      "class": "M",
+      "id": "bcaaf786c221c817",
+      "name": "Polaraon",
+      "systemCount": 7,
+      "x": 68.19,
+      "y": -81.758,
+      "z": -12.113
+    },
+    {
+      "class": "M",
+      "id": "df323ed1688a79db",
+      "name": "Nemadoek",
+      "systemCount": 7,
+      "x": 123.641,
+      "y": -92.206,
+      "z": 9.605
+    },
+    {
+      "class": "G",
+      "id": "3dc6eed70c4acedf",
+      "name": "Hydison",
+      "systemCount": 5,
+      "x": 63.654,
+      "y": 31.918,
+      "z": 9.036
+    },
+    {
+      "class": "G",
+      "id": "29057a6121debba3",
+      "name": "Iorarys",
+      "systemCount": 6,
+      "x": -117.032,
+      "y": -88.728,
+      "z": -9.501
+    },
+    {
+      "class": "M",
+      "id": "1c34fd2468e83f1d",
+      "name": "Cyroreine",
+      "systemCount": 8,
+      "x": -7.701,
+      "y": 177.353,
+      "z": -2.312
+    },
+    {
+      "class": "K",
+      "id": "8a2c117224cc206e",
+      "name": "Belaleean",
+      "systemCount": 3,
+      "x": 305.057,
+      "y": 116.782,
+      "z": 10.007
+    },
+    {
+      "class": "F",
+      "id": "e7a6127bea1f59d6",
+      "name": "Borabath",
+      "systemCount": 5,
+      "x": -66.971,
+      "y": -63.772,
+      "z": -7.709
+    },
+    {
+      "class": "K",
+      "id": "6e9b03e640a7ce31",
+      "name": "Velarios",
+      "systemCount": 6,
+      "x": -61.637,
+      "y": -85.736,
+      "z": 2.433
+    },
+    {
+      "class": "M",
+      "id": "2f898ad7602264e4",
+      "name": "Orioraox",
+      "systemCount": 7,
+      "x": -3.794,
+      "y": -138.905,
+      "z": -23.295
+    },
+    {
+      "class": "K",
+      "id": "4864949e9150c977",
+      "name": "Pyronaath",
+      "systemCount": 3,
+      "x": -3.326,
+      "y": -115.228,
+      "z": 37.171
+    },
+    {
+      "class": "M",
+      "id": "a65e8d5e64fbf1e2",
+      "name": "Rasabyn",
+      "systemCount": 2,
+      "x": 169.421,
+      "y": -8.157,
+      "z": 3.706
+    },
+    {
+      "class": "A",
+      "id": "dddc1400764fe408",
+      "name": "Velimeyn",
+      "systemCount": 5,
+      "x": -55.576,
+      "y": -123.319,
+      "z": 6.09
+    }
+  ]
+}

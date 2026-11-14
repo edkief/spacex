@@ -18,7 +18,8 @@
     "test:e2e": "playwright test",
     "typecheck": "tsc -p tsconfig.shared.json && tsc -p tsconfig.client.json && tsc -p tsconfig.server.json && tsc -p tsconfig.tooling.json",
     "lint": "eslint . && prettier --check .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "snapshot:update": "tsx scripts/snapshot-update.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
