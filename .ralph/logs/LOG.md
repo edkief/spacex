@@ -3,12 +3,23 @@
 `Current Status`
 =================
 **Last Updated:** 2026-11-14
-**Tasks Completed:** 7 / 71
-**Current Task:** TASK-6 Complete
+**Tasks Completed:** 10 / 71
+**Current Task:** TASK-63 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-11-14 — TASK-19, TASK-62, TASK-63 Ship catalog, Drizzle data layer, persistence service
+
+- Ship catalog (`src/shared/ships/catalog.ts`) in SI units: scout 300 m/s, freighter 150 m/s, interceptor 450 m/s. These are local-manoeuvre speeds; long-range travel is a TASK-22 decision.
+- Data layer: `src/server/db/schema.ts` is the single (SQLite-flavoured) schema; the Postgres schema is derived from it by introspection, with a drift test and a migration-reproducibility test. Migrations committed under `app/drizzle/{sqlite,pg}`.
+- One async `Repository`, tested on real SQLite **and** real Postgres semantics via in-process PGlite (about 130 backend-parametrised tests). Production node-postgres wiring (`openPostgres`) is untested: no credentials for the local instance.
+- Credits are atomic conditional updates; the 100-concurrent-withdrawal test passes on both backends. This covers the repository half of TASK-41; its REST endpoint comes with auth.
+- Deviation from PRD section 8: `resource_node_state.system_id` added (needed by `listNodeStates(systemId)`). Enums are text + CHECK; pg `real` is `double precision`.
+- Persistence service (`src/server/persist.ts`): dock/damage-threshold/interval/shutdown save points with injectable clock and scheduler; not yet wired to a shard. Real SIGKILL crash tests pass.
+- Flush timing for 16 dirty ships: median about 3.3 ms, p95 about 4.6 ms, rare rounds 6-9 ms. The spec's strict "no >5 ms" is met typically but not guaranteed; revisit under the TASK-60 tick budget.
+- Verified by lead: lint, typecheck and 337 tests pass.
 
 ### 2026-11-14 — TASK-2 to TASK-6 Deterministic PRNG and galaxy generation (M0)
 
