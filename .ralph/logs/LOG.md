@@ -3,12 +3,21 @@
 `Current Status`
 =================
 **Last Updated:** 2026-11-14
-**Tasks Completed:** 17 / 73
-**Current Task:** TASK-22 Complete
+**Tasks Completed:** 18 / 73
+**Current Task:** TASK-13 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-11-14 — TASK-13 Server sim: 20 Hz tick with 10 Hz snapshots (lead-implemented)
+
+- `src/server/shard/`: `SimLoop` (fixed 50 ms step, accumulator, max 5 catch-up ticks then drop), `Shard` (single-writer tick calling shared `stepShip`; latest input wins; stale seqs ignored; one-shot dock/undock actions are never lost to a later input in the same tick; presence; `entity_update` every second tick with the recipient's own `lastInputSeq`), `SurfaceAccess` (cached terrain fields, pads generated lazily only when a ship is on the ground), `ShardRouter` (replaces the directory stub: shard per system on first join, 16-player cap, reaped 60 s after emptying, ships saved on leave / every 5 s / on shutdown).
+- Ships left by a disconnected owner stay in the sim with idle input. New pilots appear docked at their home system's first orbital dock.
+- This also delivers the core of TASK-11 and TASK-12; still open there: `/api/galaxy/health`, the process-restart and leak tests, wiring the TASK-63 persistence service (the shard currently saves through the repository directly), and persisting ship orientation.
+- Measured: 16 flying ships tick in 0.10 ms median, 0.33 ms p95 (budget 30 ms).
+- The Sonnet worker session ran out of usage budget during this stretch; this task and the surface-chart rework were done by the lead.
+- Verified: lint, typecheck, 774 unit tests, 2 e2e specs.
 
 ### 2026-11-14 — TASK-22 Flight model and world model (plus shared parts of TASK-25 and TASK-28)
 

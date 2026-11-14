@@ -17,7 +17,8 @@ app/
       routes/      REST routes
       ws/          connection, state machine, dispatcher, handlers, heartbeat, origin check, hub
       ratelimit.ts token bucket, chat window, violation tracking
-      directory.ts SystemDirectory seam (stub until shards exist)
+      directory.ts SystemDirectory seam between connections and shards
+      shard/       SimLoop, Shard (authoritative tick), SurfaceAccess, ShardRouter
       db/          Drizzle schema (single source), pg derivation, connection, per-aggregate repositories
       persist.ts   save-point service (dock, damage thresholds, interval, shutdown); helpers in persist/
   docs/            world-model.md (coordinate, scale and flight model)
