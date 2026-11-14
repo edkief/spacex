@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { callsignSchema } from '../callsign.ts';
+import { REGIMES } from '../regime.ts';
 import { liverySchema } from '../ships/livery.ts';
 import {
   entityIdSchema,
@@ -18,7 +19,7 @@ import {
 
 export const entityKindSchema = z.enum(['ship', 'character', 'ai-ship', 'wreck']);
 /** Where an entity currently lives; refined by the flight/regime tasks. */
-export const regimeSchema = z.enum(['space', 'atmosphere', 'surface']);
+export const regimeSchema = z.enum(REGIMES);
 
 /** One shape for all snapshot traffic. `classId` is null for characters. */
 export const entityStateSchema = z.strictObject({
