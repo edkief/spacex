@@ -20,7 +20,8 @@
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
     "snapshot:update": "tsx scripts/snapshot-update.ts",
-    "db:generate": "drizzle-kit generate --config drizzle.sqlite.config.ts --name init && drizzle-kit generate --config drizzle.pg.config.ts --name init"
+    "db:generate": "drizzle-kit generate --config drizzle.sqlite.config.ts --name init && drizzle-kit generate --config drizzle.pg.config.ts --name init",
+    "test:perf": "vitest run tests/perf --reporter verbose"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.16",

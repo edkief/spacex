@@ -46,7 +46,7 @@ function setup(handlers: HandlerMap = {}) {
   const dispatch = createDispatcher(handlers, deps, hub);
   const send = (type: string, payload: unknown, v = PROTOCOL_VERSION) =>
     dispatch(conn, JSON.stringify({ v, type, payload }));
-  return { socket, conn, dispatch, send, timers };
+  return { socket, conn, dispatch, send, timers, deps };
 }
 
 describe('dispatcher', () => {
@@ -139,5 +139,34 @@ describe('dispatcher', () => {
     t.timers.advance(12_345);
     await t.dispatch(t.conn, 'garbage');
     expect(t.conn.lastSeenAt).toBe(t.timers.now());
+  });
+
+  it('drops a connection after 50 invalid messages (but not before)', async () => {
+    const t = setup();
+    for (let i = 0; i < 49; i++) await t.dispatch(t.conn, '{broken');
+    expect(t.socket.closedWith).toBeUndefined();
+    await t.dispatch(t.conn, '{broken');
+    expect(t.socket.errors).toHaveLength(50);
+    expect(t.socket.closedWith).toBe(CLOSE_CODES.tooManyInvalid);
+  });
+
+  it('counts invalid payloads and stale input seqs toward the limit, but not valid traffic', async () => {
+    const t = setup({ ping: () => undefined });
+    for (let i = 0; i < 200; i++) await t.send('ping', { t: i });
+    expect(t.conn.invalidMessages).toBe(0);
+    await t.send('ping', { t: 'no' });
+    expect(t.conn.invalidMessages).toBe(1);
+  });
+
+  it('logs only issue paths at debug level, never the offending values', async () => {
+    const t = setup();
+    const secret = 'super-secret-value-12345';
+    await t.send('ping', { t: secret });
+    await t.dispatch(t.conn, `{"v":1,"type":"ping","payload":${JSON.stringify(secret)}`);
+    const debug = (t.deps.log as unknown as { debug: ReturnType<typeof vi.fn> }).debug;
+    expect(debug).toHaveBeenCalled();
+    expect(JSON.stringify(debug.mock.calls)).not.toContain(secret);
+    expect(JSON.stringify(t.socket.sent)).not.toContain(secret);
+    expect(JSON.stringify(debug.mock.calls)).toContain('t:invalid_type');
   });
 });

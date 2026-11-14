@@ -15,7 +15,8 @@ export type Handler<K extends ClientType> = (
 /** Handlers by message type; types without one answer `not-implemented`. */
 export type HandlerMap = { [K in ClientType]?: Handler<K> };
 
-const MAX_UNKNOWN_TYPES = 10;
+export const MAX_UNKNOWN_TYPES = 10;
+export const MAX_INVALID_MESSAGES = 50;
 
 /**
  * Builds THE dispatch function: the only path from socket text to a handler. It decodes the
@@ -37,13 +38,25 @@ export function createDispatcher(handlers: HandlerMap, deps: WsDeps, hub: Hub) {
     await handler(ctx, payload);
   }
 
+  /**
+   * Rejects a message as invalid: structured error to the client (never echoing the payload), a
+   * debug log of issue paths only, and a drop once the connection has sent too many.
+   */
+  function rejectInvalid(conn: Connection, type: string, message: string, issues: string[] = []) {
+    conn.sendError('invalid-message', message);
+    deps.log.debug({ conn: conn.id, type, issues }, 'invalid message rejected');
+    if (conn.recordInvalid(MAX_INVALID_MESSAGES)) {
+      conn.close(CLOSE_CODES.tooManyInvalid, 'too-many-invalid-messages');
+    }
+  }
+
   return async function dispatch(conn: Connection, frame: string): Promise<void> {
     conn.lastSeenAt = deps.clock();
     const ctx: HandlerContext = { conn, deps, hub };
 
     const envelope = decodeEnvelope(frame);
     if (!envelope.ok) {
-      conn.sendError(envelope.error.code, envelope.error.message);
+      rejectInvalid(conn, '<envelope>', envelope.error.message, envelope.issues);
       return;
     }
     const { v, type, payload } = envelope.value;
@@ -71,14 +84,14 @@ export function createDispatcher(handlers: HandlerMap, deps: WsDeps, hub: Hub) {
 
     const parsed = parseClientMessage(type, payload);
     if (!parsed.ok) {
-      conn.sendError(parsed.error.code, parsed.error.message);
+      rejectInvalid(conn, type, parsed.error.message, parsed.issues);
       return;
     }
 
     if (parsed.value.type === 'input') {
       const { seq } = parsed.value.payload;
       if (seq <= conn.lastInputSeq) {
-        conn.sendError('invalid-message', 'input seq must increase');
+        rejectInvalid(conn, type, 'input seq must increase', ['seq:not-increasing']);
         return;
       }
       conn.lastInputSeq = seq;
@@ -94,3 +107,12 @@ export function createDispatcher(handlers: HandlerMap, deps: WsDeps, hub: Hub) {
 }
 
 export type Dispatcher = ReturnType<typeof createDispatcher>;
+
+/** Counts and answers a binary frame (the protocol is JSON text only). */
+export function rejectBinary(conn: Connection, deps: WsDeps): void {
+  conn.sendError('invalid-message', 'binary frames are not supported');
+  deps.log.debug({ conn: conn.id }, 'binary frame rejected');
+  if (conn.recordInvalid(MAX_INVALID_MESSAGES)) {
+    conn.close(CLOSE_CODES.tooManyInvalid, 'too-many-invalid-messages');
+  }
+}

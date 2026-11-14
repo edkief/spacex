@@ -82,6 +82,15 @@ export class Connection {
     this.socket.terminate();
   }
 
+  /**
+   * Counts a rejected-as-invalid message; returns true when the limit is reached and the
+   * connection should be dropped.
+   */
+  recordInvalid(limit: number): boolean {
+    this.invalidMessages += 1;
+    return this.invalidMessages >= limit;
+  }
+
   /** Marks the connection closed and runs cleanups once. Called by the transport on 'close'. */
   markClosed(): void {
     if (this.closed) return;

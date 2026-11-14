@@ -13,7 +13,16 @@ export const PROTOCOL_VERSION = 1;
 /** Largest frame accepted or produced, in bytes. Enforced by ws `maxPayload` as well. */
 export const MAX_FRAME_BYTES = 64 * 1024;
 
-export type ParseResult<T> = { ok: true; value: T } | { ok: false; error: ErrorBody };
+/** Failures carry the client-facing error plus server-side `issues` (paths only, never values). */
+export type ParseResult<T> =
+  { ok: true; value: T } | { ok: false; error: ErrorBody; issues?: string[] };
+
+/** Summarises zod issues as `path:code` strings that are safe to log (no payload values). */
+function issuePaths(error: z.ZodError): string[] {
+  return error.issues
+    .slice(0, 10)
+    .map((issue) => `${issue.path.join('.') || '<root>'}:${issue.code}`);
+}
 
 /** Envelope = {v, type, payload}; `payload` is validated later against the type's schema. */
 export const envelopeSchema = z.strictObject({
@@ -34,11 +43,19 @@ export function decodeEnvelope(text: string): ParseResult<Envelope> {
   try {
     json = JSON.parse(text);
   } catch {
-    return { ok: false, error: errorBody('invalid-message', 'frame is not valid JSON') };
+    return {
+      ok: false,
+      error: errorBody('invalid-message', 'frame is not valid JSON'),
+      issues: ['json'],
+    };
   }
   const parsed = envelopeSchema.safeParse(json);
   if (!parsed.success) {
-    return { ok: false, error: errorBody('invalid-message', 'frame is not a valid envelope') };
+    return {
+      ok: false,
+      error: errorBody('invalid-message', 'frame is not a valid envelope'),
+      issues: issuePaths(parsed.error),
+    };
   }
   return { ok: true, value: parsed.data };
 }
@@ -49,7 +66,11 @@ export function parseClientMessage(type: string, payload: unknown): ParseResult<
     return { ok: false, error: errorBody('unknown-type', 'unknown message type') };
   const parsed = CLIENT_MESSAGES[type].safeParse(payload);
   if (!parsed.success)
-    return { ok: false, error: errorBody('invalid-message', `invalid ${type} payload`) };
+    return {
+      ok: false,
+      error: errorBody('invalid-message', `invalid ${type} payload`),
+      issues: issuePaths(parsed.error),
+    };
   return { ok: true, value: { type, payload: parsed.data } as ClientMessage };
 }
 
@@ -59,7 +80,11 @@ export function parseServerMessage(type: string, payload: unknown): ParseResult<
     return { ok: false, error: errorBody('unknown-type', 'unknown message type') };
   const parsed = SERVER_MESSAGES[type].safeParse(payload);
   if (!parsed.success)
-    return { ok: false, error: errorBody('invalid-message', `invalid ${type} payload`) };
+    return {
+      ok: false,
+      error: errorBody('invalid-message', `invalid ${type} payload`),
+      issues: issuePaths(parsed.error),
+    };
   return { ok: true, value: { type, payload: parsed.data } as ServerMessage };
 }
 

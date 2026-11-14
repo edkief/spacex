@@ -5,6 +5,7 @@ import { buildHealth } from '@shared/health';
 import type { Authenticator } from './auth/types.ts';
 import type { ServerConfig } from './config.ts';
 import type { SystemDirectory } from './directory.ts';
+import { REST_BODY_LIMIT, installErrorHandlers } from './rest.ts';
 import { realTimers, type Timers } from './timers.ts';
 import { attachWebSocket, type WebSocketLayer } from './ws/index.ts';
 
@@ -35,8 +36,11 @@ export type DriftServer = FastifyInstance & { sockets: WebSocketLayer };
 export function buildServer(deps: ServerDeps, options: BuildServerOptions = {}): DriftServer {
   const { config } = deps;
   const app = Fastify({
+    bodyLimit: REST_BODY_LIMIT,
     logger: { level: options.logLevel ?? (config.nodeEnv === 'test' ? 'silent' : 'info') },
   });
+
+  installErrorHandlers(app);
 
   app.get('/api/health', () => buildHealth(config.galaxySeed));
 

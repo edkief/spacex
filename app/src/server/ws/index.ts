@@ -4,7 +4,7 @@ import { MAX_FRAME_BYTES } from '@shared/protocol/envelope.ts';
 import { CLOSE_CODES } from '@shared/protocol/errors.ts';
 import { Connection } from './connection.ts';
 import type { WsDeps } from './context.ts';
-import { createDispatcher, type HandlerMap } from './dispatch.ts';
+import { createDispatcher, rejectBinary, type HandlerMap } from './dispatch.ts';
 import { sessionHandlers } from './handlers.ts';
 import { armHandshakeTimeout, startHeartbeat } from './heartbeat.ts';
 import { Hub } from './hub.ts';
@@ -57,7 +57,7 @@ export function attachWebSocket(
     socket.on('error', (error) => deps.log.warn({ err: error }, 'websocket error'));
     socket.on('message', (data, isBinary) => {
       if (isBinary) {
-        conn.sendError('invalid-message', 'binary frames are not supported');
+        rejectBinary(conn, deps);
         return;
       }
       void conn.enqueue(() => dispatch(conn, frameText(data)));
