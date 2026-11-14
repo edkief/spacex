@@ -1,0 +1,118 @@
+{
+  "chunk": {
+    "biome": "rock",
+    "chunkX": 0,
+    "chunkZ": 1,
+    "heightmap": {
+      "length": 4096,
+      "samples": [
+        {
+          "i": 0,
+          "j": 0,
+          "value": 1484
+        },
+        {
+          "i": 21,
+          "j": 0,
+          "value": 1340
+        },
+        {
+          "i": 42,
+          "j": 0,
+          "value": 1534
+        },
+        {
+          "i": 63,
+          "j": 0,
+          "value": 1846
+        },
+        {
+          "i": 0,
+          "j": 21,
+          "value": 1726
+        },
+        {
+          "i": 21,
+          "j": 21,
+          "value": 1721
+        },
+        {
+          "i": 42,
+          "j": 21,
+          "value": 1776
+        },
+        {
+          "i": 63,
+          "j": 21,
+          "value": 2022
+        },
+        {
+          "i": 0,
+          "j": 42,
+          "value": 2000
+        },
+        {
+          "i": 21,
+          "j": 42,
+          "value": 2128
+        },
+        {
+          "i": 42,
+          "j": 42,
+          "value": 2162
+        },
+        {
+          "i": 63,
+          "j": 42,
+          "value": 1946
+        },
+        {
+          "i": 0,
+          "j": 63,
+          "value": 2444
+        },
+        {
+          "i": 21,
+          "j": 63,
+          "value": 2559
+        },
+        {
+          "i": 42,
+          "j": 63,
+          "value": 2267
+        },
+        {
+          "i": 63,
+          "j": 63,
+          "value": 1916
+        }
+      ],
+      "sha256": "9b0f00f70d35ed3e32093bf4247031de3b263f603ddba4cf3f66bb1e9eefc829"
+    },
+    "landingPads": [
+      {
+        "id": "d34d10bbd6a8ad57",
+        "x": 185.8,
+        "z": 365.5
+      }
+    ],
+    "resourceNodes": [
+      {
+        "baseQuantity": 99,
+        "nodeId": "1dae235d2ad23880",
+        "type": "water",
+        "x": 224.6,
+        "z": 358.8
+      },
+      {
+        "baseQuantity": 102,
+        "nodeId": "a646c5372c03aacf",
+        "type": "water",
+        "x": 190.9,
+        "z": 468.2
+      }
+    ]
+  },
+  "planetId": "23af299cef52680f",
+  "seed": "drift-dev-seed-001"
+}

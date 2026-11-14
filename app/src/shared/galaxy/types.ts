@@ -44,3 +44,35 @@ export interface SystemGen {
   star: { class: StarClass; name: string };
   planets: Planet[];
 }
+
+export type Biome = 'plains' | 'rock' | 'canyon' | 'frozen' | 'wetland';
+
+export interface ResourceNode {
+  /** Stable identity (hash of seed, planet, chunk and node index); keys resource_node_state. */
+  nodeId: string;
+  type: string;
+  /** World-space metres on the planet's surface plane. */
+  x: number;
+  z: number;
+  baseQuantity: number;
+}
+
+export interface LandingPad {
+  id: string;
+  x: number;
+  z: number;
+}
+
+/**
+ * One 256 m x 256 m surface chunk. `heightmap` is a row-major 64x64 grid of integers in
+ * HEIGHT_UNITS_PER_M units (decimetres, the Uint16 range): index = j * 64 + i, with i along +x
+ * and j along +z. See terrain.ts for the exact world-space position of each sample.
+ */
+export interface SurfaceChunk {
+  chunkX: number;
+  chunkZ: number;
+  heightmap: number[];
+  biome: Biome;
+  resourceNodes: ResourceNode[];
+  landingPads: LandingPad[];
+}

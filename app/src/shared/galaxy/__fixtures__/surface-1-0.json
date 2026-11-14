@@ -1,0 +1,105 @@
+{
+  "chunk": {
+    "biome": "rock",
+    "chunkX": 1,
+    "chunkZ": 0,
+    "heightmap": {
+      "length": 4096,
+      "samples": [
+        {
+          "i": 0,
+          "j": 0,
+          "value": 1853
+        },
+        {
+          "i": 21,
+          "j": 0,
+          "value": 2166
+        },
+        {
+          "i": 42,
+          "j": 0,
+          "value": 1826
+        },
+        {
+          "i": 63,
+          "j": 0,
+          "value": 1849
+        },
+        {
+          "i": 0,
+          "j": 21,
+          "value": 1840
+        },
+        {
+          "i": 21,
+          "j": 21,
+          "value": 2049
+        },
+        {
+          "i": 42,
+          "j": 21,
+          "value": 2056
+        },
+        {
+          "i": 63,
+          "j": 21,
+          "value": 1898
+        },
+        {
+          "i": 0,
+          "j": 42,
+          "value": 1722
+        },
+        {
+          "i": 21,
+          "j": 42,
+          "value": 2014
+        },
+        {
+          "i": 42,
+          "j": 42,
+          "value": 1890
+        },
+        {
+          "i": 63,
+          "j": 42,
+          "value": 1866
+        },
+        {
+          "i": 0,
+          "j": 63,
+          "value": 1842
+        },
+        {
+          "i": 21,
+          "j": 63,
+          "value": 1810
+        },
+        {
+          "i": 42,
+          "j": 63,
+          "value": 1518
+        },
+        {
+          "i": 63,
+          "j": 63,
+          "value": 1448
+        }
+      ],
+      "sha256": "49d0f2c0214ef553eef90a1cbac2cf595c6783d972f9d0f7e9a56525b81c1ed6"
+    },
+    "landingPads": [],
+    "resourceNodes": [
+      {
+        "baseQuantity": 118,
+        "nodeId": "7e334c02fafe5b49",
+        "type": "water",
+        "x": 351.5,
+        "z": 12.8
+      }
+    ]
+  },
+  "planetId": "23af299cef52680f",
+  "seed": "drift-dev-seed-001"
+}

@@ -1,0 +1,132 @@
+{
+  "chunk": {
+    "biome": "rock",
+    "chunkX": 0,
+    "chunkZ": 0,
+    "heightmap": {
+      "length": 4096,
+      "samples": [
+        {
+          "i": 0,
+          "j": 0,
+          "value": 1148
+        },
+        {
+          "i": 21,
+          "j": 0,
+          "value": 1398
+        },
+        {
+          "i": 42,
+          "j": 0,
+          "value": 1742
+        },
+        {
+          "i": 63,
+          "j": 0,
+          "value": 1848
+        },
+        {
+          "i": 0,
+          "j": 21,
+          "value": 1424
+        },
+        {
+          "i": 21,
+          "j": 21,
+          "value": 1634
+        },
+        {
+          "i": 42,
+          "j": 21,
+          "value": 1845
+        },
+        {
+          "i": 63,
+          "j": 21,
+          "value": 1836
+        },
+        {
+          "i": 0,
+          "j": 42,
+          "value": 1375
+        },
+        {
+          "i": 21,
+          "j": 42,
+          "value": 1666
+        },
+        {
+          "i": 42,
+          "j": 42,
+          "value": 1756
+        },
+        {
+          "i": 63,
+          "j": 42,
+          "value": 1719
+        },
+        {
+          "i": 0,
+          "j": 63,
+          "value": 1472
+        },
+        {
+          "i": 21,
+          "j": 63,
+          "value": 1332
+        },
+        {
+          "i": 42,
+          "j": 63,
+          "value": 1529
+        },
+        {
+          "i": 63,
+          "j": 63,
+          "value": 1843
+        }
+      ],
+      "sha256": "f85f6de6926ef51745e099d0221dfdc7cfd1a0316a3c778f46a2a94f83f4f4c2"
+    },
+    "landingPads": [
+      {
+        "id": "38a60a5d9767e5b5",
+        "x": 172.2,
+        "z": 24.5
+      }
+    ],
+    "resourceNodes": [
+      {
+        "baseQuantity": 74,
+        "nodeId": "92e0e071cf8583dc",
+        "type": "silicon",
+        "x": 192.4,
+        "z": 239
+      },
+      {
+        "baseQuantity": 169,
+        "nodeId": "b88c235abeaf75a1",
+        "type": "silicon",
+        "x": 160.5,
+        "z": 46.5
+      },
+      {
+        "baseQuantity": 142,
+        "nodeId": "4172d50602286019",
+        "type": "water",
+        "x": 212,
+        "z": 134.3
+      },
+      {
+        "baseQuantity": 175,
+        "nodeId": "086edc69926b4420",
+        "type": "water",
+        "x": 172.9,
+        "z": 145.9
+      }
+    ]
+  },
+  "planetId": "23af299cef52680f",
+  "seed": "drift-dev-seed-001"
+}
