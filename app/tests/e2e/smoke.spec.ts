@@ -43,3 +43,67 @@ test('loads the shell, canvas and proxied API/WS with no console errors', async 
   await page.screenshot({ path: testInfo.outputPath('page.png') });
   expect(problems).toEqual([]);
 });
+
+test('a browser claims a callsign, authenticates over the proxied socket and enters its home system', async ({
+  page,
+}, testInfo) => {
+  const problems: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') problems.push(`console: ${message.text()}`);
+  });
+  page.on('pageerror', (error) => problems.push(`pageerror: ${error.message}`));
+  await page.goto('/');
+
+  const callsign = `E2E-${Date.now().toString(36).toUpperCase()}`;
+  const result = await page.evaluate(
+    async ({ path, name }) => {
+      const claim = await fetch('/api/callsigns', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ callsign: name }),
+      });
+      const claimed = (await claim.json()) as {
+        token: string;
+        homeSystemId: string;
+        callsign: string;
+      };
+
+      const seen: string[] = [];
+      let enter: { payload: { systemId: string } } | undefined;
+      await new Promise<void>((resolve, reject) => {
+        const socket = new WebSocket(`ws://${location.host}${path}`);
+        const send = (type: string, payload: unknown) =>
+          socket.send(JSON.stringify({ v: 1, type, payload }));
+        socket.onopen = () => send('hello', { v: 1 });
+        socket.onerror = () => reject(new Error('websocket error'));
+        socket.onmessage = (event) => {
+          const message = JSON.parse(String(event.data)) as { type: string; payload: never };
+          seen.push(message.type);
+          if (message.type === 'welcome') send('auth', { token: claimed.token });
+          if (message.type === 'auth_ok') send('join_system', { systemId: claimed.homeSystemId });
+          if (message.type === 'enter_system') {
+            enter = message;
+            socket.close();
+            resolve();
+          }
+          if (message.type === 'error') reject(new Error(JSON.stringify(message.payload)));
+        };
+      });
+      return {
+        status: claim.status,
+        claimed: claimed.callsign,
+        home: claimed.homeSystemId,
+        seen,
+        enter,
+      };
+    },
+    { path: wsPath, name: callsign },
+  );
+
+  expect(result.status).toBe(201);
+  expect(result.claimed).toBe(callsign);
+  expect(result.seen).toEqual(['welcome', 'auth_ok', 'enter_system']);
+  expect(result.enter?.payload.systemId).toBe(result.home);
+  await page.screenshot({ path: testInfo.outputPath('claimed.png') });
+  expect(problems).toEqual([]);
+});

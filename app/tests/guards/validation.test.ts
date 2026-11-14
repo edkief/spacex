@@ -18,7 +18,9 @@ describe('validation audit', () => {
   const files = sources(SERVER);
 
   it('never parses JSON or reads raw message data outside the shared protocol layer', () => {
-    for (const file of files) {
+    // The signed-token codec parses its own payload, but only after the HMAC has verified.
+    const allowed = [path.join('auth', 'token.ts')];
+    for (const file of files.filter((f) => !allowed.some((a) => f.endsWith(a)))) {
       const code = readFileSync(file, 'utf8');
       expect(code.includes('JSON.parse'), `${file} calls JSON.parse`).toBe(false);
     }

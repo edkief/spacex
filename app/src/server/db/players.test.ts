@@ -28,6 +28,16 @@ describeBackends('players and credits', (fx) => {
     expect(await repo.findPlayerByCallsign(created.callsign)).toEqual(created);
   });
 
+  it('accepts a caller-chosen UUID and rejects malformed ids', async () => {
+    const { repo } = fx();
+    const id = '3f2504e0-4f89-41d3-9a0c-' + String(Date.now()).padStart(12, '0').slice(-12);
+    const created = await repo.createPlayer({ id, callsign: uniqueCallsign(), homeSystemId: 's' });
+    expect(created.id).toBe(id);
+    await expect(
+      repo.createPlayer({ id: 'not-a-uuid', callsign: uniqueCallsign(), homeSystemId: 's' }),
+    ).rejects.toThrow();
+  });
+
   it('honours an explicit starting balance', async () => {
     expect((await make(1234)).credits).toBe(1234);
   });

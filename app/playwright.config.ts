@@ -1,3 +1,5 @@
+import os from 'node:os';
+import path from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
 import { loadEndpointConfig } from './src/server/config.ts';
 import { findAppDir, loadAppEnv } from './src/server/env.ts';
@@ -24,6 +26,10 @@ export default defineConfig({
     reuseExistingServer: !process.env['CI'],
     timeout: 60_000,
     // Hermetic: e2e never needs the real SESSION_SECRET from .env.local.
-    env: { SESSION_SECRET: 'e2e-only-session-secret-not-a-real-secret' },
+    env: {
+      SESSION_SECRET: 'e2e-only-session-secret-not-a-real-secret',
+      // A throwaway database per run, so e2e never touches app/data or the real DB_PATH.
+      DB_PATH: path.join(os.tmpdir(), `drift-e2e-${process.pid}-${Date.now()}`, 'e2e.db'),
+    },
   },
 });

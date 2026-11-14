@@ -1,19 +1,27 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { buildServer, type DriftServer } from './app.ts';
-import { denyAllAuthenticator } from './auth/types.ts';
+import { openFixture, type Fixture } from './db/testing/backends.ts';
 import { loadConfig } from './config.ts';
 import { createGalaxyDirectory } from './directory.ts';
 import { REST_BODY_LIMIT, parseOr400 } from './rest.ts';
 
 const config = loadConfig({ SESSION_SECRET: 'x'.repeat(40), NODE_ENV: 'test' });
 const apps: DriftServer[] = [];
+let fixture: Fixture;
+
+beforeAll(async () => {
+  fixture = await openFixture('sqlite');
+});
+afterAll(async () => {
+  await fixture.close();
+});
 
 /** A server with a few throwaway routes exercising the shared REST validation helpers. */
 function testApp(): DriftServer {
   const app = buildServer({
     config,
-    authenticator: denyAllAuthenticator,
+    repo: fixture.repo,
     directory: createGalaxyDirectory({ seed: 'rest-test' }),
   });
   apps.push(app);

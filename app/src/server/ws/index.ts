@@ -1,7 +1,8 @@
+import type { Duplex } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
 import { WebSocket as WsSocket, WebSocketServer, type RawData } from 'ws';
 import { MAX_FRAME_BYTES } from '@shared/protocol/envelope.ts';
-import { CLOSE_CODES, errorBody } from '@shared/protocol/errors.ts';
+import { CLOSE_CODES, errorBody, type ErrorBody } from '@shared/protocol/errors.ts';
 import { clientIp } from '../clientIp.ts';
 import { Connection } from './connection.ts';
 import type { WsDeps } from './context.ts';
@@ -10,11 +11,27 @@ import { chatHandlers } from './chat.ts';
 import { sessionHandlers } from './handlers.ts';
 import { armHandshakeTimeout, startHeartbeat } from './heartbeat.ts';
 import { Hub } from './hub.ts';
+import { checkUpgrade } from './origin.ts';
 import { admitFrame } from './limits.ts';
 
 export interface WebSocketLayer {
   hub: Hub;
   wss: WebSocketServer;
+}
+
+const STATUS_TEXT: Record<number, string> = {
+  400: 'Bad Request',
+  403: 'Forbidden',
+  429: 'Too Many Requests',
+};
+
+/** Refuses an HTTP upgrade with a JSON {code, message} body and closes the socket. */
+function refuse(socket: Duplex, status: number, body: ErrorBody): void {
+  const json = JSON.stringify(body);
+  socket.end(
+    `HTTP/1.1 ${status} ${STATUS_TEXT[status] ?? 'Error'}\r\nConnection: close\r\n` +
+      `Content-Type: application/json\r\nContent-Length: ${Buffer.byteLength(json)}\r\n\r\n${json}`,
+  );
 }
 
 /** Joins ws message data (a Buffer for text frames) into a UTF-8 string. */
@@ -48,12 +65,14 @@ export function attachWebSocket(
       socket.destroy();
       return;
     }
+    const verdict = checkUpgrade(request, deps.config);
+    if (!verdict.ok) {
+      refuse(socket, verdict.status, errorBody(verdict.code, verdict.message));
+      return;
+    }
     const ip = clientIp(request, deps.config.trustProxy);
     if (!hub.ipLimiter.acquire(ip)) {
-      const body = JSON.stringify(errorBody('too-many-connections', 'too many connections'));
-      socket.end(
-        `HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
-      );
+      refuse(socket, 429, errorBody('too-many-connections', 'too many connections'));
       return;
     }
     // The raw TCP socket closes on every path (refused handshake, normal close, terminate).

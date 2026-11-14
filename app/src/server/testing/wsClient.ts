@@ -40,7 +40,11 @@ export class TestClient {
   static async connect(url: string, headers: Record<string, string> = {}): Promise<TestClient> {
     const ws = new WebSocket(url, { headers });
     const refused = new Promise<never>((_resolve, reject) => {
-      ws.once('unexpected-response', (_req, res) => reject(new Error(`HTTP ${res.statusCode}`)));
+      ws.once('unexpected-response', (_req, res) => {
+        let body = '';
+        res.on('data', (chunk: Buffer) => (body += chunk.toString('utf8')));
+        res.on('end', () => reject(new Error(`HTTP ${res.statusCode} ${body}`)));
+      });
       ws.once('error', (error) => reject(error));
     });
     await Promise.race([once(ws, 'open'), refused]);

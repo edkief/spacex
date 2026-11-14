@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { buildServer } from './app.ts';
-import { denyAllAuthenticator } from './auth/types.ts';
 import { ConfigError, loadConfig } from './config.ts';
+import { openDatabase } from './db/open.ts';
 import { createGalaxyDirectory } from './directory.ts';
 import { findAppDir, loadAppEnv } from './env.ts';
 
@@ -20,17 +20,22 @@ async function main(): Promise<void> {
   }
 
   const staticDir = config.isProduction ? path.join(appDir, 'dist', 'client') : undefined;
+  const database = await openDatabase(config, { appDir });
   const app = buildServer(
     {
       config,
-      authenticator: denyAllAuthenticator,
+      repo: database.repo,
       directory: createGalaxyDirectory({ seed: config.galaxySeed }),
     },
     staticDir ? { staticDir } : {},
   );
 
+  // Shutdown order: sockets (preClose hook), then the HTTP server, then the database.
   const shutdown = (): void => {
-    void app.close().then(() => process.exit(0));
+    void app
+      .close()
+      .then(() => database.close())
+      .then(() => process.exit(0));
   };
   process.once('SIGINT', shutdown);
   process.once('SIGTERM', shutdown);

@@ -2,7 +2,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { generateStars } from '@shared/galaxy/stars.ts';
 import { generateSystemForStar } from '@shared/galaxy/system.ts';
 import { VALID_CLIENT_PAYLOADS } from '@shared/protocol/examples.ts';
-import { DEV_SEED, startTestServer, type TestServer } from '../src/server/testing/testServer.ts';
+import {
+  DEV_SEED,
+  goodTokenAuth,
+  startTestServer,
+  type TestServer,
+} from '../src/server/testing/testServer.ts';
 import type { TestClient } from '../src/server/testing/wsClient.ts';
 
 const SYSTEM = generateSystemForStar(DEV_SEED, generateStars(DEV_SEED)[2]!).systemId;
@@ -66,7 +71,7 @@ describe('validation fuzz against a live in-process server', () => {
   const clients: TestClient[] = [];
 
   beforeAll(async () => {
-    server = await startTestServer();
+    server = await startTestServer({ authenticator: goodTokenAuth() });
   });
   afterAll(async () => {
     clients.forEach((c) => c.close());

@@ -4,7 +4,13 @@ import { generateSystemForStar } from '@shared/galaxy/system.ts';
 import { CLOSE_CODES } from '@shared/protocol/errors.ts';
 import { VALID_CLIENT_PAYLOADS } from '@shared/protocol/examples.ts';
 import { createGalaxyDirectory } from './directory.ts';
-import { DEV_SEED, STUB_PLAYER, startTestServer, type TestServer } from './testing/testServer.ts';
+import {
+  DEV_SEED,
+  STUB_PLAYER,
+  goodTokenAuth,
+  startTestServer,
+  type TestServer,
+} from './testing/testServer.ts';
 import type { TestClient } from './testing/wsClient.ts';
 
 const SYSTEM = generateSystemForStar(DEV_SEED, generateStars(DEV_SEED)[2]!).systemId;
@@ -15,6 +21,7 @@ describe('WebSocket handshake over a real server', () => {
 
   beforeAll(async () => {
     server = await startTestServer({
+      authenticator: goodTokenAuth(),
       directory: createGalaxyDirectory({ seed: DEV_SEED, capacity: 2 }),
     });
   });
@@ -185,7 +192,7 @@ describe('capacity and keepalive timing', () => {
   });
 
   it('pings on the 15 s interval, accepts pongs, and drops a silent client after 45 s', async () => {
-    const server = await startTestServer({ fakeTimers: true });
+    const server = await startTestServer({ fakeTimers: true, authenticator: goodTokenAuth() });
     try {
       const login = async () => {
         const client = await server.connect();
@@ -212,7 +219,7 @@ describe('capacity and keepalive timing', () => {
   });
 
   it('closes a socket that has not authenticated within 10 s', async () => {
-    const server = await startTestServer({ fakeTimers: true });
+    const server = await startTestServer({ fakeTimers: true, authenticator: goodTokenAuth() });
     try {
       const client = await server.connect();
       server.timers.advance(10_000);

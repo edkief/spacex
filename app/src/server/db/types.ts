@@ -61,7 +61,9 @@ export interface SystemRecord {
 }
 
 export interface PlayersRepo {
+  /** `id` may be supplied (UUID) when it must be known before the row exists (home system pick). */
   createPlayer(input: {
+    id?: string;
     callsign: string;
     homeSystemId: string;
     credits?: number;

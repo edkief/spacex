@@ -4,7 +4,9 @@ import { buildServer, type DriftServer } from '../app.ts';
 import type { Authenticator } from '../auth/types.ts';
 import { createGalaxyDirectory, type SystemDirectory } from '../directory.ts';
 import { FakeTimers } from './fakeTimers.ts';
+import { openFixture, type Fixture } from '../db/testing/backends.ts';
 import { createStubAuthenticator } from './stubAuth.ts';
+import type { Repository } from '../db/types.ts';
 import { TestClient } from './wsClient.ts';
 
 export const TEST_SECRET = 'a-perfectly-valid-test-secret-of-32+chars';
@@ -18,10 +20,20 @@ export const STUB_PLAYER = {
 };
 
 export interface TestServerOptions {
+  /** Replace the real authenticator (protocol-only tests). Default: real token auth. */
   authenticator?: Authenticator;
   directory?: SystemDirectory;
   env?: Record<string, string>;
   fakeTimers?: boolean;
+}
+
+export interface ClaimedPlayer {
+  callsign: string;
+  token: string;
+  playerId: string;
+  homeSystemId: string;
+  shipId: string;
+  expiresAt: number;
 }
 
 export interface TestServer {
@@ -31,7 +43,9 @@ export interface TestServer {
   wsUrl: string;
   baseUrl: string;
   timers: FakeTimers;
-  authenticator: Authenticator;
+  repo: Repository;
+  /** POSTs /api/callsigns and returns the parsed body (throws on non-201). */
+  claim(callsign: string): Promise<ClaimedPlayer>;
   connect(headers?: Record<string, string>): Promise<TestClient>;
   close(): Promise<void>;
 }
@@ -45,11 +59,11 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
     ...options.env,
   });
   const timers = new FakeTimers();
-  const authenticator =
-    options.authenticator ?? createStubAuthenticator({ 'good-token': STUB_PLAYER });
+  const fixture: Fixture = await openFixture('sqlite');
   const app = buildServer({
     config,
-    authenticator,
+    repo: fixture.repo,
+    ...(options.authenticator ? { authenticator: options.authenticator } : {}),
     directory: options.directory ?? createGalaxyDirectory({ seed: DEV_SEED }),
     ...(options.fakeTimers ? { clock: timers.now, timers } : {}),
   });
@@ -63,8 +77,26 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
     wsUrl,
     baseUrl: `http://127.0.0.1:${port}`,
     timers,
-    authenticator,
+    repo: fixture.repo,
+    claim: async (callsign) => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/callsigns',
+        payload: { callsign },
+      });
+      if (response.statusCode !== 201)
+        throw new Error(`claim failed: ${response.statusCode} ${response.body}`);
+      return response.json<ClaimedPlayer>();
+    },
     connect: (headers) => TestClient.connect(wsUrl, headers),
-    close: () => app.close(),
+    close: async () => {
+      await app.close();
+      await fixture.close();
+    },
   };
+}
+
+/** Stub authenticator accepting the single token 'good-token' (protocol-only tests). */
+export function goodTokenAuth() {
+  return createStubAuthenticator({ 'good-token': STUB_PLAYER });
 }

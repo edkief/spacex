@@ -14,6 +14,10 @@ import type { Player, PlayersRepo } from './types.ts';
 const STARTING_CREDITS = 500;
 
 const createSchema = z.strictObject({
+  id: z
+    .string()
+    .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+    .optional(),
   callsign: z.string().min(1).max(64),
   homeSystemId: z.string().min(1),
   credits: z.number().int().min(0).max(MAX_CREDITS).optional(),
@@ -48,7 +52,7 @@ export function playersRepo(ctx: RepoContext): PlayersRepo {
     async createPlayer(input) {
       const parsed = createSchema.parse(input);
       const row = {
-        id: ctx.newId(),
+        id: parsed.id ?? ctx.newId(),
         callsign: parsed.callsign,
         credits: parsed.credits ?? STARTING_CREDITS,
         homeSystemId: parsed.homeSystemId,
