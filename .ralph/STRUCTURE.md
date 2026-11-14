@@ -12,6 +12,12 @@ app/
       ships/       ship class ids and stat catalog
       protocol/    message schemas, registries, envelope, error and close codes
     client/        Vite + React DOM shell; index.html owns the single <canvas id="drift-canvas">
+      game.ts      orchestrates socket, input, world state and rendering for a signed-in pilot
+      net/         session REST helpers, GameSocket (handshake + validated messages)
+      input/       action map, keyboard state, 20 Hz input pump
+      world/       system derivation from seed, interpolated entity store
+      render/      three.js host, camera-relative math, system scene, ship meshes
+      ui/          callsign form, HUD
     server/        Fastify REST + ws; config.ts (env validation), app.ts (buildServer), ws.ts, index.ts
       auth/        token codec and session service
       routes/      REST routes

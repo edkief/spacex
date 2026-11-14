@@ -1,5 +1,7 @@
 import type { SystemGen } from '@shared/galaxy/types.ts';
 import type { FlightInput, ShipState } from '@shared/physics/flightTypes.ts';
+import { bodiesOf } from '@shared/physics/bodies.ts';
+import { dockOrientation, findDock } from '@shared/physics/docking.ts';
 import { SYSTEM_FRAME } from '@shared/physics/frames.ts';
 import { distance } from '@shared/physics/vec.ts';
 import type { ServerPayload } from '@shared/protocol/registry.ts';
@@ -42,6 +44,20 @@ export const IDLE_INPUT: FlightInput = {
 /** Range within which a ship saved as docked is re-attached to a dock on load. */
 const REDOCK_RANGE_M = 200;
 
+/** A ship's state when held at dock `dockId`: at its position, stopped, in berth orientation. */
+function berthed(system: SystemGen, dockId: string): ShipState | undefined {
+  const found = findDock(bodiesOf(system), dockId);
+  if (!found) return undefined;
+  return {
+    frame: SYSTEM_FRAME,
+    pos: found.dock.position,
+    vel: { x: 0, y: 0, z: 0 },
+    quat: dockOrientation(found.body, found.dock),
+    regime: 'space',
+    dockedAt: dockId,
+  };
+}
+
 /** The system's first orbital dock, where ships without a usable saved position appear. */
 function spawnDock(system: SystemGen) {
   for (const planet of system.planets) {
@@ -70,11 +86,13 @@ export function initialShipState(ship: Ship, system: SystemGen): ShipState {
     }
     const docks = system.planets.flatMap((planet) => planet.docks);
     const near = docks.find((dock) => distance(dock.position, pos) <= REDOCK_RANGE_M);
-    if (near) return { ...base, frame: SYSTEM_FRAME, pos: near.position, dockedAt: near.id };
+    const redocked = near && berthed(system, near.id);
+    if (redocked) return redocked;
     // Saved as docked but not at a dock (a fresh starter ship): use the system's spawn dock.
   }
   const dock = spawnDock(system);
-  if (dock) return { ...base, frame: SYSTEM_FRAME, pos: dock.position, dockedAt: dock.id };
+  const spawned = dock && berthed(system, dock.id);
+  if (spawned) return spawned;
   // A system without docks (never a home system): park well clear of the star.
   return { ...base, frame: SYSTEM_FRAME, pos: { x: 0, y: system.star.radius * 3, z: 0 } };
 }
@@ -95,6 +113,8 @@ export function toEntityState(entity: ShipEntity): EntityState {
     classId: entity.classId,
     callsign: entity.callsign,
     livery: entity.livery,
+    ...(state.dockedAt ? { dockedAt: state.dockedAt } : {}),
+    ...(state.onPad ? { onPad: state.onPad } : {}),
   };
 }
 

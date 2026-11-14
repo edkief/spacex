@@ -4,6 +4,7 @@ import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import { buildHealth } from '@shared/health';
 import { listSpawnSystems, type SpawnSystem } from '@shared/galaxy/spawn.ts';
 import { createAuthService } from './auth/service.ts';
+import { PROTOCOL_VERSION } from '@shared/protocol/envelope.ts';
 import { CLOSE_CODES } from '@shared/protocol/errors.ts';
 import type { Authenticator } from './auth/types.ts';
 import type { Repository } from './db/types.ts';
@@ -73,6 +74,12 @@ export function buildServer(deps: ServerDeps, options: BuildServerOptions = {}):
   installErrorHandlers(app);
 
   app.get('/api/health', () => buildHealth(config.galaxySeed));
+  // What a client needs before it can connect: the seed to generate from and where the socket is.
+  app.get('/api/config', () => ({
+    galaxySeed: config.galaxySeed,
+    wsPath: config.wsPath,
+    protocolVersion: PROTOCOL_VERSION,
+  }));
 
   const clock = deps.clock ?? ((): number => Date.now());
   const auth = createAuthService({ secret: config.sessionSecret, repo: deps.repo, clock });

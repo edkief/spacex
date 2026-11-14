@@ -174,13 +174,18 @@ describe('orbital docking', () => {
     restingShip(add(dock.position, { x: offset, y: 0, z: 0 }), { vel });
   const dockIt = (s: ShipState) => stepShip(s, { ...IDLE, action: 'dock' }, 0.05, dockWorld, scout);
 
-  it('docks within 100 m and below 10 m/s: snapped, stopped, up along the outward normal', () => {
+  it('docks within 100 m and below 10 m/s: snapped, stopped, in the berth orientation', () => {
     const docked = dockIt(near(DOCK_RANGE_M - 1, { x: 0, y: DOCK_MAX_SPEED - 0.5, z: 0 }));
     expect(docked.dockedAt).toBe('dock-1');
     expect(docked.pos).toEqual(dock.position);
     expect(docked.vel).toEqual({ x: 0, y: 0, z: 0 });
+    // The dock sits on +x of the planet: wings level (up = system +y), nose 30 degrees in from
+    // the orbit tangent towards the planet.
     const up = rotateVector(docked.quat, { x: 0, y: 1, z: 0 });
-    expect(up.x).toBeCloseTo(1, 9); // the dock sits on +x of the planet, so outward is +x
+    const nose = rotateVector(docked.quat, { x: 0, y: 0, z: -1 });
+    expect(up.y).toBeCloseTo(1, 9);
+    expect(nose.x).toBeCloseTo(-0.5, 9);
+    expect(length(nose)).toBeCloseTo(1, 9);
   });
 
   it('refuses when too far, too fast, or without the dock action; holds a docked ship in place', () => {

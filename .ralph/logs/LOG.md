@@ -3,12 +3,24 @@
 `Current Status`
 =================
 **Last Updated:** 2026-11-14
-**Tasks Completed:** 18 / 73
-**Current Task:** TASK-13 Complete
+**Tasks Completed:** 20 / 73
+**Current Task:** TASK-73 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-11-14 — TASK-72, TASK-73 Client renderer core and input pipeline (first playable slice, lead-implemented)
+
+- `src/client/net/`: REST session helpers (claim, resume, token storage), `GameSocket` (hello → auth → join_system, every server message validated against the shared registry). New `GET /api/config` gives the client the galaxy seed, socket path and protocol version.
+- `src/client/input/`: data-driven action map, `KeyboardState` (opposing keys cancel, one-shot dock/undock latched until sampled, released on blur, inert in text fields), `InputPump` (20 Hz, strictly increasing seq).
+- `src/client/world/`: the client regenerates its system from the seed; `EntityStore` renders entities 100 ms in the past, blended between the two latest server samples, in system-frame float64.
+- `src/client/render/`: three.js host (logarithmic depth), camera-relative placement, system scene (star + light, planets, dock pads and gates, seeded starfield), placeholder ship meshes coloured by livery, chase camera.
+- UI: callsign form with inline errors, minimal HUD (callsign, system, link state, speed, regime, docked/landed, controls), "server unreachable" retry screen. Sessions resume on reload.
+- Docked ships now sit in a defined berth orientation (`dockOrientation`) so the planet limb is in view on spawn; `EntityState` gained optional `dockedAt` / `onPad`.
+- No client prediction yet (TASK-14): the own ship is rendered from interpolated server state, so input feels about 150-200 ms late. No terrain rendering yet (TASK-26): planets are plain spheres.
+- Controls: W/S thrust, A/D yaw, arrows pitch, Q/E roll, Space/C up/down, X brake, G dock, U undock.
+- Verified: lint, typecheck, 797 unit tests, production build, 3 e2e specs including a full real-browser run (claim callsign → system rendered → undock → thrust → speed rises → reload resumes). Screenshots: `.ralph/screenshots/TASK-72-docked.png`, `TASK-73-flying.png`.
 
 ### 2026-11-14 — TASK-13 Server sim: 20 Hz tick with 10 Hz snapshots (lead-implemented)
 

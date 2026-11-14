@@ -35,6 +35,10 @@ export const entityStateSchema = z.strictObject({
   classId: shipClassIdSchema.nullable(),
   callsign: callsignSchema.optional(),
   livery: liverySchema.optional(),
+  /** Id of the orbital dock the ship is docked at, when docked. */
+  dockedAt: hex16Schema.optional(),
+  /** Id of the surface landing pad the ship rests on, when landed on one. */
+  onPad: hex16Schema.optional(),
 });
 
 export const nodeInfoSchema = z.strictObject({
