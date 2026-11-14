@@ -182,4 +182,47 @@ describeBackends('ships', (fx) => {
     await handle.run((db) => db.delete(players).where(eq(players.id, player.id)));
     expect(await repo.getShip(ship.id)).toBeUndefined();
   });
+
+  it('saveShipSnapshots saves many ships and holds in one call and reports missing ships', async () => {
+    const { repo } = fx();
+    const a = await repo.getOrCreateStarterShip((await makePlayer()).id);
+    const b = await repo.getOrCreateStarterShip((await makePlayer()).id);
+    const base = { hull: 50, shields: 5, velocity, state: 'flying' } as const;
+    const result = await repo.saveShipSnapshots([
+      {
+        shipId: a.id,
+        update: { ...base, position: position('sys-snap') },
+        cargo: [
+          { resourceType: 'iron', quantity: 3 },
+          { resourceType: 'water', quantity: 0 },
+        ],
+      },
+      { shipId: 'ghost', update: { ...base, position: position('sys-snap') } },
+      { shipId: b.id, update: { ...base, hull: 7, position: position('sys-snap') } },
+    ]);
+    expect(result).toEqual({ saved: [a.id, b.id], missing: ['ghost'] });
+    expect(await repo.getShip(a.id)).toMatchObject({ hull: 50, position: position('sys-snap') });
+    expect((await repo.getShip(b.id))?.hull).toBe(7);
+    expect(await repo.getCargo(a.id)).toEqual([{ resourceType: 'iron', quantity: 3 }]);
+    expect(await repo.getCargo(b.id)).toEqual([]);
+  });
+
+  it('saveShipSnapshots validates everything before writing anything', async () => {
+    const { repo } = fx();
+    const ship = await repo.getOrCreateStarterShip((await makePlayer()).id);
+    const good = {
+      hull: 1,
+      shields: 1,
+      velocity,
+      state: 'docked',
+      position: position('s'),
+    } as const;
+    await expect(
+      repo.saveShipSnapshots([
+        { shipId: ship.id, update: good },
+        { shipId: ship.id, update: { ...good, hull: -5 } },
+      ]),
+    ).rejects.toThrow();
+    expect((await repo.getShip(ship.id))?.hull).toBe(shipStats('scout').hull);
+  });
 });

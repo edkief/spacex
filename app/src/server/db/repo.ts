@@ -6,6 +6,7 @@ import { nodeStateRepo } from './nodeState.ts';
 import { playersRepo } from './players.ts';
 import { sessionsRepo } from './sessions.ts';
 import { shipsRepo } from './ships.ts';
+import { snapshotsRepo } from './snapshots.ts';
 import { systemsRepo } from './systems.ts';
 import type { Repository } from './types.ts';
 
@@ -18,6 +19,7 @@ function build(ctx: RepoContext): Repository {
     ...playersRepo(ctx),
     ...shipsRepo(ctx),
     ...cargoRepo(ctx),
+    ...snapshotsRepo(ctx),
     ...sessionsRepo(ctx),
     ...nodeStateRepo(ctx),
     ...systemsRepo(ctx),

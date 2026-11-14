@@ -92,6 +92,23 @@ export interface CargoRepo {
   getCargoForShips(shipIds: readonly string[]): Promise<Map<string, CargoItem[]>>;
 }
 
+/** One ship's save: its state and, when provided, its whole hold. */
+export interface ShipSnapshot {
+  shipId: string;
+  update: ShipStateUpdate;
+  cargo?: readonly CargoItem[];
+}
+
+export interface SnapshotsRepo {
+  /**
+   * Saves many ships (state, plus holds where given) in ONE transaction without re-reading rows.
+   * Returns the ids saved and the ids that no longer exist (skipped, not an error).
+   */
+  saveShipSnapshots(
+    snapshots: readonly ShipSnapshot[],
+  ): Promise<{ saved: string[]; missing: string[] }>;
+}
+
 export interface SessionsRepo {
   createSession(input: {
     tokenHash: string;
@@ -123,7 +140,14 @@ export interface SystemRegistryRepo {
 
 /** The full async repository; identical for SQLite and Postgres. */
 export interface Repository
-  extends PlayersRepo, ShipsRepo, CargoRepo, SessionsRepo, NodeStateRepo, SystemRegistryRepo {
+  extends
+    PlayersRepo,
+    ShipsRepo,
+    CargoRepo,
+    SnapshotsRepo,
+    SessionsRepo,
+    NodeStateRepo,
+    SystemRegistryRepo {
   /** Runs `fn` against a repository bound to one transaction (rolled back if `fn` rejects). */
   transaction<T>(fn: (repo: Repository) => Promise<T>): Promise<T>;
 }
