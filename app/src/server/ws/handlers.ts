@@ -64,6 +64,15 @@ export const sessionHandlers: HandlerMap = {
     });
   },
 
+  /** Revokes the presented token (deleting its session row) and closes all its sockets (1000). */
+  async logout({ conn, deps, hub }) {
+    const session = conn.session;
+    if (!session) return;
+    await deps.authenticator.revoke(session.tokenHash);
+    conn.transition('logged-out');
+    hub.closeToken(session.tokenHash, CLOSE_CODES.loggedOut, 'logged-out');
+  },
+
   ping({ conn, deps }, payload) {
     conn.send('pong', { t: payload.t });
     conn.lastSeenAt = deps.clock();

@@ -36,6 +36,19 @@ export class Hub {
     return this.all;
   }
 
+  /** Closes every connection authenticated with this session token (revocation). */
+  closeToken(tokenHash: string, code: number, reason: string): number {
+    let closed = 0;
+    for (const conn of [...this.all]) {
+      if (conn.session?.tokenHash === tokenHash) {
+        conn.dropping = true;
+        conn.close(code, reason);
+        closed += 1;
+      }
+    }
+    return closed;
+  }
+
   inSystem(systemId: string): Iterable<Connection> {
     return this.bySystem.get(systemId) ?? [];
   }

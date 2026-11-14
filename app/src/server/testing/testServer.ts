@@ -1,4 +1,5 @@
 import type { AddressInfo } from 'node:net';
+import { Writable } from 'node:stream';
 import { loadConfig, type ServerConfig } from '../config.ts';
 import { buildServer, type DriftServer } from '../app.ts';
 import type { Authenticator } from '../auth/types.ts';
@@ -25,6 +26,8 @@ export interface TestServerOptions {
   directory?: SystemDirectory;
   env?: Record<string, string>;
   fakeTimers?: boolean;
+  /** Capture all log output at trace level (see `TestServer.logs`). */
+  captureLogs?: boolean;
 }
 
 export interface ClaimedPlayer {
@@ -44,6 +47,8 @@ export interface TestServer {
   baseUrl: string;
   timers: FakeTimers;
   repo: Repository;
+  /** Everything logged so far (empty unless `captureLogs`). */
+  logs(): string;
   /** POSTs /api/callsigns and returns the parsed body (throws on non-201). */
   claim(callsign: string): Promise<ClaimedPlayer>;
   connect(headers?: Record<string, string>): Promise<TestClient>;
@@ -60,13 +65,23 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
   });
   const timers = new FakeTimers();
   const fixture: Fixture = await openFixture('sqlite');
-  const app = buildServer({
-    config,
-    repo: fixture.repo,
-    ...(options.authenticator ? { authenticator: options.authenticator } : {}),
-    directory: options.directory ?? createGalaxyDirectory({ seed: DEV_SEED }),
-    ...(options.fakeTimers ? { clock: timers.now, timers } : {}),
+  let captured = '';
+  const sink = new Writable({
+    write(chunk: Buffer, _encoding, callback) {
+      captured += chunk.toString('utf8');
+      callback();
+    },
   });
+  const app = buildServer(
+    {
+      config,
+      repo: fixture.repo,
+      ...(options.authenticator ? { authenticator: options.authenticator } : {}),
+      directory: options.directory ?? createGalaxyDirectory({ seed: DEV_SEED }),
+      ...(options.fakeTimers ? { clock: timers.now, timers } : {}),
+    },
+    options.captureLogs ? { logLevel: 'trace', logStream: sink } : {},
+  );
   await app.listen({ host: '127.0.0.1', port: 0 });
   const { port } = app.server.address() as AddressInfo;
   const wsUrl = `ws://127.0.0.1:${port}${config.wsPath}`;
@@ -78,6 +93,7 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
     baseUrl: `http://127.0.0.1:${port}`,
     timers,
     repo: fixture.repo,
+    logs: () => captured,
     claim: async (callsign) => {
       const response = await app.inject({
         method: 'POST',

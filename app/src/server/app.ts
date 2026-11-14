@@ -1,9 +1,10 @@
 import { existsSync } from 'node:fs';
 import fastifyStatic from '@fastify/static';
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import { buildHealth } from '@shared/health';
 import { listSpawnSystems, type SpawnSystem } from '@shared/galaxy/spawn.ts';
 import { createAuthService } from './auth/service.ts';
+import { CLOSE_CODES } from '@shared/protocol/errors.ts';
 import type { Authenticator } from './auth/types.ts';
 import type { Repository } from './db/types.ts';
 import { registerCallsignRoutes } from './routes/callsigns.ts';
@@ -34,6 +35,8 @@ export interface BuildServerOptions {
   staticDir?: string;
   /** Overrides the default logger level (tests use 'silent'). */
   logLevel?: string;
+  /** Captures log output (the log-leak regression test reads it). Default: stdout. */
+  logStream?: NodeJS.WritableStream;
 }
 
 export type DriftServer = FastifyInstance & { sockets: WebSocketLayer };
@@ -47,7 +50,24 @@ export function buildServer(deps: ServerDeps, options: BuildServerOptions = {}):
   const app = Fastify({
     bodyLimit: REST_BODY_LIMIT,
     trustProxy: config.trustProxy,
-    logger: { level: options.logLevel ?? (config.nodeEnv === 'test' ? 'silent' : 'info') },
+    logger: {
+      level: options.logLevel ?? (config.nodeEnv === 'test' ? 'silent' : 'info'),
+      // Defence in depth: credentials never reach logs, and request URLs are logged without
+      // their query string (tokens are not accepted there, but a client might send one).
+      redact: {
+        paths: ['req.headers.authorization', 'req.headers.cookie', 'headers.authorization'],
+        censor: '[redacted]',
+      },
+      serializers: {
+        req: (request: FastifyRequest) => ({
+          method: request.method,
+          url: request.url.split('?', 1)[0] ?? '',
+          host: request.headers.host ?? '',
+          remoteAddress: request.ip,
+        }),
+      },
+      ...(options.logStream ? { stream: options.logStream } : {}),
+    },
   });
 
   installErrorHandlers(app);
@@ -63,7 +83,6 @@ export function buildServer(deps: ServerDeps, options: BuildServerOptions = {}):
     spawns: deps.spawns ?? listSpawnSystems(config.galaxySeed),
     clock,
   });
-  registerSessionRoutes(app, { repo: deps.repo, authenticator });
 
   const sockets = attachWebSocket(app, {
     config,
@@ -77,6 +96,14 @@ export function buildServer(deps: ServerDeps, options: BuildServerOptions = {}):
   if (options.staticDir && existsSync(options.staticDir)) {
     void app.register(fastifyStatic, { root: options.staticDir });
   }
+
+  registerSessionRoutes(app, {
+    repo: deps.repo,
+    authenticator,
+    onRevoked: (tokenHash) => {
+      sockets.hub.closeToken(tokenHash, CLOSE_CODES.loggedOut, 'logged-out');
+    },
+  });
 
   return Object.assign(app, { sockets });
 }
