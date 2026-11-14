@@ -9,6 +9,8 @@ import { openFixture, type Fixture } from '../db/testing/backends.ts';
 import { createStubAuthenticator } from './stubAuth.ts';
 import type { Repository } from '../db/types.ts';
 import { TestClient } from './wsClient.ts';
+import { createShardRouter, type ShardRouter } from '../shard/router.ts';
+import { realTimers } from '../timers.ts';
 
 export const TEST_SECRET = 'a-perfectly-valid-test-secret-of-32+chars';
 export const DEV_SEED = 'drift-dev-seed-001';
@@ -24,6 +26,8 @@ export interface TestServerOptions {
   /** Replace the real authenticator (protocol-only tests). Default: real token auth. */
   authenticator?: Authenticator;
   directory?: SystemDirectory;
+  /** Use real shards (20 Hz sim on real timers) instead of the stub directory. */
+  shards?: boolean;
   env?: Record<string, string>;
   fakeTimers?: boolean;
   /** Capture all log output at trace level (see `TestServer.logs`). */
@@ -47,6 +51,8 @@ export interface TestServer {
   baseUrl: string;
   timers: FakeTimers;
   repo: Repository;
+  /** The shard router when `shards` was requested. */
+  router: ShardRouter | undefined;
   /** Everything logged so far (empty unless `captureLogs`). */
   logs(): string;
   /** POSTs /api/callsigns and returns the parsed body (throws on non-201). */
@@ -72,12 +78,15 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
       callback();
     },
   });
+  const router: ShardRouter | undefined = options.shards
+    ? createShardRouter({ seed: DEV_SEED, repo: fixture.repo, timers: realTimers })
+    : undefined;
   const app = buildServer(
     {
       config,
       repo: fixture.repo,
       ...(options.authenticator ? { authenticator: options.authenticator } : {}),
-      directory: options.directory ?? createGalaxyDirectory({ seed: DEV_SEED }),
+      directory: options.directory ?? router ?? createGalaxyDirectory({ seed: DEV_SEED }),
       ...(options.fakeTimers ? { clock: timers.now, timers } : {}),
     },
     options.captureLogs ? { logLevel: 'trace', logStream: sink } : {},
@@ -93,6 +102,7 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
     baseUrl: `http://127.0.0.1:${port}`,
     timers,
     repo: fixture.repo,
+    router,
     logs: () => captured,
     claim: async (callsign) => {
       const response = await app.inject({
@@ -107,6 +117,7 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
     connect: (headers) => TestClient.connect(wsUrl, headers),
     close: async () => {
       await app.close();
+      await router?.shutdown();
       await fixture.close();
     },
   };

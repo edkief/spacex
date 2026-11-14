@@ -121,8 +121,11 @@ describe('validation fuzz against a live in-process server', () => {
     await fuzz(inSystem, IN_SYSTEM);
     const conn = [...server.app.sockets.hub.connections()].find((c) => c.state === 'in-system');
     expect(conn?.lastInputSeq).toBe(-1); // no rejected input advanced the sequence
+    // A valid input is accepted silently (the sim consumes it) and advances the sequence.
     inSystem.send('input', goodInput);
-    expect(await inSystem.expect('error')).toMatchObject({ code: 'not-implemented' });
+    inSystem.send('ping', { t: 7 });
+    expect(await inSystem.expect('pong')).toEqual({ t: 7 });
+    expect(conn?.lastInputSeq).toBe((goodInput as { seq: number }).seq);
 
     expect((await server.app.inject('/api/health')).statusCode).toBe(200);
     const again = await connectTo('system');

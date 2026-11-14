@@ -48,6 +48,7 @@ export const sessionHandlers: HandlerMap = {
       playerId: session.playerId,
       callsign: session.callsign,
       shipId: session.shipId,
+      sink: conn,
     });
     if (!joined.ok) {
       conn.sendError(joined.code, joined.message);
@@ -59,9 +60,16 @@ export const sessionHandlers: HandlerMap = {
     conn.send('enter_system', {
       systemId: payload.systemId,
       tick: joined.snapshot.tick,
-      lastInputSeq: 0,
+      lastInputSeq: joined.snapshot.lastInputSeq,
       snapshot: joined.snapshot,
     });
+  },
+
+  /** Flight input: handed to the system's sim, which applies the latest one each tick. */
+  input({ conn, deps }, payload) {
+    const session = conn.session;
+    if (!session || !conn.systemId) return;
+    deps.directory.input(conn.systemId, session.playerId, payload);
   },
 
   /** Revokes the presented token (deleting its session row) and closes all its sockets (1000). */

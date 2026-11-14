@@ -6,7 +6,12 @@ import { createGalaxyDirectory } from './directory.ts';
 
 const SEED = 'drift-dev-seed-001';
 const ids = generateStars(SEED).map((star) => generateSystemForStar(SEED, star).systemId);
-const player = (n: number) => ({ playerId: `p${n}`, callsign: `PILOT-${n}`, shipId: `s${n}` });
+const player = (n: number) => ({
+  playerId: `p${n}`,
+  callsign: `PILOT-${n}`,
+  shipId: `s${n}`,
+  sink: { send: () => undefined },
+});
 
 describe('galaxy system directory (stub)', () => {
   it('joins real systems of the seed with an empty, schema-valid snapshot', async () => {

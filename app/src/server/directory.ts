@@ -1,12 +1,19 @@
 import { generateStars } from '@shared/galaxy/stars.ts';
 import { generateSystemForStar } from '@shared/galaxy/system.ts';
+import type { ClientPayload, ServerPayload, ServerType } from '@shared/protocol/registry.ts';
 import type { StateSnapshot } from './ws/snapshot.ts';
+
+/** Where a shard sends a player's messages (a connection satisfies this). */
+export interface PlayerSink {
+  send<K extends ServerType>(type: K, payload: ServerPayload<K>): void;
+}
 
 /** Who is joining a system. */
 export interface DirectoryPlayer {
   playerId: string;
   callsign: string;
   shipId: string;
+  sink: PlayerSink;
 }
 
 export type JoinResult =
@@ -19,7 +26,10 @@ export type JoinResult =
  */
 export interface SystemDirectory {
   join(systemId: string, player: DirectoryPlayer): Promise<JoinResult>;
-  leave(systemId: string, playerId: string): Promise<void>;
+  /** Removes one socket (`sink`) of the player, or the player outright when omitted. */
+  leave(systemId: string, playerId: string, sink?: PlayerSink): Promise<void>;
+  /** Hands a validated flight input to the system's sim; never blocks. */
+  input(systemId: string, playerId: string, input: ClientPayload<'input'>): void;
 }
 
 export interface GalaxyDirectoryOptions {
@@ -66,6 +76,9 @@ export function createGalaxyDirectory(options: GalaxyDirectoryOptions): SystemDi
     leave(systemId, playerId) {
       occupants.get(systemId)?.delete(playerId);
       return Promise.resolve();
+    },
+    input() {
+      // The stub has no simulation.
     },
   };
 }

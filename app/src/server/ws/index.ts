@@ -114,7 +114,7 @@ export function attachWebSocket(
       const { systemId, session } = conn;
       hub.remove(conn);
       conn.markClosed();
-      if (systemId && session) void deps.directory.leave(systemId, session.playerId);
+      if (systemId && session) void deps.directory.leave(systemId, session.playerId, conn);
     });
   });
 
