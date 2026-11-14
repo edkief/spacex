@@ -23,6 +23,26 @@ export interface AiRoster {
   classes: ShipClassId[];
 }
 
+/** A point in a frame, in metres. */
+export interface XYZ {
+  x: number;
+  y: number;
+  z: number;
+}
+
+/** An orbital dock platform: a fixed point in the system frame with one landing pad. */
+export interface Dock {
+  id: string;
+  padId: string;
+  position: XYZ;
+}
+
+/** Atmosphere parameters; `topFraction` is the atmosphere height as a fraction of sim radius. */
+export interface PlanetAtmosphere {
+  density: number;
+  topFraction: number;
+}
+
 export interface Planet {
   id: string;
   name: string;
@@ -35,13 +55,23 @@ export interface Planet {
   /** Which resource types exist on this planet (node placement is per surface chunk). */
   resourceTypes: string[];
   aiRoster: AiRoster;
+  /** Sim radius in metres: `radiusKm * 10` (1:100 scale). */
+  simRadius: number;
+  /** Distance from the star in metres (the planet sits in the y = 0 plane). */
+  orbitRadius: number;
+  /** Fixed system-frame position of the planet centre, metres. */
+  position: XYZ;
+  /** `dockCount` orbital docks at 1.6 radii from the centre. */
+  docks: Dock[];
+  /** Null when the planet has no atmosphere. */
+  atmosphere: PlanetAtmosphere | null;
 }
 
 /** A generated star system: everything below the star, derived from (seed, starId). */
 export interface SystemGen {
   systemId: string;
   name: string;
-  star: { class: StarClass; name: string };
+  star: { class: StarClass; name: string; radius: number };
   planets: Planet[];
 }
 

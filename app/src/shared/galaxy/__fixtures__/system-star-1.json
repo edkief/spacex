@@ -15,17 +15,29 @@
           ],
           "count": 5
         },
+        "atmosphere": {
+          "density": 3,
+          "topFraction": 0.12
+        },
         "class": "gas",
         "dockCount": 0,
+        "docks": [],
         "hasAtmosphere": true,
         "id": "1c7e2d9b08684f4e",
         "landable": false,
         "name": "Lyretaox I",
+        "orbitRadius": 9956638.92,
+        "position": {
+          "x": -6150045.061,
+          "y": 0,
+          "z": 7830172.688
+        },
         "radiusKm": 22719,
         "resourceTypes": [
           "silicon",
           "iron"
-        ]
+        ],
+        "simRadius": 227190
       },
       {
         "aiRoster": {
@@ -37,23 +49,36 @@
           ],
           "count": 4
         },
+        "atmosphere": {
+          "density": 0.5,
+          "topFraction": 0.12
+        },
         "class": "rocky",
         "dockCount": 0,
+        "docks": [],
         "hasAtmosphere": true,
         "id": "70c928e08bdc84d7",
         "landable": false,
         "name": "Lyretaox II",
+        "orbitRadius": 17521843.982,
+        "position": {
+          "x": 17521469.895,
+          "y": 0,
+          "z": -114495.672
+        },
         "radiusKm": 3341,
         "resourceTypes": [
           "water",
           "gas-compounds",
           "silicon"
-        ]
+        ],
+        "simRadius": 33410
       }
     ],
     "star": {
       "class": "M",
-      "name": "Lyretaox"
+      "name": "Lyretaox",
+      "radius": 1000000
     },
     "systemId": "8433a81826be649d"
   }

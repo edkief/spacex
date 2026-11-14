@@ -14,18 +14,30 @@
           ],
           "count": 4
         },
+        "atmosphere": {
+          "density": 3,
+          "topFraction": 0.12
+        },
         "class": "gas",
         "dockCount": 0,
+        "docks": [],
         "hasAtmosphere": true,
         "id": "dedc6a00e0135caf",
         "landable": false,
         "name": "Lyrelea I",
+        "orbitRadius": 9646286.88,
+        "position": {
+          "x": 9646101.555,
+          "y": 0,
+          "z": 59794.288
+        },
         "radiusKm": 30569,
         "resourceTypes": [
           "water",
           "silicon",
           "gas-compounds"
-        ]
+        ],
+        "simRadius": 305690
       },
       {
         "aiRoster": {
@@ -35,21 +47,34 @@
           ],
           "count": 2
         },
+        "atmosphere": {
+          "density": 3,
+          "topFraction": 0.12
+        },
         "class": "gas",
         "dockCount": 0,
+        "docks": [],
         "hasAtmosphere": true,
         "id": "330af878861d4ebf",
         "landable": false,
         "name": "Lyrelea II",
+        "orbitRadius": 16007323.448,
+        "position": {
+          "x": 15887111.52,
+          "y": 0,
+          "z": -1958083.639
+        },
         "radiusKm": 59975,
         "resourceTypes": [
           "gas-compounds"
-        ]
+        ],
+        "simRadius": 599750
       }
     ],
     "star": {
       "class": "M",
-      "name": "Lyrelea"
+      "name": "Lyrelea",
+      "radius": 1000000
     },
     "systemId": "acc518438559f1e1"
   }

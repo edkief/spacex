@@ -28,7 +28,8 @@ describe('generateSystem', () => {
     const star = stars[0]!;
     const system = generateSystem(SEED, star.id);
     expect(system.name).toBe(`${star.name} System`);
-    expect(system.star).toEqual({ class: star.class, name: star.name });
+    expect(system.star).toMatchObject({ class: star.class, name: star.name });
+    expect(system.star.radius).toBeGreaterThan(0);
     expect(system.systemId).toMatch(/^[0-9a-f]{16}$/);
     expect(system.systemId).not.toBe(star.id);
   });

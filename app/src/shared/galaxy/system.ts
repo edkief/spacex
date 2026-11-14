@@ -14,6 +14,8 @@ import {
   RESOURCE_TYPES,
   ROMAN_NUMERALS,
 } from './systemConfig.ts';
+import { generateLayout, type PlanetLayout } from './layout.ts';
+import { STAR_RADIUS_M } from './layoutConfig.ts';
 import type { AiRoster, Planet, Star, SystemGen } from './types.ts';
 
 const STAR_ID_PATTERN = /^[0-9a-f]{16}$/;
@@ -39,7 +41,10 @@ function pickRoster(rng: Rng): AiRoster {
 }
 
 /** Generates planet `index` from its own sub-seed so planets never disturb each other. */
-function generatePlanet(systemSeed: bigint, starName: string, index: number): Planet {
+/** The planet before layout fields are added (the original, unchanged generator output). */
+type BasePlanet = Omit<Planet, 'simRadius' | 'orbitRadius' | 'position' | 'docks' | 'atmosphere'>;
+
+function generatePlanet(systemSeed: bigint, starName: string, index: number): BasePlanet {
   const planetSeed = hash2(systemSeed, BigInt(index));
   const rng = new Rng(planetSeed);
   const planetClass = rng.pickWeighted(PLANET_CLASSES, PLANET_CLASS_WEIGHTS);
@@ -69,13 +74,15 @@ export function generateSystemForStar(seed: string, star: Star): SystemGen {
   if (!STAR_ID_PATTERN.test(star.id)) throw new RangeError(`invalid star id: ${star.id}`);
   const systemSeed = hash2(seedFromString(seed), BigInt(`0x${star.id}`));
   const planetCount = MIN_PLANETS + new Rng(systemSeed).nextInt(MAX_PLANETS - MIN_PLANETS + 1);
+  const base = Array.from({ length: planetCount }, (_, i) =>
+    generatePlanet(systemSeed, star.name, i),
+  );
+  const layout = generateLayout(systemSeed, base);
   return {
     systemId: hex64(systemSeed),
     name: `${star.name} System`,
-    star: { class: star.class, name: star.name },
-    planets: Array.from({ length: planetCount }, (_, i) =>
-      generatePlanet(systemSeed, star.name, i),
-    ),
+    star: { class: star.class, name: star.name, radius: STAR_RADIUS_M[star.class] },
+    planets: base.map((planet, i) => ({ ...planet, ...(layout[i] as PlanetLayout) })),
   };
 }
 
