@@ -1,0 +1,57 @@
+{
+  "name": "drift",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Drift: browser 3D multiplayer space sim",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c cyan,magenta \"tsx watch --clear-screen=false src/server/index.ts\" \"vite\"",
+    "build": "vite build",
+    "build:server": "esbuild src/server/index.ts --bundle --platform=node --format=esm --target=node22 --packages=external --sourcemap --outfile=dist-server/index.js",
+    "start": "NODE_ENV=production node dist-server/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:dom": "vitest run --project dom",
+    "test:e2e": "playwright test",
+    "typecheck": "tsc -p tsconfig.shared.json && tsc -p tsconfig.client.json && tsc -p tsconfig.server.json && tsc -p tsconfig.tooling.json",
+    "lint": "eslint . && prettier --check .",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.65.1",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^24.19.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.187.0",
+    "@types/ws": "^8.18.2",
+    "@vitejs/plugin-react": "^6.3.0",
+    "concurrently": "^10.0.7",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.15.0",
+    "eslint-config-prettier": "^10.1.8",
+    "jsdom": "^31.0.1",
+    "prettier": "^3.10.1",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.0"
+  },
+  "dependencies": {
+    "@fastify/static": "^10.1.11",
+    "better-sqlite3": "^13.2.0",
+    "dotenv": "^18.0.10",
+    "drizzle-orm": "^0.45.4",
+    "fastify": "^5.12.8",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "three": "^0.187.0",
+    "ws": "^8.23.0",
+    "zod": "^4.6.7"
+  }
+}

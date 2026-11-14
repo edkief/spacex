@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "types": [],
+    "paths": { "@shared/*": ["./src/shared/*"] }
+  },
+  "include": ["src/shared"],
+  "exclude": ["src/shared/**/*.test.ts", "src/shared/**/*.test.tsx"]
+}

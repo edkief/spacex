@@ -1,8 +1,12 @@
 # Project Structure
 
-Reset 2026-11-14 at TASK-1: the previous snapshot described a build that is no longer in the repo.
-No application code exists yet; `app/` is created by TASK-68.
-
 ```
-(empty — update after each task that adds or moves directories; exclude dotfiles, tests and config)
+app/
+  src/
+    shared/        code that runs verbatim in browser and Node (no DOM, no Node APIs)
+    client/        Vite + React DOM shell; index.html owns the single <canvas id="drift-canvas">
+    server/        Fastify REST + ws; config.ts (env validation), app.ts (buildServer), ws.ts, index.ts
+  tests/
+    e2e/           Playwright specs
+    support/       test tooling (Chromium resolver)
 ```

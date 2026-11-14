@@ -3,12 +3,23 @@
 `Current Status`
 =================
 **Last Updated:** 2026-11-14
-**Tasks Completed:** 1 / 71
-**Current Task:** TASK-1 Complete
+**Tasks Completed:** 2 / 71
+**Current Task:** TASK-68 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-11-14 — TASK-68 Scaffold TS monorepo (client/server/shared) with tooling
+
+- `app/` created: Vite 8 + React 19 client (`src/client`, builds to `dist/client`), Fastify 5 + ws server (`src/server`, bundled to `dist-server` by esbuild), `src/shared` for code that runs verbatim in both.
+- Dev: Vite on PORT (3000) proxies `/api` and WS_PATH to the Node server on API_PORT (PORT+1). Production: Node alone on PORT, serving the built client.
+- `src/server/config.ts` validates env with zod as a pure function; SESSION_SECRET is required and errors never include values. Env file is `PROJECT_ROOT/.env.local`.
+- Boundaries enforced by eslint + a DOM/Node-free `tsconfig.shared.json`: shared cannot import client/server or use DOM/Node globals.
+- Vitest projects: `node` (all tests) and `dom` (jsdom; `*.dom.test.*` and `*.parity.test.*`, the latter run under both).
+- Playwright uses a resolver (`tests/support/chromium.ts`) that falls back to the preinstalled Chromium 1254 because Playwright 1.65.1 expects an uninstalled revision.
+- TypeScript pinned to 6.0.x (typescript-eslint does not support 7 yet).
+- Verified by lead: lint, typecheck, 30 unit tests, build, build:server and the e2e smoke spec all pass. Screenshot: `.ralph/screenshots/TASK-68-1.png`.
 
 ### 2026-11-14 — TASK-1 Verify project prerequisites and access
 
