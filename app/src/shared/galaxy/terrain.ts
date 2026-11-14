@@ -1,5 +1,6 @@
 import { hash2, seedFromString } from '../random.ts';
-import { fbm2D } from './noise.ts';
+import { chartRadiusSq, chartScale, type Hemisphere } from './chart.ts';
+import { fbm3D } from './noise.ts';
 import type { Biome, Planet, PlanetClass } from './types.ts';
 
 /** Chunk edge length in metres. */
@@ -15,6 +16,7 @@ export const MAX_HEIGHT_UNITS = 65535;
 export const MAX_CHUNK_COORD = 1 << 20;
 const MAX_WORLD_M = MAX_CHUNK_COORD * CHUNK_SIZE_M;
 
+const SOUTH_SALT = 0x736f757468n;
 const HEIGHT_SALT = 0x6865696768n;
 const MOISTURE_SALT = 0x6d6f697374n;
 const HEIGHT_LATTICE_M = 512;
@@ -58,8 +60,14 @@ export function biomeFor(planetClass: PlanetClass, height01: number, moisture: n
   }
 }
 
-/** Pure per-planet terrain sampler; build once with `createSurfaceField`, then sample freely. */
+/**
+ * Pure terrain sampler for one chart of a planet; build once with `createSurfaceField`, then
+ * sample freely. Coordinates are flat chart metres (see chart.ts); heights are true metres.
+ */
 export interface SurfaceField {
+  readonly hemisphere: Hemisphere;
+  /** Local chart scale at a flat position: true metres per flat metre (1 at the pole). */
+  scaleAt(worldX: number, worldZ: number): number;
   /** Exact terrain height in metres at a world position. Single source of truth for height. */
   heightAt(worldX: number, worldZ: number): number;
   /** Height quantised to heightmap units (integers 0..65535). */
@@ -77,32 +85,54 @@ function checkWorld(value: number): void {
   }
 }
 
+/** The planet's terrain seed; the south chart's chunk content derives from a salted copy. */
+export function planetSurfaceSeed(seed: string, planet: Planet, hemisphere: Hemisphere): bigint {
+  const planetSeed = hash2(seedFromString(seed), BigInt(`0x${planet.id}`));
+  return hemisphere === 'n' ? planetSeed : hash2(planetSeed, SOUTH_SALT);
+}
+
 /**
- * Builds the terrain sampler for a planet. The only BigInt work (seed derivation) happens here;
- * sampling is 32-bit Number math. Height depends on world position alone, never on chunk
- * boundaries, so any resolution or chunk layout samples the same surface.
+ * Builds the terrain sampler for one chart of a planet. Terrain is a function of the point on
+ * the sphere: a flat position maps to a unit direction through the chart's algebraic inverse,
+ * and 3D noise is sampled at that point of the datum sphere (metres from the planet centre). So
+ * both charts see the same continuous terrain, with no seam, pole or anisotropic stretch. The
+ * only BigInt work (seed derivation) happens here; sampling is 32-bit Number math.
  * @throws RangeError for gas giants, which have no surface.
  */
-export function createSurfaceField(seed: string, planet: Planet): SurfaceField {
+export function createSurfaceField(
+  seed: string,
+  planet: Planet,
+  hemisphere: Hemisphere = 'n',
+): SurfaceField {
   if (planet.class === 'gas') throw new RangeError('gas giants have no surface');
-  const planetSeed = hash2(seedFromString(seed), BigInt(`0x${planet.id}`));
+  const planetSeed = planetSurfaceSeed(seed, planet, 'n');
   const heightSeed = Number(BigInt.asUintN(32, hash2(planetSeed, HEIGHT_SALT)));
   const moistureSeed = Number(BigInt.asUintN(32, hash2(planetSeed, MOISTURE_SALT)));
   const amplitude = CLASS_AMPLITUDE_M[planet.class] * (0.8 + planet.radiusKm / 20000);
+  const radius = planet.simRadius;
 
-  const height01 = (x: number, z: number): number => {
+  const sign = hemisphere === 'n' ? 1 : -1;
+  // Inlined `chartToUnit` (same arithmetic, no allocation): flat position -> datum point.
+  const sample = (noiseSeed: number, lattice: number, octaves: number, x: number, z: number) => {
     checkWorld(x);
     checkWorld(z);
-    return stretch(fbm2D(heightSeed, x, z, HEIGHT_LATTICE_M, HEIGHT_OCTAVES));
+    const a = x / (2 * radius);
+    const b = z / (2 * radius);
+    const q = 1 + a * a + b * b;
+    const px = radius * ((2 * a) / q);
+    const py = radius * ((sign * (2 - q)) / q);
+    const pz = radius * ((sign * 2 * b) / q);
+    return stretch(fbm3D(noiseSeed, px, py, pz, lattice, octaves));
   };
+  const height01 = (x: number, z: number): number =>
+    sample(heightSeed, HEIGHT_LATTICE_M, HEIGHT_OCTAVES, x, z);
   const heightAt = (x: number, z: number): number => amplitude * height01(x, z);
-  const moistureAt = (x: number, z: number): number => {
-    checkWorld(x);
-    checkWorld(z);
-    return stretch(fbm2D(moistureSeed, x, z, MOISTURE_LATTICE_M, MOISTURE_OCTAVES));
-  };
+  const moistureAt = (x: number, z: number): number =>
+    sample(moistureSeed, MOISTURE_LATTICE_M, MOISTURE_OCTAVES, x, z);
 
   return {
+    hemisphere,
+    scaleAt: (x, z) => chartScale(chartRadiusSq(radius, x, z)),
     heightAt,
     heightUnitsAt: (x, z) =>
       Math.min(MAX_HEIGHT_UNITS, Math.round(heightAt(x, z) * HEIGHT_UNITS_PER_M)),
@@ -112,7 +142,7 @@ export function createSurfaceField(seed: string, planet: Planet): SurfaceField {
 }
 
 /**
- * Exact terrain height in metres at a world position: the single source of truth that chunk
+ * Exact terrain height in metres at a flat chart position: the single source of truth that chunk
  * heightmaps merely sample. Convenient for one-off queries; use `createSurfaceField` in loops.
  */
 export function surfaceHeightAt(
@@ -120,12 +150,13 @@ export function surfaceHeightAt(
   planet: Planet,
   worldX: number,
   worldZ: number,
+  hemisphere: Hemisphere = 'n',
 ): number {
-  return createSurfaceField(seed, planet).heightAt(worldX, worldZ);
+  return createSurfaceField(seed, planet, hemisphere).heightAt(worldX, worldZ);
 }
 
 /**
- * World-space position (metres) of heightmap sample `(i, j)` of chunk `(chunkX, chunkZ)`:
+ * Flat chart position (metres) of heightmap sample `(i, j)` of chunk `(chunkX, chunkZ)`:
  * `x = chunkX * 256 + i * 4`, `z = chunkZ * 256 + j * 4`. Edges are adjacent, not shared: the
  * last column (i = 63) sits one 4 m step before the next chunk's first column (i = 0).
  */

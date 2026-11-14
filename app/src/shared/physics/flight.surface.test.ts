@@ -8,15 +8,14 @@ import {
   VTOL_IDLE_SINK_RATE,
 } from '@shared/physics/flightConstants.ts';
 import type { FlightContext, ShipState, SurfaceProvider } from '@shared/physics/flightTypes.ts';
-import { maxFlatRadius } from '@shared/physics/frames.ts';
 import { desiredVerticalSpeed, vtolAuthority } from '@shared/physics/surfaceFlight.ts';
-import { IDLE, body, flatSurface, restingShip } from '@shared/physics/testkit.ts';
+import { body, flatSurface, IDLE, NORTH, restingShip } from '@shared/physics/testkit.ts';
 import { shipStats } from '@shared/ships/catalog.ts';
 import { SHIP_CLASS_IDS, type ShipClassId } from '@shared/ships/ids.ts';
 
 const TOP = body.atmosphere!.top;
 const ship = (y: number, over: Partial<ShipState> = {}): ShipState =>
-  restingShip({ x: 0, y, z: 0 }, { frame: body.id, regime: 'atmosphere', ...over });
+  restingShip({ x: 0, y, z: 0 }, { frame: NORTH, regime: 'atmosphere', ...over });
 const ctx = (
   id: ShipClassId = 'scout',
   surface: SurfaceProvider = flatSurface(0),
@@ -131,7 +130,7 @@ describe('landing pads', () => {
   const c = () => ctx('scout', flatSurface(0, [pad]));
   const land = (pos: { x: number; z: number }, vel = { x: 0, y: 0, z: 0 }) =>
     integrateShip(
-      restingShip({ ...pos, y: 0 }, { frame: body.id, regime: 'surface', vel }),
+      restingShip({ ...pos, y: 0 }, { frame: NORTH, regime: 'surface', vel }),
       IDLE,
       0.05,
       c(),
@@ -151,7 +150,7 @@ describe('landing pads', () => {
 
   it('clears onPad when the ship lifts off', () => {
     const landed = run(
-      restingShip({ x: 10, y: 0, z: 0 }, { frame: body.id, regime: 'surface' }),
+      restingShip({ x: 10, y: 0, z: 0 }, { frame: NORTH, regime: 'surface' }),
       {},
       1,
       c(),
@@ -163,12 +162,38 @@ describe('landing pads', () => {
 });
 
 describe('surface frame limits', () => {
-  it('treats the end of the usable projection (0.97 pi) as a wall', () => {
-    const edge = maxFlatRadius(body);
-    let s = ship(100, { pos: { x: edge - 5, y: 100, z: 0 }, vel: { x: 200, y: 0, z: 0 } });
-    for (let i = 0; i < 100; i++) s = integrateShip(s, IDLE, 0.05, ctx());
-    expect(s.pos.x).toBeLessThanOrEqual(edge + 1e-6);
-    expect(s.vel.x).toBeLessThanOrEqual(1e-6);
+  it('moves at the same true ground speed at the pole and at the equator', () => {
+    const fly = (x: number) => {
+      const start = ship(5000, { pos: { x, y: 5000, z: 0 }, vel: { x: 0, y: 0, z: 100 } });
+      const end = integrateShip(
+        start,
+        IDLE,
+        0.05,
+        ctx('scout', flatSurface(0), {
+          gravity: 0,
+          assist: false,
+          bodies: [{ ...body, atmosphere: null }],
+        }),
+      );
+      return end.pos.z - start.pos.z;
+    };
+    // 100 m/s for 0.05 s is 5 true metres: 5 flat metres at the pole, 10 at the equator.
+    expect(fly(0)).toBeCloseTo(5, 6);
+    expect(fly(2 * body.radius)).toBeCloseTo(10, 6);
+  });
+
+  it('measures the pad radius in true metres wherever the pad is', () => {
+    const x = 2 * body.radius; // on the equator: 1 true metre = 2 flat metres
+    const pad = { id: 'eq-pad', x, z: 0 };
+    const rest = (dz: number) =>
+      integrateShip(
+        restingShip({ x, y: 0, z: dz }, { frame: NORTH, regime: 'surface' }),
+        IDLE,
+        0.05,
+        ctx('scout', flatSurface(0, [pad])),
+      );
+    expect(rest(20).onPad).toBe('eq-pad'); // 20 flat m = 10 true m, inside the 12 m radius
+    expect(rest(30).onPad).toBeUndefined(); // 30 flat m = 15 true m, outside
   });
 
   it('requires a surface context for a surface frame', () => {

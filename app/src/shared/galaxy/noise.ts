@@ -67,3 +67,85 @@ export function fbm2D(
   }
   return sum / total;
 }
+
+/** Hashes a 32-bit seed and three integer lattice coordinates to an unsigned 32-bit value. */
+export function hash32x3(seed: number, ix: number, iy: number, iz: number): number {
+  const a = fmix32((seed | 0) ^ Math.imul(ix | 0, 0x9e3779b1));
+  const b = fmix32(a ^ Math.imul(iy | 0, 0x85ebca77));
+  return fmix32(b ^ Math.imul(iz | 0, 0xc2b2ae3d));
+}
+
+/**
+ * 3D value noise in [0, 1) on a lattice of `lattice` metres (a power of two): the trilinear,
+ * smoothstep-blended counterpart of `valueNoise2D`. Sampling it at points of a sphere gives
+ * terrain with no seam, pole or stretch. Exact operations only.
+ */
+export function valueNoise3D(
+  seed: number,
+  x: number,
+  y: number,
+  z: number,
+  lattice: number,
+): number {
+  const gx = x / lattice;
+  const gy = y / lattice;
+  const gz = z / lattice;
+  const ix = Math.floor(gx);
+  const iy = Math.floor(gy);
+  const iz = Math.floor(gz);
+  const tx = gx - ix;
+  const ty = gy - iy;
+  const tz = gz - iz;
+  const sx = tx * tx * (3 - 2 * tx);
+  const sy = ty * ty * (3 - 2 * ty);
+  const sz = tz * tz * (3 - 2 * tz);
+  // Corner hashes share their x and (x, y) stages: 14 mixes instead of 24. Same values as
+  // `hash32x3(seed, ix + dx, iy + dy, iz + dz)`.
+  const ax0 = fmix32((seed | 0) ^ Math.imul(ix | 0, 0x9e3779b1));
+  const ax1 = fmix32((seed | 0) ^ Math.imul((ix + 1) | 0, 0x9e3779b1));
+  const my0 = Math.imul(iy | 0, 0x85ebca77);
+  const my1 = Math.imul((iy + 1) | 0, 0x85ebca77);
+  const mz0 = Math.imul(iz | 0, 0xc2b2ae3d);
+  const mz1 = Math.imul((iz + 1) | 0, 0xc2b2ae3d);
+  const b00 = fmix32(ax0 ^ my0);
+  const b10 = fmix32(ax1 ^ my0);
+  const b01 = fmix32(ax0 ^ my1);
+  const b11 = fmix32(ax1 ^ my1);
+  const c000 = fmix32(b00 ^ mz0) / TWO_POW_32;
+  const c100 = fmix32(b10 ^ mz0) / TWO_POW_32;
+  const c010 = fmix32(b01 ^ mz0) / TWO_POW_32;
+  const c110 = fmix32(b11 ^ mz0) / TWO_POW_32;
+  const c001 = fmix32(b00 ^ mz1) / TWO_POW_32;
+  const c101 = fmix32(b10 ^ mz1) / TWO_POW_32;
+  const c011 = fmix32(b01 ^ mz1) / TWO_POW_32;
+  const c111 = fmix32(b11 ^ mz1) / TWO_POW_32;
+  const e00 = c000 + (c100 - c000) * sx;
+  const e10 = c010 + (c110 - c010) * sx;
+  const e01 = c001 + (c101 - c001) * sx;
+  const e11 = c011 + (c111 - c011) * sx;
+  const front = e00 + (e10 - e00) * sy;
+  const back = e01 + (e11 - e01) * sy;
+  return front + (back - front) * sz;
+}
+
+/** Fractal Brownian motion over `valueNoise3D`; same octave rule as `fbm2D`. */
+export function fbm3D(
+  seed: number,
+  x: number,
+  y: number,
+  z: number,
+  baseLattice: number,
+  octaves: number,
+): number {
+  let sum = 0;
+  let total = 0;
+  let amplitude = 1;
+  let lattice = baseLattice;
+  for (let octave = 0; octave < octaves; octave++) {
+    sum += amplitude * valueNoise3D(hash32(seed, octave, 0x5bd1), x, y, z, lattice);
+    total += amplitude;
+    amplitude *= 0.5;
+    lattice /= 2;
+  }
+  return sum / total;
+}

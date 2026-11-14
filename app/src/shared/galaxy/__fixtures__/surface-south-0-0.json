@@ -1,0 +1,127 @@
+{
+  "chunk": {
+    "biome": "plains",
+    "chunkX": 0,
+    "chunkZ": 0,
+    "heightmap": {
+      "length": 4096,
+      "samples": [
+        {
+          "i": 0,
+          "j": 0,
+          "value": 1429
+        },
+        {
+          "i": 21,
+          "j": 0,
+          "value": 1405
+        },
+        {
+          "i": 42,
+          "j": 0,
+          "value": 1481
+        },
+        {
+          "i": 63,
+          "j": 0,
+          "value": 1633
+        },
+        {
+          "i": 0,
+          "j": 21,
+          "value": 1072
+        },
+        {
+          "i": 21,
+          "j": 21,
+          "value": 1293
+        },
+        {
+          "i": 42,
+          "j": 21,
+          "value": 1412
+        },
+        {
+          "i": 63,
+          "j": 21,
+          "value": 1555
+        },
+        {
+          "i": 0,
+          "j": 42,
+          "value": 735
+        },
+        {
+          "i": 21,
+          "j": 42,
+          "value": 1017
+        },
+        {
+          "i": 42,
+          "j": 42,
+          "value": 1360
+        },
+        {
+          "i": 63,
+          "j": 42,
+          "value": 1586
+        },
+        {
+          "i": 0,
+          "j": 63,
+          "value": 624
+        },
+        {
+          "i": 21,
+          "j": 63,
+          "value": 918
+        },
+        {
+          "i": 42,
+          "j": 63,
+          "value": 1437
+        },
+        {
+          "i": 63,
+          "j": 63,
+          "value": 1662
+        }
+      ],
+      "sha256": "5a86c296263d333df48b92876882d20733fc14c01ef4e48c75e23a287a42979c"
+    },
+    "hemisphere": "s",
+    "landingPads": [],
+    "resourceNodes": [
+      {
+        "baseQuantity": 162,
+        "nodeId": "bf514528ab888a32",
+        "type": "water",
+        "x": 145.3,
+        "z": 81.9
+      },
+      {
+        "baseQuantity": 131,
+        "nodeId": "ab5dd1774eb4feb9",
+        "type": "silicon",
+        "x": 66.9,
+        "z": 147
+      },
+      {
+        "baseQuantity": 195,
+        "nodeId": "86e41ea825922f54",
+        "type": "silicon",
+        "x": 66.6,
+        "z": 85.3
+      },
+      {
+        "baseQuantity": 89,
+        "nodeId": "98e51377494bdcdb",
+        "type": "silicon",
+        "x": 219.8,
+        "z": 196.5
+      }
+    ]
+  },
+  "planetId": "23af299cef52680f",
+  "seed": "drift-dev-seed-001"
+}

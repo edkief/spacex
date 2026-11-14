@@ -251,10 +251,11 @@ describe('determinism', () => {
     const pick = new Rng(seedFromString('chunk-picker'));
     for (let n = 0; n < 100; n++) {
       const p = picks[pick.nextInt(3)]!;
-      const cx = pick.nextInt(2001) - 1000;
-      const cz = pick.nextInt(2001) - 1000;
-      const first = hashOf(generateSurfaceChunk(SEED, p, cx, cz));
-      expect(hashOf(generateSurfaceChunk(SEED, p, cx, cz))).toBe(first);
+      const cx = pick.nextInt(201) - 100;
+      const cz = pick.nextInt(201) - 100;
+      const hemisphere = n % 2 === 0 ? 'n' : 's';
+      const first = hashOf(generateSurfaceChunk(SEED, p, cx, cz, hemisphere));
+      expect(hashOf(generateSurfaceChunk(SEED, p, cx, cz, hemisphere))).toBe(first);
     }
   });
 

@@ -13,13 +13,14 @@ stored or sent.
 | `surface-0-0.json`    | Chunk (0,0) of the dev-seed landable planet                           |
 | `surface-1-0.json`    | Chunk (1,0) of the same planet                                        |
 | `surface-0-1.json`    | Chunk (0,1) of the same planet                                        |
+| `surface-south-0-0.json` | Chunk (0,0) of the same planet's south chart                       |
 | `galaxy-digests.json` | sha256 over all 200 systems and over an 8x8 chunk grid per planet class |
 
 "The dev-seed landable planet" is the first landable planet found scanning the chart in star
 order (`firstPlanet` in `tests/support/galaxy.ts`). Star #0 happens to have only gas giants, so
 this is currently a planet of star #2.
 
-`galaxy-digests.json` exists because the six detailed fixtures cover only two systems and three
+`galaxy-digests.json` exists because the detailed fixtures cover only two systems and three
 chunks, so a small probability or constant change can slip past them (a mutation check showed a
 0.25 -> 0.26 pad chance and a 0.95 -> 0.94 landable chance went unnoticed). The digests cover
 every system plus 64 chunks on each of the four landable planet classes. No finite fixture can catch every

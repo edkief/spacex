@@ -1,7 +1,7 @@
 import type { Body } from '@shared/physics/bodies.ts';
 import type { FlightWorld, ShipState } from '@shared/physics/flightTypes.ts';
 import { stepShip } from '@shared/physics/stepShip.ts';
-import { IDLE, body, restingShip } from '@shared/physics/testkit.ts';
+import { body, IDLE, NORTH, restingShip } from '@shared/physics/testkit.ts';
 import { shipStats } from '@shared/ships/catalog.ts';
 
 /** One recorded sample of a golden trajectory (rounded to 1e-6 so the fixture is stable text). */
@@ -61,7 +61,7 @@ export function descentTrajectory(): Sample[] {
     surface: () => ({ heightAt: goldenHeight, pads: [{ id: 'golden-pad', x: 0, z: 0 }] }),
   };
   const cls = shipStats('scout');
-  let s = restingShip({ x: 5, y: 190, z: 2 }, { frame: body.id, regime: 'atmosphere' });
+  let s = restingShip({ x: 5, y: 190, z: 2 }, { frame: NORTH, regime: 'atmosphere' });
   const samples = [sample(0, s)];
   for (let step = 1; step <= 600; step++) {
     s = stepShip(s, IDLE, 0.05, world, cls);

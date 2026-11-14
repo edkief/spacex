@@ -7,7 +7,7 @@ import {
 } from '@shared/physics/atmosphere.ts';
 import { integrateShip } from '@shared/physics/flight.ts';
 import { ATMOSPHERE_RAMP_M, SURFACE_GRAVITY } from '@shared/physics/flightConstants.ts';
-import { IDLE, body, flatSurface, restingShip } from '@shared/physics/testkit.ts';
+import { body, flatSurface, IDLE, NORTH, restingShip } from '@shared/physics/testkit.ts';
 import { length } from '@shared/physics/vec.ts';
 import { shipStats } from '@shared/ships/catalog.ts';
 import { SHIP_CLASS_IDS } from '@shared/ships/ids.ts';
@@ -21,7 +21,7 @@ const ctx = (over: object = {}) => ({
   ...over,
 });
 const inAtmosphere = (y: number, vel: { x: number; y: number; z: number }) =>
-  restingShip({ x: 0, y, z: 0 }, { frame: body.id, vel, regime: 'atmosphere' });
+  restingShip({ x: 0, y, z: 0 }, { frame: NORTH, vel, regime: 'atmosphere' });
 
 describe('atmosphere boundary factor', () => {
   it('is 0 at and above the top, 1 a kilometre below it, linear in between', () => {

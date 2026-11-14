@@ -13,16 +13,21 @@ const FLATNESS_PROBE_M = 6;
 const NODE_ATTEMPTS = 32;
 const LIQUID_OR_GAS = new Set(['water', 'gas-compounds']);
 
-/** World-space origin (metres) of a chunk's lower corner. */
-interface ChunkOrigin {
+/**
+ * A chunk's lower corner in flat chart metres, plus `stretch`: flat metres per true metre at the
+ * chunk centre (1 at the pole, 2 at the equator). Clearances are specified in true metres and
+ * multiplied by `stretch` wherever they are applied to flat coordinates.
+ */
+export interface ChunkOrigin {
   x0: number;
   z0: number;
+  stretch: number;
 }
 
 /** Steepness at a point: the largest height change to the 4 probes `FLATNESS_PROBE_M` away. */
-function steepness(field: SurfaceField, x: number, z: number): number {
+function steepness(field: SurfaceField, x: number, z: number, stretch: number): number {
   const h = field.heightAt(x, z);
-  const d = FLATNESS_PROBE_M;
+  const d = FLATNESS_PROBE_M * stretch;
   return Math.max(
     Math.abs(field.heightAt(x + d, z) - h),
     Math.abs(field.heightAt(x - d, z) - h),
@@ -31,8 +36,9 @@ function steepness(field: SurfaceField, x: number, z: number): number {
   );
 }
 
-/** Draws a world position inside the chunk, at least `margin` metres from every edge. */
-function drawPosition(rng: Rng, origin: ChunkOrigin, margin: number): { x: number; z: number } {
+/** Draws a position inside the chunk, at least `trueMargin` true metres from every edge. */
+function drawPosition(rng: Rng, origin: ChunkOrigin, trueMargin: number): { x: number; z: number } {
+  const margin = trueMargin * origin.stretch;
   const span = CHUNK_SIZE_M - 2 * margin;
   return {
     x: round1(origin.x0 + margin + rng.nextF64() * span),
@@ -59,7 +65,7 @@ export function placePads(
   let bestSteepness = Number.POSITIVE_INFINITY;
   for (let i = 0; i < PAD_CANDIDATES; i++) {
     const candidate = drawPosition(rng, origin, PAD_MARGIN_M);
-    const score = steepness(field, candidate.x, candidate.z);
+    const score = steepness(field, candidate.x, candidate.z, origin.stretch);
     if (score < bestSteepness) {
       best = candidate;
       bestSteepness = score;
@@ -70,11 +76,12 @@ export function placePads(
 }
 
 /** True when (x, z) is at least the clearance away from every pad. */
-function clearOfPads(x: number, z: number, pads: readonly LandingPad[]): boolean {
+function clearOfPads(x: number, z: number, pads: readonly LandingPad[], stretch: number): boolean {
+  const clearance = NODE_PAD_CLEARANCE_M * stretch;
   return pads.every((pad) => {
     const dx = pad.x - x;
     const dz = pad.z - z;
-    return dx * dx + dz * dz >= NODE_PAD_CLEARANCE_M * NODE_PAD_CLEARANCE_M;
+    return dx * dx + dz * dz >= clearance * clearance;
   });
 }
 
@@ -104,7 +111,7 @@ function findNodePosition(
   let leastWetness = Number.POSITIVE_INFINITY;
   for (let attempt = 0; attempt < NODE_ATTEMPTS; attempt++) {
     const candidate = drawPosition(rng, origin, NODE_MARGIN_M);
-    if (!clearOfPads(candidate.x, candidate.z, pads)) continue;
+    if (!clearOfPads(candidate.x, candidate.z, pads, origin.stretch)) continue;
     if (!solid || field.biomeAt(candidate.x, candidate.z) !== 'wetland') return candidate;
     const wetness = field.moistureAt(candidate.x, candidate.z);
     if (wetness < leastWetness) {
@@ -116,9 +123,11 @@ function findNodePosition(
   const start = rng.nextInt(total);
   for (let step = 0; step < total; step++) {
     const cell = (start + step) % total;
-    const x = origin.x0 + NODE_MARGIN_M + (cell % PROBE_GRID_SIZE) * PROBE_GRID_SPACING_M;
-    const z = origin.z0 + NODE_MARGIN_M + Math.floor(cell / PROBE_GRID_SIZE) * PROBE_GRID_SPACING_M;
-    if (clearOfPads(x, z, pads) && field.biomeAt(x, z) !== 'wetland') return { x, z };
+    const margin = NODE_MARGIN_M * origin.stretch;
+    const x = origin.x0 + margin + (cell % PROBE_GRID_SIZE) * PROBE_GRID_SPACING_M;
+    const z = origin.z0 + margin + Math.floor(cell / PROBE_GRID_SIZE) * PROBE_GRID_SPACING_M;
+    if (clearOfPads(x, z, pads, origin.stretch) && field.biomeAt(x, z) !== 'wetland')
+      return { x, z };
   }
   return leastWet ?? drawPosition(rng, origin, NODE_MARGIN_M);
 }

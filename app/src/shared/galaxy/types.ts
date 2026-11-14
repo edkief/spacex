@@ -1,3 +1,4 @@
+import type { Hemisphere } from './chart.ts';
 import type { ShipClassId } from '../ships/ids.ts';
 
 export type StarClass = 'O' | 'B' | 'A' | 'F' | 'G' | 'K' | 'M';
@@ -81,7 +82,7 @@ export interface ResourceNode {
   /** Stable identity (hash of seed, planet, chunk and node index); keys resource_node_state. */
   nodeId: string;
   type: string;
-  /** World-space metres on the planet's surface plane. */
+  /** Flat metres in the chunk's chart. */
   x: number;
   z: number;
   baseQuantity: number;
@@ -99,6 +100,8 @@ export interface LandingPad {
  * and j along +z. See terrain.ts for the exact world-space position of each sample.
  */
 export interface SurfaceChunk {
+  /** Which of the planet's two charts this chunk belongs to. */
+  hemisphere: Hemisphere;
   chunkX: number;
   chunkZ: number;
   heightmap: number[];

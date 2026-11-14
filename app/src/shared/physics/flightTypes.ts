@@ -7,7 +7,7 @@ import type { Quat, Vec3 } from './vec.ts';
 
 /**
  * A ship's simulated state. Position, velocity and orientation are expressed in `frame`:
- * the system frame, or a landable planet's surface frame (the planet id). `quat` rotates
+ * the system frame, or one of a landable planet's surface charts (`<planetId>:n|s`). `quat` rotates
  * ship-local vectors (nose -z, up +y, right +x) into that frame.
  */
 export interface ShipState {
@@ -28,7 +28,7 @@ export type FlightInput = Pick<
   'thrust' | 'yaw' | 'pitch' | 'roll' | 'up' | 'brake' | 'action'
 >;
 
-/** A landing pad in a surface frame's flat coordinates. */
+/** A landing pad in a surface chart's flat coordinates. */
 export interface FlatPad {
   id: string;
   x: number;
@@ -46,7 +46,7 @@ export interface SurfaceProvider {
 export interface FlightContext {
   shipClass: Readonly<ShipClass>;
   bodies: readonly Body[];
-  /** Required when `state.frame` is a planet id. */
+  /** Required when `state.frame` is a surface chart. */
   surface?: SurfaceProvider | undefined;
   /** Surface gravity in m/s^2 (default SURFACE_GRAVITY); tests set 0. */
   gravity?: number;
@@ -57,6 +57,6 @@ export interface FlightContext {
 /** The sim world seen by `stepShip`. */
 export interface FlightWorld {
   bodies: readonly Body[];
-  /** Terrain access per planet id; undefined means flat terrain at the datum with no pads. */
-  surface(planetId: string): SurfaceProvider | undefined;
+  /** Terrain access per surface frame id; undefined means flat datum terrain with no pads. */
+  surface(frame: FrameId): SurfaceProvider | undefined;
 }

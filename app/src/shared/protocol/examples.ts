@@ -44,7 +44,9 @@ const snapshot = {
   tick: 12,
   lastInputSeq: 3,
   entities: [entity],
-  nodes: [{ nodeId: PLANET, type: 'iron', pos: { ...pos, frame: PLANET }, quantity: 40 }],
+  nodes: [
+    { nodeId: PLANET, type: 'iron', pos: { ...pos, frame: `${PLANET}:n` as const }, quantity: 40 },
+  ],
   chat: [{ from: 'TEST-BRAVO', text: 'hi', at: 1700000000000 }],
   players: [{ playerId: UUID_A, callsign: 'TEST-ALPHA', entityId: UUID_A }],
 };

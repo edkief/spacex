@@ -1,5 +1,6 @@
 import type { Body } from '@shared/physics/bodies.ts';
 import type { FlightInput, ShipState } from '@shared/physics/flightTypes.ts';
+import { surfaceFrameId } from '@shared/physics/frames.ts';
 import { add, type Vec3 } from '@shared/physics/vec.ts';
 
 /** Shared fixtures for physics tests: a landable 80 km planet with a 12% atmosphere. */
@@ -16,6 +17,9 @@ export const planet = (over: Partial<Body> = {}): Body => ({
   ...over,
 });
 export const body = planet();
+/** The test planet's north and south surface frames. */
+export const NORTH = surfaceFrameId(body.id, 'n');
+export const SOUTH = surfaceFrameId(body.id, 's');
 const SIN = Math.sin;
 const COS = Math.cos;
 

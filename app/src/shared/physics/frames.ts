@@ -1,4 +1,5 @@
 import type { FramePosition } from '../protocol/primitives.ts';
+import { chartRadiusSq, chartScale, chartToUnit, type Hemisphere } from '../galaxy/chart.ts';
 import type { Body } from './bodies.ts';
 import {
   conjugate,
@@ -14,114 +15,121 @@ import {
   scale,
   length,
 } from './vec.ts';
-import { MAX_COLATITUDE } from './worldConstants.ts';
 
-/** A reference frame: the system frame, or a landable planet's surface frame (its id). */
+/**
+ * A reference frame: the system frame, or one of a landable planet's two surface charts,
+ * written `<planetId>:n` or `<planetId>:s`.
+ */
 export type FrameId = FramePosition['frame'];
 export const SYSTEM_FRAME: FrameId = 'system';
 
+/** The planet and hemisphere a surface frame id names. */
+export interface SurfaceFrameRef {
+  planetId: string;
+  hemisphere: Hemisphere;
+}
+
+/** Builds the frame id of a planet's chart. */
+export function surfaceFrameId(planetId: string, hemisphere: Hemisphere): FrameId {
+  return `${planetId}:${hemisphere}` as FrameId;
+}
+
+/** Splits a surface frame id; undefined for the system frame. */
+export function parseFrame(frame: FrameId): SurfaceFrameRef | undefined {
+  if (frame === SYSTEM_FRAME) return undefined;
+  return { planetId: frame.slice(0, 16), hemisphere: frame.endsWith(':s') ? 's' : 'n' };
+}
+
 /**
- * Surface frame = azimuthal-equidistant projection of the sphere about the planet's +y pole.
- * For a system-frame point at distance rho from the centre, colatitude theta from +y and
- * azimuth phi: x = R*theta*cos(phi), z = R*theta*sin(phi), y = rho - R. This is sim code, so the
- * trigonometric functions are allowed here (unlike in generation).
+ * Surface frame = one stereographic chart of the planet (see galaxy/chart.ts): flat x and z are
+ * chart metres, y is true altitude above the datum sphere. Velocities and orientations in a
+ * surface frame are TRUE metres per second in the local orthonormal basis (flat x, up, flat z);
+ * the chart is conformal, so that basis is orthogonal on the sphere too. Only horizontal
+ * position integration needs the chart scale. This is sim code: sqrt and trig are allowed here.
  */
 
-/** Polar coordinates of a point relative to the planet centre. */
-interface Polar {
-  rho: number;
-  theta: number;
-  cosPhi: number;
-  sinPhi: number;
-}
-
-/** Colatitude, azimuth (as cos/sin; (1, 0) at the poles) and distance of a system-frame point. */
-function polarOf(body: Body, p: Vec3): Polar {
+/** Unit direction from the body centre and distance of a system-frame point. */
+function directionOf(body: Body, p: Vec3): { n: Vec3; rho: number } {
   const rel = sub(p, body.center);
   const rho = length(rel);
-  const horizontal = Math.sqrt(rel.x * rel.x + rel.z * rel.z);
-  const theta = Math.atan2(horizontal, rel.y);
-  if (horizontal === 0) return { rho, theta, cosPhi: 1, sinPhi: 0 };
-  return { rho, theta, cosPhi: rel.x / horizontal, sinPhi: rel.z / horizontal };
+  if (rho === 0) return { n: { x: 0, y: 1, z: 0 }, rho };
+  return { n: scale(rel, 1 / rho), rho };
 }
 
-/** Colatitude (radians from the +y pole) of a system-frame point about the body. */
-export function colatitude(body: Body, systemPos: Vec3): number {
-  return polarOf(body, systemPos).theta;
+/** The hemisphere a system-frame point lies over (north when exactly on the equator). */
+export function hemisphereOf(body: Body, systemPos: Vec3): Hemisphere {
+  return systemPos.y - body.center.y >= 0 ? 'n' : 's';
 }
 
-/** True when the point is inside the usable range of the surface projection (theta <= 0.97 pi). */
-export function inSurfaceRange(body: Body, systemPos: Vec3): boolean {
-  return colatitude(body, systemPos) <= MAX_COLATITUDE;
+/**
+ * Sine of the latitude of a system-frame point measured towards the pole of `hemisphere`:
+ * 1 at that pole, 0 on the equator, negative in the other hemisphere.
+ */
+export function poleward(body: Body, hemisphere: Hemisphere, systemPos: Vec3): number {
+  const { n } = directionOf(body, systemPos);
+  return hemisphere === 'n' ? n.y : -n.y;
 }
 
-/** Maximum flat radius (metres) of the surface frame: R * 0.97 pi. */
-export function maxFlatRadius(body: Body): number {
-  return body.radius * MAX_COLATITUDE;
+/** Local chart scale (true metres per flat metre) at a surface-frame position. */
+export function surfaceScale(body: Body, flat: Vec3): number {
+  return chartScale(chartRadiusSq(body.radius, flat.x, flat.z));
 }
 
-/** Azimuthal stretch of the projection at colatitude theta: theta / sin(theta) (1 at the pole). */
-export function azimuthalStretch(theta: number): number {
-  return theta < 1e-9 ? 1 : theta / Math.sin(theta);
-}
-
-/** System-frame position -> surface-frame position. */
-export function systemToSurface(body: Body, systemPos: Vec3): Vec3 {
-  const { rho, theta, cosPhi, sinPhi } = polarOf(body, systemPos);
-  const flatRadius = body.radius * theta;
-  return { x: flatRadius * cosPhi, y: rho - body.radius, z: flatRadius * sinPhi };
+/** System-frame position -> surface-frame position in the given chart. */
+export function systemToSurface(body: Body, hemisphere: Hemisphere, systemPos: Vec3): Vec3 {
+  const { n, rho } = directionOf(body, systemPos);
+  const sign = hemisphere === 'n' ? 1 : -1;
+  const denom = 1 + sign * n.y;
+  if (denom <= 0) throw new RangeError('point is at the antipode of this chart');
+  const k = (2 * body.radius) / denom;
+  return { x: k * n.x, y: rho - body.radius, z: k * sign * n.z };
 }
 
 /** Surface-frame position -> system-frame position (inverse of `systemToSurface`). */
-export function surfaceToSystem(body: Body, flat: Vec3): Vec3 {
-  const rFlat = Math.sqrt(flat.x * flat.x + flat.z * flat.z);
-  const theta = rFlat / body.radius;
-  const cosPhi = rFlat > 0 ? flat.x / rFlat : 1;
-  const sinPhi = rFlat > 0 ? flat.z / rFlat : 0;
-  const rho = body.radius + flat.y;
-  const sinTheta = Math.sin(theta);
-  return add(body.center, {
-    x: rho * sinTheta * cosPhi,
-    y: rho * Math.cos(theta),
-    z: rho * sinTheta * sinPhi,
-  });
+export function surfaceToSystem(body: Body, hemisphere: Hemisphere, flat: Vec3): Vec3 {
+  const n = chartToUnit(hemisphere, body.radius, flat.x, flat.z);
+  return add(body.center, scale(n, body.radius + flat.y));
 }
 
 /**
- * The rotation L taking surface-frame vectors to system-frame vectors at a surface point. It
- * maps (flat radial, flat azimuthal, +y) onto (away-from-pole, azimuthal, up), an orthonormal
- * right-handed set, so vectors keep their length: the projection's stretch is NOT applied.
+ * The rotation L taking surface-frame vectors to system-frame vectors at a surface point: its
+ * columns are the unit tangent along flat x, the outward normal, and the unit tangent along
+ * flat z - an orthonormal right-handed set, so vectors keep their length.
  */
-export function surfaceBasis(body: Body, flat: Vec3): Mat3 {
-  const rFlat = Math.sqrt(flat.x * flat.x + flat.z * flat.z);
-  const theta = rFlat / body.radius;
-  const cosPhi = rFlat > 0 ? flat.x / rFlat : 1;
-  const sinPhi = rFlat > 0 ? flat.z / rFlat : 0;
-  const sinT = Math.sin(theta);
-  const cosT = Math.cos(theta);
-  // Columns: images of flat x, y, z. e_theta = (cosT cosPhi, -sinT, cosT sinPhi),
-  // e_phi = (-sinPhi, 0, cosPhi), up = (sinT cosPhi, cosT, sinT sinPhi).
-  const eTheta = { x: cosT * cosPhi, y: -sinT, z: cosT * sinPhi };
-  const ePhi = { x: -sinPhi, y: 0, z: cosPhi };
-  const up = { x: sinT * cosPhi, y: cosT, z: sinT * sinPhi };
-  const lx = add(scale(eTheta, cosPhi), scale(ePhi, -sinPhi));
-  const lz = add(scale(eTheta, sinPhi), scale(ePhi, cosPhi));
+export function surfaceBasis(body: Body, hemisphere: Hemisphere, flat: Vec3): Mat3 {
+  const a = flat.x / (2 * body.radius);
+  const b = flat.z / (2 * body.radius);
+  const q = 1 + a * a + b * b;
+  const s = hemisphere === 'n' ? 1 : -1;
+  const lx = { x: (1 - a * a + b * b) / q, y: (-s * 2 * a) / q, z: (-s * 2 * a * b) / q };
+  const lz = { x: (-2 * a * b) / q, y: (-s * 2 * b) / q, z: (s * (1 + a * a - b * b)) / q };
+  const up = { x: (2 * a) / q, y: (s * (2 - q)) / q, z: (s * 2 * b) / q };
   return [lx.x, up.x, lz.x, lx.y, up.y, lz.y, lx.z, up.z, lz.z];
 }
 
 /** Rotation quaternion of the surface-to-system basis at a surface point. */
-export function surfaceBasisQuat(body: Body, flat: Vec3): Quat {
-  return fromMat3(surfaceBasis(body, flat));
+export function surfaceBasisQuat(body: Body, hemisphere: Hemisphere, flat: Vec3): Quat {
+  return fromMat3(surfaceBasis(body, hemisphere, flat));
 }
 
 /** Rotates a surface-frame direction/velocity into the system frame (length preserved). */
-export function surfaceVectorToSystem(body: Body, flat: Vec3, v: Vec3): Vec3 {
-  return mulMat3(surfaceBasis(body, flat), v);
+export function surfaceVectorToSystem(
+  body: Body,
+  hemisphere: Hemisphere,
+  flat: Vec3,
+  v: Vec3,
+): Vec3 {
+  return mulMat3(surfaceBasis(body, hemisphere, flat), v);
 }
 
 /** Rotates a system-frame direction/velocity into the surface frame (length preserved). */
-export function systemVectorToSurface(body: Body, flat: Vec3, v: Vec3): Vec3 {
-  const m = surfaceBasis(body, flat);
+export function systemVectorToSurface(
+  body: Body,
+  hemisphere: Hemisphere,
+  flat: Vec3,
+  v: Vec3,
+): Vec3 {
+  const m = surfaceBasis(body, hemisphere, flat);
   // The inverse of a rotation is its transpose.
   return {
     x: m[0] * v.x + m[3] * v.y + m[6] * v.z,
@@ -138,27 +146,32 @@ export interface Kinematics {
 }
 
 /** Converts kinematics between the system frame and a body's surface frame. */
-function convertOne(body: Body, k: Kinematics, toSurface: boolean): Kinematics {
+function convertOne(
+  body: Body,
+  hemisphere: Hemisphere,
+  k: Kinematics,
+  toSurface: boolean,
+): Kinematics {
   if (toSurface) {
-    const flat = systemToSurface(body, k.pos);
-    const basis = surfaceBasisQuat(body, flat);
+    const flat = systemToSurface(body, hemisphere, k.pos);
+    const basis = surfaceBasisQuat(body, hemisphere, flat);
     return {
       pos: flat,
-      vel: systemVectorToSurface(body, flat, k.vel),
+      vel: systemVectorToSurface(body, hemisphere, flat, k.vel),
       quat: normalizeQuat(multiply(conjugate(basis), k.quat)),
     };
   }
-  const basis = surfaceBasisQuat(body, k.pos);
+  const basis = surfaceBasisQuat(body, hemisphere, k.pos);
   return {
-    pos: surfaceToSystem(body, k.pos),
-    vel: surfaceVectorToSystem(body, k.pos, k.vel),
+    pos: surfaceToSystem(body, hemisphere, k.pos),
+    vel: surfaceVectorToSystem(body, hemisphere, k.pos, k.vel),
     quat: normalizeQuat(multiply(basis, k.quat)),
   };
 }
 
 /**
- * Converts position, velocity and orientation from frame `from` to frame `to` (either the system
- * frame or a body id from `bodies`), going through the system frame when both are surface frames.
+ * Converts position, velocity and orientation from frame `from` to frame `to` (the system frame
+ * or a surface chart of a body in `bodies`), going through the system frame when both are charts.
  * @throws RangeError for an unknown frame id.
  */
 export function convertKinematics(
@@ -168,11 +181,18 @@ export function convertKinematics(
   bodies: readonly Body[],
 ): Kinematics {
   if (from === to) return k;
-  const find = (id: string): Body => {
-    const body = bodies.find((b) => b.id === id && b.hasSurfaceFrame);
-    if (!body) throw new RangeError(`unknown surface frame: ${id}`);
-    return body;
+  const convert = (frame: FrameId, input: Kinematics, toSurface: boolean): Kinematics => {
+    const ref = parseFrame(frame);
+    const body = ref && bodies.find((b) => b.id === ref.planetId && b.hasSurfaceFrame);
+    if (!ref || !body) throw new RangeError(`unknown surface frame: ${frame}`);
+    return convertOne(body, ref.hemisphere, input, toSurface);
   };
-  const inSystem = from === SYSTEM_FRAME ? k : convertOne(find(from), k, false);
-  return to === SYSTEM_FRAME ? inSystem : convertOne(find(to), inSystem, true);
+  const inSystem = from === SYSTEM_FRAME ? k : convert(from, k, false);
+  return to === SYSTEM_FRAME ? inSystem : convert(to, inSystem, true);
+}
+
+/** The body a surface frame belongs to, if the frame is a chart of one of `bodies`. */
+export function bodyOfFrame(frame: FrameId, bodies: readonly Body[]): Body | undefined {
+  const ref = parseFrame(frame);
+  return ref ? bodies.find((b) => b.id === ref.planetId) : undefined;
 }

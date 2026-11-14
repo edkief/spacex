@@ -29,6 +29,7 @@ describe('galaxy snapshot fixtures', () => {
       'surface-0-0.json',
       'surface-0-1.json',
       'surface-1-0.json',
+      'surface-south-0-0.json',
       'system-star-0.json',
       'system-star-1.json',
     ]);

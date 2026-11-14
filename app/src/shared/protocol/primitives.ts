@@ -26,8 +26,11 @@ export const quatSchema = z
     error: 'quaternion must be unit length',
   });
 
-/** `'system'` (system-centred cartesian) or a planet id (planet-local, y up). Metres. */
-export const frameSchema = z.union([z.literal('system'), hex16Schema]);
+/** `'system'` (system-centred cartesian) or a planet surface chart `<planetId>:n|s` (flat chart metres, y up). */
+export const frameSchema = z.union([
+  z.literal('system'),
+  z.templateLiteral([z.string().regex(/^[0-9a-f]{16}$/), ':', z.enum(['n', 's'])]),
+]);
 
 export const framePositionSchema = z.strictObject({
   frame: frameSchema,

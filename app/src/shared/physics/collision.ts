@@ -1,8 +1,6 @@
 import type { Body } from './bodies.ts';
-import { colatitude } from './frames.ts';
 import { CONTACT_MARGIN_M } from './flightConstants.ts';
 import { add, dot, normalize, scale, sub, type Vec3 } from './vec.ts';
-import { MAX_COLATITUDE, MAX_TERRAIN_HEIGHT_M } from './worldConstants.ts';
 
 export interface Contact {
   pos: Vec3;
@@ -11,19 +9,9 @@ export interface Contact {
 }
 
 /**
- * Effective solid radius of a body for a system-frame segment. Landable planets are solid only
- * to the datum sphere (terrain lives in the surface frame), except in the south polar cap beyond
- * 0.97 pi, which has no surface frame and is closed off by a shell at the maximum terrain height.
- */
-function solidRadius(body: Body, from: Vec3, to: Vec3): number {
-  if (!body.hasSurfaceFrame) return body.radius;
-  const cap = colatitude(body, from) > MAX_COLATITUDE || colatitude(body, to) > MAX_COLATITUDE;
-  return cap ? body.radius + MAX_TERRAIN_HEIGHT_M : body.radius;
-}
-
-/**
- * Swept-sphere test: the first solid body a ship's straight step from `from` to `to` would pass
- * into. Exact for any step length, so no speed can tunnel through a planet. A start point already
+ * Swept-sphere test: the first body a ship's straight step from `from` to `to` would pass
+ * into. Landable planets are solid to the datum sphere here (their terrain is handled in the
+ * surface frame, which a ship always enters well above the ground). Exact for any step length, so no speed can tunnel through a planet. A start point already
  * inside a body is pushed straight out. Returns undefined when the step is clear.
  */
 export function sweepBodies(from: Vec3, to: Vec3, bodies: readonly Body[]): Contact | undefined {
@@ -31,7 +19,7 @@ export function sweepBodies(from: Vec3, to: Vec3, bodies: readonly Body[]): Cont
   const a = dot(d, d);
   let best: { t: number; body: Body; radius: number } | undefined;
   for (const body of bodies) {
-    const radius = solidRadius(body, from, to);
+    const radius = body.radius;
     const rel = sub(from, body.center);
     const c = dot(rel, rel) - radius * radius;
     if (c <= 0) {

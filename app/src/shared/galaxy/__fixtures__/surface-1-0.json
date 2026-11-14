@@ -1,6 +1,6 @@
 {
   "chunk": {
-    "biome": "rock",
+    "biome": "wetland",
     "chunkX": 1,
     "chunkZ": 0,
     "heightmap": {
@@ -9,86 +9,87 @@
         {
           "i": 0,
           "j": 0,
-          "value": 1853
+          "value": 1225
         },
         {
           "i": 21,
           "j": 0,
-          "value": 2166
+          "value": 1115
         },
         {
           "i": 42,
           "j": 0,
-          "value": 1826
+          "value": 529
         },
         {
           "i": 63,
           "j": 0,
-          "value": 1849
+          "value": 262
         },
         {
           "i": 0,
           "j": 21,
-          "value": 1840
+          "value": 1072
         },
         {
           "i": 21,
           "j": 21,
-          "value": 2049
+          "value": 954
         },
         {
           "i": 42,
           "j": 21,
-          "value": 2056
+          "value": 510
         },
         {
           "i": 63,
           "j": 21,
-          "value": 1898
+          "value": 391
         },
         {
           "i": 0,
           "j": 42,
-          "value": 1722
+          "value": 1010
         },
         {
           "i": 21,
           "j": 42,
-          "value": 2014
+          "value": 949
         },
         {
           "i": 42,
           "j": 42,
-          "value": 1890
+          "value": 743
         },
         {
           "i": 63,
           "j": 42,
-          "value": 1866
+          "value": 745
         },
         {
           "i": 0,
           "j": 63,
-          "value": 1842
+          "value": 1028
         },
         {
           "i": 21,
           "j": 63,
-          "value": 1810
+          "value": 1050
         },
         {
           "i": 42,
           "j": 63,
-          "value": 1518
+          "value": 924
         },
         {
           "i": 63,
           "j": 63,
-          "value": 1448
+          "value": 805
         }
       ],
-      "sha256": "49d0f2c0214ef553eef90a1cbac2cf595c6783d972f9d0f7e9a56525b81c1ed6"
+      "sha256": "d10737fae13522c6e928b44f32ccde710568dce2100d6aa5a662d0f0057eeb1e"
     },
+    "hemisphere": "n",
     "landingPads": [],
     "resourceNodes": [
       {

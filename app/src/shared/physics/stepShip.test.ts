@@ -3,9 +3,14 @@ import type { Body } from '@shared/physics/bodies.ts';
 import { frameSwitchAltitude } from '@shared/physics/bodies.ts';
 import { DOCK_MAX_SPEED, DOCK_RANGE_M, UNDOCK_SPEED } from '@shared/physics/flightConstants.ts';
 import type { FlightWorld, ShipState } from '@shared/physics/flightTypes.ts';
-import { surfaceToSystem, systemToSurface } from '@shared/physics/frames.ts';
+import {
+  convertKinematics,
+  parseFrame,
+  surfaceToSystem,
+  systemToSurface,
+} from '@shared/physics/frames.ts';
 import { stepShip } from '@shared/physics/stepShip.ts';
-import { IDLE, body, flatSurface, restingShip } from '@shared/physics/testkit.ts';
+import { at, body, flatSurface, IDLE, NORTH, restingShip, SOUTH } from '@shared/physics/testkit.ts';
 import {
   add,
   distance,
@@ -16,6 +21,7 @@ import {
   sub,
   type Vec3,
 } from '@shared/physics/vec.ts';
+import { CHART_SWITCH_SIN_LATITUDE } from '@shared/physics/worldConstants.ts';
 import { shipStats } from '@shared/ships/catalog.ts';
 import { Rng } from '@shared/random.ts';
 
@@ -25,6 +31,11 @@ const SWITCH = frameSwitchAltitude(body);
 const world: FlightWorld = {
   bodies: [body],
   surface: () => flatSurface(100, [{ id: 'surface-pad', x: 0, z: 0 }]),
+};
+/** Airless twin of the test planet so coasting speed is not eaten by drag. */
+const noDrag: FlightWorld = {
+  bodies: [{ ...body, atmosphere: null }],
+  surface: () => flatSurface(100),
 };
 const above = (alt: number): Vec3 => add(body.center, { x: 0, y: body.radius + alt, z: 0 });
 
@@ -74,10 +85,10 @@ describe('frame switching and regimes through the real step', () => {
     expect(SWITCH).toBeCloseTo(TOP + 1000, 6);
     const still = (alt: number) => stepShip(restingShip(above(alt)), IDLE, 0.05, world, scout);
     expect(still(SWITCH + 5).frame).toBe('system');
-    expect(still(SWITCH - 5).frame).toBe(body.id);
+    expect(still(SWITCH - 5).frame).toBe(NORTH);
     const inFrame = (y: number) =>
-      restingShip({ x: 0, y, z: 0 }, { frame: body.id, regime: 'space' });
-    expect(stepShip(inFrame(SWITCH * 1.1 - 5), IDLE, 0.05, world, scout).frame).toBe(body.id);
+      restingShip({ x: 0, y, z: 0 }, { frame: NORTH, regime: 'space' });
+    expect(stepShip(inFrame(SWITCH * 1.1 - 5), IDLE, 0.05, world, scout).frame).toBe(NORTH);
     expect(stepShip(inFrame(SWITCH * 1.1 + 5), IDLE, 0.05, world, scout).frame).toBe('system');
   });
 
@@ -86,9 +97,9 @@ describe('frame switching and regimes through the real step', () => {
     const quat = fromToQuat({ x: 0, y: 0, z: -1 }, { x: 0.3, y: -0.9, z: 0.1 });
     const before = restingShip(above(SWITCH + 1), { vel, quat });
     const after = stepShip(before, IDLE, 0.05, world, scout);
-    expect(after.frame).toBe(body.id);
+    expect(after.frame).toBe(NORTH);
     expect(length(after.vel)).toBeCloseTo(length(vel), 3);
-    const sysPos = surfaceToSystem(body, after.pos);
+    const sysPos = surfaceToSystem(body, 'n', after.pos);
     expect(distance(sysPos, add(before.pos, scale(vel, 0.05)))).toBeLessThan(0.01);
     const noseBefore = rotateVector(quat, { x: 0, y: 0, z: -1 });
     const noseAfter = rotateVector(after.quat, { x: 0, y: 0, z: -1 });
@@ -96,23 +107,59 @@ describe('frame switching and regimes through the real step', () => {
     expect(noseAfter.y).toBeCloseTo(noseBefore.y, 2); // north pole: flat up == system up
   });
 
-  it('never enters a surface frame for solid bodies or in the south polar cap', () => {
+  it('never enters a surface frame for solid bodies, and enters the south chart over the south', () => {
     const solid: Body = { ...body, hasSurfaceFrame: false };
     const w: FlightWorld = { bodies: [solid], surface: () => undefined };
     expect(stepShip(restingShip(above(200)), IDLE, 0.05, w, scout).frame).toBe('system');
     const south = add(body.center, { x: 0, y: -(body.radius + 2000), z: 0 });
-    expect(stepShip(restingShip(south), IDLE, 0.05, world, scout).frame).toBe('system');
-    expect(systemToSurface(body, above(100)).y).toBeCloseTo(100, 6);
+    expect(stepShip(restingShip(south), IDLE, 0.05, world, scout).frame).toBe(SOUTH);
+    expect(systemToSurface(body, 'n', above(100)).y).toBeCloseTo(100, 6);
   });
 
-  it('descends toward the south pole and is held by the shell, never reaching the surface', () => {
-    const southBody = body;
-    let s = restingShip(add(southBody.center, { x: 0, y: -(southBody.radius + 20_000), z: 0 }), {
-      vel: { x: 0, y: 150, z: 0 },
+  it('lands at the south pole exactly as at the north pole', () => {
+    let s = restingShip(add(body.center, { x: 0, y: -(body.radius + 3000), z: 0 }), {
+      vel: { x: 0, y: 50, z: 0 },
     });
-    for (let i = 0; i < 4000; i++) s = stepShip(s, IDLE, 0.05, world, scout);
-    expect(s.frame).toBe('system');
-    expect(distance(s.pos, southBody.center)).toBeGreaterThanOrEqual(southBody.radius + 400 - 1e-6);
+    for (let i = 0; i < 40_000 && s.regime !== 'surface'; i++) {
+      s = stepShip(s, { ...IDLE, up: -1 }, 0.05, world, scout);
+    }
+    expect(s.frame).toBe(SOUTH);
+    expect(s.regime).toBe('surface');
+    expect(s.pos.y).toBeCloseTo(100, 3);
+  });
+
+  it('crosses the equator with no jump in the system-frame trajectory, at several azimuths', () => {
+    for (const phi of [0, 1.1, 2.6, 4.4]) {
+      for (const southward of [true, false]) {
+        // Start 400 m short of the chart-change latitude, already past the equator.
+        const past = Math.asin(CHART_SWITCH_SIN_LATITUDE) - 0.005;
+        const start = at(Math.PI / 2 + (southward ? past : -past), phi, 2000);
+        const systemState = restingShip(start, {});
+        const frame = southward ? NORTH : SOUTH;
+        const k = convertKinematics(systemState, 'system', frame, [body]);
+        // Fly along the meridian away from this chart's pole at 15 m/s (slow enough to hover).
+        const toPole = { x: -k.pos.x, y: 0, z: -k.pos.z };
+        const away = scale(toPole, -15 / length(toPole));
+        let s: ShipState = { ...systemState, frame, pos: k.pos, vel: away, regime: 'atmosphere' };
+        let previous = start;
+        let changes = 0;
+        let travelled = 0;
+        for (let i = 0; i < 1200; i++) {
+          const before = s.frame;
+          s = stepShip(s, { ...IDLE, thrust: 0 }, 0.05, noDrag, scout);
+          if (s.frame !== before) changes++;
+          const ref = parseFrame(s.frame);
+          const now = ref ? surfaceToSystem(body, ref.hemisphere, s.pos) : s.pos;
+          const step = distance(now, previous);
+          expect(step).toBeLessThan(15 * 0.05 * 1.05 + 0.2);
+          travelled += step;
+          previous = now;
+        }
+        expect(changes).toBe(1);
+        expect(s.frame).toBe(southward ? SOUTH : NORTH);
+        expect(travelled).toBeGreaterThan(800);
+      }
+    }
   });
 });
 
@@ -159,7 +206,7 @@ describe('orbital docking', () => {
   });
 
   it('cannot dock from inside a surface frame', () => {
-    const inFrame = restingShip({ x: 0, y: 500, z: 0 }, { frame: body.id, regime: 'atmosphere' });
+    const inFrame = restingShip({ x: 0, y: 500, z: 0 }, { frame: NORTH, regime: 'atmosphere' });
     const w: FlightWorld = { bodies: [{ ...body, docks: [dock] }], surface: () => flatSurface(0) };
     expect(stepShip(inFrame, { ...IDLE, action: 'dock' }, 0.05, w, scout).dockedAt).toBeUndefined();
   });

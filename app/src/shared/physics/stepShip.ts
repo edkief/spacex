@@ -4,12 +4,19 @@ import { applyDocking } from './docking.ts';
 import { integrateShip } from './flight.ts';
 import type { FlightInput, FlightWorld, ShipState } from './flightTypes.ts';
 import { selectFrame } from './frameSelect.ts';
-import { SYSTEM_FRAME, convertKinematics, surfaceToSystem } from './frames.ts';
+import {
+  SYSTEM_FRAME,
+  bodyOfFrame,
+  convertKinematics,
+  parseFrame,
+  surfaceToSystem,
+} from './frames.ts';
 import { length } from './vec.ts';
 
 /**
  * One full sim step for a ship: docking commands, frame-local integration, frame switching
- * (with continuous state conversion and 1.1x hysteresis on the way out) and regime resolution.
+ * (with continuous state conversion, 1.1x hysteresis on the way out and chart changes across
+ * the equator) and regime resolution.
  * This is what the server tick and the client prediction call; `integrateShip` is the physics
  * inside it. Pure given the world.
  */
@@ -31,11 +38,10 @@ export function stepShip(
   if (integrated.dockedAt) return integrated;
 
   // Frame switch: where would the ship be in the system frame, and which frame does it belong in?
-  const body = world.bodies.find((b) => b.id === integrated.frame);
+  const ref = parseFrame(integrated.frame);
+  const body = bodyOfFrame(integrated.frame, world.bodies);
   const systemPos =
-    integrated.frame === SYSTEM_FRAME || !body
-      ? integrated.pos
-      : surfaceToSystem(body, integrated.pos);
+    !ref || !body ? integrated.pos : surfaceToSystem(body, ref.hemisphere, integrated.pos);
   const frame = selectFrame(integrated.frame, systemPos, integrated.pos.y, world.bodies);
   let next = integrated;
   if (frame !== integrated.frame) {
@@ -44,7 +50,7 @@ export function stepShip(
     delete next.onPad;
   }
 
-  const planet = world.bodies.find((b) => b.id === next.frame);
+  const planet = bodyOfFrame(next.frame, world.bodies);
   const provider = planet ? world.surface(next.frame) : undefined;
   const regime = resolveRegime({
     previous: next.regime,

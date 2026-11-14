@@ -10,13 +10,13 @@ import {
   type Regime,
   type RegimeInput,
 } from '@shared/regime.ts';
-import { body, planet } from '@shared/physics/testkit.ts';
+import { body, NORTH, planet } from '@shared/physics/testkit.ts';
 import { Rng } from '@shared/random.ts';
 
 const TOP = body.atmosphere!.top; // 9,600 m
 const input = (over: Partial<RegimeInput>): RegimeInput => ({
   previous: 'space',
-  frame: body.id,
+  frame: NORTH,
   planet: body,
   altitude: TOP + 5000,
   terrainHeight: 100,

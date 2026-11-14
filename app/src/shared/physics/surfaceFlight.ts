@@ -18,7 +18,7 @@ import {
   VTOL_ZERO_SPEED,
 } from './flightConstants.ts';
 import type { FlightContext, FlightInput, ShipState, SurfaceProvider } from './flightTypes.ts';
-import { maxFlatRadius } from './frames.ts';
+import { bodyOfFrame, surfaceScale } from './frames.ts';
 import { brakeBy, capVelocity, clampMagnitude } from './motion.ts';
 import { FORWARD, UP } from './rotation.ts';
 import { speedFactor } from './travel.ts';
@@ -88,17 +88,11 @@ function substep(
   }
   v = capVelocity(v, cls.maxVelocity * factor, h);
 
-  let p = add(pos, scale(v, h));
-  // World edge: the projection is unusable beyond 0.97 pi of colatitude, so it is a wall.
-  const reach = Math.sqrt(p.x * p.x + p.z * p.z);
-  const edge = maxFlatRadius(planet);
-  if (reach > edge) {
-    const nx = p.x / reach;
-    const nz = p.z / reach;
-    p = { x: nx * edge, y: p.y, z: nz * edge };
-    const outward = v.x * nx + v.z * nz;
-    if (outward > 0) v = { x: v.x - outward * nx, y: v.y, z: v.z - outward * nz };
-  }
+  // Velocity is true m/s; flat chart metres are 1/scale true metres, so horizontal motion is
+  // divided by the local chart scale. Altitude is true metres already.
+  const chart = surfaceScale(planet, pos);
+  const p0 = { x: pos.x + (v.x * h) / chart, y: pos.y + v.y * h, z: pos.z + (v.z * h) / chart };
+  let p = p0;
 
   const ground = surface.heightAt(p.x, p.z);
   if (p.y <= ground) {
@@ -112,14 +106,19 @@ function substep(
   return { pos: p, vel: v };
 }
 
-/** The pad the ship is resting on (on the ground, slow, within the pad radius), if any. */
-function detectPad(pos: Vec3, vel: Vec3, surface: SurfaceProvider): string | undefined {
+/** The pad the ship is resting on (on the ground, slow, within the true pad radius), if any. */
+function detectPad(
+  pos: Vec3,
+  vel: Vec3,
+  surface: SurfaceProvider,
+  chart: number,
+): string | undefined {
   const onGround = pos.y - surface.heightAt(pos.x, pos.z) <= GROUND_EPSILON_M;
   if (!onGround || Math.abs(vel.y) >= PAD_MAX_VERTICAL_SPEED) return undefined;
   if (horizontalSpeed(vel) >= PAD_MAX_HORIZONTAL_SPEED) return undefined;
   return surface.pads.find((pad) => {
-    const dx = pad.x - pos.x;
-    const dz = pad.z - pos.z;
+    const dx = (pad.x - pos.x) * chart;
+    const dz = (pad.z - pos.z) * chart;
     return dx * dx + dz * dz <= PAD_RADIUS_M * PAD_RADIUS_M;
   })?.id;
 }
@@ -127,7 +126,8 @@ function detectPad(pos: Vec3, vel: Vec3, surface: SurfaceProvider): string | und
 /**
  * Surface-frame flight: gravity along -y and quadratic drag (both ramped by the shared atmosphere
  * boundary), VTOL hover assist below 60 m/s horizontal, terrain collision through the injected
- * `heightAt` with substeps so no step moves more than ~2 m, and pad detection.
+ * `heightAt` with substeps so no step moves more than ~2 m, and pad detection. Positions are
+ * flat chart metres; velocities, distances and radii are true metres (see frames.ts).
  */
 export function integrateSurface(
   state: ShipState,
@@ -136,7 +136,7 @@ export function integrateSurface(
   ctx: FlightContext,
   quat: Quat,
 ): ShipState {
-  const planet = ctx.bodies.find((b) => b.id === state.frame);
+  const planet = bodyOfFrame(state.frame, ctx.bodies);
   if (!planet || !ctx.surface) throw new RangeError(`no surface context for frame ${state.frame}`);
   const surface = ctx.surface;
   const steps = Math.min(
@@ -151,7 +151,7 @@ export function integrateSurface(
 
   const next: ShipState = { ...state, pos, vel, quat };
   delete next.onPad;
-  const onPad = detectPad(pos, vel, surface);
+  const onPad = detectPad(pos, vel, surface, surfaceScale(planet, pos));
   if (onPad) next.onPad = onPad;
   return next;
 }

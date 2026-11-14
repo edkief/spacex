@@ -1,10 +1,12 @@
-import { Rng, hash2, seedFromString } from '../random.ts';
+import { Rng, hash2 } from '../random.ts';
+import { chunkInChart, type Hemisphere } from './chart.ts';
 import { placeNodes, placePads } from './placement.ts';
 import {
   CHUNK_SAMPLES,
   CHUNK_SIZE_M,
   MAX_CHUNK_COORD,
   createSurfaceField,
+  planetSurfaceSeed,
   samplePosition,
 } from './terrain.ts';
 import type { Planet, SurfaceChunk } from './types.ts';
@@ -19,21 +21,27 @@ function checkChunkCoord(name: string, value: number): void {
 }
 
 /**
- * Derives a surface chunk purely from (seed, planet, chunkX, chunkZ): heightmap samples of the
- * world-space terrain field, the biome at the chunk centre, resource nodes and landing pads.
- * Any client or the server reconstructs identical chunks without stored data. Node and pad
- * coordinates are world-space metres.
- * @throws RangeError for gas giants or invalid chunk coordinates.
+ * Derives a surface chunk purely from (seed, planet, hemisphere, chunkX, chunkZ): heightmap
+ * samples of the terrain field, the biome at the chunk centre, resource nodes and landing pads.
+ * Any client or the server reconstructs identical chunks without stored data. Chunk, node and
+ * pad coordinates are flat metres of that hemisphere's chart (chart.ts); a chunk belongs to a
+ * chart only while its centre is within the equator (r <= 1) - beyond it the other chart owns
+ * the ground. Every discrete decision for a chunk is evaluated through its own chart only.
+ * @throws RangeError for gas giants, invalid chunk coordinates, or a chunk outside its chart.
  */
 export function generateSurfaceChunk(
   seed: string,
   planet: Planet,
   chunkX: number,
   chunkZ: number,
+  hemisphere: Hemisphere = 'n',
 ): SurfaceChunk {
   checkChunkCoord('chunkX', chunkX);
   checkChunkCoord('chunkZ', chunkZ);
-  const field = createSurfaceField(seed, planet);
+  if (!chunkInChart(planet.simRadius, chunkX, chunkZ, CHUNK_SIZE_M)) {
+    throw new RangeError(`chunk (${chunkX}, ${chunkZ}) is outside the ${hemisphere} chart`);
+  }
+  const field = createSurfaceField(seed, planet, hemisphere);
 
   const heightmap: number[] = new Array<number>(CHUNK_SAMPLES * CHUNK_SAMPLES);
   for (let j = 0; j < CHUNK_SAMPLES; j++) {
@@ -43,8 +51,11 @@ export function generateSurfaceChunk(
     }
   }
 
-  const origin = { x0: chunkX * CHUNK_SIZE_M, z0: chunkZ * CHUNK_SIZE_M };
-  const planetSeed = hash2(seedFromString(seed), BigInt(`0x${planet.id}`));
+  const x0 = chunkX * CHUNK_SIZE_M;
+  const z0 = chunkZ * CHUNK_SIZE_M;
+  const stretch = 1 / field.scaleAt(x0 + CHUNK_SIZE_M / 2, z0 + CHUNK_SIZE_M / 2);
+  const origin = { x0, z0, stretch };
+  const planetSeed = planetSurfaceSeed(seed, planet, hemisphere);
   const chunkSeed = hash2(hash2(planetSeed, BigInt(chunkX)), BigInt(chunkZ));
   const rng = new Rng(chunkSeed);
 
@@ -54,10 +65,10 @@ export function generateSurfaceChunk(
     origin,
     field,
     planet,
-    chunkX === 0 && chunkZ === 0,
+    hemisphere === 'n' && chunkX === 0 && chunkZ === 0,
   );
   const resourceNodes = placeNodes(rng, chunkSeed, origin, field, planet, landingPads);
   const biome = field.biomeAt(origin.x0 + CHUNK_SIZE_M / 2, origin.z0 + CHUNK_SIZE_M / 2);
 
-  return { chunkX, chunkZ, heightmap, biome, resourceNodes, landingPads };
+  return { hemisphere, chunkX, chunkZ, heightmap, biome, resourceNodes, landingPads };
 }

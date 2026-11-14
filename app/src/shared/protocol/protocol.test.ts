@@ -135,7 +135,9 @@ describe('server payload schemas', () => {
     expect(bad({})).toBe(true);
     expect(bad({ pos: { x: 1, y: 2, z: 3 } })).toBe(false);
     expect(bad({ pos: { frame: 'planet', x: 1, y: 2, z: 3 } })).toBe(false);
-    expect(bad({ pos: { frame: 'fedcba9876543210', x: 1, y: 2, z: 3 } })).toBe(true);
+    expect(bad({ pos: { frame: 'fedcba9876543210', x: 1, y: 2, z: 3 } })).toBe(false);
+    expect(bad({ pos: { frame: 'fedcba9876543210:x', x: 1, y: 2, z: 3 } })).toBe(false);
+    expect(bad({ pos: { frame: 'fedcba9876543210:s', x: 1, y: 2, z: 3 } })).toBe(true);
     expect(bad({ quat: { x: 1, y: 1, z: 1, w: 1 } })).toBe(false);
     expect(bad({ vel: { x: Number.POSITIVE_INFINITY, y: 0, z: 0 } })).toBe(false);
     expect(bad({ hull: -1 })).toBe(false);

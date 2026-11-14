@@ -2,6 +2,7 @@ import { canonicalJson } from '@shared/canonical.ts';
 import { generateStars } from '@shared/galaxy/stars.ts';
 import { generateSurfaceChunk } from '@shared/galaxy/surface.ts';
 import { generateSystemForStar } from '@shared/galaxy/system.ts';
+import type { Hemisphere } from '@shared/galaxy/chart.ts';
 import type { SurfaceChunk } from '@shared/galaxy/types.ts';
 import { sha256Hex } from './checksum.ts';
 import { firstPlanet } from './galaxy.ts';
@@ -57,17 +58,17 @@ export function chunkFixtureBody(chunk: SurfaceChunk): unknown {
 }
 
 /** Surface fixture for chunk (cx, cz) of the dev-seed landable planet. */
-function surfaceFixture(chunkX: number, chunkZ: number): unknown {
+function surfaceFixture(chunkX: number, chunkZ: number, hemisphere: Hemisphere = 'n'): unknown {
   const { planet } = firstPlanet(SNAPSHOT_SEED, (candidate) => candidate.landable);
-  const chunk = generateSurfaceChunk(SNAPSHOT_SEED, planet, chunkX, chunkZ);
+  const chunk = generateSurfaceChunk(SNAPSHOT_SEED, planet, chunkX, chunkZ, hemisphere);
   return { seed: SNAPSHOT_SEED, planetId: planet.id, chunk: chunkFixtureBody(chunk) };
 }
 
 const DIGEST_CHUNK_RANGE = [-4, -3, -2, -1, 0, 1, 2, 3];
 
 /**
- * Broad-coverage digests: sha256 over every system of the chart, and over an 8x8 chunk grid for
- * the first landable planet of each class. Catches small probability or constant changes that
+ * Broad-coverage digests: sha256 over every system of the chart, and over chunk grids in both
+ * charts (pole and near-equator) for the first landable planet of each class. Catches small probability or constant changes that
  * the few fully recorded fixtures would not happen to exercise.
  */
 function galaxyDigests(): unknown {
@@ -76,9 +77,18 @@ function galaxyDigests(): unknown {
   const classes = ['terran', 'rocky', 'ocean', 'ice'] as const;
   const surfaces = classes.map((planetClass) => {
     const { planet } = firstPlanet(SNAPSHOT_SEED, (p) => p.landable && p.class === planetClass);
-    const chunks = DIGEST_CHUNK_RANGE.flatMap((cz) =>
-      DIGEST_CHUNK_RANGE.map((cx) => generateSurfaceChunk(SNAPSHOT_SEED, planet, cx, cz)),
-    );
+    // Both charts: an 8x8 grid at each pole, plus 8 chunks near the equator of each chart.
+    const nearEquator = Math.floor((2 * planet.simRadius) / 256) - 2;
+    const chunks = (['n', 's'] as const).flatMap((hemisphere) => [
+      ...DIGEST_CHUNK_RANGE.flatMap((cz) =>
+        DIGEST_CHUNK_RANGE.map((cx) =>
+          generateSurfaceChunk(SNAPSHOT_SEED, planet, cx, cz, hemisphere),
+        ),
+      ),
+      ...DIGEST_CHUNK_RANGE.map((cz) =>
+        generateSurfaceChunk(SNAPSHOT_SEED, planet, nearEquator, cz, hemisphere),
+      ),
+    ]);
     return {
       class: planetClass,
       planetId: planet.id,
@@ -102,6 +112,7 @@ export function snapshotCases(): SnapshotCase[] {
     { file: 'surface-0-0.json', build: () => surfaceFixture(0, 0) },
     { file: 'surface-1-0.json', build: () => surfaceFixture(1, 0) },
     { file: 'surface-0-1.json', build: () => surfaceFixture(0, 1) },
+    { file: 'surface-south-0-0.json', build: () => surfaceFixture(0, 0, 's') },
     { file: 'galaxy-digests.json', build: galaxyDigests },
   ];
 }
