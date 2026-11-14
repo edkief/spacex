@@ -5,7 +5,15 @@ import tseslint from 'typescript-eslint';
 
 const nodeBuiltins = builtinModules.flatMap((name) => [name, `node:${name}`]);
 const nodeGlobals = ['process', 'Buffer', '__dirname', '__filename', 'require', 'global'];
-const domGlobals = ['window', 'document', 'navigator', 'localStorage', 'sessionStorage', 'self'];
+const domGlobals = [
+  'window',
+  'document',
+  'navigator',
+  'localStorage',
+  'sessionStorage',
+  'self',
+  'crypto',
+];
 
 /** Builds a `no-restricted-imports` rule from path names and gitignore-style patterns. */
 function restrictImports(paths, patterns, message) {
@@ -31,6 +39,46 @@ const relativeImportExtension = {
     'ImportDeclaration[source.value=/^\\.\\.?\\//]:not([source.value=/\\.(ts|tsx|css|json)$/])',
   message: 'Relative imports must include the file extension, e.g. ./config.ts.',
 };
+
+/** Math members that are not required to be correctly rounded, so differ between JS engines. */
+const engineDependentMath = [
+  'random',
+  'sin',
+  'cos',
+  'tan',
+  'asin',
+  'acos',
+  'atan',
+  'atan2',
+  'sinh',
+  'cosh',
+  'tanh',
+  'asinh',
+  'acosh',
+  'atanh',
+  'log',
+  'log2',
+  'log10',
+  'log1p',
+  'exp',
+  'expm1',
+  'pow',
+  'cbrt',
+  'hypot',
+];
+
+/** Selectors banned in deterministic generation code on top of the import-extension rule. */
+const nondeterministicSyntax = [
+  relativeImportExtension,
+  {
+    selector: "BinaryExpression[operator='**'], AssignmentExpression[operator='**=']",
+    message: 'The ** operator can use an engine-dependent pow; multiply explicitly.',
+  },
+  {
+    selector: "NewExpression[callee.name='Date'], CallExpression[callee.object.name='Date']",
+    message: 'Date is non-deterministic; generation must be a pure function of its inputs.',
+  },
+];
 
 export default tseslint.config(
   { ignores: ['dist', 'dist-server', 'node_modules', 'test-results', 'playwright-report', 'data'] },
@@ -60,6 +108,34 @@ export default tseslint.config(
         [...nodeGlobals, ...domGlobals],
         'src/shared must not use DOM or Node globals.',
       ),
+    },
+  },
+  {
+    // Tests may use Node built-ins (fs, crypto for fixture checksums) but never client/server code.
+    files: ['src/shared/**/*.test.ts'],
+    rules: restrictImports(
+      [],
+      ['@client/*', '@server/*', '**/client/**', '**/server/**'],
+      'src/shared tests must not import client or server code.',
+    ),
+  },
+  {
+    // Cross-engine determinism: only exactly-specified math in the PRNG and galaxy generators.
+    files: ['src/shared/random.ts', 'src/shared/galaxy/**/*.ts'],
+    rules: {
+      'no-restricted-properties': [
+        'error',
+        ...engineDependentMath.map((property) => ({
+          object: 'Math',
+          property,
+          message: `Math.${property} is not guaranteed identical across JS engines.`,
+        })),
+        { object: 'Date', property: 'now', message: 'Date.now is non-deterministic.' },
+        { object: 'crypto', property: 'getRandomValues', message: 'Non-deterministic.' },
+        { object: 'crypto', property: 'randomUUID', message: 'Non-deterministic.' },
+        { object: 'performance', property: 'now', message: 'Non-deterministic.' },
+      ],
+      'no-restricted-syntax': ['error', ...nondeterministicSyntax],
     },
   },
   {
