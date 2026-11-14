@@ -3,12 +3,24 @@
 `Current Status`
 =================
 **Last Updated:** 2026-11-14
-**Tasks Completed:** 10 / 71
-**Current Task:** TASK-63 Complete
+**Tasks Completed:** 16 / 71
+**Current Task:** TASK-66 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-11-14 — TASK-9, 64, 65, 10, 66, 41 Protocol, validation, rate limiting, auth, credits REST
+
+- Protocol v1 in `src/shared/protocol/`: JSON envelopes, separate client→server (18 types) and server→client (12 types) zod registries with inferred discriminated unions. Positions carry a frame (`system` or a planet id); EntityState has a quaternion.
+- One dispatcher (`src/server/ws/dispatch.ts`) is the only path from socket to handler: envelope → version → type → connection state → schema → handler. Valid but unhandled types answer `not-implemented`. `SystemDirectory` stub stands in for shards.
+- Limits: 64 KB frames, 20 msg/s (burst 40), chat 1 per 2 s and 10 per 30 s, 3 violations in 10 s closes with 4009; 8 sockets per IP, 4 per token; 5 callsign claims per minute per IP.
+- Auth: `POST /api/callsigns` (uppercase-canonical callsigns), HMAC-SHA256 tokens valid only with signature + expiry + live session row, logout/revocation closes live sockets, permanent log-leak regression test. `GET /api/players/me` returns credits (TASK-41 complete).
+- WS upgrades: same-origin only, no query strings, missing Origin allowed only outside production. `TRUST_PROXY` env var added.
+- Server entry now opens the DB and runs migrations; dev DB lands in git-ignored `app/data/`.
+- PRD note: section 10's "callsign re-claim revokes old sessions" is moot — re-claim is impossible (409).
+- Not verified: production Postgres pool, real reverse proxy/TLS, non-Chromium browsers.
+- Verified by lead: lint, typecheck, 629 unit tests and 2 e2e specs pass (real browser completes claim → hello → auth → join_system).
 
 ### 2026-11-14 — TASK-19, TASK-62, TASK-63 Ship catalog, Drizzle data layer, persistence service
 
