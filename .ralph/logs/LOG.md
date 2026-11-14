@@ -3,12 +3,23 @@
 `Current Status`
 =================
 **Last Updated:** 2026-11-14
-**Tasks Completed:** 16 / 71
-**Current Task:** TASK-66 Complete
+**Tasks Completed:** 17 / 73
+**Current Task:** TASK-22 Complete
 
 ----------------------------------------------
 
 ## Session Log
+
+### 2026-11-14 — TASK-22 Flight model and world model (plus shared parts of TASK-25 and TASK-28)
+
+- World model documented in `app/docs/world-model.md`: metres/seconds, planets at 1:100 scale (20-80 km landable, 200-600 km gas giants), static layout (star at origin, planets in the y = 0 plane, orbital docks at 1.6 R).
+- System generator extended with layout, docks and atmosphere parameters; all previously generated fields are unchanged (verified over 800 systems).
+- **Surface mapping (lead rework, commit 72ad7de):** two conformal stereographic charts per landable planet (`<planetId>:n|s`), terrain as 3D value noise on the sphere. Replaced a single azimuthal projection that stretched terrain up to ~32x and left a cap unlandable. Surface fixtures and digests were regenerated deliberately; star and system fixtures are byte-identical. Chunk generation is about 2.4 ms.
+- Flight (`src/shared/physics/`): `stepShip` = docking + frame-local integration + frame/chart switching + regime resolution. Speed cap and acceleration scale with distance to the nearest body (1 + d/1000, max 4000x), swept-sphere collision, gravity/drag ramp at the atmosphere top, VTOL hover assist, terrain collision, pad detection. 100,000 km to 2 km altitude takes 75 s (interceptor) to 217 s (freighter).
+- Regime resolution (`src/shared/regime.ts`) with 50 m hysteresis is done; TASK-25's client control remap and divergence handling, and TASK-28's visuals, remain open.
+- Tasks TASK-72 (renderer core) and TASK-73 (input pipeline) were added: the original list assumed both without creating them.
+- Open design notes: no speed rule yet for open-space combat at cruise speeds; renderer must use camera-relative math (positions reach 1e8 m).
+- Verified by lead: lint, typecheck, 755 unit tests and 2 e2e specs pass.
 
 ### 2026-11-14 — TASK-9, 64, 65, 10, 66, 41 Protocol, validation, rate limiting, auth, credits REST
 
